@@ -47,13 +47,28 @@ export default function ManagerDashboard() {
       })
 
     // pending counts
-    supabase.from("leave_requests")
-      .select("id", { count: "exact", head: true }).eq("status", "pending")
-      .then(({ count }) => setPendingLeave(count ?? 0))
-    supabase.from("time_adjustment_requests")
-      .select("id", { count: "exact", head: true }).eq("status", "pending")
-      .eq("company_id", companyId)
-      .then(({ count }) => setPendingAdj(count ?? 0))
+    // ดึง companyId จาก employee ถ้า user.company_id null
+    const resolveCompany = async () => {
+      let cid = companyId
+      if (!cid && empId) {
+        const { data: e } = await supabase.from("employees").select("company_id").eq("id", empId).single()
+        cid = e?.company_id
+      }
+      return cid
+    }
+    resolveCompany().then(cid => {
+      if (!cid) return
+      supabase.from("leave_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending")
+        .eq("company_id", cid)
+        .then(({ count }) => setPendingLeave(count ?? 0))
+      supabase.from("time_adjustment_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending")
+        .eq("company_id", cid)
+        .then(({ count }) => setPendingAdj(count ?? 0))
+    })
   }, [empId])
 
   const totalPending = pendingLeave + pendingAdj

@@ -21,49 +21,65 @@ export default function ApprovalsPage() {
   const loadItems = async () => {
     const supabase = createClient()
 
-    // ── ดึง employee_id ของ manager ──────────────────────────
+    const role    = (user as any)?.role ?? "employee"
     const empId: string | undefined =
       (user as any)?.employee_id ?? (user as any)?.employee?.id
-    const companyId: string | undefined =
-      (user as any)?.company_id ?? (user as any)?.employee?.company_id
 
-    console.log("[approvals] user:", user)
-    console.log("[approvals] empId:", empId, "companyId:", companyId)
+    // resolve companyId จากทุก path ที่เป็นไปได้
+    let companyId: string | undefined =
+      (user as any)?.company_id ??
+      (user as any)?.employee?.company_id ??
+      (user as any)?.employee?.company?.id
 
-    if (!empId || !companyId) return
+    // ถ้ายังไม่มี ดึงจาก employees table
+    if (!companyId && empId) {
+      const { data: empRow } = await supabase
+        .from("employees").select("company_id").eq("id", empId).single()
+      companyId = empRow?.company_id
+    }
+
+    // ถ้าไม่มีเลย ดึงจาก companies table (super_admin ไม่มี employee)
+    if (!companyId) {
+      const { data: co } = await supabase
+        .from("companies").select("id").limit(1).single()
+      companyId = co?.id
+    }
+
+    if (!companyId) return
     setLoading(true)
 
-    // ── ดึง team ──────────────────────────────────────────────
-    const { data: teamRows, error: teamErr } = await supabase
-      .from("employee_manager_history")
-      .select("employee_id")
-      .eq("manager_id", empId)
-      .is("effective_to", null)
+    // super_admin / hr_admin เห็นทุกคำร้องใน company
+    // manager เห็นเฉพาะทีมตัวเอง
+    const isAdminRole = ["super_admin", "hr_admin"].includes(role)
+    let teamIds: string[] = []
 
-    const teamIds: string[] = (teamRows ?? []).map((r: any) => String(r.employee_id))
-    console.log("[approvals] teamErr:", teamErr, "teamIds:", teamIds)
+    if (!isAdminRole && empId) {
+      const { data: teamRows } = await supabase
+        .from("employee_manager_history")
+        .select("employee_id")
+        .eq("manager_id", empId)
+        .is("effective_to", null)
+      teamIds = (teamRows ?? []).map((r: any) => String(r.employee_id))
+    }
 
-    // ── Query helper — in หรือ company fallback ───────────────
+    // ── Query helper ──────────────────────────────────────────
     async function fetchPending(table: string, selectStr: string) {
-      if (teamIds.length > 0) {
-        const res = await supabase
-          .from(table)
-          .select(selectStr)
-          .in("employee_id", teamIds)
-          .eq("status", "pending")
-          .order("created_at", { ascending: true })
-        console.log(`[approvals] ${table} by teamIds:`, res.data?.length, res.error)
-        return res
-      } else {
-        const res = await supabase
+      // admin role หรือ manager ที่ไม่มีทีม → ดึงทั้ง company
+      if (isAdminRole || teamIds.length === 0) {
+        return supabase
           .from(table)
           .select(selectStr)
           .eq("company_id", companyId)
           .eq("status", "pending")
           .order("created_at", { ascending: true })
-        console.log(`[approvals] ${table} by companyId:`, res.data?.length, res.error)
-        return res
       }
+      // manager ที่มีทีม → filter เฉพาะสมาชิก
+      return supabase
+        .from(table)
+        .select(selectStr)
+        .in("employee_id", teamIds)
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
     }
 
     // ── LEAVE ─────────────────────────────────────────────────
@@ -110,10 +126,8 @@ export default function ApprovalsPage() {
   }
 
   useEffect(() => {
-    if (user?.employee_id || (user as any)?.employee?.id) {
-      loadItems()
-    }
-  }, [tab, user?.employee_id, (user as any)?.employee?.id])
+    if (user) loadItems()
+  }, [tab, user?.role, (user as any)?.employee_id, (user as any)?.employee?.id])
 
   // ── approve/reject leave & overtime ───────────────────────
   const handleLeaveOT = async (id: string, action: "approved" | "rejected") => {
