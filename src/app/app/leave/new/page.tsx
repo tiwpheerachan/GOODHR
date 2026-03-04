@@ -1,4 +1,5 @@
 "use client"
+export const dynamic = "force-dynamic"
 import { useState } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useLeaveTypes } from "@/lib/hooks/useLeave"
