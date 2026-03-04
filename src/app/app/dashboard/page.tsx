@@ -265,7 +265,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Role shortcuts ───────────────────────────────── */}
-        {user?.role === "manager" && (
+        {["manager", "hr_admin", "super_admin"].includes(user?.role || "") && (
           <Link href="/manager/dashboard"
             className="flex items-center gap-3 bg-white border border-slate-100 rounded-2xl px-4 py-3.5 shadow-sm active:bg-slate-50">
             <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center shrink-0"><Users size={16} className="text-indigo-600" /></div>

@@ -307,7 +307,7 @@ export default function ApprovalsPage() {
                 </div>
                 <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
                   <CalendarDays size={12} />
-                  <span className="font-semibold text-slate-700">{format(new Date(item.work_date + "T00:00:00"), "EEEE d MMMM yyyy", { locale: th })}</span>
+                  <span className="font-semibold text-slate-700">{item.work_date ? format(new Date(item.work_date + "T00:00:00"), "EEEE d MMMM yyyy", { locale: th }) : "-"}</span>
                 </div>
                 <div className="mt-2.5 grid grid-cols-2 gap-2">
                   <div className="bg-slate-50 rounded-xl px-3 py-2.5">
