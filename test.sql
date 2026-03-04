@@ -1,0 +1,2 @@
+สรุปไฟล์ทั้งหมด
+ไฟล์Action🆕checkin/correction/page.tsxสร้างใหม่🆕api/correction/route.tsสร้างใหม่✏️checkin/page.tsxเพิ่มปุ่ม✏️manager/approvals/page.tsxเพิ่ม tab✏️dashboard/page.tsxcard กดได้✏️attendance/page.tsxfilter param🗄️SQL1 ตารางใหม่
