@@ -311,11 +311,11 @@ export default function CheckInPage() {
         )}
         {pos && !inRadius && !gpsError && nearest && (
           <p className="text-center text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-2xl py-3 px-4">
-            กรุณาเข้าใกล้ <b>{nearest.name}</b> ให้อยู่ในรัศมี <b>{nearest.geo_radius_m || 100} เมตร</b>
+            กรุณาเข้าใกล้ <b>{nearest.name}</b> ให้อยู่ในรัศมี <b>{nearest.geo_radius_m || 200} เมตร</b>
           </p>
         )}
         <div className="flex items-center gap-5 justify-center py-2 pb-28">
-          <span className="flex items-center gap-1.5 text-[10px] text-slate-400"><div className="w-3 h-3 rounded-full bg-indigo-400 opacity-60" /> จุดเช็คอิน (100ม.)</span>
+          <span className="flex items-center gap-1.5 text-[10px] text-slate-400"><div className="w-3 h-3 rounded-full bg-indigo-400 opacity-60" /> จุดเช็คอิน (200ม.)</span>
           <span className="flex items-center gap-1.5 text-[10px] text-slate-400"><div className="w-3 h-3 rounded-full bg-sky-400" /> ตำแหน่งของคุณ</span>
         </div>
       </div>
