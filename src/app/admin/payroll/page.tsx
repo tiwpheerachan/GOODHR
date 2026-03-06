@@ -721,9 +721,9 @@ export default function PayrollPage() {
                     <tr>
                       <th className="px-4 py-3 text-left font-bold text-slate-500">พนักงาน</th>
                       <th className="px-3 py-3 text-right font-bold text-slate-500">เงินเดือน</th>
-                      <th className="px-3 py-3 text-right font-bold text-slate-500 text-green-700">เบี้ย+อื่น</th>
-                      <th className="px-3 py-3 text-left font-bold text-slate-500 text-amber-600">OT</th>
-                      <th className="px-3 py-3 text-right font-bold text-slate-500 text-red-600">หักสาย/ขาด</th>
+                      <th className="px-3 py-3 text-right font-bold text-green-700">เบี้ย+อื่น</th>
+                      <th className="px-3 py-3 text-left font-bold text-amber-600">OT</th>
+                      <th className="px-3 py-3 text-right font-bold text-red-600">หักสาย/ขาด</th>
                       <th className="px-3 py-3 text-right font-bold text-slate-500">SSO</th>
                       <th className="px-3 py-3 text-right font-bold text-slate-500">ภาษี</th>
                       <th className="px-3 py-3 text-right font-bold text-indigo-700">สุทธิ</th>

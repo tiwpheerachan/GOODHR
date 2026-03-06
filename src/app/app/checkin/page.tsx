@@ -249,16 +249,37 @@ export default function CheckInPage() {
     )
   },[sdkReady,initMap])
 
-  const handleScriptLoad=useCallback(()=>{window.initCheckinMap=()=>{};setSdkReady(true)},[])
+  const panToUser=useCallback((lat:number,lng:number)=>{
+    setPos({lat,lng}); setGpsL(false)
+    const pinSvg=`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#3b82f6" stroke="white" stroke-width="2.5"/><circle cx="10" cy="10" r="3" fill="white"/></svg>`
+    const pinIcon={ url:`data:image/svg+xml;charset=UTF-8,${encodeURIComponent(pinSvg)}`, scaledSize:new window.google.maps.Size(20,20), anchor:new window.google.maps.Point(10,10) }
+    if(userPin.current){ userPin.current.setPosition({lat,lng}); mapObj.current?.panTo({lat,lng}); mapObj.current?.setZoom(17) }
+    else if(mapObj.current){ userPin.current=new window.google.maps.Marker({map:mapObj.current,position:{lat,lng},zIndex:99,icon:pinIcon}); mapObj.current.panTo({lat,lng}); mapObj.current.setZoom(17) }
+  },[])
+
+  const handleScriptLoad=useCallback(()=>{
+    window.initCheckinMap=()=>{}
+    setSdkReady(true)
+    // init map ทันทีด้วย default กรุงเทพฯ ไม่รอ GPS
+    setTimeout(()=>initMap(13.7563,100.5018),0)
+  },[initMap])
 
   useEffect(()=>{
-    if(!sdkReady)return; setGpsL(true)
+    if(!sdkReady)return
+    setGpsL(true)
+    // low accuracy ก่อน (เร็ว ~1-2 วิ)
     navigator.geolocation.getCurrentPosition(
-      ({coords:{latitude:lat,longitude:lng}})=>{setPos({lat,lng});setGpsL(false);initMap(lat,lng)},
-      ()=>{setGpsL(false);toast.error("ไม่สามารถดึงตำแหน่งได้")},
-      {enableHighAccuracy:true,timeout:12000}
+      ({coords:{latitude:lat,longitude:lng}})=>panToUser(lat,lng),
+      ()=>{setGpsL(false); toast.error("ไม่สามารถดึงตำแหน่งได้")},
+      {enableHighAccuracy:false,timeout:5000,maximumAge:30000}
     )
-  },[sdkReady,initMap])
+    // high accuracy ตามมา (อัปเดตจุดที่แม่นกว่า)
+    navigator.geolocation.getCurrentPosition(
+      ({coords:{latitude:lat,longitude:lng}})=>panToUser(lat,lng),
+      ()=>{},
+      {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+    )
+  },[sdkReady,panToUser])
 
   const inRadius      = nearest!==null&&distance!==null&&distance<=(nearest.geo_radius_m||200)
   const hasClockedIn  = !!todayRecord?.clock_in
@@ -388,59 +409,6 @@ export default function CheckInPage() {
             </div>
           </div>
 
-          {/* ── Smart alert banners ── */}
-          {isLate && (
-            <div className="bg-white rounded-3xl shadow-sm border border-orange-100 p-4 space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle size={16} className="text-orange-500"/>
-                </div>
-                <div className="flex-1">
-                  <p className="font-bold text-slate-800 text-sm">บันทึกว่ามาสาย {lateMin} นาที</p>
-                  <p className="text-xs text-slate-400 mt-0.5">ต้องการแก้ไขหรือยื่นใบลาแทนหรือไม่?</p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={()=>setShowAdj(true)}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-orange-500 text-white flex items-center justify-center gap-1.5 hover:bg-orange-600 transition-colors">
-                  <FileEdit size={12}/> ขอแก้ไขเวลา
-                </button>
-                <Link href={`/app/leave/new?type=leave&date=${today}`}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-orange-200 text-orange-600 flex items-center justify-center gap-1.5 hover:bg-orange-50 transition-colors">
-                  <CalendarClock size={12}/> ยื่นใบลา
-                </Link>
-              </div>
-            </div>
-          )}
-
-          {hasClockedIn && !hasClockedOut && !isLate && (
-            <div className="bg-white rounded-3xl shadow-sm border border-yellow-100 p-4 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-yellow-50 flex items-center justify-center flex-shrink-0">
-                <Clock size={16} className="text-yellow-500"/>
-              </div>
-              <div className="flex-1">
-                <p className="font-bold text-slate-700 text-sm">ยังไม่ได้เช็คเอ้าท์</p>
-                <p className="text-xs text-slate-400 mt-0.5">อย่าลืมเช็คเอ้าท์ก่อนกลับบ้าน</p>
-              </div>
-              <button onClick={()=>setShowAdj(true)}
-                className="text-xs font-bold text-yellow-600 bg-yellow-50 border border-yellow-200 px-3 py-1.5 rounded-xl hover:bg-yellow-100 transition-colors whitespace-nowrap">
-                <FileEdit size={11} className="inline mr-1"/>แจ้งเวลา
-              </button>
-            </div>
-          )}
-
-          {hasClockedOut && !isLate && (
-            <div className="bg-white rounded-3xl shadow-sm border border-emerald-100 p-4 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                <CheckCircle2 size={16} className="text-emerald-500"/>
-              </div>
-              <div className="flex-1">
-                <p className="font-bold text-slate-700 text-sm">มาตรงเวลา วันนี้ทำได้ดี</p>
-                <p className="text-xs text-slate-400 mt-0.5">เข้า {formatTime(todayRecord?.clock_in)} · ออก {formatTime(todayRecord?.clock_out)}</p>
-              </div>
-            </div>
-          )}
-
           {/* ── Map ── */}
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
             <div className="relative" style={{height:220}}>
@@ -495,6 +463,59 @@ export default function CheckInPage() {
               <div>
                 <p className="font-bold text-slate-700 text-sm">ยังไม่ได้รับสิทธิ์เช็คอิน</p>
                 <p className="text-xs text-slate-400 mt-0.5">กรุณาติดต่อ HR เพื่อกำหนดสาขา</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Smart alert banners ── */}
+          {isLate && (
+            <div className="bg-white rounded-3xl shadow-sm border border-orange-100 p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle size={16} className="text-orange-500"/>
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-slate-800 text-sm">บันทึกว่ามาสาย {lateMin} นาที</p>
+                  <p className="text-xs text-slate-400 mt-0.5">ต้องการแก้ไขหรือยื่นใบลาแทนหรือไม่?</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={()=>setShowAdj(true)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-orange-500 text-white flex items-center justify-center gap-1.5 hover:bg-orange-600 transition-colors">
+                  <FileEdit size={12}/> ขอแก้ไขเวลา
+                </button>
+                <Link href={`/app/leave/new?type=leave&date=${today}`}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-orange-200 text-orange-600 flex items-center justify-center gap-1.5 hover:bg-orange-50 transition-colors">
+                  <CalendarClock size={12}/> ยื่นใบลา
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {hasClockedIn && !hasClockedOut && !isLate && (
+            <div className="bg-white rounded-3xl shadow-sm border border-yellow-100 p-4 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-yellow-50 flex items-center justify-center flex-shrink-0">
+                <Clock size={16} className="text-yellow-500"/>
+              </div>
+              <div className="flex-1">
+                <p className="font-bold text-slate-700 text-sm">ยังไม่ได้เช็คเอ้าท์</p>
+                <p className="text-xs text-slate-400 mt-0.5">อย่าลืมเช็คเอ้าท์ก่อนกลับบ้าน</p>
+              </div>
+              <button onClick={()=>setShowAdj(true)}
+                className="text-xs font-bold text-yellow-600 bg-yellow-50 border border-yellow-200 px-3 py-1.5 rounded-xl hover:bg-yellow-100 transition-colors whitespace-nowrap">
+                <FileEdit size={11} className="inline mr-1"/>แจ้งเวลา
+              </button>
+            </div>
+          )}
+
+          {hasClockedOut && !isLate && (
+            <div className="bg-white rounded-3xl shadow-sm border border-emerald-100 p-4 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                <CheckCircle2 size={16} className="text-emerald-500"/>
+              </div>
+              <div className="flex-1">
+                <p className="font-bold text-slate-700 text-sm">มาตรงเวลา วันนี้ทำได้ดี</p>
+                <p className="text-xs text-slate-400 mt-0.5">เข้า {formatTime(todayRecord?.clock_in)} · ออก {formatTime(todayRecord?.clock_out)}</p>
               </div>
             </div>
           )}
