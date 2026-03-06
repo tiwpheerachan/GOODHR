@@ -3,466 +3,313 @@ import { useEffect, useState, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/lib/hooks/useAuth"
-import { ArrowLeft, Save, Loader2, Plus, User, Briefcase, DollarSign, GitBranch } from "lucide-react"
+import { ArrowLeft, Save, Loader2, Plus, MapPin, Check, X, Building2, Trash2 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
-const cls = "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all w-full"
-
-const Field = ({ label, required, children }: any) => (
-  <div>
-    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">
-      {label}{required && <span className="text-red-400 ml-0.5">*</span>}
-    </label>
-    {children}
-  </div>
-)
-
-const TABS = [
-  { label: "ข้อมูลส่วนตัว", icon: User },
-  { label: "การจ้างงาน",    icon: Briefcase },
-  { label: "เงินเดือน",     icon: DollarSign },
-  { label: "หัวหน้างาน",   icon: GitBranch },
-]
+const TABS = ["ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","ประวัติหัวหน้า","สิทธิ์เช็คอิน"]
+const inp = "input-field"
 
 export default function EmployeeDetailPage() {
-  const { id }   = useParams()
+  const { id } = useParams()
   const { user } = useAuth()
-  const supabase = createClient()
+  const supabase  = createClient()
 
   const [emp,        setEmp]        = useState<any>(null)
   const [salary,     setSalary]     = useState<any>(null)
   const [mgrHistory, setMgrHistory] = useState<any[]>([])
   const [allEmps,    setAllEmps]    = useState<any[]>([])
-  const [depts,      setDepts]      = useState<any[]>([])
-  const [positions,  setPositions]  = useState<any[]>([])
-  const [branches,   setBranches]   = useState<any[]>([])
   const [tab,        setTab]        = useState(0)
-  const [saving,     setSaving]     = useState(false)
+  const [loading,    setLoading]    = useState(false)
   const [form,       setForm]       = useState<any>({})
   const [sf,         setSf]         = useState<any>({})
   const [newMgr,     setNewMgr]     = useState("")
-  const [newMgrDate, setNewMgrDate] = useState(format(new Date(), "yyyy-MM-dd"))
+  const [newMgrDate, setNewMgrDate] = useState(format(new Date(),"yyyy-MM-dd"))
 
-  const set  = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }))
-  const setSF = (k: string, v: any) => setSf((f: any) => ({ ...f, [k]: v }))
+  const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }))
 
-  // ── fallback company_id ──────────────────────────────────────────
-  const companyId: string | undefined =
-    emp?.company_id ??
-    user?.employee?.company_id ??
-    (user as any)?.company_id ?? undefined
-
-  // ── load employee data ───────────────────────────────────────────
   useEffect(() => {
     if (!id) return
     Promise.all([
-      supabase.from("employees")
-        .select("*, position:positions(id,name), department:departments(id,name), branch:branches(id,name)")
-        .eq("id", id as string).single(),
-      supabase.from("salary_structures")
-        .select("*").eq("employee_id", id as string)
-        .is("effective_to", null).order("effective_from", { ascending: false })
-        .limit(1).maybeSingle(),
-      supabase.from("employee_manager_history")
-        .select("*, manager:employees!manager_id(id,first_name_th,last_name_th,employee_code)")
-        .eq("employee_id", id as string).order("effective_from", { ascending: false }),
-    ]).then(([e, s, h]) => {
+      supabase.from("employees").select("*, position:positions(name), department:departments(name), branch:branches(name)").eq("id",id as string).single(),
+      supabase.from("salary_structures").select("*").eq("employee_id",id as string).is("effective_to",null).order("effective_from",{ascending:false}).limit(1).maybeSingle(),
+      supabase.from("employee_manager_history").select("*, manager:employees!manager_id(id,first_name_th,last_name_th)").eq("employee_id",id as string).order("effective_from",{ascending:false}),
+    ]).then(([e,s,h]) => {
       if (e.data) { setEmp(e.data); setForm(e.data) }
       if (s.data) { setSalary(s.data); setSf(s.data) }
       setMgrHistory(h.data ?? [])
     })
-  }, [id])
+    if (user?.employee?.company_id) {
+      supabase.from("employees").select("id,first_name_th,last_name_th,employee_code").eq("company_id",user.employee.company_id).neq("id",id as string)
+        .then(({ data }) => setAllEmps(data ?? []))
+    }
+  }, [id, user])
 
-  // ── load meta (depts, positions, branches, all employees) ────────
-  useEffect(() => {
-    if (!companyId) return
-    Promise.all([
-      supabase.from("departments").select("id,name").eq("company_id", companyId).order("name"),
-      supabase.from("positions").select("id,name").eq("company_id", companyId).order("name"),
-      supabase.from("branches").select("id,name").eq("company_id", companyId).eq("is_active", true).order("name"),
-      supabase.from("employees").select("id,first_name_th,last_name_th,employee_code")
-        .eq("company_id", companyId).eq("is_active", true).neq("id", id as string).order("first_name_th"),
-    ]).then(([d, p, b, em]) => {
-      setDepts(d.data ?? [])
-      setPositions(p.data ?? [])
-      setBranches(b.data ?? [])
-      setAllEmps(em.data ?? [])
-    })
-  }, [companyId, id])
-
-  // ── save personal info ───────────────────────────────────────────
-  const savePersonal = async () => {
-    setSaving(true)
-    const { error } = await supabase.from("employees").update({
-      first_name_th: form.first_name_th,
-      last_name_th:  form.last_name_th,
-      first_name_en: form.first_name_en || null,
-      last_name_en:  form.last_name_en  || null,
-      nickname:      form.nickname      || null,
-      gender:        form.gender        || null,
-      birth_date:    form.birth_date    || null,
-      national_id:   form.national_id   || null,
-      phone:         form.phone         || null,
-      email:         form.email         || null,
-      address:       form.address       || null,
-      bank_name:     form.bank_name     || null,
-      bank_account:  form.bank_account  || null,  // ← ใช้ bank_account ถูกต้อง
-      tax_id:        form.tax_id        || null,
-      social_security_no: form.social_security_no || null,
-    }).eq("id", id as string)
-    if (error) toast.error("บันทึกไม่สำเร็จ: " + error.message)
-    else toast.success("✓ บันทึกข้อมูลส่วนตัวแล้ว")
-    setSaving(false)
+  const saveEmployee = async () => {
+    setLoading(true)
+    const { error } = await supabase.from("employees").update({ first_name_th:form.first_name_th, last_name_th:form.last_name_th, first_name_en:form.first_name_en, last_name_en:form.last_name_en, phone:form.phone, email:form.email, address:form.address, national_id:form.national_id, bank_account:form.bank_account, bank_name:form.bank_name, nickname:form.nickname }).eq("id",id as string)
+    if (error) toast.error("เกิดข้อผิดพลาด"); else toast.success("บันทึกสำเร็จ")
+    setLoading(false)
   }
 
-  // ── save employment ──────────────────────────────────────────────
   const saveEmployment = async () => {
-    setSaving(true)
-    const { error } = await supabase.from("employees").update({
-      employment_type:   form.employment_type,
-      employment_status: form.employment_status,
-      hire_date:         form.hire_date         || null,
-      probation_end_date:form.probation_end_date || null,
-      resign_date:       form.resign_date        || null,
-      department_id:     form.department_id      || null,
-      position_id:       form.position_id        || null,
-      branch_id:         form.branch_id          || null,
-    }).eq("id", id as string)
-    if (error) toast.error("บันทึกไม่สำเร็จ: " + error.message)
-    else { toast.success("✓ บันทึกข้อมูลการจ้างงานแล้ว"); setEmp((e: any) => ({ ...e, ...form })) }
-    setSaving(false)
+    setLoading(true)
+    const { error } = await supabase.from("employees").update({ employment_type:form.employment_type, employment_status:form.employment_status, hire_date:form.hire_date, probation_end_date:form.probation_end_date||null, resign_date:form.resign_date||null }).eq("id",id as string)
+    if (error) toast.error("เกิดข้อผิดพลาด"); else toast.success("บันทึกสำเร็จ")
+    setLoading(false)
   }
 
-  // ── save salary ──────────────────────────────────────────────────
   const saveSalary = async () => {
     if (!sf.base_salary) return toast.error("กรุณากรอกเงินเดือน")
-    if (!sf.effective_from) return toast.error("กรุณาระบุวันที่มีผล")
-    setSaving(true)
-    try {
-      if (salary?.id) {
-        await supabase.from("salary_structures")
-          .update({ effective_to: sf.effective_from }).eq("id", salary.id)
-      }
-      const { error } = await supabase.from("salary_structures").insert({
-        employee_id:          id,
-        base_salary:          +sf.base_salary,
-        allowance_position:   +(sf.allowance_position  || 0),
-        allowance_transport:  +(sf.allowance_transport || 0),
-        allowance_food:       +(sf.allowance_food      || 0),
-        allowance_phone:      +(sf.allowance_phone     || 0),
-        allowance_housing:    +(sf.allowance_housing   || 0),
-        ot_rate_normal:       +(sf.ot_rate_normal      || 1.5),
-        ot_rate_holiday:      +(sf.ot_rate_holiday     || 3),
-        effective_from:       sf.effective_from,
-        change_reason:        sf.change_reason || null,
-        created_by:           user?.employee_id || null,
-      })
-      if (error) toast.error("บันทึกไม่สำเร็จ: " + error.message)
-      else { toast.success("✓ บันทึกเงินเดือนแล้ว"); setSalary({ ...sf }) }
-    } finally {
-      setSaving(false)
-    }
+    setLoading(true)
+    if (salary?.id) await supabase.from("salary_structures").update({ effective_to:sf.effective_from }).eq("id",salary.id)
+    const { error } = await supabase.from("salary_structures").insert({ employee_id:id, base_salary:+sf.base_salary, allowance_position:+(sf.allowance_position||0), allowance_transport:+(sf.allowance_transport||0), allowance_food:+(sf.allowance_food||0), allowance_phone:+(sf.allowance_phone||0), allowance_housing:+(sf.allowance_housing||0), ot_rate_normal:+(sf.ot_rate_normal||1.5), ot_rate_holiday:+(sf.ot_rate_holiday||3), effective_from:sf.effective_from||format(new Date(),"yyyy-MM-dd"), change_reason:sf.change_reason, created_by:user?.employee_id })
+    if (error) toast.error("เกิดข้อผิดพลาด"); else toast.success("บันทึกเงินเดือนสำเร็จ")
+    setLoading(false)
   }
 
-  // ── add manager ──────────────────────────────────────────────────
   const addMgr = async () => {
     if (!newMgr) return toast.error("กรุณาเลือกหัวหน้า")
-    await supabase.from("employee_manager_history")
-      .update({ effective_to: newMgrDate })
-      .eq("employee_id", id as string).is("effective_to", null)
-    const { error } = await supabase.from("employee_manager_history").insert({
-      employee_id:   id,
-      manager_id:    newMgr,
-      effective_from: newMgrDate,
-      created_by:    user?.employee_id || null,
-    })
-    if (error) toast.error(error.message)
-    else {
-      toast.success("✓ อัปเดตหัวหน้าแล้ว")
-      const { data } = await supabase.from("employee_manager_history")
-        .select("*, manager:employees!manager_id(id,first_name_th,last_name_th,employee_code)")
-        .eq("employee_id", id as string).order("effective_from", { ascending: false })
-      setMgrHistory(data ?? [])
-      setNewMgr("")
-    }
+    await supabase.from("employee_manager_history").update({ effective_to:newMgrDate }).eq("employee_id",id as string).is("effective_to",null)
+    const { error } = await supabase.from("employee_manager_history").insert({ employee_id:id, manager_id:newMgr, effective_from:newMgrDate, created_by:user?.employee_id })
+    if (error) toast.error(error.message); else { toast.success("อัปเดตหัวหน้าสำเร็จ"); window.location.reload() }
   }
 
-  const totalSalary = sf.base_salary
-    ? [sf.base_salary, sf.allowance_position, sf.allowance_transport,
-       sf.allowance_food, sf.allowance_phone, sf.allowance_housing]
-        .reduce((a, b) => a + (+(b || 0)), 0)
-    : 0
-
-  if (!emp) return (
-    <div className="flex items-center justify-center py-20">
-      <div className="text-center space-y-3">
-        <div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mx-auto" />
-        <p className="text-sm text-slate-400">กำลังโหลด...</p>
-      </div>
-    </div>
-  )
+  if (!emp) return <div className="text-center py-12 text-slate-400">กำลังโหลด...</div>
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
+    <div className="space-y-6 max-w-3xl">
       <div className="flex items-center gap-4">
-        <Link href="/admin/employees" className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
-          <ArrowLeft size={18} className="text-slate-600" />
-        </Link>
-        <div className="flex items-center gap-3 flex-1">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center font-black text-indigo-600 text-lg overflow-hidden">
-            {emp.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" /> : emp.first_name_th?.[0]}
-          </div>
-          <div>
-            <h2 className="text-xl font-black text-slate-800">{emp.first_name_th} {emp.last_name_th}
-              {emp.nickname && <span className="text-slate-400 font-normal text-base ml-2">({emp.nickname})</span>}
-            </h2>
-            <p className="text-slate-400 text-sm">{emp.employee_code} · {emp.position?.name || "ไม่ระบุตำแหน่ง"}</p>
-          </div>
+        <Link href="/admin/employees" className="p-2 hover:bg-slate-100 rounded-xl"><ArrowLeft size={18}/></Link>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">{emp.first_name_th} {emp.last_name_th}</h2>
+          <p className="text-slate-500 text-sm">{emp.employee_code} · {emp.position?.name}</p>
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {TABS.map(({ label, icon: Icon }, i) => (
-          <button key={i} onClick={() => setTab(i)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
-              tab === i ? "bg-indigo-600 text-white shadow-sm" : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-50"
+        {TABS.map((t,i) => (
+          <button key={t} onClick={() => setTab(i)}
+            className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors ${
+              tab===i ? "bg-primary-600 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
             }`}>
-            <Icon size={14} /> {label}
+            {t === "สิทธิ์เช็คอิน" ? <span className="flex items-center gap-1.5"><MapPin size={12}/>{t}</span> : t}
           </button>
         ))}
       </div>
 
       <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+        {tab === 0 && <>
+          <h3 className="font-bold text-slate-800 mb-4">ข้อมูลส่วนตัว</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[["first_name_th","ชื่อ (ไทย)"],["last_name_th","นามสกุล (ไทย)"],["first_name_en","ชื่อ (EN)"],["last_name_en","นามสกุล (EN)"],["nickname","ชื่อเล่น"],["phone","เบอร์โทร"],["email","อีเมล"],["national_id","บัตรประชาชน"],["bank_account","เลขบัญชี"],["bank_name","ธนาคาร"]].map(([k,l]) => (
+              <div key={k}><label className="block text-sm font-medium text-slate-700 mb-1.5">{l}</label><input value={form[k]||""} onChange={e => set(k,e.target.value)} className={inp}/></div>
+            ))}
+            <div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1.5">ที่อยู่</label><textarea value={form.address||""} onChange={e => set("address",e.target.value)} className={inp + " h-20 resize-none"}/></div>
+          </div>
+          <button onClick={saveEmployee} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>
+        </>}
 
-        {/* ── Tab 0: Personal ─────────────────────────────────────── */}
-        {tab === 0 && (
-          <div className="space-y-5">
-            <h3 className="font-black text-slate-800">ข้อมูลส่วนตัว</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="ชื่อ (ไทย)" required>
-                <input value={form.first_name_th || ""} onChange={e => set("first_name_th", e.target.value)} className={cls} />
-              </Field>
-              <Field label="นามสกุล (ไทย)" required>
-                <input value={form.last_name_th || ""} onChange={e => set("last_name_th", e.target.value)} className={cls} />
-              </Field>
-              <Field label="ชื่อ (EN)">
-                <input value={form.first_name_en || ""} onChange={e => set("first_name_en", e.target.value)} className={cls} />
-              </Field>
-              <Field label="นามสกุล (EN)">
-                <input value={form.last_name_en || ""} onChange={e => set("last_name_en", e.target.value)} className={cls} />
-              </Field>
-              <Field label="ชื่อเล่น">
-                <input value={form.nickname || ""} onChange={e => set("nickname", e.target.value)} className={cls} />
-              </Field>
-              <Field label="เพศ">
-                <select value={form.gender || ""} onChange={e => set("gender", e.target.value)} className={cls}>
-                  <option value="">ไม่ระบุ</option>
-                  <option value="M">ชาย</option>
-                  <option value="F">หญิง</option>
-                </select>
-              </Field>
-              <Field label="วันเกิด">
-                <input type="date" value={form.birth_date || ""} onChange={e => set("birth_date", e.target.value)} className={cls} />
-              </Field>
-              <Field label="เลขบัตรประชาชน">
-                <input value={form.national_id || ""} onChange={e => set("national_id", e.target.value)} className={cls} maxLength={13} />
-              </Field>
-              <Field label="เบอร์โทร">
-                <input value={form.phone || ""} onChange={e => set("phone", e.target.value)} className={cls} />
-              </Field>
-              <Field label="อีเมล">
-                <input type="email" value={form.email || ""} onChange={e => set("email", e.target.value)} className={cls} />
-              </Field>
-              <Field label="ธนาคาร">
-                <input value={form.bank_name || ""} onChange={e => set("bank_name", e.target.value)} className={cls} placeholder="เช่น SCB, KBank" />
-              </Field>
-              <Field label="เลขบัญชีธนาคาร">
-                <input value={form.bank_account || ""} onChange={e => set("bank_account", e.target.value)} className={cls} placeholder="xxx-x-xxxxx-x" />
-              </Field>
-              <Field label="เลขผู้เสียภาษี">
-                <input value={form.tax_id || ""} onChange={e => set("tax_id", e.target.value)} className={cls} />
-              </Field>
-              <Field label="เลขประกันสังคม">
-                <input value={form.social_security_no || ""} onChange={e => set("social_security_no", e.target.value)} className={cls} />
-              </Field>
-              <div className="md:col-span-2">
-                <Field label="ที่อยู่">
-                  <textarea value={form.address || ""} onChange={e => set("address", e.target.value)} className={cls + " resize-none h-20"} />
-                </Field>
+        {tab === 1 && <>
+          <h3 className="font-bold text-slate-800 mb-4">ข้อมูลการจ้างงาน</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">ประเภท</label>
+              <select value={form.employment_type||""} onChange={e => set("employment_type",e.target.value)} className={inp}>
+                {[["full_time","ประจำ"],["part_time","พาร์ทไทม์"],["contract","สัญญา"],["intern","ฝึกงาน"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+              </select></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สถานะ</label>
+              <select value={form.employment_status||""} onChange={e => set("employment_status",e.target.value)} className={inp}>
+                {[["active","ปกติ"],["probation","ทดลองงาน"],["resigned","ลาออก"],["terminated","เลิกจ้าง"],["on_leave","ลา"],["suspended","พักงาน"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+              </select></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">วันเริ่มงาน</label><input type="date" value={form.hire_date||""} onChange={e => set("hire_date",e.target.value)} className={inp}/></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สิ้นสุดทดลองงาน</label><input type="date" value={form.probation_end_date||""} onChange={e => set("probation_end_date",e.target.value)} className={inp}/></div>
+          </div>
+          <button onClick={saveEmployment} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>
+        </>}
+
+        {tab === 2 && <>
+          <h3 className="font-bold text-slate-800 mb-4">โครงสร้างเงินเดือน</h3>
+          {salary && <div className="bg-green-50 border border-green-100 rounded-xl p-3 mb-4 text-sm"><p className="text-green-800 font-semibold">เงินเดือนปัจจุบัน: ฿{salary.base_salary?.toLocaleString()}</p><p className="text-green-600 text-xs">มีผล {format(new Date(salary.effective_from),"d MMM yyyy",{locale:th})}</p></div>}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[["base_salary","เงินเดือน (บาท)*"],["allowance_position","เบี้ยตำแหน่ง"],["allowance_transport","ค่าเดินทาง"],["allowance_food","ค่าอาหาร"],["allowance_phone","ค่าโทรศัพท์"],["allowance_housing","ค่าที่พัก"],["ot_rate_normal","อัตรา OT ปกติ (x)"],["ot_rate_holiday","อัตรา OT วันหยุด (x)"]].map(([k,l]) => (
+              <div key={k}><label className="block text-sm font-medium text-slate-700 mb-1.5">{l}</label><input type="number" step="0.01" value={sf[k]||""} onChange={e => setSf((f: any) => ({ ...f, [k]:e.target.value }))} className={inp}/></div>
+            ))}
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">วันที่มีผล*</label><input type="date" value={sf.effective_from||""} onChange={e => setSf((f: any) => ({ ...f, effective_from:e.target.value }))} className={inp}/></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">เหตุผล</label><input value={sf.change_reason||""} onChange={e => setSf((f: any) => ({ ...f, change_reason:e.target.value }))} className={inp} placeholder="เช่น ปรับเงินเดือนประจำปี"/></div>
+          </div>
+          <button onClick={saveSalary} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึกเงินเดือน</button>
+        </>}
+
+        {tab === 3 && <>
+          <h3 className="font-bold text-slate-800 mb-4">ประวัติหัวหน้างาน</h3>
+          <div className="flex gap-3 mb-5">
+            <select value={newMgr} onChange={e => setNewMgr(e.target.value)} className={inp + " flex-1"}>
+              <option value="">เลือกหัวหน้าใหม่</option>
+              {allEmps.map(e => <option key={e.id} value={e.id}>{e.first_name_th} {e.last_name_th} ({e.employee_code})</option>)}
+            </select>
+            <input type="date" value={newMgrDate} onChange={e => setNewMgrDate(e.target.value)} className={inp + " w-40"}/>
+            <button onClick={addMgr} className="btn-primary px-4 py-2 flex items-center gap-1"><Plus size={14}/>เพิ่ม</button>
+          </div>
+          <div className="space-y-3">
+            {mgrHistory.map(h => (
+              <div key={h.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                <div className="flex-1"><p className="font-medium text-slate-800 text-sm">{h.manager?.first_name_th} {h.manager?.last_name_th}</p><p className="text-xs text-slate-500">{format(new Date(h.effective_from),"d MMM yyyy",{locale:th})} - {h.effective_to ? format(new Date(h.effective_to),"d MMM yyyy",{locale:th}) : "ปัจจุบัน"}</p></div>
+                {!h.effective_to && <span className="badge bg-green-100 text-green-700">ปัจจุบัน</span>}
               </div>
-            </div>
-            <button onClick={savePersonal} disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} บันทึก
-            </button>
+            ))}
+            {mgrHistory.length === 0 && <p className="text-center text-slate-400 text-sm py-4">ไม่มีประวัติ</p>}
           </div>
-        )}
+        </>}
 
-        {/* ── Tab 1: Employment ───────────────────────────────────── */}
-        {tab === 1 && (
-          <div className="space-y-5">
-            <h3 className="font-black text-slate-800">ข้อมูลการจ้างงาน</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="แผนก">
-                <select value={form.department_id || ""} onChange={e => set("department_id", e.target.value)} className={cls}>
-                  <option value="">ไม่ระบุ</option>
-                  {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-              </Field>
-              <Field label="ตำแหน่ง">
-                <select value={form.position_id || ""} onChange={e => set("position_id", e.target.value)} className={cls}>
-                  <option value="">ไม่ระบุ</option>
-                  {positions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </Field>
-              <Field label="สาขา">
-                <select value={form.branch_id || ""} onChange={e => set("branch_id", e.target.value)} className={cls}>
-                  <option value="">ไม่ระบุ</option>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-              </Field>
-              <Field label="ประเภทการจ้าง">
-                <select value={form.employment_type || ""} onChange={e => set("employment_type", e.target.value)} className={cls}>
-                  <option value="full_time">ประจำ</option>
-                  <option value="part_time">พาร์ทไทม์</option>
-                  <option value="contract">สัญญา</option>
-                  <option value="intern">ฝึกงาน</option>
-                </select>
-              </Field>
-              <Field label="สถานะ">
-                <select value={form.employment_status || ""} onChange={e => set("employment_status", e.target.value)} className={cls}>
-                  <option value="active">ปกติ</option>
-                  <option value="probation">ทดลองงาน</option>
-                  <option value="resigned">ลาออก</option>
-                  <option value="terminated">เลิกจ้าง</option>
-                  <option value="on_leave">ลา</option>
-                  <option value="suspended">พักงาน</option>
-                </select>
-              </Field>
-              <Field label="วันเริ่มงาน">
-                <input type="date" value={form.hire_date || ""} onChange={e => set("hire_date", e.target.value)} className={cls} />
-              </Field>
-              <Field label="สิ้นสุดทดลองงาน">
-                <input type="date" value={form.probation_end_date || ""} onChange={e => set("probation_end_date", e.target.value)} className={cls} />
-              </Field>
-              <Field label="วันที่ลาออก / สิ้นสุดสัญญา">
-                <input type="date" value={form.resign_date || ""} onChange={e => set("resign_date", e.target.value)} className={cls} />
-              </Field>
-            </div>
-            <button onClick={saveEmployment} disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} บันทึก
-            </button>
-          </div>
-        )}
-
-        {/* ── Tab 2: Salary ───────────────────────────────────────── */}
-        {tab === 2 && (
-          <div className="space-y-5">
-            <h3 className="font-black text-slate-800">โครงสร้างเงินเดือน</h3>
-            {salary && (
-              <div className="flex items-center justify-between bg-green-50 border border-green-100 rounded-xl p-4">
-                <div>
-                  <p className="text-xs font-bold text-green-600 uppercase tracking-wide">เงินเดือนปัจจุบัน</p>
-                  <p className="text-2xl font-black text-green-800">฿{salary.base_salary?.toLocaleString()}</p>
-                  <p className="text-xs text-green-500 mt-0.5">มีผลตั้งแต่ {format(new Date(salary.effective_from), "d MMMM yyyy", { locale: th })}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-green-500">รวมทั้งสิ้น</p>
-                  <p className="text-lg font-black text-green-700">฿{(
-                    [salary.base_salary, salary.allowance_position, salary.allowance_transport,
-                     salary.allowance_food, salary.allowance_phone, salary.allowance_housing]
-                     .reduce((a, b) => a + (+(b || 0)), 0)
-                  ).toLocaleString()}</p>
-                </div>
-              </div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[
-                ["base_salary",         "เงินเดือนฐาน (บาท)", true],
-                ["allowance_position",  "เบี้ยตำแหน่ง"],
-                ["allowance_transport", "ค่าเดินทาง"],
-                ["allowance_food",      "ค่าอาหาร"],
-                ["allowance_phone",     "ค่าโทรศัพท์"],
-                ["allowance_housing",   "ค่าที่พัก"],
-                ["ot_rate_normal",      "อัตรา OT ปกติ (x)"],
-                ["ot_rate_holiday",     "อัตรา OT วันหยุด (x)"],
-              ].map(([k, l, req]: any) => (
-                <Field key={k} label={l} required={req}>
-                  <input type="number" step="0.01" min="0"
-                    value={sf[k] || ""} onChange={e => setSF(k, e.target.value)} className={cls} />
-                </Field>
-              ))}
-              <Field label="วันที่มีผล" required>
-                <input type="date" value={sf.effective_from || ""} onChange={e => setSF("effective_from", e.target.value)} className={cls} />
-              </Field>
-              <Field label="เหตุผล">
-                <input value={sf.change_reason || ""} onChange={e => setSF("change_reason", e.target.value)} className={cls} placeholder="เช่น ปรับเงินเดือนประจำปี" />
-              </Field>
-            </div>
-            {totalSalary > 0 && (
-              <div className="bg-indigo-50 rounded-xl px-4 py-3 flex items-center justify-between">
-                <span className="text-xs font-bold text-indigo-600">รวมทั้งสิ้น (ที่กำลังกรอก)</span>
-                <span className="text-lg font-black text-indigo-700">฿{totalSalary.toLocaleString()}</span>
-              </div>
-            )}
-            <button onClick={saveSalary} disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} บันทึกเงินเดือน
-            </button>
-          </div>
-        )}
-
-        {/* ── Tab 3: Manager History ──────────────────────────────── */}
-        {tab === 3 && (
-          <div className="space-y-5">
-            <h3 className="font-black text-slate-800">ประวัติหัวหน้างาน</h3>
-            <div className="flex gap-3 flex-wrap">
-              <select value={newMgr} onChange={e => setNewMgr(e.target.value)} className={cls + " flex-1 min-w-48"}>
-                <option value="">เลือกหัวหน้าใหม่...</option>
-                {allEmps.map(e => (
-                  <option key={e.id} value={e.id}>
-                    {e.first_name_th} {e.last_name_th} ({e.employee_code})
-                  </option>
-                ))}
-              </select>
-              <input type="date" value={newMgrDate} onChange={e => setNewMgrDate(e.target.value)} className={cls + " w-40"} />
-              <button onClick={addMgr}
-                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors">
-                <Plus size={14} /> เพิ่ม
-              </button>
-            </div>
-            <div className="space-y-2">
-              {mgrHistory.map(h => (
-                <div key={h.id} className="flex items-center gap-3 p-3.5 bg-slate-50 rounded-xl">
-                  <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center font-black text-indigo-600 text-sm flex-shrink-0">
-                    {h.manager?.first_name_th?.[0]}
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-bold text-slate-700 text-sm">{h.manager?.first_name_th} {h.manager?.last_name_th}</p>
-                    <p className="text-xs text-slate-400">
-                      {format(new Date(h.effective_from), "d MMM yyyy", { locale: th })}
-                      {" – "}
-                      {h.effective_to ? format(new Date(h.effective_to), "d MMM yyyy", { locale: th }) : "ปัจจุบัน"}
-                    </p>
-                  </div>
-                  {!h.effective_to && (
-                    <span className="text-[10px] font-bold px-2 py-1 bg-green-100 text-green-700 rounded-full">ปัจจุบัน</span>
-                  )}
-                </div>
-              ))}
-              {mgrHistory.length === 0 && (
-                <p className="text-center text-slate-400 text-sm py-8">ยังไม่มีประวัติหัวหน้างาน</p>
-              )}
-            </div>
-          </div>
-        )}
+        {/* ── Tab 4: สิทธิ์เช็คอิน ── */}
+        {tab === 4 && <CheckinLocationsTab employeeId={id as string} companyId={emp.company_id}/>}
       </div>
+    </div>
+  )
+}
+
+// ── CheckinLocationsTab ────────────────────────────────────────────────
+function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; companyId: string }) {
+  const supabase = createClient()
+  const { user } = useAuth()
+
+  const [allBranches,   setAllBranches]   = useState<any[]>([])
+  const [allowedIds,    setAllowedIds]    = useState<Set<string>>(new Set())
+  const [allowedRows,   setAllowedRows]   = useState<any[]>([])  // {id, branch_id}
+  const [saving,        setSaving]        = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const [{ data: branches }, { data: allowed }] = await Promise.all([
+      supabase.from("branches").select("id,name,address,latitude,longitude,geo_radius_m")
+        .eq("company_id", companyId).eq("is_active", true).order("name"),
+      supabase.from("employee_allowed_locations").select("id,branch_id")
+        .eq("employee_id", employeeId),
+    ])
+    setAllBranches(branches ?? [])
+    setAllowedRows(allowed ?? [])
+    setAllowedIds(new Set((allowed ?? []).map((r: any) => r.branch_id)))
+  }, [employeeId, companyId])
+
+  useEffect(() => { load() }, [load])
+
+  const toggle = async (branchId: string) => {
+    setSaving(branchId)
+    if (allowedIds.has(branchId)) {
+      const row = allowedRows.find(r => r.branch_id === branchId)
+      if (row) {
+        const { error } = await supabase.from("employee_allowed_locations").delete().eq("id", row.id)
+        if (error) { toast.error("ลบไม่ได้: " + error.message); setSaving(null); return }
+      }
+      toast.success("ยกเลิกสิทธิ์แล้ว")
+    } else {
+      const { error } = await supabase.from("employee_allowed_locations").insert({
+        employee_id: employeeId,
+        branch_id:   branchId,
+        created_by:  user?.employee_id ?? null,
+      })
+      if (error) { toast.error("เพิ่มไม่ได้: " + error.message); setSaving(null); return }
+      toast.success("เพิ่มสิทธิ์แล้ว")
+    }
+    setSaving(null)
+    load()
+  }
+
+  const grantAll = async () => {
+    const missing = allBranches.filter(b => !allowedIds.has(b.id))
+    if (missing.length === 0) return toast("มีสิทธิ์ทุกสาขาแล้ว")
+    const { error } = await supabase.from("employee_allowed_locations").insert(
+      missing.map(b => ({ employee_id: employeeId, branch_id: b.id, created_by: user?.employee_id ?? null }))
+    )
+    if (error) { toast.error("เพิ่มไม่ได้: " + error.message); return }
+    toast.success(`เพิ่มสิทธิ์ ${missing.length} สาขา`)
+    load()
+  }
+
+  const revokeAll = async () => {
+    if (!confirm("ยกเลิกสิทธิ์เช็คอินทั้งหมด?")) return
+    await supabase.from("employee_allowed_locations").delete().eq("employee_id", employeeId)
+    toast.success("ยกเลิกทั้งหมดแล้ว")
+    load()
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-bold text-slate-800">สิทธิ์เช็คอิน</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            เลือกสาขาที่พนักงานคนนี้สามารถเช็คอินได้
+            <span className="ml-2 font-bold text-indigo-600">{allowedIds.size} / {allBranches.length} สาขา</span>
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={grantAll}
+            className="text-xs font-bold px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition-colors">
+            ✓ ทั้งหมด
+          </button>
+          <button onClick={revokeAll}
+            className="text-xs font-bold px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors">
+            ✗ ล้างทั้งหมด
+          </button>
+        </div>
+      </div>
+
+      {/* Info box */}
+      <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5 mb-4 text-xs text-blue-700 flex items-start gap-2">
+        <MapPin size={12} className="flex-shrink-0 mt-0.5"/>
+        <p>พนักงานจะเช็คอินได้เฉพาะสาขาที่เปิดไว้เท่านั้น หากยังไม่ได้กำหนดจะเช็คอินไม่ได้ทุกที่</p>
+      </div>
+
+      {/* Branch list */}
+      {allBranches.length === 0 ? (
+        <p className="text-center text-slate-300 py-8 text-sm">ยังไม่มีสาขา — ไปเพิ่มที่หน้าตั้งค่า</p>
+      ) : (
+        <div className="space-y-2">
+          {allBranches.map(b => {
+            const allowed = allowedIds.has(b.id)
+            const isSaving = saving === b.id
+            return (
+              <div key={b.id}
+                className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all cursor-pointer ${
+                  allowed
+                    ? "border-green-300 bg-green-50"
+                    : "border-slate-100 bg-slate-50 hover:border-slate-200"
+                }`}
+                onClick={() => !isSaving && toggle(b.id)}>
+                {/* icon */}
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                  allowed ? "bg-green-100" : "bg-slate-200"
+                }`}>
+                  {isSaving
+                    ? <Loader2 size={14} className="animate-spin text-slate-400"/>
+                    : <Building2 size={14} className={allowed ? "text-green-600" : "text-slate-400"}/>}
+                </div>
+                {/* info */}
+                <div className="flex-1 min-w-0">
+                  <p className={`font-bold text-sm ${allowed ? "text-green-800" : "text-slate-700"}`}>{b.name}</p>
+                  <div className="flex items-center gap-3 mt-0.5">
+                    {b.address && <p className="text-[10px] text-slate-400 truncate">{b.address}</p>}
+                    {b.latitude && (
+                      <p className="text-[10px] text-slate-400 font-mono flex-shrink-0">
+                        {Number(b.latitude).toFixed(4)}, {Number(b.longitude).toFixed(4)} · รัศมี {b.geo_radius_m}ม.
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {/* toggle */}
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+                  allowed ? "bg-green-500 text-white" : "bg-white border-2 border-slate-200 text-slate-300"
+                }`}>
+                  {allowed ? <Check size={14}/> : <X size={12}/>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
