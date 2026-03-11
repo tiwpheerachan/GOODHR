@@ -1,294 +1,437 @@
 "use client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useAttendance } from "@/lib/hooks/useAttendance"
 import { useLeaveBalance } from "@/lib/hooks/useLeave"
 import { formatTime } from "@/lib/utils/attendance"
-import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
-import { Clock, ChevronRight, CalendarDays, TrendingUp, AlertCircle, Banknote, ArrowRight, CheckCircle2, XCircle, FileText, Zap, Building2, Users } from "lucide-react"
+import { Clock, ChevronRight, FileEdit, Timer, CalendarClock, AlertCircle } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
-export default function DashboardPage() {
-  const { user } = useAuth()
-  const empId = user?.employee_id ?? (user as any)?.employee?.id
-  const { todayRecord, records } = useAttendance(empId)
-  const { balances } = useLeaveBalance(empId)
-  const [pendingDates, setPendingDates] = useState<Set<string>>(new Set())
-  const [netSalary, setNetSalary]       = useState<number | null>(null)
+// ─── Quotes per day ──────────────────────────────────────────
+const QUOTES: Record<number, string[]> = {
+  0: [ // อาทิตย์
+    "วันอาทิตย์ไม่ต้องตื่นเช้า ถ้าตื่นเช้าแสดงว่าเป็น PM",
+    "วันหยุดที่ดีต้องมีนอนเกินเที่ยง อย่างน้อยหนึ่งมื้อ",
+    "การพักผ่อนคือการลงทุนที่คืนทุนเร็วที่สุด",
+    "โทรศัพท์ปิดเสียง กายบนโซฟา ใจสงบ — นั่นคือสวรรค์",
+    "วันอาทิตย์สอนให้รู้ว่า เราก็มีตัวตนนอกจากพนักงาน",
+    "ถ้าชีวิตเป็นหนัง วันอาทิตย์คือฉากพักโฆษณา",
+  ],
+  1: [ // จันทร์
+    "วันจันทร์ก็เหมือนกาแฟ ขมนิดหน่อยแต่ทำให้ตื่น",
+    "ยิ้มสู้จันทร์สิ มันจะได้ไม่กลับมาเร็ว",
+    "จันทร์มาอีกแล้ว แต่เราก็ผ่านมาทุกครั้ง",
+    "แรงบันดาลใจหายไปวันจันทร์? ปกติมาก",
+    "สัปดาห์ใหม่ บทเรียนใหม่ ค่าจ้างเดิม",
+    "จันทร์ไม่ใช่ศัตรู มันแค่... มาเร็วไปหน่อย",
+    "กาแฟ + จันทร์ = ยังไหวอยู่",
+  ],
+  2: [ // อังคาร
+    "อังคารไฟแรง จันทร์ผ่านมาได้แล้ว!",
+    "วันอังคารคือหลักฐานว่าคุณไม่ยอมแพ้วันจันทร์",
+    "ถ้าผ่านจันทร์มาได้ อังคารก็แค่เรื่องเล็ก",
+    "อังคาร — วันที่เงียบสงบที่สุดของสัปดาห์ ไม่มีใครพูดถึงมัน",
+    "ไฟแรงวันอังคาร ดีกว่าหมดแรงวันพุธ",
+    "สู้ๆ อีกสามวันก็ศุกร์แล้ว",
+  ],
+  3: [ // พุธ
+    "พุธ = ครึ่งทาง อีกครึ่งทางนั้นง่ายกว่า",
+    "กึ่งกลางสัปดาห์! ชีวิตยังดีอยู่",
+    "วันพุธคือจุดสูงสุดของภูเขาแห่งสัปดาห์ ข้างหน้าลงเขา",
+    "ผ่านกึ่งกลางมาได้แล้ว ทริปท้ายสัปดาห์กำลังรอ",
+    "พุธ: วันที่กาแฟทำงานหนักที่สุด",
+    "เกินครึ่งสัปดาห์แล้ว ไม่มีอะไรหยุดคุณได้แล้ว",
+  ],
+  4: [ // พฤหัส
+    "พฤหัสฯ คือศุกร์ก่อนวัย ใจต้องถึงก่อน",
+    "เกือบถึงแล้ว! ศุกร์อยู่ข้างหน้า",
+    "วันพฤหัสฯ คือแสงสว่างปลายอุโมงค์สัปดาห์",
+    "อีกวันเดียว! กำหมัดไว้",
+    "พฤหัสฯ บอกว่า ศุกร์กำลังมา",
+    "สู้ไปอีกหนึ่งวัน แล้วจะเข้าใจว่าทำไมถึงทน",
+    "ใกล้ๆ แล้ว เหนื่อยหน่อยแต่ถึง",
+  ],
+  5: [ // ศุกร์
+    "ศุกร์แล้วว!! มาไกลมากนะเพื่อน",
+    "TGIF — Thank God It's Friday 🙏",
+    "ศุกร์เที่ยงคืองานบ้าน ศุกร์เย็นคืองานปาร์ตี้",
+    "วันนี้ทำงานด้วยแรงบวกของวันหยุด",
+    "ศุกร์มาแล้ว ทุกอย่างดูเบาลงทันที",
+    "เส้นชัยอยู่ตรงหน้า วิ่งเลย!",
+    "อีกไม่กี่ชั่วโมง... อิสระ",
+    "ศุกร์: วันที่ประสิทธิภาพสูงที่สุดช่วง 17:00-17:30 น.",
+  ],
+  6: [ // เสาร์
+    "เสาร์ที่ดีไม่ต้องทำอะไร นอนก็คืองาน",
+    "วันหยุดที่ดีต้องมีนอนอย่างน้อยหนึ่งรอบ",
+    "เสาร์คือวันที่ alarm ต้องหยุดพัก",
+    "พักผ่อนเยอะๆ นะ จันทร์ยังอีกไกล",
+    "วันนี้ห้ามคิดเรื่องงาน — ไม่ฟัง ไม่รู้ ไม่สน",
+    "ชาร์จพลังให้เต็ม สัปดาห์หน้ายังต้องสู้",
+    "เสาร์: วันที่ทุกอย่างสามารถรอได้",
+  ],
+}
 
+// ─── Day Visual Config ───────────────────────────────────────
+const DAY_VISUAL = [
+  { // อาทิตย์ — dreamy lavender dusk
+    grad:    ["#c084fc","#f472b6","#fb923c"],
+    orbs:    ["#e879f9","#f9a8d4","#fdba74"],
+    emoji:   "🌸",
+    tag:     "วันหยุด",
+    tagBg:   "bg-pink-400/30",
+  },
+  { // จันทร์ — crisp morning sky
+    grad:    ["#38bdf8","#818cf8","#6366f1"],
+    orbs:    ["#7dd3fc","#a5b4fc","#c7d2fe"],
+    emoji:   "☁️",
+    tag:     "เริ่มสัปดาห์",
+    tagBg:   "bg-sky-400/30",
+  },
+  { // อังคาร — warm energy
+    grad:    ["#fb923c","#f43f5e","#e11d48"],
+    orbs:    ["#fca5a5","#fda4af","#fed7aa"],
+    emoji:   "🔥",
+    tag:     "ลุยเลย",
+    tagBg:   "bg-rose-400/30",
+  },
+  { // พุธ — midweek forest
+    grad:    ["#34d399","#10b981","#0d9488"],
+    orbs:    ["#6ee7b7","#99f6e4","#a7f3d0"],
+    emoji:   "🌿",
+    tag:     "กึ่งกลาง",
+    tagBg:   "bg-emerald-400/30",
+  },
+  { // พฤหัส — deep violet dusk
+    grad:    ["#818cf8","#a855f7","#7c3aed"],
+    orbs:    ["#c4b5fd","#d8b4fe","#e9d5ff"],
+    emoji:   "⭐",
+    tag:     "เกือบถึงแล้ว",
+    tagBg:   "bg-violet-400/30",
+  },
+  { // ศุกร์ — golden hour celebration
+    grad:    ["#fbbf24","#f97316","#ef4444"],
+    orbs:    ["#fde68a","#fed7aa","#fecaca"],
+    emoji:   "🎉",
+    tag:     "ศุกร์!",
+    tagBg:   "bg-amber-400/30",
+  },
+  { // เสาร์ — midnight calm
+    grad:    ["#6366f1","#3b82f6","#0ea5e9"],
+    orbs:    ["#a5b4fc","#bfdbfe","#bae6fd"],
+    emoji:   "😴",
+    tag:     "วันหยุด",
+    tagBg:   "bg-blue-400/30",
+  },
+]
+
+const DAY_NAMES = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"]
+
+// ─── Animated Background Canvas ─────────────────────────────
+function AnimBg({ v }: { v: typeof DAY_VISUAL[0] }) {
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {/* main gradient */}
+      <div className="absolute inset-0"
+        style={{ background:`linear-gradient(135deg,${v.grad[0]},${v.grad[1]},${v.grad[2]})` }}/>
+      {/* shimmer overlay */}
+      <div className="absolute inset-0 opacity-30"
+        style={{ background:"radial-gradient(ellipse at 20% 20%,rgba(255,255,255,0.4),transparent 50%)" }}/>
+      {/* animated orbs */}
+      {v.orbs.map((c, i) => (
+        <div key={i}
+          className="absolute rounded-full mix-blend-soft-light"
+          style={{
+            width:  [140,100,80][i],
+            height: [140,100,80][i],
+            background: `radial-gradient(circle,${c},transparent 70%)`,
+            top:    ["10%","55%","30%"][i],
+            left:   ["60%","15%","75%"][i],
+            animation: `orb${i+1} ${[8,12,10][i]}s ease-in-out infinite`,
+            opacity: 0.7,
+          }}/>
+      ))}
+      {/* grid lines */}
+      <div className="absolute inset-0 opacity-[0.06]"
+        style={{ backgroundImage:"linear-gradient(rgba(255,255,255,0.8) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.8) 1px,transparent 1px)", backgroundSize:"40px 40px" }}/>
+      {/* bottom fade */}
+      <div className="absolute inset-x-0 bottom-0 h-16"
+        style={{ background:"linear-gradient(to bottom,transparent,rgba(0,0,0,0.15))" }}/>
+    </div>
+  )
+}
+
+// ─── Main Greeting Card ──────────────────────────────────────
+function DayCard({ name }: { name?: string }) {
+  const dow    = new Date().getDay()
+  const v      = DAY_VISUAL[dow]
+  const quotes = QUOTES[dow]
+  const [quote, setQuote] = useState("")
+  const [fade, setFade]   = useState(true)
+
+  // สุ่ม quote ตอน mount
   useEffect(() => {
-    if (!empId) return
-    const supabase = createClient()
-    const now = new Date()
-    // pending corrections
-    supabase.from("time_adjustment_requests")
-      .select("work_date").eq("employee_id", empId).eq("status", "pending")
-      .then(({ data }) => setPendingDates(new Set((data ?? []).map((r: any) => r.work_date))))
-    // เงินเดือนล่าสุด
-    supabase.from("payroll_records")
-      .select("net_salary, year, month")
-      .eq("employee_id", empId)
-      .order("year",  { ascending: false })
-      .order("month", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => { if (data) setNetSalary(data.net_salary) })
-  }, [empId])
+    setQuote(quotes[Math.floor(Math.random() * quotes.length)])
+  }, [dow])
 
-  const lateRecords  = records.filter(r => r.status === "late")
-  const pendingFixed = lateRecords.filter(r => pendingDates.has(r.work_date)).length
-  const stats = {
-    present: records.filter(r => ["present","late"].includes(r.status)).length,
-    late:    lateRecords.length,
-    absent:  records.filter(r => r.status === "absent").length,
-  }
+  // สุ่มใหม่ทุก 8 วิ พร้อม fade
+  useEffect(() => {
+    const id = setInterval(() => {
+      setFade(false)
+      setTimeout(() => {
+        setQuote(quotes[Math.floor(Math.random() * quotes.length)])
+        setFade(true)
+      }, 400)
+    }, 8000)
+    return () => clearInterval(id)
+  }, [dow])
 
-  const emp        = user?.employee as any
-  const isLate     = (todayRecord?.late_minutes ?? 0) > 0
-  const alreadyIn  = !!todayRecord?.clock_in
-  const noClockOut = alreadyIn && !todayRecord?.clock_out
-  const todayDate  = format(new Date(), "yyyy-MM-dd")
+  const hour = new Date().getHours()
+  const greet = hour < 6 ? "ดึกแล้วนะ 🌙" : hour < 12 ? "อรุณสวัสดิ์ ☀️" : hour < 17 ? "สวัสดีตอนบ่าย 🌤️" : "สวัสดีตอนเย็น 🌆"
 
   return (
-    <div className="flex flex-col bg-slate-50 min-h-screen pb-24">
+    <div className="relative rounded-3xl overflow-hidden shadow-2xl" style={{ minHeight: 188 }}>
+      <AnimBg v={v}/>
 
-      {/* ── Hero ────────────────────────────────────────────── */}
-      <div className="relative bg-gradient-to-br from-indigo-700 via-indigo-600 to-violet-600 px-4 pt-5 pb-20 overflow-hidden">
-        {/* bg orbs */}
-        <div className="absolute -top-10 -right-10 w-48 h-48 bg-white/5 rounded-full" />
-        <div className="absolute top-16 -left-8 w-32 h-32 bg-white/5 rounded-full" />
-
-        <div className="relative">
-          <p className="text-indigo-200 text-xs">{format(new Date(), "EEEE d MMMM yyyy", { locale: th })}</p>
-          <h1 className="text-white font-black text-2xl mt-1">
-            สวัสดี, {emp?.first_name_th ?? "..."}
-          </h1>
-          <p className="text-indigo-300 text-sm">{emp?.position?.name ?? emp?.department?.name ?? ""}</p>
+      {/* top row */}
+      <div className="relative z-10 flex items-start justify-between px-5 pt-5">
+        <div>
+          <p className="text-white/70 text-[11px] font-medium tracking-widest uppercase mb-0.5">
+            {format(new Date(),"d MMMM yyyy",{locale:th})}
+          </p>
+          <p className="text-white/80 text-xs">{greet}</p>
+        </div>
+        {/* day tag */}
+        <div className={`${v.tagBg} backdrop-blur-md border border-white/20 rounded-2xl px-3 py-1.5 flex items-center gap-1.5`}>
+          <span className="text-base leading-none">{v.emoji}</span>
+          <span className="text-white text-xs font-bold">{v.tag}</span>
         </div>
       </div>
 
-      {/* ── Content overlaps hero ──────────────────────────── */}
-      <div className="px-4 -mt-14 space-y-3 relative">
+      {/* name */}
+      <div className="relative z-10 px-5 pt-3 pb-2">
+        <div className="flex items-end gap-2">
+          <h2 className="text-white font-black leading-none" style={{ fontSize: 28, textShadow:"0 2px 12px rgba(0,0,0,0.2)" }}>
+            {name?.split(" ")[0] || "สวัสดี"}
+          </h2>
+          <span className="text-white/80 text-base mb-0.5">วัน{DAY_NAMES[dow]}</span>
+        </div>
+      </div>
 
-        {/* Today card */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-xl shadow-indigo-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-indigo-50 to-violet-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
-            <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest">สถานะวันนี้</p>
-            {alreadyIn && (
-              <span className={"text-[11px] font-bold px-2.5 py-0.5 rounded-full " +
-                (isLate ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")}>
-                {isLate ? `สาย ${todayRecord!.late_minutes} นาที` : "ตรงเวลา ✓"}
-              </span>
-            )}
+      {/* quote bubble */}
+      <div className="relative z-10 mx-5 mb-5">
+        <div className="bg-black/20 backdrop-blur-sm border border-white/15 rounded-2xl px-4 py-3"
+          style={{ transition: "opacity 0.4s ease", opacity: fade ? 1 : 0 }}>
+          <p className="text-white/95 text-[12px] leading-relaxed italic">
+            "{quote}"
+          </p>
+          {/* tap to shuffle hint */}
+          <p className="text-white/30 text-[9px] mt-1.5 text-right tracking-wide">เปลี่ยนอัตโนมัติทุก 8 วิ</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Dashboard ───────────────────────────────────────────────
+export default function DashboardPage() {
+  const { user }  = useAuth()
+  const { todayRecord, records } = useAttendance(user?.employee_id)
+  const { balances } = useLeaveBalance(user?.employee_id)
+  const isWeekend = [0,6].includes(new Date().getDay())
+
+  const stats = {
+    present: records.filter(r => ["present","late"].includes(r.status)).length,
+    late:    records.filter(r => r.status === "late").length,
+    absent:  records.filter(r => r.status === "absent").length,
+  }
+
+  return (
+    <>
+      <style>{`
+        @keyframes orb1 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(-20px,15px) scale(1.1)} }
+        @keyframes orb2 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(15px,-20px) scale(0.9)} }
+        @keyframes orb3 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(-10px,10px) scale(1.05)} 66%{transform:translate(10px,-5px) scale(0.95)} }
+      `}</style>
+
+      <div className="p-4 space-y-3 pb-8">
+
+        {/* ── Day Card ── */}
+        <DayCard name={user?.employee?.first_name_th}/>
+
+        {/* ── Weekend Banner ── */}
+        {isWeekend && (
+          <div className="rounded-2xl bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 px-4 py-3.5 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-xl flex-shrink-0">🛋️</div>
+            <div>
+              <p className="font-bold text-indigo-700 text-sm">วันนี้วันหยุด!</p>
+              <p className="text-xs text-indigo-400 mt-0.5">ไม่ต้องเช็คอิน พักผ่อนให้เต็มที่เลย 😌</p>
+            </div>
           </div>
+        )}
 
-          {alreadyIn ? (
-            <>
-              <div className="grid grid-cols-2 divide-x divide-slate-100">
-                <div className="p-4 text-center">
-                  <p className="text-[10px] text-slate-400 font-semibold tracking-widest uppercase mb-1">เข้างาน</p>
-                  <p className="text-3xl font-black text-slate-800 tabular-nums">{formatTime(todayRecord?.clock_in)}</p>
-                </div>
-                <div className="p-4 text-center">
-                  <p className="text-[10px] text-slate-400 font-semibold tracking-widest uppercase mb-1">ออกงาน</p>
-                  <p className={"text-3xl font-black tabular-nums " + (todayRecord?.clock_out ? "text-slate-800" : "text-slate-300")}>
-                    {formatTime(todayRecord?.clock_out)}
-                  </p>
-                  {(todayRecord?.work_minutes ?? 0) > 0 && (
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      {Math.floor(todayRecord!.work_minutes / 60)}ชม. {todayRecord!.work_minutes % 60}น.
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div className="px-4 pb-4 flex gap-2">
-                <Link href="/app/checkin"
-                  className="flex-1 flex items-center justify-center gap-2 py-3 bg-indigo-600 text-white font-bold text-sm rounded-xl active:scale-[0.97] transition-all shadow-md shadow-indigo-200">
-                  <Clock size={15} />
-                  {noClockOut ? "เช็คเอ้าท์" : "ตรวจสอบ"}
-                </Link>
-                {isLate && (
-                  <Link href={"/app/checkin/correction?date=" + todayDate}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 bg-amber-50 text-amber-700 font-bold text-sm rounded-xl border border-amber-200 active:scale-[0.97] transition-all">
-                    <Clock size={15} />
-                    ขอแก้ไขเวลา
-                  </Link>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="p-5 flex items-center gap-4">
-              <div className="flex-1">
-                <p className="font-bold text-slate-700">ยังไม่ได้เช็คอิน</p>
-                <p className="text-xs text-slate-400 mt-0.5">กรุณาเช็คอินเมื่อถึงที่ทำงาน</p>
-              </div>
-              <Link href="/app/checkin"
-                className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-md shadow-indigo-200 active:scale-95 transition-all">
-                <Clock size={14} /> เช็คอิน
+        {/* ── Today status ── */}
+        {!isWeekend && (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-50 flex items-center justify-between">
+              <p className="text-[11px] font-bold text-slate-400 tracking-widest uppercase">สถานะวันนี้</p>
+              <Link href="/app/checkin" className="text-xs text-blue-500 font-semibold flex items-center gap-1">
+                ไปหน้าเช็คอิน <ChevronRight size={11}/>
               </Link>
             </div>
-          )}
-        </div>
-
-        {/* ลืมเช็คออก */}
-        {noClockOut && (
-          <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
-            <AlertCircle size={14} className="text-amber-500 shrink-0" />
-            <p className="text-xs text-amber-700 font-semibold flex-1">อย่าลืมเช็คเอ้าท์ก่อนกลับบ้านนะ!</p>
-            <Link href="/app/checkin" className="text-xs font-bold text-amber-700 shrink-0">ไปเลย →</Link>
+            {todayRecord ? (
+              <div className="grid grid-cols-3 divide-x divide-slate-100">
+                {[
+                  { label:"เข้างาน",  val:formatTime(todayRecord.clock_in)||"—",  c:"text-blue-600"   },
+                  { label:"ออกงาน",   val:formatTime(todayRecord.clock_out)||"—", c:"text-emerald-600"},
+                  { label:"สาย",      val:todayRecord.late_minutes>0?`${todayRecord.late_minutes}น.`:"ปกติ",
+                    c:todayRecord.late_minutes>0?"text-orange-500":"text-slate-400"},
+                ].map(s => (
+                  <div key={s.label} className="px-4 py-4 text-center">
+                    <p className="text-[10px] text-slate-400 mb-1">{s.label}</p>
+                    <p className={`text-lg font-black tabular-nums leading-none ${s.c}`}>{s.val}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-5 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-xl flex-shrink-0">⏰</div>
+                <div className="flex-1">
+                  <p className="font-bold text-slate-700 text-sm">ยังไม่ได้เช็คอิน</p>
+                  <p className="text-xs text-slate-400 mt-0.5">อย่าลืมเช็คอินก่อนเริ่มงานนะ</p>
+                </div>
+                <Link href="/app/checkin"
+                  className="bg-blue-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-1.5 shadow-sm shadow-blue-200 active:scale-95 transition-all">
+                  <Clock size={12}/> เช็คอิน
+                </Link>
+              </div>
+            )}
           </div>
         )}
 
-        {/* pending correction banner */}
-        {pendingFixed > 0 && (
-          <Link href="/app/checkin/correction"
-            className="flex items-center gap-3 bg-violet-50 border border-violet-200 rounded-2xl px-4 py-3 active:scale-[0.98] transition-all">
-            <div className="w-8 h-8 bg-violet-100 rounded-xl flex items-center justify-center shrink-0">
-              <Clock size={14} className="text-violet-600" />
+        {/* ── ลืมเช็คเอ้าท์ ── */}
+        {todayRecord?.clock_in && !todayRecord?.clock_out && !isWeekend && (
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+              <AlertCircle size={15} className="text-blue-500"/>
             </div>
-            <div className="flex-1">
-              <p className="text-xs font-bold text-violet-700">รอแก้ไขเวลา {pendingFixed} วัน</p>
-              <p className="text-[11px] text-violet-400">รอหัวหน้าอนุมัติ</p>
-            </div>
-            <ArrowRight size={14} className="text-violet-400" />
-          </Link>
+            <p className="text-sm text-blue-800 flex-1 font-medium">ยังไม่ได้เช็คเอ้าท์นะ</p>
+            <Link href="/app/leave/new?type=adjustment"
+              className="text-xs font-bold text-blue-600 bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-xl whitespace-nowrap hover:bg-blue-200 transition-colors">
+              แจ้งเวลา →
+            </Link>
+          </div>
         )}
 
-        {/* ── Stats ─────────────────────────────────────────── */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">สถิติเดือนนี้</p>
-            <Link href="/app/attendance" className="text-[11px] text-indigo-600 font-bold">ดูปฏิทิน →</Link>
+        {/* ── Stats เดือนนี้ ── */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+            <p className="text-[11px] font-bold text-slate-400 tracking-widest uppercase">สถิติเดือนนี้</p>
+            <Link href="/app/attendance" className="text-xs text-blue-500 font-semibold">ดูประวัติ →</Link>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <Link href="/app/attendance?filter=present"
-              className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 text-center active:scale-95 transition-all">
-              <div className="w-8 h-8 bg-emerald-50 rounded-xl flex items-center justify-center mx-auto mb-1.5"><CheckCircle2 size={17} className="text-emerald-500" /></div>
-              <p className="text-2xl font-black text-emerald-600">{stats.present}</p>
-              <p className="text-[10px] text-slate-500 font-semibold mt-0.5">มาแล้ว</p>
-            </Link>
-            <Link href="/app/attendance?filter=late"
-              className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 text-center active:scale-95 transition-all">
-              <div className="w-8 h-8 bg-amber-50 rounded-xl flex items-center justify-center mx-auto mb-1.5"><Clock size={17} className="text-amber-500" /></div>
-              <p className="text-2xl font-black text-amber-500">{stats.late}</p>
-              <p className="text-[10px] text-slate-500 font-semibold mt-0.5">มาสาย</p>
-              {pendingFixed > 0 && (
-                <p className="text-[9px] text-violet-500 font-bold">รอแก้ {pendingFixed}</p>
-              )}
-            </Link>
-            <Link href="/app/attendance?filter=absent"
-              className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 text-center active:scale-95 transition-all">
-              <div className="w-8 h-8 bg-red-50 rounded-xl flex items-center justify-center mx-auto mb-1.5"><XCircle size={17} className="text-red-400" /></div>
-              <p className="text-2xl font-black text-red-500">{stats.absent}</p>
-              <p className="text-[10px] text-slate-500 font-semibold mt-0.5">ขาดงาน</p>
-            </Link>
+          <div className="grid grid-cols-3 divide-x divide-slate-100 border-t border-slate-100">
+            {[
+              { label:"มาแล้ว",  val:stats.present, dot:"bg-blue-500",    num:"text-blue-600",    sub:"วัน" },
+              { label:"มาสาย",   val:stats.late,    dot:"bg-sky-400",     num:"text-sky-600",     sub:"ครั้ง" },
+              { label:"ขาดงาน",  val:stats.absent,  dot:"bg-slate-300",   num:"text-slate-500",   sub:"วัน" },
+            ].map(s => (
+              <div key={s.label} className="py-4 text-center">
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <div className={`w-1.5 h-1.5 rounded-full ${s.dot}`}/>
+                  <p className="text-[10px] text-slate-400">{s.label}</p>
+                </div>
+                <p className={`text-2xl font-black leading-none tabular-nums ${s.num}`}>{s.val}</p>
+                <p className="text-[10px] text-slate-300 mt-0.5">{s.sub}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* ── Salary shortcut ──────────────────────────────── */}
-        <Link href="/app/salary"
-          className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl px-4 py-4 flex items-center gap-3 shadow-lg shadow-emerald-100 active:scale-[0.98] transition-all">
-          <div className="w-11 h-11 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
-            <Banknote size={20} className="text-white" />
-          </div>
-          <div className="flex-1">
-            <p className="text-white font-black text-sm">เงินเดือนล่าสุด</p>
-            <p className="text-emerald-100 text-xs mt-0.5">
-              {netSalary != null
-                ? "฿" + netSalary.toLocaleString("th-TH", { minimumFractionDigits: 2 })
-                : "ดูรายละเอียดรายได้"}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 bg-white/20 rounded-xl px-2.5 py-1.5">
-            <TrendingUp size={13} className="text-white" />
-            <span className="text-white text-xs font-bold">ดูเพิ่ม</span>
+        {/* ── Salary shortcut card ── */}
+        <Link href="/app/salary" className="block active:scale-[0.98] transition-all">
+          <div className="relative rounded-2xl overflow-hidden shadow-lg shadow-sky-200/60"
+            style={{ background:"linear-gradient(135deg,#38bdf8 0%,#38bdf8 50%,#0ea5e9 100%)" }}>
+            {/* shimmer dots */}
+            <div className="absolute top-3 right-16 w-1.5 h-1.5 rounded-full bg-white/50"/>
+            <div className="absolute bottom-4 right-28 w-2 h-2 rounded-full bg-white/30"/>
+            <div className="absolute top-1/2 right-10 w-1 h-1 rounded-full bg-white/40"/>
+            {/* content */}
+            <div className="flex items-center gap-4 px-4 py-4">
+              {/* icon box */}
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background:"rgba(255,255,255,0.45)", backdropFilter:"blur(8px)", border:"1px solid rgba(255,255,255,0.6)" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10l10 6 10-6"/>
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-white text-sm leading-tight">สรุปเงินเดือน</p>
+                <p className="text-white/70 text-xs mt-0.5">ดูรายได้ การหัก และกราฟรายเดือน</p>
+              </div>
+              {/* arrow */}
+              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{ background:"rgba(255,255,255,0.5)", border:"1px solid rgba(255,255,255,0.7)" }}>
+                <ChevronRight size={15} className="text-white"/>
+              </div>
+            </div>
           </div>
         </Link>
 
-        {/* ── Leave balances ───────────────────────────────── */}
-        {balances.length > 0 && (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
-              <p className="text-sm font-bold text-slate-700">โควต้าการลา</p>
-              <Link href="/app/leave" className="text-[11px] font-bold text-indigo-600">ดูทั้งหมด →</Link>
-            </div>
-            <div className="px-4 pb-3 space-y-2.5">
-              {balances.slice(0, 3).map(b => {
-                const used = (b.entitled_days ?? 0) - (b.remaining_days ?? 0)
-                const pct  = b.entitled_days > 0 ? (used / b.entitled_days) * 100 : 0
-                const color = (b.leave_type as any)?.color_hex || "#818cf8"
-                return (
-                  <div key={b.id}>
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                        <span className="text-xs text-slate-600 font-medium">{(b.leave_type as any)?.name}</span>
-                      </div>
-                      <span className="text-xs text-slate-500 tabular-nums">
-                        <span className="font-black text-slate-800">{b.remaining_days}</span>/{b.entitled_days} วัน
-                      </span>
-                    </div>
-                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-500"
-                        style={{ width: (100 - pct) + "%", backgroundColor: color }} />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+        {/* ── Leave balance ── */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[11px] font-bold text-slate-400 tracking-widest uppercase">โควต้าการลา</p>
+            <Link href="/app/leave" className="text-xs text-blue-500 font-semibold">ดูทั้งหมด →</Link>
           </div>
-        )}
-
-        {/* ── Quick actions ────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <p className="text-sm font-bold text-slate-700 px-4 pt-3.5 pb-2">ทำรายการด่วน</p>
-          <div className="grid grid-cols-2 divide-x divide-y divide-slate-50">
-            {[
-              { href: "/app/leave/new",          Icon: FileText,  iconBg: "bg-blue-50",   iconColor: "text-blue-600",   label: "ยื่นใบลา",       sub: "ลาป่วย / ลาพักร้อน" },
-              { href: "/app/checkin/correction",  Icon: Clock,     iconBg: "bg-violet-50", iconColor: "text-violet-600", label: "ขอแก้ไขเวลา",   sub: "ย้อนหลัง 30 วัน"    },
-              { href: "/app/leave/new?type=overtime", Icon: Zap,       iconBg: "bg-orange-50",iconColor: "text-orange-600", label: "ขอทำ OT",       sub: "ล่วงเวลา"           },
-              { href: "/app/salary",             Icon: Banknote,  iconBg: "bg-emerald-50",iconColor: "text-emerald-600", label: "สลิปเงินเดือน",  sub: "รายได้ & การหัก"    },
-            ].map(a => (
-              <Link key={a.href} href={a.href}
-                className="flex items-center gap-3 px-4 py-3.5 active:bg-slate-50 transition-colors">
-                <div className={"w-9 h-9 rounded-xl flex items-center justify-center shrink-0 " + a.iconBg}><a.Icon size={16} className={a.iconColor} /></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-700">{a.label}</p>
-                  <p className="text-[11px] text-slate-400 truncate">{a.sub}</p>
+          <div className="space-y-3">
+            {balances.slice(0,3).map(b => (
+              <div key={b.id}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor:b.leave_type?.color_hex||"#3b82f6" }}/>
+                    <span className="text-sm text-slate-600">{b.leave_type?.name}</span>
+                  </div>
+                  <span className="text-sm font-bold text-slate-700 tabular-nums">
+                    {b.remaining_days}<span className="text-slate-300 font-normal text-xs">/{b.entitled_days} วัน</span>
+                  </span>
                 </div>
-                <ChevronRight size={14} className="text-slate-300 shrink-0" />
+                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all" style={{
+                    width:`${b.entitled_days>0?Math.min(b.used_days/b.entitled_days*100,100):0}%`,
+                    backgroundColor:b.leave_type?.color_hex||"#3b82f6"
+                  }}/>
+                </div>
+              </div>
+            ))}
+            {balances.length===0 && <p className="text-xs text-slate-300 text-center py-2">ไม่มีข้อมูล</p>}
+          </div>
+        </div>
+
+        {/* ── Quick actions 2x2 grid ── */}
+        <div>
+          <p className="text-[11px] font-bold text-slate-400 tracking-widest uppercase mb-2 px-1">ทำรายการ</p>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { href:"/app/leave/new",                  icon:<CalendarClock size={16}/>, label:"ยื่นใบลา",         desc:"ป่วย กิจ พักร้อน",        bg:"bg-blue-600",    shadow:"shadow-blue-200"   },
+              { href:"/app/leave/new?type=adjustment",  icon:<FileEdit size={16}/>,      label:"แก้ไขเวลา",        desc:"เวลาเข้า-ออกผิดพลาด",    bg:"bg-sky-500",     shadow:"shadow-sky-200"    },
+              { href:"/app/leave/new?type=overtime",    icon:<Timer size={16}/>,          label:"ขอโอที",            desc:"บันทึกเวลาล่วงเวลา",     bg:"bg-indigo-500",  shadow:"shadow-indigo-200" },
+              { href:"/app/attendance",                 icon:<Clock size={16}/>,          label:"ประวัติเข้างาน",   desc:"ดูสถิติย้อนหลัง",        bg:"bg-slate-600",   shadow:"shadow-slate-200"  },
+            ] as {href:string;icon:React.ReactNode;label:string;desc:string;bg:string;shadow:string}[]).map(a=>(
+              <Link key={a.href} href={a.href}
+                className={`${a.bg} rounded-2xl p-4 shadow-lg ${a.shadow} flex flex-col gap-2 active:scale-95 transition-all`}>
+                <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center text-white">{a.icon}</div>
+                <div>
+                  <p className="text-white font-bold text-sm leading-tight">{a.label}</p>
+                  <p className="text-white/60 text-[10px] mt-0.5">{a.desc}</p>
+                </div>
               </Link>
             ))}
           </div>
         </div>
 
-        {/* ── Role shortcuts ───────────────────────────────── */}
-        {["manager", "hr_admin", "super_admin"].includes(user?.role || "") && (
-          <Link href="/manager/dashboard"
-            className="flex items-center gap-3 bg-white border border-slate-100 rounded-2xl px-4 py-3.5 shadow-sm active:bg-slate-50">
-            <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center shrink-0"><Users size={16} className="text-indigo-600" /></div>
-            <div className="flex-1">
-              <p className="text-sm font-bold text-slate-700">ระบบหัวหน้าทีม</p>
-              <p className="text-[11px] text-slate-400">อนุมัติใบลา / แก้ไขเวลา</p>
-            </div>
-            <ChevronRight size={14} className="text-slate-300" />
-          </Link>
-        )}
-        {["hr_admin","super_admin"].includes(user?.role || "") && (
-          <Link href="/admin/dashboard"
-            className="flex items-center gap-3 bg-white border border-slate-100 rounded-2xl px-4 py-3.5 shadow-sm active:bg-slate-50">
-            <div className="w-9 h-9 bg-slate-100 rounded-xl flex items-center justify-center shrink-0"><Building2 size={16} className="text-slate-600" /></div>
-            <div className="flex-1">
-              <p className="text-sm font-bold text-slate-700">ระบบ HR Admin</p>
-              <p className="text-[11px] text-slate-400">จัดการพนักงาน / เงินเดือน</p>
-            </div>
-            <ChevronRight size={14} className="text-slate-300" />
-          </Link>
-        )}
-
       </div>
-    </div>
+    </>
   )
 }

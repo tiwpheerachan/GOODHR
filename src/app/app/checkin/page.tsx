@@ -285,7 +285,9 @@ export default function CheckInPage() {
   const hasClockedIn  = !!todayRecord?.clock_in
   const hasClockedOut = !!todayRecord?.clock_out
   const lateMin       = todayRecord?.late_minutes||0
+  const earlyOutMin   = todayRecord?.early_out_minutes||0
   const isLate        = todayRecord?.status==="late"&&lateMin>0
+  const isEarlyOut    = todayRecord?.status==="early_out"||earlyOutMin>0
   const today         = format(new Date(),"yyyy-MM-dd")
 
   const handleClockIn = async()=>{
@@ -301,8 +303,13 @@ export default function CheckInPage() {
   const handleClockOut = async()=>{
     if(!pos)return toast.error("กรุณาเปิด GPS ก่อน")
     const r=await clockOut(pos.lat,pos.lng)
-    if(r.success){toast.success("เช็คเอ้าท์สำเร็จ!");refetch()}
-    else toast.error(r.error||"เกิดข้อผิดพลาด")
+    if(r.success){
+      if(r.is_early_out && r.early_out_minutes && r.early_out_minutes > 0)
+        toast(`ออกก่อนกำหนด ${r.early_out_minutes} นาที — จะถูกหักเงินเดือน`,{icon:"⚠️",duration:5000})
+      else
+        toast.success("เช็คเอ้าท์สำเร็จ!")
+      refetch()
+    }else toast.error(r.error||"เกิดข้อผิดพลาด")
   }
 
   return (
@@ -508,15 +515,59 @@ export default function CheckInPage() {
             </div>
           )}
 
-          {hasClockedOut && !isLate && (
+          {/* ── ออกก่อนกำหนด banner ── */}
+          {hasClockedOut && isEarlyOut && (
+            <div className="bg-white rounded-3xl shadow-sm border border-orange-200 p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center flex-shrink-0">
+                  <LogOut size={16} className="text-orange-500"/>
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-slate-800 text-sm">ออกก่อนกำหนด {earlyOutMin} นาที</p>
+                  <p className="text-xs text-slate-400 mt-0.5">ระบบจะหักเงินเดือนตามเวลาที่ออกก่อน — ต้องการแก้ไขหรือไม่?</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={()=>setShowAdj(true)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-orange-500 text-white flex items-center justify-center gap-1.5 hover:bg-orange-600 transition-colors">
+                  <FileEdit size={12}/> ขอแก้ไขเวลา
+                </button>
+                <Link href={`/app/leave/new?type=leave&date=${today}`}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-orange-200 text-orange-600 flex items-center justify-center gap-1.5 hover:bg-orange-50 transition-colors">
+                  <CalendarClock size={12}/> ยื่นใบลา
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {hasClockedOut && !isLate && !isEarlyOut && (
             <div className="bg-white rounded-3xl shadow-sm border border-emerald-100 p-4 flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
                 <CheckCircle2 size={16} className="text-emerald-500"/>
               </div>
               <div className="flex-1">
-                <p className="font-bold text-slate-700 text-sm">มาตรงเวลา วันนี้ทำได้ดี</p>
+                <p className="font-bold text-slate-700 text-sm">มาตรงเวลา วันนี้ทำได้ดี 🎉</p>
                 <p className="text-xs text-slate-400 mt-0.5">เข้า {formatTime(todayRecord?.clock_in)} · ออก {formatTime(todayRecord?.clock_out)}</p>
               </div>
+            </div>
+          )}
+
+          {/* สาย + ออกก่อน พร้อมกัน */}
+          {hasClockedOut && isLate && isEarlyOut && (
+            <div className="bg-white rounded-3xl shadow-sm border border-red-200 p-4 space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle size={16} className="text-red-500"/>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">สาย {lateMin} นาที + ออกก่อน {earlyOutMin} นาที</p>
+                  <p className="text-xs text-slate-400 mt-0.5">จะถูกหักเงินเดือนทั้ง 2 รายการ</p>
+                </div>
+              </div>
+              <button onClick={()=>setShowAdj(true)}
+                className="w-full py-2.5 rounded-xl text-xs font-bold bg-red-500 text-white flex items-center justify-center gap-1.5 hover:bg-red-600 transition-colors">
+                <FileEdit size={12}/> ขอแก้ไขเวลา
+              </button>
             </div>
           )}
 

@@ -1,568 +1,480 @@
 "use client"
-
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
-import { createClient } from "@/lib/supabase/client"
 import {
-  ArrowLeft,
-  TrendingUp,
-  TrendingDown,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
+  ArrowLeft, ChevronLeft, ChevronRight, Loader2, RefreshCw,
+  AlertCircle, CheckCircle2, Clock,
 } from "lucide-react"
 import Link from "next/link"
 import { format, subMonths, addMonths } from "date-fns"
-import { th } from "date-fns/locale"
 
-const supabase = createClient()
+// ── helpers ───────────────────────────────────────────────────────────
 
-function fmt(n?: number | null) {
-  if (n == null) return "—"
-  return n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function thb(n?: number | null): string {
+  return Number(n || 0).toLocaleString("th-TH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
 }
 
-function Bar({ value, max, color }: { value: number; max: number; color: string }) {
+const MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
+
+// ── sub-components ────────────────────────────────────────────────────
+
+function RowItem({
+  label, value, minus = false, color = "text-slate-700", icon,
+}: {
+  label: string
+  value?: number | null
+  minus?: boolean
+  color?: string
+  icon?: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs text-slate-500 flex items-center gap-1.5">{icon}{label}</span>
+      <span className={`text-sm font-bold ${color}`}>
+        {minus ? "-" : ""}฿{thb(value)}
+      </span>
+    </div>
+  )
+}
+
+function Bar({ value, max, active }: { value: number; max: number; active: boolean }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0
   return (
-    <div className="h-full flex items-end">
+    <div className="h-full w-full flex items-end">
       <div
-        className={"rounded-t-lg w-full transition-all duration-700 " + color}
-        style={{ height: pct + "%" }}
+        className={`rounded-t-lg w-full transition-all duration-500 ${
+          active ? "bg-blue-500" : "bg-slate-200"
+        }`}
+        style={{ height: `${pct}%` }}
       />
     </div>
   )
 }
 
-const MONTH_NAMES = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+// ── Page ─────────────────────────────────────────────────────────────
 
 export default function SalaryPage() {
   const { user } = useAuth()
-  const [month, setMonth] = useState(new Date())
-  const [record, setRecord] = useState<any>(null)
-  const [salary, setSalary] = useState<any>(null)
+
+  const [month,   setMonth]   = useState(new Date())
+  const [record,  setRecord]  = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [working, setWorking] = useState(false)
+  const [debug,   setDebug]   = useState<any>(null)
+  const [msg,     setMsg]     = useState<{
+    type: "ok" | "err" | "info"
+    text: string
+  } | null>(null)
 
-  const cardRef = useRef<HTMLDivElement | null>(null)
-  const [cardStyle, setCardStyle] = useState<React.CSSProperties>({
-    transform: "perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1,1,1)",
-    ["--mx" as any]: "50%",
-    ["--my" as any]: "50%",
-  })
+  // employee id — รองรับทั้ง 2 รูปแบบ useAuth
+  const empId: string | undefined =
+    (user as any)?.employee_id ?? (user as any)?.employee?.id
 
-  const empId = user?.employee_id ?? (user as any)?.employee?.id
+  // ── เรียก GET /api/payroll — recalculate ทุกครั้ง ────────────
+  const fetchPayroll = useCallback(async (yr: number, mon: number) => {
+    const res  = await fetch(`/api/payroll?year=${yr}&month=${mon}`, {
+      cache: "no-store",
+    })
+    const json = await res.json()
+    if (!res.ok) throw new Error(json.error ?? "ไม่สามารถโหลดข้อมูลได้")
+    return json
+  }, [])
+
+  // ── โหลดเมื่อเปลี่ยนเดือน ─────────────────────────────────────
+  const loadAll = useCallback(async (yr: number, mon: number) => {
+    if (!empId) return
+    setLoading(true)
+    setRecord(null)
+    setDebug(null)
+    setMsg(null)
+    try {
+      const json = await fetchPayroll(yr, mon)
+      setRecord(json.record   ?? null)
+      setHistory(json.history ?? [])
+      if (json.debug) setDebug(json.debug)
+    } catch (e: any) {
+      setMsg({ type: "err", text: e.message })
+    } finally {
+      setLoading(false)
+    }
+  }, [empId, fetchPayroll])
 
   useEffect(() => {
     if (!empId) return
-    setLoading(true)
-    const yr = month.getFullYear()
-    const mon = month.getMonth() + 1
+    loadAll(month.getFullYear(), month.getMonth() + 1)
+  }, [empId, month.getFullYear(), month.getMonth()]) // eslint-disable-line
 
-    Promise.all([
-      supabase
-        .from("payroll_records")
-        .select("*")
-        .eq("employee_id", empId)
-        .eq("year", yr)
-        .eq("month", mon)
-        .maybeSingle(),
-      supabase
-        .from("salary_structures")
-        .select("*")
-        .eq("employee_id", empId)
-        .is("effective_to", null)
-        .order("effective_from", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("payroll_records")
-        .select("year,month,net_salary,gross_income,total_deductions")
-        .eq("employee_id", empId)
-        .order("year", { ascending: false })
-        .order("month", { ascending: false })
-        .limit(6),
-    ]).then(([{ data: rec }, { data: sal }, { data: hist }]) => {
-      setRecord(rec)
-      setSalary(sal)
-      setHistory((hist ?? []).reverse())
-      setLoading(false)
-    })
-  }, [empId, month.getMonth(), month.getFullYear()])
+  // ── ปุ่มคำนวณใหม่ ──────────────────────────────────────────────
+  const handleRecalc = async () => {
+    if (!empId || working) return
+    setWorking(true)
+    setMsg(null)
+    setDebug(null)
+    try {
+      const json = await fetchPayroll(month.getFullYear(), month.getMonth() + 1)
+      setRecord(json.record   ?? null)
+      setHistory(json.history ?? [])
+      if (json.debug) setDebug(json.debug)
+      setMsg({ type: "ok", text: "คำนวณเรียบร้อยแล้ว" })
+      setTimeout(() => setMsg(null), 5000)
+    } catch (e: any) {
+      setMsg({ type: "err", text: e.message })
+    } finally {
+      setWorking(false)
+    }
+  }
 
-  const r = record
-  const s = salary
+  // ── computed ────────────────────────────────────────────────────
+  const r        = record
+  const gross    = Number(r?.gross_income)           || 0
+  const sso      = Number(r?.social_security_amount) || 0
+  const tax      = Number(r?.monthly_tax_withheld)   || 0
+  const dLate    = Number(r?.deduct_late)            || 0
+  const dEarly   = Number(r?.deduct_early_out)       || 0
+  const dAbsent  = Number(r?.deduct_absent)          || 0
+  const dLoan    = Number(r?.deduct_loan)            || 0
+  const totalDed = Number(r?.total_deductions)       || 0
+  const net      = Number(r?.net_salary)             || 0
 
-  const incomes = r
-    ? [
-        { label: "เงินเดือนฐาน", value: r.base_salary, show: true },
-        { label: "ค่าตำแหน่ง", value: r.allowance_position, show: (r.allowance_position || 0) > 0 },
-        { label: "ค่าเดินทาง", value: r.allowance_transport, show: (r.allowance_transport || 0) > 0 },
-        { label: "ค่าอาหาร", value: r.allowance_food, show: (r.allowance_food || 0) > 0 },
-        { label: "ค่าโทรศัพท์", value: r.allowance_phone, show: (r.allowance_phone || 0) > 0 },
-        { label: "ค่าที่อยู่อาศัย", value: r.allowance_housing, show: (r.allowance_housing || 0) > 0 },
-        { label: "ค่าล่วงเวลา (OT)", value: r.ot_amount, show: (r.ot_amount || 0) > 0 },
-      ].filter((i) => i.show)
-    : s
-      ? [
-          { label: "เงินเดือนฐาน", value: s.base_salary, show: true },
-          { label: "ค่าตำแหน่ง", value: s.allowance_position, show: (s.allowance_position || 0) > 0 },
-          { label: "ค่าเดินทาง", value: s.allowance_transport, show: (s.allowance_transport || 0) > 0 },
-          { label: "ค่าอาหาร", value: s.allowance_food, show: (s.allowance_food || 0) > 0 },
-          { label: "ค่าโทรศัพท์", value: s.allowance_phone, show: (s.allowance_phone || 0) > 0 },
-          { label: "ค่าที่อยู่อาศัย", value: s.allowance_housing, show: (s.allowance_housing || 0) > 0 },
-        ].filter((i) => i.show)
-      : []
-
-  const deductions = r
-    ? [
-        { label: "ประกันสังคม", value: r.social_security_amount, show: (r.social_security_amount || 0) > 0 },
-        { label: "ภาษีหัก ณ ที่จ่าย", value: r.monthly_tax_withheld, show: (r.monthly_tax_withheld || 0) > 0 },
-        { label: "หักมาสาย", value: r.deduct_late, show: (r.deduct_late || 0) > 0 },
-        { label: "หักขาดงาน", value: r.deduct_absent, show: (r.deduct_absent || 0) > 0 },
-        { label: "หักเงินกู้", value: r.deduct_loan, show: (r.deduct_loan || 0) > 0 },
-      ].filter((i) => i.show)
-    : []
-
-  const gross = r?.gross_income ?? incomes.reduce((s, i) => s + (i.value || 0), 0)
-  const totalDed = r?.total_deductions ?? deductions.reduce((s, d) => s + (d.value || 0), 0)
-  const net = r?.net_salary ?? gross - totalDed
-
-  const maxNet = Math.max(...history.map((h) => h.net_salary || 0), net, 1)
+  const maxNet  = Math.max(...history.map(h => Number(h.net_salary) || 0), net, 1)
   const canNext = format(addMonths(month, 1), "yyyy-MM") <= format(new Date(), "yyyy-MM")
 
-  const handleCardMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const el = cardRef.current
-    if (!el) return
-
-    const rect = el.getBoundingClientRect()
-    const px = (e.clientX - rect.left) / rect.width
-    const py = (e.clientY - rect.top) / rect.height
-
-    const rotateY = (px - 0.5) * 14
-    const rotateX = (0.5 - py) * 12
-
-    setCardStyle({
-      transform: `perspective(1200px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.01,1.01,1.01)`,
-      ["--mx" as any]: `${px * 100}%`,
-      ["--my" as any]: `${py * 100}%`,
-    })
-  }
-
-  const handleCardLeave = () => {
-    setCardStyle({
-      transform: "perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1,1,1)",
-      ["--mx" as any]: "50%",
-      ["--my" as any]: "50%",
-    })
-  }
-
   return (
-    <>
-      <div className="flex min-h-screen flex-col bg-slate-50 pb-10">
-        {/* Header */}
-        <div className="bg-white px-4 pt-4 pb-3 border-b border-slate-100 flex items-center gap-3">
-          <Link href="/app/profile" className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100">
-            <ArrowLeft size={18} className="text-slate-600" />
-          </Link>
-          <div className="flex-1">
-            <h1 className="text-[17px] font-bold text-slate-800">สรุปเงินเดือน</h1>
-            <p className="text-xs text-slate-400">
-              {user?.employee?.first_name_th} {user?.employee?.last_name_th}
-            </p>
-          </div>
+    <div className="flex flex-col bg-slate-50 min-h-screen pb-10">
+
+      {/* ── Header ────────────────────────────────────────────────── */}
+      <div className="bg-white px-4 pt-4 pb-3 border-b border-slate-100 flex items-center gap-3">
+        <Link
+          href="/app/profile"
+          className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100"
+        >
+          <ArrowLeft size={18} className="text-slate-600" />
+        </Link>
+        <div className="flex-1">
+          <h1 className="text-[17px] font-bold text-slate-800">สรุปเงินเดือน</h1>
+          <p className="text-xs text-slate-400">
+            {(user as any)?.employee?.first_name_th}{" "}
+            {(user as any)?.employee?.last_name_th}
+          </p>
         </div>
-
-        <div className="px-4 mt-4 space-y-3">
-          {/* Month nav */}
-          <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-100 shadow-sm px-3 py-2">
-            <button
-              onClick={() => setMonth((m) => subMonths(m, 1))}
-              className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100"
-            >
-              <ChevronLeft size={18} className="text-slate-600" />
-            </button>
-
-            <h2 className="font-bold text-slate-800 text-sm">
-              {format(month, "MMMM yyyy", { locale: th })}
-            </h2>
-
-            <button
-              onClick={() => setMonth((m) => addMonths(m, 1))}
-              disabled={!canNext}
-              className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100 disabled:opacity-30"
-            >
-              <ChevronRight size={18} className="text-slate-600" />
-            </button>
-          </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center py-20 gap-2 text-slate-400">
-              <Loader2 size={18} className="animate-spin" />
-              <span className="text-sm">กำลังโหลด...</span>
-            </div>
-          ) : (
-            <>
-              {/* Net salary hero */}
-              <div
-                ref={cardRef}
-                onMouseMove={handleCardMove}
-                onMouseLeave={handleCardLeave}
-                className="salary-card p-5 text-white"
-                style={cardStyle}
-              >
-                <span className="spark s1" />
-                <span className="spark s2" />
-                <span className="spark s3" />
-                <span className="spark s4" />
-
-                <div className="relative z-10">
-                  <div className="mb-4 flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-emerald-100 text-[11px] font-bold uppercase tracking-widest">
-                        {r ? "เงินได้สุทธิ" : "เงินเดือนฐาน (ยังไม่ประมวลผล)"}
-                      </p>
-                      <p className="text-white text-4xl font-black mt-1 tabular-nums">
-                        ฿{fmt(net)}
-                      </p>
-                    </div>
-
-                    <div className="card-chip-wrap">
-                      <div className="card-chip" />
-                    </div>
-                  </div>
-
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-white/70">
-                      SHD FOR YOU
-                    </p>
-                    <p className="text-[11px] font-semibold text-white/80">
-                      PAYROLL CARD
-                    </p>
-                  </div>
-
-                  <div className="flex gap-3 mt-3">
-                    <div className="flex-1 bg-white/14 rounded-xl px-3 py-2 border border-white/10 backdrop-blur-md">
-                      <p className="text-emerald-100 text-[10px]">รายได้รวม</p>
-                      <p className="text-white font-black text-sm tabular-nums">฿{fmt(gross)}</p>
-                    </div>
-                    <div className="flex-1 bg-white/14 rounded-xl px-3 py-2 border border-white/10 backdrop-blur-md">
-                      <p className="text-emerald-100 text-[10px]">หักทั้งหมด</p>
-                      <p className="text-white font-black text-sm tabular-nums">฿{fmt(totalDed)}</p>
-                    </div>
-                  </div>
-
-                  {r && (
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {r.present_days != null && (
-                        <span className="text-[11px] text-emerald-100 bg-white/10 border border-white/10 rounded-full px-2.5 py-1">
-                          เข้างาน {r.present_days} วัน
-                        </span>
-                      )}
-                      {(r.late_count || 0) > 0 && (
-                        <span className="text-[11px] text-amber-100 bg-white/10 border border-white/10 rounded-full px-2.5 py-1">
-                          สาย {r.late_count} ครั้ง
-                        </span>
-                      )}
-                      {(r.absent_days || 0) > 0 && (
-                        <span className="text-[11px] text-red-100 bg-white/10 border border-white/10 rounded-full px-2.5 py-1">
-                          ขาด {r.absent_days} วัน
-                        </span>
-                      )}
-                      {(r.ot_hours || 0) > 0 && (
-                        <span className="text-[11px] text-emerald-100 bg-white/10 border border-white/10 rounded-full px-2.5 py-1">
-                          OT {Number(r.ot_hours).toFixed(1)} ชม.
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Bar chart */}
-              {history.length > 1 && (
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-                  <p className="text-sm font-bold text-slate-700 mb-4">รายได้สุทธิ 6 เดือน</p>
-                  <div className="flex items-end gap-1.5 h-28">
-                    {history.map((h, i) => {
-                      const isCurrent =
-                        h.year === month.getFullYear() && h.month === month.getMonth() + 1
-                      return (
-                        <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full">
-                          <div className="flex-1 w-full">
-                            <Bar
-                              value={h.net_salary || 0}
-                              max={maxNet}
-                              color={isCurrent ? "bg-emerald-500" : "bg-slate-200"}
-                            />
-                          </div>
-                          <p
-                            className={
-                              "text-[10px] font-semibold " +
-                              (isCurrent ? "text-emerald-600" : "text-slate-400")
-                            }
-                          >
-                            {MONTH_NAMES[h.month - 1]}
-                          </p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-50">
-                    <span className="text-xs text-slate-400">
-                      ต่ำสุด{" "}
-                      <span className="font-bold text-slate-600">
-                        ฿{fmt(Math.min(...history.map((h) => h.net_salary || 0)))}
-                      </span>
-                    </span>
-                    <span className="text-xs text-slate-400">
-                      สูงสุด{" "}
-                      <span className="font-bold text-slate-600">
-                        ฿{fmt(Math.max(...history.map((h) => h.net_salary || 0)))}
-                      </span>
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Income breakdown */}
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-50">
-                  <div className="w-6 h-6 bg-emerald-50 rounded-lg flex items-center justify-center">
-                    <TrendingUp size={13} className="text-emerald-600" />
-                  </div>
-                  <p className="text-sm font-bold text-slate-700">รายได้</p>
-                  <p className="text-sm font-black text-emerald-600 ml-auto">฿{fmt(gross)}</p>
-                </div>
-                <div className="divide-y divide-slate-50">
-                  {incomes.map((item) => (
-                    <div key={item.label} className="flex items-center justify-between px-4 py-3">
-                      <span className="text-sm text-slate-600">{item.label}</span>
-                      <span className="text-sm font-bold text-slate-800 tabular-nums">฿{fmt(item.value)}</span>
-                    </div>
-                  ))}
-                  {incomes.length === 0 && (
-                    <p className="px-4 py-4 text-sm text-slate-400 text-center">
-                      ไม่มีข้อมูลโครงสร้างเงินเดือน
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Deduction breakdown */}
-              {deductions.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-50">
-                    <div className="w-6 h-6 bg-red-50 rounded-lg flex items-center justify-center">
-                      <TrendingDown size={13} className="text-red-500" />
-                    </div>
-                    <p className="text-sm font-bold text-slate-700">รายการหัก</p>
-                    <p className="text-sm font-black text-red-500 ml-auto">-฿{fmt(totalDed)}</p>
-                  </div>
-                  <div className="divide-y divide-slate-50">
-                    {deductions.map((item) => (
-                      <div key={item.label} className="flex items-center justify-between px-4 py-3">
-                        <span className="text-sm text-slate-600">{item.label}</span>
-                        <span className="text-sm font-bold text-red-500 tabular-nums">-฿{fmt(item.value)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Net summary bar */}
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-                <div className="flex justify-between items-center mb-3">
-                  <p className="text-xs text-slate-500">รายได้รวม</p>
-                  <p className="text-sm font-bold text-slate-700 tabular-nums">฿{fmt(gross)}</p>
-                </div>
-                <div className="flex justify-between items-center mb-3">
-                  <p className="text-xs text-slate-500">หักทั้งหมด</p>
-                  <p className="text-sm font-bold text-red-500 tabular-nums">-฿{fmt(totalDed)}</p>
-                </div>
-                <div className="relative h-3 bg-slate-100 rounded-full overflow-hidden mb-3">
-                  <div
-                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-full transition-all duration-700"
-                    style={{ width: gross > 0 ? (net / gross * 100) + "%" : "0%" }}
-                  />
-                </div>
-                <div className="flex justify-between items-center pt-2 border-t border-slate-100">
-                  <p className="text-sm font-bold text-slate-700">เงินได้สุทธิ</p>
-                  <p className="text-lg font-black text-emerald-600 tabular-nums">฿{fmt(net)}</p>
-                </div>
-              </div>
-
-              {!r && (
-                <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-xs text-amber-700 font-medium text-center">
-                  ยังไม่ประมวลผลเงินเดือนเดือนนี้ — แสดงข้อมูลจากโครงสร้างเงินเดือนปัจจุบัน
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        <button
+          onClick={handleRecalc}
+          disabled={working || loading}
+          className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-100 disabled:opacity-50 transition-colors"
+        >
+          {working
+            ? <Loader2 size={12} className="animate-spin" />
+            : <RefreshCw size={12} />}
+          {working ? "กำลังคำนวณ..." : "คำนวณใหม่"}
+        </button>
       </div>
 
-      <style jsx>{`
-        @keyframes cardWave {
-          0% {
-            transform: translateX(-120%) rotate(16deg);
-            opacity: 0;
-          }
-          28% {
-            opacity: 0.36;
-          }
-          72% {
-            opacity: 0.12;
-          }
-          100% {
-            transform: translateX(220%) rotate(16deg);
-            opacity: 0;
-          }
-        }
+      <div className="px-4 pt-4 space-y-4 max-w-lg mx-auto w-full">
 
-        @keyframes sparkle {
-          0%,
-          100% {
-            opacity: 0.22;
-            transform: scale(0.7);
-          }
-          50% {
-            opacity: 1;
-            transform: scale(1.45);
-          }
-        }
+        {/* ── Notification ─────────────────────────────────────── */}
+        {msg ? (
+          <div className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-sm font-medium ${
+            msg.type === "ok"
+              ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
+              : msg.type === "err"
+              ? "bg-red-50 border border-red-200 text-red-700"
+              : "bg-blue-50 border border-blue-200 text-blue-600"
+          }`}>
+            {msg.type === "ok"
+              ? <CheckCircle2 size={15} />
+              : msg.type === "err"
+              ? <AlertCircle size={15} />
+              : <Loader2 size={14} className="animate-spin" />}
+            {msg.text}
+          </div>
+        ) : null}
 
-        @keyframes breatheShadow {
-          0%,
-          100% {
-            box-shadow:
-              0 22px 48px rgba(16, 185, 129, 0.24),
-              0 10px 24px rgba(8, 145, 178, 0.16),
-              inset 0 1px 0 rgba(255, 255, 255, 0.18);
-          }
-          50% {
-            box-shadow:
-              0 28px 62px rgba(16, 185, 129, 0.32),
-              0 14px 30px rgba(8, 145, 178, 0.2),
-              inset 0 1px 0 rgba(255, 255, 255, 0.22);
-          }
-        }
+        {/* ── Month navigation ─────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3 flex items-center justify-between">
+          <button
+            onClick={() => setMonth(m => subMonths(m, 1))}
+            className="p-1.5 hover:bg-slate-100 rounded-xl"
+          >
+            <ChevronLeft size={18} className="text-slate-500" />
+          </button>
+          <div className="text-center">
+            <p className="text-base font-bold text-slate-800">
+              {MONTHS[month.getMonth()]} {month.getFullYear() + 543}
+            </p>
+            {r ? (
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                เข้างาน {r.present_days ?? 0} วัน · ขาด {r.absent_days ?? 0} วัน
+              </p>
+            ) : null}
+          </div>
+          <button
+            onClick={() => setMonth(m => addMonths(m, 1))}
+            disabled={!canNext}
+            className="p-1.5 hover:bg-slate-100 rounded-xl disabled:opacity-30"
+          >
+            <ChevronRight size={18} className="text-slate-500" />
+          </button>
+        </div>
 
-        .salary-card {
-          position: relative;
-          overflow: hidden;
-          border-radius: 26px;
-          border: 1px solid rgba(255, 255, 255, 0.18);
-          transform-style: preserve-3d;
-          transition:
-            transform 160ms ease-out,
-            box-shadow 200ms ease-out;
-          background:
-            radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.24), transparent 22%),
-            radial-gradient(circle at 18% 18%, rgba(255,255,255,0.2), transparent 30%),
-            radial-gradient(circle at 84% 78%, rgba(255,255,255,0.12), transparent 26%),
-            repeating-linear-gradient(
-              125deg,
-              rgba(255,255,255,0.06) 0px,
-              rgba(255,255,255,0.06) 2px,
-              transparent 2px,
-              transparent 8px
-            ),
-            linear-gradient(135deg, #10b981 0%, #0ea5a4 46%, #0891b2 100%);
-          animation: breatheShadow 5.2s ease-in-out infinite;
-          will-change: transform;
-        }
+        {/* ── Loading ──────────────────────────────────────────── */}
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <Loader2 size={28} className="animate-spin text-blue-400" />
+            <p className="text-sm text-slate-400">กำลังคำนวณเงินเดือน...</p>
+          </div>
 
-        .salary-card::before {
-          content: "";
-          position: absolute;
-          inset: 0;
-          pointer-events: none;
-          background:
-            radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.22), transparent 16%),
-            linear-gradient(
-              110deg,
-              rgba(255,255,255,0.18),
-              rgba(255,255,255,0.04) 34%,
-              rgba(255,255,255,0.16) 58%,
-              rgba(255,255,255,0.02)
-            );
-          mix-blend-mode: screen;
-        }
+        ) : !r ? (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 text-center">
+            <p className="text-slate-400 text-sm mb-3">ยังไม่มีข้อมูลเงินเดือนเดือนนี้</p>
+            <button
+              onClick={handleRecalc}
+              className="text-sm font-bold text-blue-600 hover:underline"
+            >
+              คำนวณเงินเดือน →
+            </button>
+          </div>
 
-        .salary-card::after {
-          content: "";
-          position: absolute;
-          top: -40%;
-          bottom: -40%;
-          left: -35%;
-          width: 42%;
-          background: rgba(255, 255, 255, 0.28);
-          filter: blur(20px);
-          transform: rotate(16deg);
-          animation: cardWave 5.2s ease-in-out infinite;
-          pointer-events: none;
-        }
+        ) : (
+          <>
+            {/* ── Hero ─────────────────────────────────────────── */}
+            <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl p-5 text-white shadow-lg">
+              <p className="text-xs font-medium text-blue-200 mb-1">เงินเดือนสุทธิ</p>
+              <p className="text-4xl font-black tracking-tight">฿{thb(net)}</p>
+              <div className="mt-3 flex gap-2 flex-wrap text-xs">
+                {r.present_days != null ? (
+                  <span className="bg-white/20 rounded-full px-2.5 py-0.5">
+                    เข้างาน {r.present_days} วัน
+                  </span>
+                ) : null}
+                {(r.late_count ?? 0) > 0 ? (
+                  <span className="bg-amber-400/30 rounded-full px-2.5 py-0.5">
+                    ⏰ สาย {r.late_count} ครั้ง
+                  </span>
+                ) : null}
+                {(r.absent_days ?? 0) > 0 ? (
+                  <span className="bg-red-400/30 rounded-full px-2.5 py-0.5">
+                    ❌ ขาด {r.absent_days} วัน
+                  </span>
+                ) : null}
+                {(r.ot_hours ?? 0) > 0 ? (
+                  <span className="bg-green-400/30 rounded-full px-2.5 py-0.5">
+                    OT {Number(r.ot_hours).toFixed(1)} ชม.
+                  </span>
+                ) : null}
+              </div>
+            </div>
 
-        .spark {
-          position: absolute;
-          z-index: 2;
-          width: 6px;
-          height: 6px;
-          border-radius: 9999px;
-          background: white;
-          box-shadow: 0 0 12px rgba(255, 255, 255, 0.88);
-          animation: sparkle 3.2s infinite ease-in-out;
-          pointer-events: none;
-        }
+            {/* ── Detail ─────────────────────────────────────────── */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="px-4 pt-4 pb-2">
+                <p className="text-sm font-bold text-slate-700">รายละเอียดเงินเดือน</p>
+              </div>
 
-        .spark.s1 {
-          top: 16%;
-          left: 14%;
-        }
+              {/* รายได้ */}
+              <div className="px-4 pb-3 space-y-2.5">
+                <RowItem label="เงินเดือนฐาน"         value={r.base_salary} />
+                {(r.allowance_position  ?? 0) > 0
+                  ? <RowItem label="ค่าตำแหน่ง"        value={r.allowance_position}  /> : null}
+                {(r.allowance_transport ?? 0) > 0
+                  ? <RowItem label="ค่าเดินทาง"         value={r.allowance_transport} /> : null}
+                {(r.allowance_food      ?? 0) > 0
+                  ? <RowItem label="ค่าอาหาร"           value={r.allowance_food}      /> : null}
+                {(r.allowance_phone     ?? 0) > 0
+                  ? <RowItem label="ค่าโทรศัพท์"        value={r.allowance_phone}     /> : null}
+                {(r.allowance_housing   ?? 0) > 0
+                  ? <RowItem label="ค่าที่อยู่อาศัย"    value={r.allowance_housing}   /> : null}
+                {(r.ot_amount           ?? 0) > 0
+                  ? <RowItem label="ค่าล่วงเวลา (OT)"   value={r.ot_amount}           /> : null}
+                {(r.bonus               ?? 0) > 0
+                  ? <RowItem label="โบนัส"              value={r.bonus}               /> : null}
+              </div>
 
-        .spark.s2 {
-          top: 28%;
-          right: 18%;
-          animation-delay: 0.7s;
-        }
+              {/* รายการหัก */}
+              <div className="border-t border-dashed border-slate-100 px-4 py-3 bg-red-50/30 space-y-2.5">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  รายการหัก
+                </p>
+                <RowItem
+                  label="ประกันสังคม"
+                  value={sso}
+                  minus
+                  color="text-slate-600"
+                />
+                {tax > 0 ? (
+                  <RowItem
+                    label="ภาษีหัก ณ ที่จ่าย"
+                    value={tax}
+                    minus
+                    color="text-slate-600"
+                  />
+                ) : null}
+                {dLate > 0 ? (
+                  <RowItem
+                    label={`หักมาสาย (${r.late_count ?? 0} ครั้ง)`}
+                    value={dLate}
+                    minus
+                    color="text-amber-700"
+                    icon={<Clock size={11} className="text-amber-500" />}
+                  />
+                ) : null}
+                {dEarly > 0 ? (
+                  <RowItem
+                    label="หักออกก่อนกำหนด"
+                    value={dEarly}
+                    minus
+                    color="text-orange-600"
+                  />
+                ) : null}
+                {dAbsent > 0 ? (
+                  <RowItem
+                    label={`หักขาดงาน (${r.absent_days ?? 0} วัน)`}
+                    value={dAbsent}
+                    minus
+                    color="text-red-600"
+                  />
+                ) : null}
+                {dLoan > 0 ? (
+                  <RowItem
+                    label="หักเงินกู้"
+                    value={dLoan}
+                    minus
+                    color="text-slate-600"
+                  />
+                ) : null}
+              </div>
 
-        .spark.s3 {
-          bottom: 18%;
-          left: 28%;
-          animation-delay: 1.3s;
-        }
+              {/* summary */}
+              <div className="px-4 py-4 border-t border-slate-100 space-y-2">
+                <div className="flex justify-between text-sm text-slate-500">
+                  <span>รายได้รวม</span>
+                  <span className="font-bold text-slate-700">+฿{thb(gross)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-slate-500">
+                  <span>หักทั้งหมด</span>
+                  <span className="font-bold text-red-500">-฿{thb(totalDed)}</span>
+                </div>
+                <div className="h-px bg-slate-100" />
+                <div className="flex justify-between items-baseline">
+                  <span className="font-bold text-slate-800">รับสุทธิ</span>
+                  <span className="text-2xl font-black text-blue-700">฿{thb(net)}</span>
+                </div>
+              </div>
+            </div>
 
-        .spark.s4 {
-          bottom: 26%;
-          right: 22%;
-          animation-delay: 1.8s;
-        }
+            {/* ── Debug panel ──────────────────────────────────── */}
+            {debug ? (
+              <div className="bg-slate-800 rounded-2xl p-4 text-xs font-mono space-y-1 text-slate-300">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="font-bold text-white">🔍 ผลการคำนวณ</p>
+                  <button
+                    onClick={() => setDebug(null)}
+                    className="text-slate-400 hover:text-white text-lg leading-none px-1"
+                  >×</button>
+                </div>
+                <p>งวด: <span className="text-white">{debug.period}</span></p>
+                <p>
+                  พบ attendance:{" "}
+                  <span className={
+                    (debug.att_records_found ?? 0) > 0
+                      ? "text-emerald-400 font-bold"
+                      : "text-red-400 font-bold"
+                  }>
+                    {debug.att_records_found} รายการ
+                  </span>
+                </p>
+                {debug.att_err
+                  ? <p className="text-red-400">⚠ {debug.att_err}</p>
+                  : null}
+                <div className="border-t border-slate-700 my-1.5" />
+                <p>
+                  สาย:{" "}
+                  <span className={
+                    (debug.late_total_min ?? 0) > 0
+                      ? "text-amber-400 font-bold"
+                      : "text-slate-500"
+                  }>
+                    {debug.late_count} ครั้ง · {debug.late_total_min} นาที
+                    {" → "}หัก ฿{debug.deduct_late}
+                  </span>
+                </p>
+                <p>
+                  ออกก่อน:{" "}
+                  <span className={
+                    (debug.early_total_min ?? 0) > 0
+                      ? "text-orange-400 font-bold"
+                      : "text-slate-500"
+                  }>
+                    {debug.early_count} ครั้ง · {debug.early_total_min} นาที
+                    {" → "}หัก ฿{debug.deduct_early}
+                  </span>
+                </p>
+                <p>
+                  ขาดงาน:{" "}
+                  <span className={
+                    (debug.absent_days ?? 0) > 0
+                      ? "text-red-400 font-bold"
+                      : "text-slate-500"
+                  }>
+                    {debug.absent_days} วัน → หัก ฿{debug.deduct_absent}
+                  </span>
+                </p>
+                {(debug.absent_dates?.length ?? 0) > 0
+                  ? <p className="text-red-400">วันขาด: {(debug.absent_dates as string[]).join(", ")}</p>
+                  : null}
+                <div className="border-t border-slate-700 my-1.5" />
+                <p>
+                  SSO ฿{debug.sso} | ภาษี ฿{debug.tax_monthly}
+                </p>
+                <p>
+                  หักรวม{" "}
+                  <span className="text-red-400 font-bold">
+                    ฿{Number(debug.total_deduct).toLocaleString()}
+                  </span>
+                  {" | "}สุทธิ{" "}
+                  <span className="text-emerald-400 font-bold">
+                    ฿{Number(debug.net).toLocaleString()}
+                  </span>
+                </p>
+              </div>
+            ) : null}
 
-        .card-chip-wrap {
-          position: relative;
-          flex-shrink: 0;
-          width: 44px;
-          height: 34px;
-          border-radius: 10px;
-          background: linear-gradient(135deg, rgba(255,255,255,0.18), rgba(255,255,255,0.08));
-          border: 1px solid rgba(255,255,255,0.16);
-          backdrop-filter: blur(8px);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,0.16);
-        }
-
-        .card-chip {
-          position: absolute;
-          inset: 6px;
-          border-radius: 8px;
-          background:
-            linear-gradient(90deg, rgba(255,255,255,0.18) 0 1px, transparent 1px 100%),
-            linear-gradient(rgba(255,255,255,0.16) 0 1px, transparent 1px 100%),
-            linear-gradient(135deg, rgba(255,255,255,0.24), rgba(255,255,255,0.08));
-          background-size: 8px 100%, 100% 8px, 100% 100%;
-          border: 1px solid rgba(255,255,255,0.16);
-        }
-      `}</style>
-    </>
+            {/* ── History chart ────────────────────────────────── */}
+            {history.length > 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+                <p className="text-sm font-bold text-slate-700 mb-3">ประวัติ 6 เดือน</p>
+                <div className="flex gap-2 h-20">
+                  {history.map(h => (
+                    <div
+                      key={`${h.year}-${h.month}`}
+                      className="flex-1 flex flex-col items-center"
+                    >
+                      <Bar
+                        value={Number(h.net_salary) || 0}
+                        max={maxNet}
+                        active={
+                          `${h.year}-${String(h.month).padStart(2, "0")}`
+                          === format(month, "yyyy-MM")
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 mt-1">
+                  {history.map(h => (
+                    <div key={`${h.year}-${h.month}`} className="flex-1 text-center">
+                      <p className="text-[9px] text-slate-400">{MONTHS[h.month - 1]}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
   )
 }
