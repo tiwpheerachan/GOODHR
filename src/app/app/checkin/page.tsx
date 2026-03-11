@@ -257,9 +257,18 @@ export default function CheckInPage() {
     else if(mapObj.current){ userPin.current=new window.google.maps.Marker({map:mapObj.current,position:{lat,lng},zIndex:99,icon:pinIcon}); mapObj.current.panTo({lat,lng}); mapObj.current.setZoom(17) }
   },[])
 
+  // เซต window.initCheckinMap ก่อน Script โหลด — Maps SDK เรียก callback ทันทีหลัง parse
+  useEffect(()=>{
+    window.initCheckinMap=()=>{
+      setSdkReady(true)
+      setTimeout(()=>initMap(13.7563,100.5018),0)
+    }
+    return ()=>{ try{ delete (window as any).initCheckinMap }catch{} }
+  },[initMap])
+
   const handleScriptLoad=useCallback(()=>{
-    window.initCheckinMap=()=>{}
-    setSdkReady(true)
+    // fallback ถ้า callback ไม่ถูกเรียก
+    if(!sdkReady){ setSdkReady(true); setTimeout(()=>initMap(13.7563,100.5018),0) }
     // init map ทันทีด้วย default กรุงเทพฯ ไม่รอ GPS
     setTimeout(()=>initMap(13.7563,100.5018),0)
   },[initMap])

@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   // ── ดึง adjustment request ─────────────────────────────────
   const { data: req } = await supa
     .from("time_adjustment_requests")
-    .select("*, employee:employees(id, company_id, department:departments(name))")
+    .select("*, employee:employees!time_adjustment_requests_employee_id_fkey(id, company_id, department:departments(name))")
     .eq("id", request_id)
     .single()
 
