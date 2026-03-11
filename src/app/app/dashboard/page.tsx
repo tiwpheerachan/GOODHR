@@ -228,7 +228,6 @@ function DayCard({ name }: { name?: string }) {
             "{quote}"
           </p>
           {/* tap to shuffle hint */}
-          <p className="text-white/30 text-[9px] mt-1.5 text-right tracking-wide">เปลี่ยนอัตโนมัติทุก 8 วิ</p>
         </div>
       </div>
     </div>
