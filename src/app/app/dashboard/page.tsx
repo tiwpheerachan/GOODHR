@@ -15,13 +15,125 @@ import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
 const DAY_CFG = [
-  { accent:"#8b5cf6", tag:"วันหยุด 🌸", quotes:["วันอาทิตย์ไม่ต้องตื่นเช้า ถ้าตื่นเช้าแสดงว่าเป็น PM","โทรศัพท์ปิดเสียง กายบนโซฟา ใจสงบ","การพักผ่อนคือการลงทุนที่คืนทุนเร็วที่สุด"] },
-  { accent:"#3b82f6", tag:"เริ่มสัปดาห์ ☁️", quotes:["วันจันทร์ก็เหมือนกาแฟ ขมนิดหน่อยแต่ทำให้ตื่น","กาแฟ + จันทร์ = ยังไหวอยู่","สัปดาห์ใหม่ บทเรียนใหม่"] },
-  { accent:"#f97316", tag:"ลุยเลย 🔥", quotes:["อังคารไฟแรง จันทร์ผ่านมาได้แล้ว!","ถ้าผ่านจันทร์มาได้ อังคารก็แค่เรื่องเล็ก","สู้ๆ อีกสามวันก็ศุกร์แล้ว"] },
-  { accent:"#10b981", tag:"กึ่งกลาง 🌿", quotes:["พุธ = ครึ่งทาง อีกครึ่งทางง่ายกว่า","วันพุธคือยอดเขา ข้างหน้าลงเขา","พุธ: วันที่กาแฟทำงานหนักที่สุด"] },
-  { accent:"#6366f1", tag:"เกือบถึง ⭐", quotes:["พฤหัสฯ คือแสงสว่างปลายอุโมงค์","อีกวันเดียว! กำหมัดไว้","ใกล้ๆ แล้ว เหนื่อยหน่อยแต่ถึง"] },
-  { accent:"#f59e0b", tag:"ศุกร์!! 🎉", quotes:["ศุกร์แล้วว!! มาไกลมากนะเพื่อน","TGIF — Thank God It's Friday","ศุกร์: วันที่ประสิทธิภาพสูงสุดช่วง 17:00–17:30 น."] },
-  { accent:"#0ea5e9", tag:"วันหยุด 😴", quotes:["เสาร์คือวันที่ alarm ต้องหยุดพัก","พักผ่อนเยอะๆ นะ จันทร์ยังอีกไกล","วันนี้ห้ามคิดเรื่องงาน"] },
+  { accent:"#8b5cf6", tag:"วันหยุด 🌸", quotes:[
+    "วันอาทิตย์ไม่ต้องตื่นเช้า ถ้าตื่นเช้าแสดงว่าเป็น PM 😴",
+    "โทรศัพท์ปิดเสียง กายบนโซฟา ใจสงบ 🛋️",
+    "การพักผ่อนคือการลงทุนที่คืนทุนเร็วที่สุด 💤",
+    "วันนี้ไม่มี meeting ไม่มี deadline มีแต่ความสุข 🌈",
+    "นอนดึกได้เพราะพรุ่งนี้ก็ยังวันหยุด 🌙",
+    "ชาร์จพลังให้เต็ม จันทร์นี้พร้อมสู้ 🔋",
+    "ทำอาหารเอง ดูซีรีส์ ใช้ชีวิต 🍳",
+    "วันอาทิตย์คือของขวัญที่ดีที่สุดของสัปดาห์ 🎁",
+    "ปล่อยให้ตัวเองขี้เกียจได้บ้าง มันโอเคมาก 🐢",
+    "ออกไปรับแดดอ่อนๆ แค่นั้นก็ดีแล้ว ☀️",
+    "วันหยุดคือวันที่นาฬิกาหยุดเดิน 🕰️",
+    "พักเพื่อกลับมาแข็งแกร่งกว่าเดิม 💪",
+    "กินอร่อย นอนหลับ ไม่คิดเรื่องงาน ✅",
+    "วันอาทิตย์ที่ดีคือวันที่ทำในสิ่งที่รัก 🎨",
+    "รีชาร์จ รีเซ็ต พร้อมสำหรับสัปดาห์ใหม่ 🌟",
+  ]},
+  { accent:"#3b82f6", tag:"เริ่มสัปดาห์ ☁️", quotes:[
+    "วันจันทร์ก็เหมือนกาแฟ ขมนิดหน่อยแต่ทำให้ตื่น ☕",
+    "กาแฟ + จันทร์ = ยังไหวอยู่ 💪",
+    "สัปดาห์ใหม่ บทเรียนใหม่ 📖",
+    "จันทร์ไม่ได้น่ากลัว ถ้าคุณมีแผนที่ดี 🗺️",
+    "เริ่มต้นดี ปลายทางย่อมดี 🚀",
+    "ทุกจันทร์คือโอกาสใหม่ที่ซ่อนอยู่ 🌱",
+    "อย่าคิดถึงศุกร์ตั้งแต่จันทร์ ใช้ชีวิตทีละวัน 🗓️",
+    "จันทร์นี้เป็นจุดเริ่มต้นของความสำเร็จ 🏆",
+    "ยิ้มให้จันทร์ก่อน จันทร์จะยิ้มตอบ 😊",
+    "ถ้าผ่านจันทร์ได้ทุกอย่างก็ง่ายขึ้น 🎯",
+    "จันทร์คือหน้าแรกของนิยายที่ยังไม่ได้เขียน ✍️",
+    "เปิดสัปดาห์ด้วยพลังบวก ปิดสัปดาห์ด้วยความสำเร็จ ✨",
+    "ทำงานด้วยใจ ผลลัพธ์จะตามมาเอง 💫",
+    "วันจันทร์คือแรงผลักดันที่ดีที่สุด 🔥",
+    "เริ่มใหม่ได้เสมอ แม้แต่ในวันจันทร์ 🌅",
+  ]},
+  { accent:"#f97316", tag:"ลุยเลย 🔥", quotes:[
+    "อังคารไฟแรง จันทร์ผ่านมาได้แล้ว! 🥊",
+    "ถ้าผ่านจันทร์มาได้ อังคารก็แค่เรื่องเล็ก 😤",
+    "สู้ๆ อีกสามวันก็ศุกร์แล้ว 🎉",
+    "อังคารคือวันที่ขยันที่สุดในสัปดาห์ 💼",
+    "ไฟมาแล้ว ลุยเลย ไม่มีหยุด 🔥",
+    "วันนี้ต้องดีกว่าเมื่อวาน เริ่มเลย! ⚡",
+    "อังคารคือวันที่ความฝันเริ่มกลายเป็นจริง 🌠",
+    "กดไม่หยุด วันนี้ต้องปิดงานให้ได้ 🎯",
+    "พลังเต็มถัง ออกรถเลย 🏎️",
+    "ทำมากกว่าที่คาดหวัง ผลลัพธ์จะน่าประหลาดใจ 🌟",
+    "โฟกัส ลงมือ ไม่ผัดวันประกันพรุ่ง 📌",
+    "อังคารนี้ทุกอุปสรรคคือบทเรียนที่ดี 💡",
+    "ความสำเร็จชอบคนที่ลงมือทำก่อน 🏃",
+    "วันนี้เหนื่อยได้ แต่อย่าหยุด 💪",
+    "ไปต่อ อีกนิดเดียวก็ถึงแล้ว ✅",
+  ]},
+  { accent:"#10b981", tag:"กึ่งกลาง 🌿", quotes:[
+    "พุธ = ครึ่งทาง อีกครึ่งทางง่ายกว่า 🏔️",
+    "วันพุธคือยอดเขา ข้างหน้าลงเขา 🎿",
+    "พุธ: วันที่กาแฟทำงานหนักที่สุด ☕",
+    "ครึ่งทางแล้ว อย่าหยุดตอนนี้! 🏁",
+    "พุธคือวันที่ดีที่สุดสำหรับการทบทวนเป้าหมาย 🎯",
+    "ถึงกลางสัปดาห์แล้ว คุณทำได้ดีมาก 👏",
+    "กึ่งกลางระหว่างสองสุดสัปดาห์ ใจชื้นขึ้นได้แล้ว 🌿",
+    "พุธนี้เป็นวันที่ก้าวกระโดด ไม่ใช่ก้าวเล็กๆ 🦘",
+    "หมดแรงนิดหน่อยก็ไม่เป็นไร พักแล้วลุยต่อ 🌱",
+    "ทุกขั้นตอนสำคัญ แม้แต่ขั้นกลางๆ 🧩",
+    "มาถึงตรงนี้แล้ว ก็แค่เดินต่อไป 🚶",
+    "พุธคือสัญญาณว่าคุณแข็งแกร่งกว่าที่คิด 💚",
+    "โปรเจกต์ไหนค้างอยู่บ้าง? วันนี้ปิดได้เลย 📋",
+    "ครึ่งหลังของสัปดาห์มักจะดีกว่าครึ่งแรก 🌈",
+    "ถึงพุธแล้ว นั่นแปลว่าคุณเก่งมาก 🌟",
+  ]},
+  { accent:"#6366f1", tag:"เกือบถึง ⭐", quotes:[
+    "พฤหัสฯ คือแสงสว่างปลายอุโมงค์ 🌟",
+    "อีกวันเดียว! กำหมัดไว้ 👊",
+    "ใกล้ๆ แล้ว เหนื่อยหน่อยแต่ถึง 🏅",
+    "พรุ่งนี้ศุกร์แล้ว ทนได้แน่นอน 🎊",
+    "พฤหัสฯ คือการบอกว่าคุณชนะแล้ว 90% 🏆",
+    "อีกนิดเดียว ห้ามถอย! 💥",
+    "พฤหัสนี้คือวันที่ความฝันอยู่ใกล้มือ ✨",
+    "คุณมาไกลมากแล้ว อย่าหยุดตอนนี้ 🚀",
+    "เหลือแค่ก้าวสุดท้าย ก้าวเลย 👣",
+    "พฤหัสฯ คือวันที่นับถอยหลังสู่ศุกร์ ⏳",
+    "ทำให้ดีที่สุดวันนี้ พรุ่งนี้จะมีรางวัล 🎁",
+    "เกือบถึงแล้ว พลังอีกนิดนะ ⚡",
+    "พฤหัสฯ ให้กำลังใจตัวเองบ้างก็ดีนะ 💜",
+    "อดทนอีกหน่อย ศุกร์อยู่แค่มือเอื้อม 🌸",
+    "คุณผ่านมาได้ถึงตรงนี้ นั่นคือความสำเร็จ 🥇",
+  ]},
+  { accent:"#f59e0b", tag:"ศุกร์!! 🎉", quotes:[
+    "ศุกร์แล้วว!! มาไกลมากนะเพื่อน 🎊",
+    "TGIF — Thank God It's Friday 🙌",
+    "ศุกร์: วันที่ประสิทธิภาพสูงสุดช่วง 17:00–17:30 น. 😂",
+    "ทำงานให้เสร็จ แล้วออกไปฉลอง! 🥂",
+    "ศุกร์นี้คุณทำได้ดีมากตลอดสัปดาห์ 🏆",
+    "วันที่ทุกคนรอ มาถึงแล้ว!! 🎉",
+    "กาแฟแก้วสุดท้ายของสัปดาห์ ดื่มแบบจุใจ ☕",
+    "ศุกร์บ่ายเป็นช่วงเวลาที่ดีที่สุด 🌅",
+    "อีก X ชั่วโมงก็ weekend แล้ว นับได้เลย ⏰",
+    "ปิดงานให้หมด แล้วไปพัก! ✅",
+    "ศุกร์คือรางวัลของคนที่สู้มาทั้งสัปดาห์ 🥇",
+    "เย้! ผ่านมาได้อีกสัปดาห์แล้ว! 🎈",
+    "วันศุกร์คือ playlist เพลงสนุกๆ ที่ดัง 🎵",
+    "ทุกสัปดาห์มีศุกร์ นั่นคือเหตุผลที่ต้องสู้ต่อ 💛",
+    "ยิ้มได้กว้างหน่อยนะ วันนี้สมควรแล้ว 😄",
+  ]},
+  { accent:"#0ea5e9", tag:"วันหยุด 😴", quotes:[
+    "เสาร์คือวันที่ alarm ต้องหยุดพัก ⏰",
+    "พักผ่อนเยอะๆ นะ จันทร์ยังอีกไกล 🌙",
+    "วันนี้ห้ามคิดเรื่องงาน เด็ดขาด 🚫",
+    "เสาร์คือวันที่ breakfast เป็น brunch ได้ 🥞",
+    "ออกไปเที่ยว หรือนอนอยู่บ้านก็ดีทั้งนั้น 🏖️",
+    "เสาร์นี้ทำในสิ่งที่รักสักอย่าง 🎨",
+    "วันหยุดไม่ต้องรีบ ชีวิตไม่ได้มีแต่งาน 🌸",
+    "ชาร์จแบตตัวเอง เหมือนชาร์จโทรศัพท์ 🔋",
+    "เสาร์สบายๆ กาแฟร้อนๆ วิวดีๆ ☕",
+    "วันนี้เวลาเป็นของคุณ ทำอะไรก็ได้ที่ชอบ 🌈",
+    "เสาร์คือการอนุญาตให้ตัวเองเป็นตัวเอง 💙",
+    "นอนตื่นสาย กินข้าวช้า ใช้ชีวิตสบายๆ 🐌",
+    "วันหยุดสมองจากงาน แต่ไม่หยุดความสุข 😊",
+    "เสาร์นี้ขอแค่มีความสุขเล็กๆ ก็พอ 🌟",
+    "พักผ่อนให้เต็มที่ เพราะคุณสมควรได้รับมัน 💫",
+  ]},
 ]
 const DOW_TH = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"]
 const STATUS_LABEL: Record<string,string> = {
@@ -98,6 +210,16 @@ export default function DashboardPage() {
         * { font-family: 'Noto Sans Thai', sans-serif; }
         @keyframes pulseDot { 0%{transform:scale(1);opacity:.8} 100%{transform:scale(2);opacity:0} }
         @keyframes fadeQ    { from{opacity:0} to{opacity:1} }
+        @keyframes checkoutPulse { 0%,100%{box-shadow:0 4px 14px rgba(14,165,233,.35)} 50%{box-shadow:0 4px 22px rgba(14,165,233,.65)} }
+        @keyframes checkoutShimmer { 0%{left:-60%} 100%{left:130%} }
+        .checkout-btn { animation: checkoutPulse 2s ease-in-out infinite; transition: transform .15s ease, opacity .15s ease }
+        .checkout-btn:active { transform:scale(.96); opacity:.9 }
+        .checkout-btn::after {
+          content:""; position:absolute; top:0; bottom:0; width:35%;
+          background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);
+          transform:skewX(-15deg);
+          animation: checkoutShimmer 2.2s ease-in-out infinite;
+        }
         .page { background:#f5f6fa; min-height:100%; }
         .c {
           background:#fff;
@@ -115,28 +237,23 @@ export default function DashboardPage() {
           background:`linear-gradient(135deg, ${cfg.accent}ee 0%, ${cfg.accent}bb 100%)`,
           boxShadow:`0 8px 32px ${cfg.accent}40`
         }}>
-          {/* layered depth blobs */}
           <div className="absolute inset-0 pointer-events-none" style={{
             background:`radial-gradient(ellipse at 90% -10%, rgba(255,255,255,.22) 0%, transparent 55%),
                         radial-gradient(ellipse at -5% 110%, rgba(0,0,0,.12) 0%, transparent 45%)`
           }}/>
-          {/* subtle dot pattern */}
           <div className="absolute inset-0 pointer-events-none" style={{
             backgroundImage:`radial-gradient(circle, rgba(255,255,255,.15) 1px, transparent 1px)`,
             backgroundSize:"20px 20px"
           }}/>
-          {/* glass bottom strip */}
           <div className="absolute bottom-0 inset-x-0 h-px" style={{
             background:"linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent)"
           }}/>
 
           <div className="relative z-10 px-4 pt-4 pb-3.5">
-            {/* date + clock row */}
             <div className="flex items-start justify-between mb-3">
               <p style={{ fontSize:11, color:"rgba(255,255,255,.7)", fontWeight:500, letterSpacing:"0.02em" }}>
                 {mounted ? `วัน${DOW_TH[dow]} ${format(now,"d MMM yyyy",{locale:th})}` : ""}
               </p>
-              {/* clock pill */}
               <div className="flex items-center gap-1.5 rounded-full px-3 py-1" style={{
                 background:"rgba(0,0,0,.18)", border:"1px solid rgba(255,255,255,.18)"
               }}>
@@ -150,7 +267,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* greeting + name */}
             <div className="mb-3.5">
               <p style={{ fontSize:12, color:"rgba(255,255,255,.75)", fontWeight:500 }}>{greet}</p>
               <h1 style={{ fontSize:22, fontWeight:900, color:"#fff", letterSpacing:"-0.025em", lineHeight:1.15, marginTop:2,
@@ -175,7 +291,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* quote row */}
             <div className="rounded-xl px-3 py-2.5 flex items-center gap-2.5" style={{
               background:"rgba(0,0,0,.15)", border:"1px solid rgba(255,255,255,.12)"
             }}>
@@ -233,33 +348,61 @@ export default function DashboardPage() {
           <div {...up(100)}>
             {todayRecord ? (
               <div className="c overflow-hidden">
-                {/* accent top line */}
-                <div style={{ height:3, background:`linear-gradient(90deg,#0ea5e9,#14b8a6,#10b981)` }}/>
+                {/* header */}
+                <div className="flex items-center justify-between px-4 pt-3.5 pb-3" style={{ borderBottom:"1px solid #f3f4f6" }}>
+                  <div className="flex items-center gap-2">
+                    <span style={{ fontSize:15 }}>🗓️</span>
+                    <p style={{ fontSize:13, fontWeight:700, color:"#111827" }}>บันทึกเวลาวันนี้</p>
+                  </div>
+                  <span style={{ fontSize:11, color:"#9ca3af" }}>
+                    {mounted ? format(now,"d MMM yyyy",{locale:th}) : ""}
+                  </span>
+                </div>
+
+                {/* 3 stat cols */}
                 <div className="grid grid-cols-3" style={{ borderBottom:"1px solid #f3f4f6" }}>
                   {[
-                    { label:"เข้างาน",  val:formatTime(todayRecord.clock_in)||"—",  color:"#0369a1" },
-                    { label:"ออกงาน",  val:formatTime(todayRecord.clock_out)||"—", color:"#0f766e" },
-                    { label:todayRecord.late_minutes>0?`สาย ${todayRecord.late_minutes}น.`:"ตรงเวลา",
-                      val:todayRecord.late_minutes>0?"⚠️":"✓",
-                      color:todayRecord.late_minutes>0?"#ea580c":"#16a34a" },
-                  ].map((s,i) => (
-                    <div key={i} className="py-4 text-center"
-                      style={{ borderRight:i<2?"1px solid #f3f4f6":"none" }}>
-                      <p style={{ fontSize:9, color:"#9ca3af", fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase" }}>{s.label}</p>
-                      <p className="tabular-nums font-black mt-1" style={{ fontSize:16, color:s.color }}>{s.val}</p>
+                    { icon:<Clock size={13} style={{ color:"#ea580c" }}/>,     label:"เข้างาน",  val:formatTime(todayRecord.clock_in)||"—",  accent:"#111827" },
+                    { icon:<LogOut size={13} style={{ color:"#0369a1" }}/>,    label:"ออกงาน",  val:formatTime(todayRecord.clock_out)||"—", accent:"#111827" },
+                    { icon: todayRecord.late_minutes>0
+                        ? <AlertCircle size={13} style={{ color:"#ea580c" }}/>
+                        : <TrendingUp size={13} style={{ color:"#16a34a" }}/>,
+                      label:"สถานะ",
+                      val: todayRecord.late_minutes>0 ? `+${todayRecord.late_minutes}น.` : "ตรงเวลา",
+                      accent:"#111827",
+                      sub: todayRecord.late_minutes>0 ? "มาสาย" : "",
+                      subColor: todayRecord.late_minutes>0 ? "#ea580c" : "#16a34a" },
+                  ].map((s:any,i) => (
+                    <div key={i} className="flex flex-col items-center py-4"
+                      style={{ borderRight: i<2 ? "1px solid #f3f4f6" : "none" }}>
+                      <div style={{ marginBottom:5 }}>{s.icon}</div>
+                      <p style={{ fontSize:9, color:"#9ca3af", fontWeight:600, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:5 }}>{s.label}</p>
+                      <p className="tabular-nums font-black" style={{ fontSize:17, color:s.accent, letterSpacing:"-0.02em", lineHeight:1 }}>{s.val}</p>
+                      {s.sub ? <p style={{ fontSize:9, color:s.subColor, marginTop:3, fontWeight:600, opacity:.75 }}>{s.sub}</p> : null}
                     </div>
                   ))}
                 </div>
+
+                {/* checkout row */}
                 {todayRecord.clock_in && !todayRecord.clock_out && (
-                  <div className="flex items-center justify-between px-4 py-2.5"
-                    style={{ background:"linear-gradient(90deg,#0ea5e9,#0891b2)" }}>
-                    <div className="flex items-center gap-2">
-                      <AlertCircle size={12} style={{ color:"rgba(255,255,255,.8)" }}/>
-                      <p style={{ fontSize:11, fontWeight:600, color:"#fff" }}>ยังไม่ได้เช็คเอ้าท์</p>
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                        style={{ background:"#fff7ed" }}>
+                        <AlertCircle size={15} style={{ color:"#f97316" }}/>
+                      </div>
+                      <div>
+                        <p style={{ fontSize:12, fontWeight:700, color:"#111827" }}>ยังไม่ได้เช็คเอ้าท์</p>
+                        <p style={{ fontSize:10, color:"#9ca3af", marginTop:1 }}>อย่าลืมบันทึกเวลาออกนะ</p>
+                      </div>
                     </div>
-                    <Link href="/app/checkin" className="press flex items-center gap-1 rounded-lg px-3 py-1.5"
-                      style={{ background:"rgba(255,255,255,.2)", border:"1px solid rgba(255,255,255,.3)", fontSize:11, fontWeight:700, color:"#fff" }}>
-                      <MapPin size={11}/> เช็คเอ้าท์
+                    <Link href="/app/checkin" className="checkout-btn flex items-center gap-1.5 rounded-xl px-3.5 py-2" style={{
+                      background:"linear-gradient(135deg,#0ea5e9,#0891b2)",
+                      fontSize:12, fontWeight:700, color:"#fff",
+                      boxShadow:"0 4px 14px rgba(14,165,233,.35)",
+                      position:"relative", overflow:"hidden"
+                    }}>
+                      <MapPin size={12}/> เช็คเอ้าท์
                     </Link>
                   </div>
                 )}
