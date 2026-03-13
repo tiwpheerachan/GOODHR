@@ -2,141 +2,206 @@
 import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
-import { Check, X, Clock, CalendarDays, Loader2 } from "lucide-react"
+import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
-type Tab = "leave" | "overtime" | "adjustment"
+type Tab = "leave" | "overtime" | "adjustment" | "resignation"
+
+const RESIGN_REASONS_MAP: Record<string, string> = {
+  heavy_work: "งานหนัก/ทีมน้อย", boss: "ปัญหาหัวหน้า", low_salary: "เงินเดือนน้อย",
+  study: "ศึกษาต่อ", own_biz: "ธุรกิจส่วนตัว", family: "ปัญหาครอบครัว",
+  health: "ปัญหาสุขภาพ", new_job: "ได้งานใหม่", mismatch: "ไม่เหมาะสมกับตำแหน่ง",
+  no_prob: "ไม่ผ่านทดลองงาน", other: "อื่นๆ",
+}
 
 export default function ApprovalsPage() {
   const { user } = useAuth()
-  const [tab, setTab]     = useState<Tab>("leave")
+  const [tab, setTab] = useState<Tab>("leave")
   const [items, setItems] = useState<any[]>([])
-  const [loading, setLoading]   = useState(false)
-  const [acting, setActing]     = useState<string | null>(null)
-  const [notes, setNotes]       = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(false)
+  const [acting, setActing] = useState<string | null>(null)
+  const [notes, setNotes] = useState<Record<string, string>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [counts, setCounts] = useState({ leave: 0, overtime: 0, adjustment: 0, resignation: 0 })
 
+  // ── helpers ──────────────────────────────────────────────────────────────
+  const fmtTime = (iso?: string | null) => {
+    if (!iso) return "--:--"
+    return new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false })
+  }
+
+  const fmtDate = (dateStr?: string | null, fmt = "d MMM") => {
+    if (!dateStr) return "-"
+    const d = new Date(dateStr + "T00:00:00")
+    if (isNaN(d.getTime())) return "-"
+    return format(d, fmt, { locale: th })
+  }
+
+  const Avatar = ({ emp, size = "sm", bgColor = "bg-gray-100", textColor = "text-gray-600" }: {
+    emp: any; size?: "sm" | "md"; bgColor?: string; textColor?: string
+  }) => {
+    const dim = size === "md" ? "w-10 h-10" : "w-9 h-9"
+    return (
+      <div className={`${dim} rounded-full ${bgColor} ${textColor} flex items-center justify-center text-sm font-bold shrink-0 overflow-hidden`}>
+        {emp?.avatar_url
+          ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" />
+          : emp?.first_name_th?.[0]}
+      </div>
+    )
+  }
+
+  // ── load items ────────────────────────────────────────────────────────────
   const loadItems = async () => {
     const supabase = createClient()
-
-    const role    = (user as any)?.role ?? "employee"
-    const empId: string | undefined =
-      (user as any)?.employee_id ?? (user as any)?.employee?.id
-
-    // resolve companyId จากทุก path ที่เป็นไปได้
+    const role = (user as any)?.role ?? "employee"
+    const empId: string | undefined = (user as any)?.employee_id ?? (user as any)?.employee?.id
     let companyId: string | undefined =
-      (user as any)?.company_id ??
-      (user as any)?.employee?.company_id ??
-      (user as any)?.employee?.company?.id
+      (user as any)?.company_id ?? (user as any)?.employee?.company_id ?? (user as any)?.employee?.company?.id
 
-    // ถ้ายังไม่มี ดึงจาก employees table
     if (!companyId && empId) {
-      const { data: empRow } = await supabase
-        .from("employees").select("company_id").eq("id", empId).single()
+      const { data: empRow } = await supabase.from("employees").select("company_id").eq("id", empId).single()
       companyId = empRow?.company_id
     }
-
-    // ถ้าไม่มีเลย ดึงจาก companies table (super_admin ไม่มี employee)
     if (!companyId) {
-      const { data: co } = await supabase
-        .from("companies").select("id").limit(1).single()
+      const { data: co } = await supabase.from("companies").select("id").limit(1).single()
       companyId = co?.id
     }
-
     if (!companyId) return
     setLoading(true)
 
-    // super_admin / hr_admin เห็นทุกคำร้องใน company
-    // manager เห็นเฉพาะทีมตัวเอง
     const isAdminRole = ["super_admin", "hr_admin"].includes(role)
     let teamIds: string[] = []
-
     if (!isAdminRole && empId) {
       const { data: teamRows } = await supabase
-        .from("employee_manager_history")
-        .select("employee_id")
-        .eq("manager_id", empId)
-        .is("effective_to", null)
+        .from("employee_manager_history").select("employee_id")
+        .eq("manager_id", empId).is("effective_to", null)
       teamIds = (teamRows ?? []).map((r: any) => String(r.employee_id))
     }
 
-    // ── Query helper ──────────────────────────────────────────
     async function fetchPending(table: string, selectStr: string) {
-      // admin role หรือ manager ที่ไม่มีทีม → ดึงทั้ง company
       if (isAdminRole || teamIds.length === 0) {
-        return supabase
-          .from(table)
-          .select(selectStr)
-          .eq("company_id", companyId)
-          .eq("status", "pending")
+        return supabase.from(table).select(selectStr)
+          .eq("company_id", companyId).eq("status", "pending")
           .order("created_at", { ascending: true })
       }
-      // manager ที่มีทีม → filter เฉพาะสมาชิก
-      return supabase
-        .from(table)
-        .select(selectStr)
-        .in("employee_id", teamIds)
-        .eq("status", "pending")
+      return supabase.from(table).select(selectStr)
+        .in("employee_id", teamIds).eq("status", "pending")
         .order("created_at", { ascending: true })
     }
 
-    // ── LEAVE ─────────────────────────────────────────────────
     if (tab === "leave") {
       const { data, error } = await fetchPending(
         "leave_requests",
-        "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,position:positions(name)), leave_type:leave_types(*)"
+        "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name)), leave_type:leave_types(*)"
       )
       if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
       setItems(data ?? [])
 
-    // ── OVERTIME ──────────────────────────────────────────────
     } else if (tab === "overtime") {
       const { data, error } = await fetchPending(
         "overtime_requests",
-        "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,position:positions(name))"
+        "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name))"
       )
       if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
       setItems(data ?? [])
 
-    // ── ADJUSTMENT ────────────────────────────────────────────
-    } else {
+    } else if (tab === "adjustment") {
       const { data, error } = await fetchPending(
         "time_adjustment_requests",
-        "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,position:positions(name),department:departments(name))"
+        "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name),department:departments(name))"
       )
       if (error) { toast.error("โหลดข้อมูลผิดพลาด: " + error.message); setItems([]); setLoading(false); return }
       if (!data || data.length === 0) { setItems([]); setLoading(false); return }
-
-      // เพิ่ม actual clock-in/out เพื่อแสดงเวลาจริง
       const enriched = await Promise.all(data.map(async (item: any) => {
-        const { data: rec } = await supabase
-          .from("attendance_records")
+        const { data: rec } = await supabase.from("attendance_records")
           .select("clock_in, clock_out, late_minutes, status")
-          .eq("employee_id", item.employee_id)
-          .eq("work_date", item.work_date)
-          .maybeSingle()
+          .eq("employee_id", item.employee_id).eq("work_date", item.work_date).maybeSingle()
         return { ...item, actual_record: rec }
       }))
       setItems(enriched)
+
+    } else if (tab === "resignation") {
+      let q = supabase.from("resignation_requests")
+        .select(`*, employee:employees!resignation_requests_employee_id_fkey(
+          id,first_name_th,last_name_th,employee_code,avatar_url,hire_date,
+          position:positions(name),department:departments(name))`)
+        .eq("status", "pending_manager").order("created_at", { ascending: true })
+      if (!isAdminRole && teamIds.length > 0) q = (q as any).in("employee_id", teamIds)
+      else if (!isAdminRole) { setItems([]); setLoading(false); return }
+      else q = (q as any).eq("company_id", companyId)
+      const { data, error } = await q
+      if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
+      setItems(data ?? [])
     }
 
     setLoading(false)
   }
 
+  // ── load badge counts ─────────────────────────────────────────────────────
+  const loadCounts = async () => {
+    const supabase = createClient()
+    const empId: string | undefined = (user as any)?.employee_id ?? (user as any)?.employee?.id
+    const role = (user as any)?.role ?? "employee"
+    const isAdminRole = ["super_admin", "hr_admin"].includes(role)
+    let companyId: string | undefined = (user as any)?.company_id ?? (user as any)?.employee?.company_id
+    if (!companyId && empId) {
+      const { data: empRow } = await supabase.from("employees").select("company_id").eq("id", empId).single()
+      companyId = empRow?.company_id
+    }
+    if (!companyId) return
+
+    let teamIds: string[] = []
+    if (!isAdminRole && empId) {
+      const { data: teamRows } = await supabase.from("employee_manager_history")
+        .select("employee_id").eq("manager_id", empId).is("effective_to", null)
+      teamIds = (teamRows ?? []).map((r: any) => String(r.employee_id))
+    }
+
+    const [lv, ot, adj] = await Promise.all([
+      isAdminRole
+        ? supabase.from("leave_requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending")
+        : teamIds.length > 0
+          ? supabase.from("leave_requests").select("id", { count: "exact", head: true }).in("employee_id", teamIds).eq("status", "pending")
+          : Promise.resolve({ count: 0 }),
+      isAdminRole
+        ? supabase.from("overtime_requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending")
+        : teamIds.length > 0
+          ? supabase.from("overtime_requests").select("id", { count: "exact", head: true }).in("employee_id", teamIds).eq("status", "pending")
+          : Promise.resolve({ count: 0 }),
+      isAdminRole
+        ? supabase.from("time_adjustment_requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending")
+        : teamIds.length > 0
+          ? supabase.from("time_adjustment_requests").select("id", { count: "exact", head: true }).in("employee_id", teamIds).eq("status", "pending")
+          : Promise.resolve({ count: 0 }),
+    ])
+
+    let resCount = 0
+    if (teamIds.length > 0) {
+      const { count } = await supabase.from("resignation_requests")
+        .select("id", { count: "exact", head: true }).in("employee_id", teamIds).eq("status", "pending_manager")
+      resCount = count ?? 0
+    } else if (isAdminRole) {
+      const { count } = await supabase.from("resignation_requests")
+        .select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending_manager")
+      resCount = count ?? 0
+    }
+
+    setCounts({ leave: lv.count ?? 0, overtime: ot.count ?? 0, adjustment: adj.count ?? 0, resignation: resCount })
+  }
+
   useEffect(() => {
-    if (user) loadItems()
+    if (user) { loadItems(); loadCounts() }
   }, [tab, user?.role, (user as any)?.employee_id, (user as any)?.employee?.id])
 
-  // ── approve/reject leave & overtime ───────────────────────
+  // ── approve/reject leave & overtime ──────────────────────────────────────
   const handleLeaveOT = async (id: string, action: "approved" | "rejected") => {
     setActing(id)
     const supabase = createClient()
     const tbl = tab === "leave" ? "leave_requests" : "overtime_requests"
     const empId = (user as any)?.employee_id ?? (user as any)?.employee?.id
-    const { error } = await supabase
-      .from(tbl)
+    const { error } = await supabase.from(tbl)
       .update({ status: action, reviewed_by: empId, reviewed_at: new Date().toISOString(), review_note: notes[id] || null })
       .eq("id", id)
     if (error) { toast.error(error.message); setActing(null); return }
@@ -149,29 +214,25 @@ export default function ApprovalsPage() {
       })
     }
     toast.success(action === "approved" ? "✅ อนุมัติแล้ว" : "ปฏิเสธแล้ว")
-    setActing(null)
-    loadItems()
+    setActing(null); loadItems(); loadCounts()
   }
 
-  // ── approve/reject adjustment ผ่าน /api/correction ────────
+  // ── approve/reject adjustment ─────────────────────────────────────────────
   const handleAdjustment = async (id: string, action: "approve" | "reject") => {
     setActing(id)
     const supabase = createClient()
     try {
       const res = await fetch("/api/correction", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, request_id: id, review_note: notes[id] || null }),
       })
       const json = await res.json()
       if (!json.success) throw new Error(json.error || "เกิดข้อผิดพลาด")
       if (action === "approve" && json.updated) {
         const { late_minutes, status } = json.updated
-        toast.success(
-          status === "present" ? "✅ อนุมัติแล้ว — สถานะเปลี่ยนเป็น ตรงเวลา"
-            : `✅ อนุมัติแล้ว — ยังสาย ${late_minutes} นาที`,
-          { duration: 4000 }
-        )
+        toast.success(status === "present"
+          ? "✅ อนุมัติแล้ว — สถานะเปลี่ยนเป็น ตรงเวลา"
+          : `✅ อนุมัติแล้ว — ยังสาย ${late_minutes} นาที`, { duration: 4000 })
       } else {
         toast.success(action === "approve" ? "✅ อนุมัติแล้ว" : "ปฏิเสธแล้ว")
       }
@@ -183,197 +244,368 @@ export default function ApprovalsPage() {
           body: notes[id] || "", ref_table: "time_adjustment_requests", ref_id: id,
         })
       }
-    } catch (err: any) {
-      toast.error(err.message)
+    } catch (err: any) { toast.error(err.message) }
+    setActing(null); loadItems(); loadCounts()
+  }
+
+  // ── approve/reject resignation ────────────────────────────────────────────
+  const handleResignation = async (id: string, action: "approved" | "rejected") => {
+    setActing(id)
+    const supabase = createClient()
+    const empId = (user as any)?.employee_id ?? (user as any)?.employee?.id
+    const nextStatus = action === "approved" ? "pending_hr" : "rejected"
+    const { error } = await supabase.from("resignation_requests").update({
+      status: nextStatus, manager_id: empId,
+      manager_approved_at: new Date().toISOString(), manager_note: notes[id] || null,
+    }).eq("id", id)
+    if (error) { toast.error(error.message); setActing(null); return }
+    const item = items.find(i => i.id === id)
+    if (item) {
+      await supabase.from("notifications").insert({
+        employee_id: item.employee_id, type: "resignation",
+        title: action === "approved" ? "ใบลาออกผ่านหัวหน้าแล้ว รอ HR อนุมัติ" : "ใบลาออกถูกปฏิเสธจากหัวหน้า",
+        body: notes[id] || "",
+      })
+      if (action === "approved") {
+        const { data: hrList } = await supabase.from("users").select("employee_id")
+          .in("role", ["hr_admin", "super_admin"]).eq("company_id", item.company_id).not("employee_id", "is", null)
+        for (const h of hrList ?? []) {
+          await supabase.from("notifications").insert({
+            employee_id: h.employee_id, type: "resignation",
+            title: `ใบลาออก ${item.employee?.first_name_th} ${item.employee?.last_name_th} รอ HR อนุมัติ`,
+            body: `วันสุดท้าย ${fmtDate(item.last_work_date, "d MMM yyyy")}`,
+          })
+        }
+      }
     }
-    setActing(null)
-    loadItems()
+    toast.success(action === "approved" ? "✅ ส่งต่อ HR แล้ว" : "ปฏิเสธใบลาออกแล้ว")
+    setActing(null); loadItems(); loadCounts()
   }
 
-  const fmtTime = (iso?: string | null) => {
-    if (!iso) return "--:--"
-    return new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false })
-  }
+  // ── shared components ─────────────────────────────────────────────────────
+  const inputCls = "w-full mt-3 px-3 py-2.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white transition-all placeholder:text-gray-400"
 
-  const TABS: Record<Tab, string> = { leave: "ใบลา", overtime: "OT", adjustment: "แก้เวลา" }
+  const ActionButtons = ({ id, onReject, onApprove, approveLabel = "อนุมัติ" }: {
+    id: string; onReject: () => void; onApprove: () => void; approveLabel?: string
+  }) => (
+    <div className="flex gap-2 mt-3">
+      <button onClick={onReject} disabled={acting === id}
+        className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl border border-gray-200 bg-white text-gray-500 text-sm font-semibold hover:bg-gray-50 active:scale-[0.98] transition-all disabled:opacity-50">
+        {acting === id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+        ปฏิเสธ
+      </button>
+      <button onClick={onApprove} disabled={acting === id}
+        className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:scale-[0.98] transition-all shadow-sm shadow-blue-200 disabled:opacity-50">
+        {acting === id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+        {approveLabel}
+      </button>
+    </div>
+  )
+
+  const TABS: { key: Tab; label: string; color: string }[] = [
+    { key: "leave",       label: "ใบลา",    color: "bg-sky-500" },
+    { key: "overtime",    label: "OT",       color: "bg-amber-500" },
+    { key: "adjustment",  label: "แก้เวลา", color: "bg-violet-500" },
+    { key: "resignation", label: "ลาออก",   color: "bg-rose-500" },
+  ]
 
   return (
-    <div className="flex flex-col bg-slate-50 min-h-screen">
+    <div className="flex flex-col bg-gray-50 min-h-screen">
 
-      <div className="bg-white px-4 pt-4 pb-3 border-b border-slate-100">
-        <h1 className="text-[17px] font-bold text-slate-800">คำร้องรออนุมัติ</h1>
-        <p className="text-xs text-slate-400 mt-0.5">
+      {/* ── Header ── */}
+      <div className="bg-white px-4 pt-5 pb-4 border-b border-gray-100">
+        <h1 className="text-[17px] font-bold text-gray-900 tracking-tight">คำร้องรออนุมัติ</h1>
+        <p className="text-xs text-gray-400 mt-0.5">
           {!loading && (items.length > 0 ? `${items.length} รายการรออนุมัติ` : "ไม่มีคำร้องค้างอยู่")}
         </p>
       </div>
 
-      <div className="bg-white px-4 pb-3 border-b border-slate-100">
-        <div className="flex bg-slate-100 rounded-xl p-1">
-          {(Object.keys(TABS) as Tab[]).map(k => (
-            <button key={k} onClick={() => setTab(k)}
-              className={"flex-1 py-2 text-sm font-semibold rounded-lg transition-all " +
-                (tab === k ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500")}>
-              {TABS[k]}
+      {/* ── Tabs ── */}
+      <div className="bg-white px-4 pb-3 border-b border-gray-100">
+        <div className="flex gap-1 bg-gray-100 rounded-2xl p-1">
+          {TABS.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={"relative flex-1 py-2 text-xs font-semibold rounded-xl transition-all " +
+                (tab === t.key ? "bg-white text-gray-900 shadow-sm" : "text-gray-400 hover:text-gray-600")}>
+              {t.label}
+              {counts[t.key] > 0 && (
+                <span className={"absolute -top-1 -right-0.5 w-[18px] h-[18px] text-white text-[9px] font-black rounded-full flex items-center justify-center " + t.color}>
+                  {counts[t.key]}
+                </span>
+              )}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="px-4 py-3 space-y-3">
+      <div className="px-4 py-4 space-y-3 pb-8">
 
         {loading && (
-          <div className="flex items-center justify-center py-16 gap-2 text-slate-400">
+          <div className="flex items-center justify-center py-20 gap-2 text-gray-400">
             <Loader2 size={18} className="animate-spin" />
             <span className="text-sm">กำลังโหลด...</span>
           </div>
         )}
 
-        {/* ── LEAVE ─────────────────────────────────── */}
+        {/* ── LEAVE ── */}
         {!loading && tab === "leave" && items.map(item => (
-          <div key={item.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="border-l-4 border-l-blue-400 px-4 py-3">
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center text-sm font-bold text-blue-600 shrink-0">
-                  {item.employee?.first_name_th?.[0]}
-                </div>
+          <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-4 py-4">
+              <div className="flex items-center gap-3">
+                <Avatar emp={item.employee} bgColor="bg-sky-100" textColor="text-sky-600" />
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-800 text-sm">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
-                  <p className="text-xs text-slate-400">{item.employee?.position?.name}</p>
+                  <p className="font-bold text-gray-900 text-sm leading-tight">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{item.employee?.position?.name}</p>
                 </div>
-                <p className="text-[11px] text-slate-400 shrink-0">{format(new Date(item.created_at), "d MMM", { locale: th })}</p>
+                <span className="text-[11px] text-gray-400 shrink-0">{fmtDate(item.created_at?.split("T")[0])}</span>
               </div>
-              <div className="mt-3 bg-slate-50 rounded-xl px-3 py-2.5 space-y-1 text-xs text-slate-600">
-                <p><span className="text-slate-400">ประเภท:</span> <b>{item.leave_type?.name}</b></p>
-                <p><span className="text-slate-400">วันที่:</span> {format(new Date(item.start_date), "d MMM", { locale: th })} – {format(new Date(item.end_date), "d MMM yyyy", { locale: th })} <b>({item.total_days} วัน)</b></p>
-                {item.reason && <p><span className="text-slate-400">เหตุผล:</span> {item.reason}</p>}
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                  <p className="text-gray-400 mb-0.5">ประเภท</p>
+                  <p className="font-bold text-gray-800">{item.leave_type?.name}</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                  <p className="text-gray-400 mb-0.5">จำนวน</p>
+                  <p className="font-bold text-gray-800">{item.total_days} วัน</p>
+                </div>
               </div>
-              <input placeholder="หมายเหตุ (ไม่บังคับ)" value={notes[item.id] || ""} onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
-                className="w-full mt-3 px-3 py-2.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-              <div className="flex gap-2 mt-3">
-                <button onClick={() => handleLeaveOT(item.id, "rejected")} disabled={acting === item.id}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-red-50 text-red-600 font-semibold text-sm rounded-xl active:scale-[0.98]">
-                  {acting === item.id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />} ปฏิเสธ
-                </button>
-                <button onClick={() => handleLeaveOT(item.id, "approved")} disabled={acting === item.id}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-emerald-600 text-white font-semibold text-sm rounded-xl active:scale-[0.98]">
-                  {acting === item.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} อนุมัติ
-                </button>
+              <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
+                <p className="text-gray-400 mb-0.5">ช่วงวันที่</p>
+                <p className="font-semibold text-gray-700">{fmtDate(item.start_date)} – {fmtDate(item.end_date, "d MMM yyyy")}</p>
               </div>
+              {item.reason && (
+                <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
+                  <p className="text-gray-400 mb-0.5">เหตุผล</p>
+                  <p className="text-gray-700">{item.reason}</p>
+                </div>
+              )}
+
+              <input placeholder="หมายเหตุ (ไม่บังคับ)" value={notes[item.id] || ""}
+                onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
+                className={inputCls} />
+              <ActionButtons id={item.id}
+                onReject={() => handleLeaveOT(item.id, "rejected")}
+                onApprove={() => handleLeaveOT(item.id, "approved")} />
             </div>
           </div>
         ))}
 
-        {/* ── OVERTIME ──────────────────────────────── */}
+        {/* ── OVERTIME ── */}
         {!loading && tab === "overtime" && items.map(item => (
-          <div key={item.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="border-l-4 border-l-orange-400 px-4 py-3">
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 bg-orange-100 rounded-xl flex items-center justify-center text-sm font-bold text-orange-600 shrink-0">
-                  {item.employee?.first_name_th?.[0]}
-                </div>
+          <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-4 py-4">
+              <div className="flex items-center gap-3">
+                <Avatar emp={item.employee} bgColor="bg-amber-100" textColor="text-amber-600" />
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-800 text-sm">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
-                  <p className="text-xs text-slate-400">{item.employee?.position?.name}</p>
+                  <p className="font-bold text-gray-900 text-sm leading-tight">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{item.employee?.position?.name}</p>
                 </div>
-                <p className="text-[11px] text-slate-400 shrink-0">{format(new Date(item.created_at), "d MMM", { locale: th })}</p>
+                <span className="text-[11px] text-gray-400 shrink-0">{fmtDate(item.created_at?.split("T")[0])}</span>
               </div>
-              <div className="mt-3 bg-slate-50 rounded-xl px-3 py-2.5 space-y-1 text-xs text-slate-600">
-                <p><span className="text-slate-400">วันที่:</span> <b>{format(new Date(item.work_date), "d MMMM yyyy", { locale: th })}</b></p>
-                <p><span className="text-slate-400">เวลา OT:</span> <b>{fmtTime(item.ot_start)} – {fmtTime(item.ot_end)}</b></p>
-                {item.reason && <p><span className="text-slate-400">เหตุผล:</span> {item.reason}</p>}
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                  <p className="text-gray-400 mb-0.5">วันที่</p>
+                  <p className="font-bold text-gray-800">{fmtDate(item.work_date, "d MMM yyyy")}</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                  <p className="text-gray-400 mb-0.5">เวลา OT</p>
+                  <p className="font-bold text-gray-800 tabular-nums">{fmtTime(item.ot_start)} – {fmtTime(item.ot_end)}</p>
+                </div>
               </div>
-              <input placeholder="หมายเหตุ (ไม่บังคับ)" value={notes[item.id] || ""} onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
-                className="w-full mt-3 px-3 py-2.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-              <div className="flex gap-2 mt-3">
-                <button onClick={() => handleLeaveOT(item.id, "rejected")} disabled={acting === item.id}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-red-50 text-red-600 font-semibold text-sm rounded-xl active:scale-[0.98]">
-                  {acting === item.id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />} ปฏิเสธ
-                </button>
-                <button onClick={() => handleLeaveOT(item.id, "approved")} disabled={acting === item.id}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-emerald-600 text-white font-semibold text-sm rounded-xl active:scale-[0.98]">
-                  {acting === item.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} อนุมัติ
-                </button>
-              </div>
+              {item.reason && (
+                <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
+                  <p className="text-gray-400 mb-0.5">เหตุผล</p>
+                  <p className="text-gray-700">{item.reason}</p>
+                </div>
+              )}
+
+              <input placeholder="หมายเหตุ (ไม่บังคับ)" value={notes[item.id] || ""}
+                onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
+                className={inputCls} />
+              <ActionButtons id={item.id}
+                onReject={() => handleLeaveOT(item.id, "rejected")}
+                onApprove={() => handleLeaveOT(item.id, "approved")} />
             </div>
           </div>
         ))}
 
-        {/* ── ADJUSTMENT ────────────────────────────── */}
+        {/* ── ADJUSTMENT ── */}
         {!loading && tab === "adjustment" && items.map(item => {
           const actual = item.actual_record
           const isLate = (actual?.late_minutes ?? 0) > 0
           const isOpen = expanded === item.id
           return (
-            <div key={item.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <div className="border-l-4 border-l-amber-400 px-4 py-3">
+            <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-4 py-4">
                 <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center text-sm font-bold text-amber-600 shrink-0">
-                    {item.employee?.first_name_th?.[0]}
-                  </div>
+                  <Avatar emp={item.employee} bgColor="bg-violet-100" textColor="text-violet-600" />
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-800 text-sm">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
-                    <p className="text-xs text-slate-400">{item.employee?.position?.name} · {item.employee?.department?.name}</p>
+                    <p className="font-bold text-gray-900 text-sm leading-tight">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{item.employee?.position?.name} · {item.employee?.department?.name}</p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-[11px] text-slate-400">{format(new Date(item.created_at), "d MMM", { locale: th })}</p>
-                    {isLate && <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">สาย {actual.late_minutes} น.</span>}
+                  <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                    <span className="text-[11px] text-gray-400">{fmtDate(item.created_at?.split("T")[0])}</span>
+                    {isLate && (
+                      <span className="text-[10px] bg-amber-50 text-amber-600 font-bold px-2 py-0.5 rounded-full border border-amber-200">
+                        สาย {actual.late_minutes} น.
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                  <CalendarDays size={12} />
-                  <span className="font-semibold text-slate-700">{item.work_date ? format(new Date(item.work_date + "T00:00:00"), "EEEE d MMMM yyyy", { locale: th }) : "-"}</span>
+
+                <div className="mt-3 flex items-center gap-1.5 text-xs text-gray-500">
+                  <CalendarDays size={12} className="text-gray-400" />
+                  <span className="font-semibold text-gray-700">{fmtDate(item.work_date, "EEEE d MMMM yyyy")}</span>
                 </div>
+
                 <div className="mt-2.5 grid grid-cols-2 gap-2">
-                  <div className="bg-slate-50 rounded-xl px-3 py-2.5">
-                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest mb-1.5">เวลาจริง</p>
-                    <div className="space-y-1">
-                      <div className="flex justify-between"><span className="text-[11px] text-slate-400">เข้า</span><span className="text-sm font-black tabular-nums text-slate-700">{fmtTime(actual?.clock_in)}</span></div>
-                      <div className="flex justify-between"><span className="text-[11px] text-slate-400">ออก</span><span className="text-sm font-black tabular-nums text-slate-700">{fmtTime(actual?.clock_out)}</span></div>
+                  <div className="bg-gray-50 rounded-xl px-3 py-3 border border-gray-100">
+                    <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-widest mb-2">เวลาจริง</p>
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[11px] text-gray-400">เข้า</span>
+                        <span className="text-sm font-black tabular-nums text-gray-700">{fmtTime(actual?.clock_in)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[11px] text-gray-400">ออก</span>
+                        <span className="text-sm font-black tabular-nums text-gray-700">{fmtTime(actual?.clock_out)}</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="bg-indigo-50 rounded-xl px-3 py-2.5 border border-indigo-100">
-                    <p className="text-[10px] text-indigo-400 font-semibold uppercase tracking-widest mb-1.5">ขอแก้เป็น</p>
-                    <div className="space-y-1">
-                      <div className="flex justify-between"><span className="text-[11px] text-indigo-400">เข้า</span><span className={"text-sm font-black tabular-nums " + (item.requested_clock_in ? "text-indigo-700" : "text-slate-300")}>{item.requested_clock_in ? fmtTime(item.requested_clock_in) : "--:--"}</span></div>
-                      <div className="flex justify-between"><span className="text-[11px] text-indigo-400">ออก</span><span className={"text-sm font-black tabular-nums " + (item.requested_clock_out ? "text-indigo-700" : "text-slate-300")}>{item.requested_clock_out ? fmtTime(item.requested_clock_out) : "--:--"}</span></div>
+                  <div className="bg-blue-50 rounded-xl px-3 py-3 border border-blue-100">
+                    <p className="text-[10px] text-blue-400 font-semibold uppercase tracking-widest mb-2">ขอแก้เป็น</p>
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[11px] text-blue-400">เข้า</span>
+                        <span className={"text-sm font-black tabular-nums " + (item.requested_clock_in ? "text-blue-700" : "text-gray-300")}>
+                          {item.requested_clock_in ? fmtTime(item.requested_clock_in) : "--:--"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[11px] text-blue-400">ออก</span>
+                        <span className={"text-sm font-black tabular-nums " + (item.requested_clock_out ? "text-blue-700" : "text-gray-300")}>
+                          {item.requested_clock_out ? fmtTime(item.requested_clock_out) : "--:--"}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
+
                 <button onClick={() => setExpanded(isOpen ? null : item.id)}
-                  className="mt-2.5 w-full text-left text-xs text-slate-500 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Clock size={11} className="text-slate-400" />
-                    <span className="truncate max-w-[220px]">{item.reason}</span>
+                  className="mt-3 w-full flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-xl px-3 py-2.5 hover:bg-gray-100 transition-colors">
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <Clock size={11} className="text-gray-400 shrink-0" />
+                    <span className="truncate">{item.reason || "ไม่มีเหตุผล"}</span>
                   </span>
-                  <span className="text-slate-300 shrink-0">{isOpen ? "▲" : "▼"}</span>
+                  {isOpen ? <ChevronUp size={12} className="text-gray-400 shrink-0" /> : <ChevronDown size={12} className="text-gray-400 shrink-0" />}
                 </button>
+
                 {isOpen && (
-                  <input
-                    placeholder="หมายเหตุถึงพนักงาน (ไม่บังคับ)"
-                    value={notes[item.id] || ""}
+                  <input placeholder="หมายเหตุถึงพนักงาน (ไม่บังคับ)" value={notes[item.id] || ""}
                     onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
-                    className="w-full mt-2.5 px-3 py-2.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  />
+                    className={inputCls} />
                 )}
-                <div className="flex gap-2 mt-3">
-                  <button onClick={() => handleAdjustment(item.id, "reject")} disabled={acting === item.id}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-red-50 text-red-600 font-semibold text-sm rounded-xl active:scale-[0.98]">
-                    {acting === item.id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />} ปฏิเสธ
-                  </button>
-                  <button onClick={() => handleAdjustment(item.id, "approve")} disabled={acting === item.id}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-emerald-600 text-white font-semibold text-sm rounded-xl active:scale-[0.98]">
-                    {acting === item.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} อนุมัติ
-                  </button>
+
+                <ActionButtons id={item.id}
+                  onReject={() => handleAdjustment(item.id, "reject")}
+                  onApprove={() => handleAdjustment(item.id, "approve")} />
+              </div>
+            </div>
+          )
+        })}
+
+        {/* ── RESIGNATION ── */}
+        {!loading && tab === "resignation" && items.map(item => {
+          const isExpanded = expanded === item.id
+          return (
+            <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-4 pt-3 pb-2 flex items-center gap-2 border-b border-gray-50">
+                <UserX size={13} className="text-rose-400 shrink-0" />
+                <span className="text-xs font-bold text-rose-500">ใบลาออก — รอการอนุมัติจากคุณ</span>
+                <span className="ml-auto text-[10px] text-gray-400">{fmtDate(item.created_at?.split("T")[0])}</span>
+              </div>
+
+              <div className="px-4 py-4">
+                <div className="flex items-center gap-3">
+                  <Avatar emp={item.employee} size="md" bgColor="bg-rose-100" textColor="text-rose-500" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-gray-900 text-sm leading-tight">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{item.employee?.position?.name} · {item.employee?.department?.name}</p>
+                    <p className="text-xs text-gray-400">
+                      รหัส {item.employee?.employee_code}
+                      {item.employee?.hire_date ? ` · เริ่มงาน ${fmtDate(item.employee.hire_date, "d MMM yyyy")}` : ""}
+                    </p>
+                  </div>
                 </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                    <p className="text-gray-400 mb-0.5">วันสุดท้าย</p>
+                    <p className="font-bold text-gray-900">{fmtDate(item.last_work_date, "d MMM yyyy")}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                    <p className="text-gray-400 mb-0.5">มีผลบังคับ</p>
+                    <p className="font-bold text-gray-900">{fmtDate(item.effective_date, "d MMM yyyy")}</p>
+                  </div>
+                </div>
+
+                <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
+                  <p className="text-gray-400 mb-1">เหตุผล</p>
+                  <p className="font-semibold text-gray-700">
+                    {(item.reasons ?? []).map((k: string) => RESIGN_REASONS_MAP[k] || k).join("  ·  ") || "-"}
+                  </p>
+                  {item.other_reason && <p className="text-gray-400 italic mt-1">"{item.other_reason}"</p>}
+                </div>
+
+                <button onClick={() => setExpanded(isExpanded ? null : item.id)}
+                  className="mt-3 flex items-center gap-1.5 text-xs text-blue-500 font-semibold hover:text-blue-700 transition-colors">
+                  {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  {isExpanded ? "ซ่อน" : "ดู"} Exit Interview
+                </button>
+
+                {isExpanded && item.exit_interview && Object.keys(item.exit_interview).length > 0 && (
+                  <div className="mt-2 bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs space-y-1.5">
+                    {["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8"].map((k, i) =>
+                      item.exit_interview[k] ? (
+                        <div key={k} className="flex gap-2">
+                          <span className="text-blue-400 font-bold shrink-0">ข้อ{i + 1}:</span>
+                          <span className="text-gray-700">{Array.isArray(item.exit_interview[k]) ? item.exit_interview[k].join(", ") : item.exit_interview[k]}</span>
+                        </div>
+                      ) : null
+                    )}
+                    {item.exit_interview.suggestion && (
+                      <div className="flex gap-2">
+                        <span className="text-blue-400 font-bold shrink-0">คำแนะนำ:</span>
+                        <span className="text-gray-600">{item.exit_interview.suggestion}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <textarea
+                  placeholder="หมายเหตุการอนุมัติ/ปฏิเสธ (ไม่บังคับ)"
+                  value={notes[item.id] || ""}
+                  onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
+                  className={inputCls + " resize-none h-16"}
+                />
+
+                <ActionButtons id={item.id}
+                  onReject={() => handleResignation(item.id, "rejected")}
+                  onApprove={() => handleResignation(item.id, "approved")}
+                  approveLabel="อนุมัติ → ส่ง HR" />
               </div>
             </div>
           )
         })}
 
         {!loading && items.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 gap-3">
-            <Clock size={40} strokeWidth={1.5} className="text-slate-300" />
-            <p className="text-sm font-medium text-slate-400">ไม่มีคำร้องรออนุมัติ</p>
+          <div className="flex flex-col items-center justify-center py-24 gap-3">
+            <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
+              <Clock size={28} strokeWidth={1.5} className="text-gray-300" />
+            </div>
+            <p className="text-sm font-medium text-gray-400">ไม่มีคำร้องรออนุมัติ</p>
           </div>
         )}
 

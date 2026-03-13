@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   Phone, Mail, Calendar, Building2, LogOut, ChevronRight,
   Camera, Loader2, WalletCards, BriefcaseBusiness, ShieldCheck,
-  Hash, MapPin, Clock, User, Cake, TrendingUp, BadgeCheck, AlertTriangle, CalendarDays,
+  Hash, MapPin, Clock, User, Cake, TrendingUp, BadgeCheck, AlertTriangle, CalendarDays, UserX,
 } from "lucide-react"
 import { format, differenceInYears, differenceInMonths, isAfter } from "date-fns"
 import { th } from "date-fns/locale"
@@ -42,11 +42,23 @@ export default function ProfilePage() {
   const emp    = user?.employee as any
   const empId  = (user as any)?.employee_id ?? emp?.id
   const fileRef = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(emp?.avatar_url ?? null)
-  const [shift,     setShift]     = useState<any>(null)
+  const [uploading,    setUploading]    = useState(false)
+  const [avatarUrl,    setAvatarUrl]    = useState<string | null>(emp?.avatar_url ?? null)
+  const [shift,        setShift]        = useState<any>(null)
+  const [resignStatus, setResignStatus] = useState<string | null>(null)
   const { balances } = useLeaveBalance(empId)
   const supabase = useRef(createClient()).current
+
+  // โหลดสถานะใบลาออก
+  useEffect(() => {
+    if (!empId) return
+    supabase.from("resignation_requests")
+      .select("status")
+      .eq("employee_id", empId)
+      .order("created_at", { ascending: false })
+      .limit(1).maybeSingle()
+      .then(({ data }) => setResignStatus(data?.status ?? null))
+  }, [empId]) // eslint-disable-line
 
   // โหลด shift template
   useEffect(() => {
@@ -287,6 +299,31 @@ export default function ProfilePage() {
                 <span className="text-[14px] font-semibold text-slate-700">ระบบ HR Admin</span>
               </div>
               <ChevronRight size={17} className="text-slate-400 transition-transform duration-200 group-hover:translate-x-0.5"/>
+            </Link>
+          )}
+
+          {/* ── ปุ่มลาออก ──────────────────────────────────────── */}
+          {emp?.employment_status !== "resigned" && emp?.employment_status !== "terminated" && (
+            <Link href={resignStatus ? "/app/resignation" : "/app/resignation/new"}
+              className="group flex items-center justify-between rounded-[24px] border border-rose-200/80 bg-white/90 px-5 py-3.5 shadow-[0_12px_28px_rgba(15,23,42,0.05)] backdrop-blur-md transition-all active:bg-rose-50">
+              <div className="flex items-center gap-4">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-50 to-pink-50 ring-1 ring-rose-100">
+                  <UserX size={18} className="text-rose-500"/>
+                </div>
+                <div>
+                  <p className="text-[14px] font-semibold text-rose-600">
+                    {resignStatus ? "ดูสถานะใบลาออก" : "ยื่นใบลาออก"}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {resignStatus === "pending_manager" && "⏳ รอหัวหน้าอนุมัติ"}
+                    {resignStatus === "pending_hr"      && "⏳ รอ HR อนุมัติ"}
+                    {resignStatus === "approved"        && "✅ อนุมัติแล้ว"}
+                    {resignStatus === "rejected"        && "❌ ถูกปฏิเสธ — ยื่นใหม่ได้"}
+                    {!resignStatus                      && "Resignation Form · SHD Technology"}
+                  </p>
+                </div>
+              </div>
+              <ChevronRight size={17} className="text-rose-300 transition-transform duration-200 group-hover:translate-x-0.5"/>
             </Link>
           )}
 
