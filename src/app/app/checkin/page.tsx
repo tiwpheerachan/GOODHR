@@ -30,34 +30,132 @@ function RippleEffect({ active, color = "#3b82f6" }: { active: boolean; color?: 
   )
 }
 
-// ── Success Burst ────────────────────────────────────────────────────────────
-function SuccessBurst({ show, onDone }: { show: boolean; onDone: () => void }) {
+// ── Success Overlay ──────────────────────────────────────────────────────────
+function SuccessOverlay({ show, type, time, onDone }: { show: boolean; type: "in" | "out"; time: string; onDone: () => void }) {
+  const [closing, setClosing] = useState(false)
+  const [progress, setProgress] = useState(100)
+
   useEffect(() => {
-    if (show) { const t = setTimeout(onDone, 1800); return () => clearTimeout(t) }
+    if (!show) { setClosing(false); setProgress(100); return }
+    // progress bar countdown
+    const start = Date.now()
+    const duration = 5000
+    const tick = setInterval(() => {
+      const elapsed = Date.now() - start
+      const pct = Math.max(0, 100 - (elapsed / duration) * 100)
+      setProgress(pct)
+      if (pct <= 0) clearInterval(tick)
+    }, 30)
+    // auto dismiss after 5s
+    const t = setTimeout(() => { setClosing(true); setTimeout(onDone, 400) }, 5000)
+    return () => { clearTimeout(t); clearInterval(tick) }
   }, [show, onDone])
+
+  const handleTap = useCallback(() => {
+    setClosing(true); setTimeout(onDone, 400)
+  }, [onDone])
+
   if (!show) return null
+
+  const isIn = type === "in"
+  const gradient = isIn
+    ? "from-blue-600 via-blue-500 to-indigo-600"
+    : "from-indigo-600 via-purple-500 to-violet-600"
+  const iconBg = isIn ? "bg-white/20" : "bg-white/20"
+  const label = isIn ? "เช็คอินสำเร็จ" : "เช็คเอ้าท์สำเร็จ"
+  const sublabel = isIn ? "ระบบบันทึกเวลาเข้างานแล้ว" : "ระบบบันทึกเวลาออกงานแล้ว"
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-      <div className="relative flex items-center justify-center">
-        {/* rings */}
-        {[0, 1, 2].map(i => (
-          <span key={i} className="absolute rounded-full border-2 border-blue-400"
+    <div
+      className={`fixed inset-0 z-[60] flex flex-col items-center justify-center cursor-pointer transition-opacity duration-400 ${closing ? "opacity-0" : "opacity-100"}`}
+      onClick={handleTap}
+    >
+      {/* gradient background */}
+      <div className={`absolute inset-0 bg-gradient-to-br ${gradient}`} />
+
+      {/* floating particles */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {Array.from({ length: 20 }).map((_, i) => (
+          <span key={i} className="absolute rounded-full bg-white/30"
             style={{
-              width: 80 + i * 40, height: 80 + i * 40,
-              animation: `ping 0.8s ease-out ${i * 0.15}s forwards`,
-              opacity: 0,
-            }} />
+              width: 4 + Math.random() * 8, height: 4 + Math.random() * 8,
+              left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%`,
+              animation: `floatUp ${3 + Math.random() * 4}s ease-in-out ${Math.random() * 2}s infinite`,
+            }}
+          />
         ))}
-        {/* center */}
-        <div className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center shadow-2xl shadow-blue-300"
-          style={{ animation: "scaleIn 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards" }}>
-          <CheckCircle2 size={36} className="text-white" strokeWidth={2.5} />
-        </div>
       </div>
+
+      {/* content */}
+      <div className="relative z-10 flex flex-col items-center px-8" style={{ animation: "successEnter 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards" }}>
+        {/* animated rings */}
+        <div className="relative mb-6">
+          {[0, 1, 2].map(i => (
+            <span key={i} className="absolute rounded-full border-2 border-white/30"
+              style={{
+                width: 100 + i * 50, height: 100 + i * 50,
+                top: -(i * 25), left: -(i * 25),
+                animation: `ringPulse 2s ease-in-out ${i * 0.3}s infinite`,
+              }}
+            />
+          ))}
+          {/* check icon */}
+          <div className={`w-[100px] h-[100px] rounded-full ${iconBg} backdrop-blur-sm flex items-center justify-center`}
+            style={{ animation: "bounceIn 0.5s cubic-bezier(0.34,1.56,0.64,1) 0.2s both" }}>
+            <div className="w-[72px] h-[72px] rounded-full bg-white flex items-center justify-center shadow-2xl">
+              <CheckCircle2 size={40} className={isIn ? "text-blue-600" : "text-purple-600"} strokeWidth={2.5}
+                style={{ animation: "checkDraw 0.4s ease 0.5s both" }} />
+            </div>
+          </div>
+        </div>
+
+        {/* text */}
+        <h2 className="text-white text-2xl font-black tracking-tight mb-1"
+          style={{ animation: "fadeSlideUp2 0.4s ease 0.4s both" }}>
+          {label}
+        </h2>
+        <p className="text-white/70 text-sm font-medium mb-6"
+          style={{ animation: "fadeSlideUp2 0.4s ease 0.5s both" }}>
+          {sublabel}
+        </p>
+
+        {/* time card */}
+        <div className="bg-white/15 backdrop-blur-md rounded-2xl px-8 py-4 border border-white/20 mb-8"
+          style={{ animation: "fadeSlideUp2 0.5s ease 0.6s both" }}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+              {isIn ? <LogIn size={20} className="text-white" /> : <LogOut size={20} className="text-white" />}
+            </div>
+            <div>
+              <p className="text-white/60 text-[10px] font-semibold tracking-wider uppercase">
+                {isIn ? "เวลาเข้างาน" : "เวลาออกงาน"}
+              </p>
+              <p className="text-white text-3xl font-black tabular-nums tracking-tight leading-none mt-0.5">
+                {time}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* progress bar */}
+        <div className="w-48 h-1 bg-white/20 rounded-full overflow-hidden mb-3"
+          style={{ animation: "fadeSlideUp2 0.4s ease 0.7s both" }}>
+          <div className="h-full bg-white/70 rounded-full transition-none"
+            style={{ width: `${progress}%` }} />
+        </div>
+        <p className="text-white/40 text-[11px] font-medium"
+          style={{ animation: "fadeSlideUp2 0.4s ease 0.8s both" }}>
+          แตะเพื่อปิด
+        </p>
+      </div>
+
       <style>{`
-        @keyframes ping { 0%{transform:scale(0.5);opacity:0.8} 100%{transform:scale(1.8);opacity:0} }
-        @keyframes scaleIn { from{transform:scale(0);opacity:0} to{transform:scale(1);opacity:1} }
-        .animation-delay-150 { animation-delay: 150ms }
+        @keyframes successEnter { from{opacity:0;transform:scale(0.9) translateY(20px)} to{opacity:1;transform:scale(1) translateY(0)} }
+        @keyframes bounceIn { from{transform:scale(0)} to{transform:scale(1)} }
+        @keyframes fadeSlideUp2 { from{opacity:0;transform:translateY(15px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes ringPulse { 0%,100%{transform:scale(1);opacity:0.3} 50%{transform:scale(1.15);opacity:0.1} }
+        @keyframes checkDraw { from{opacity:0;transform:scale(0) rotate(-45deg)} to{opacity:1;transform:scale(1) rotate(0deg)} }
+        @keyframes floatUp { 0%,100%{transform:translateY(0) scale(1);opacity:0.3} 50%{transform:translateY(-40px) scale(1.3);opacity:0.6} }
       `}</style>
     </div>
   )
@@ -193,6 +291,8 @@ export default function CheckInPage() {
   const [clock, setClock] = useState("")
   const [showAdj, setShowAdj] = useState(false)
   const [burst, setBurst] = useState(false)
+  const [burstType, setBurstType] = useState<"in" | "out">("in")
+  const [burstTime, setBurstTime] = useState("")
   const [pulseIn, setPulseIn] = useState(false)
   const [pulseOut, setPulseOut] = useState(false)
 
@@ -332,9 +432,9 @@ export default function CheckInPage() {
     setTimeout(() => setPulseIn(false), 600)
     const r = await clockIn(pos.lat, pos.lng)
     if (r.success) {
+      setBurstType("in")
+      setBurstTime(new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false }))
       setBurst(true)
-      if (r.is_late) toast(`เช็คอินสำเร็จ แต่สาย ${r.late_minutes} นาที`, { icon: "⚠️", duration: 4000 })
-      else toast.success("เช็คอินสำเร็จ!")
       refetch()
     } else toast.error(r.error || "เกิดข้อผิดพลาด")
   }
@@ -345,10 +445,9 @@ export default function CheckInPage() {
     setTimeout(() => setPulseOut(false), 600)
     const r = await clockOut(pos.lat, pos.lng)
     if (r.success) {
+      setBurstType("out")
+      setBurstTime(new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false }))
       setBurst(true)
-      if (r.is_early_out && r.early_out_minutes && r.early_out_minutes > 0)
-        toast(`ออกก่อนกำหนด ${r.early_out_minutes} นาที`, { icon: "⚠️", duration: 5000 })
-      else toast.success("เช็คเอ้าท์สำเร็จ!")
       refetch()
     } else toast.error(r.error || "เกิดข้อผิดพลาด")
   }
@@ -357,7 +456,7 @@ export default function CheckInPage() {
     <>
       {MAPS_KEY && <Script src={`https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}&callback=initCheckinMap`} strategy="afterInteractive" onLoad={handleScriptLoad} />}
       {showAdj && todayRecord && <AdjustModal record={todayRecord} onClose={() => setShowAdj(false)} />}
-      <SuccessBurst show={burst} onDone={() => setBurst(false)} />
+      <SuccessOverlay show={burst} type={burstType} time={burstTime} onDone={() => setBurst(false)} />
 
       <style>{`
         @keyframes fadeSlideUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
