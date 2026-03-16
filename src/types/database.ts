@@ -88,3 +88,29 @@ export interface User {
   id: string; employee_id?: string; role: UserRole
   company_id?: string; is_active: boolean; employee?: Employee
 }
+
+// ── KPI ──────────────────────────────────────────────────────────────────────
+export type KpiStatus = "draft" | "submitted" | "acknowledged"
+export type KpiGrade = "A" | "B" | "C" | "D"
+
+export interface KpiForm {
+  id: string; company_id: string; employee_id: string; evaluator_id: string
+  year: number; month: number
+  total_score: number; grade: KpiGrade; status: KpiStatus
+  evaluator_note?: string; submitted_at?: string
+  created_at: string; updated_at: string
+  employee?: Employee; evaluator?: Employee; items?: KpiItem[]
+}
+
+export interface KpiItem {
+  id: string; kpi_form_id: string; order_no: number
+  category: string; description?: string
+  weight_pct: number; actual_score: number; weighted_score: number
+  is_mandatory: boolean; comment?: string
+}
+
+export interface KpiTemplate {
+  id: string; company_id: string; item_order: number
+  category: string; description?: string
+  default_weight: number; is_mandatory: boolean
+}

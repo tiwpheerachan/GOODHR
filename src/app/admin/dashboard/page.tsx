@@ -7,7 +7,7 @@ import {
   XCircle, AlertCircle, UserPlus, ChevronRight,
   Award, Timer, RefreshCw, FileBarChart2, Bell, X,
   TrendingUp, TrendingDown, Minus, Brain, ArrowRight,
-  ShieldCheck, ShieldAlert, Shield,
+  ShieldCheck, ShieldAlert, Shield, Target, BarChart3, Building2,
 } from "lucide-react"
 import Link from "next/link"
 import { format, subDays, startOfMonth, differenceInDays } from "date-fns"
@@ -327,6 +327,7 @@ export default function AdminDashboard() {
   const [probList,    setProbList]    = useState<ProbPerson[]>([])
   const [pendLeaves,  setPendLeaves]  = useState<PendLeave[]>([])
   const [checkins,    setCheckins]    = useState<any[]>([])
+  const [kpiStats,    setKpiStats]    = useState<{total:number;avg:number;grades:Record<string,number>;topDepts:{name:string;avg:number;count:number}[];topEmployees:{name:string;avatar_url?:string;position?:string;score:number;grade:string}[];monthlyAvg:{month:number;avg:number;count:number}[]}>({total:0,avg:0,grades:{A:0,B:0,C:0,D:0},topDepts:[],topEmployees:[],monthlyAvg:[]})
 
   const myCompanyId:string|undefined = user?.employee?.company_id??(user as any)?.company_id??undefined
   const companyId:string|undefined   = isSA?(selectedCo||undefined):myCompanyId
@@ -443,6 +444,41 @@ export default function AdminDashboard() {
           .eq("status","pending").order("created_at",{ascending:false}).limit(5)
       )
       setPendLeaves((plRaw??[]).map((r:any)=>({id:r.id,name:`${r.employee?.first_name_th} ${r.employee?.last_name_th}`,avatar_url:r.employee?.avatar_url,leave_type:r.leave_type?.name||"ลา",color:r.leave_type?.color_hex||"#6366f1",start_date:r.start_date,days:r.total_days})))
+
+      // KPI stats
+      const kpiYear = new Date().getFullYear()
+      const kpiQuery = companyId
+        ? supabase.from("kpi_forms").select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("company_id",companyId).eq("year",kpiYear).eq("status","submitted")
+        : isSA
+          ? supabase.from("kpi_forms").select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("year",kpiYear).eq("status","submitted")
+          : supabase.from("kpi_forms").select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("company_id",myCompanyId!).eq("year",kpiYear).eq("status","submitted")
+      const {data:kpiForms} = await kpiQuery
+      if(kpiForms && kpiForms.length > 0) {
+        const grades:Record<string,number> = {A:0,B:0,C:0,D:0}
+        const deptMap:Record<string,{sum:number;count:number}> = {}
+        const monthMap:Record<number,{sum:number;count:number}> = {}
+        let totalScore = 0
+        kpiForms.forEach((f:any) => {
+          grades[f.grade] = (grades[f.grade]||0)+1
+          totalScore += f.total_score
+          const dept = f.employee?.department?.name || "ไม่ระบุ"
+          if(!deptMap[dept]) deptMap[dept] = {sum:0,count:0}
+          deptMap[dept].sum += f.total_score; deptMap[dept].count++
+          if(!monthMap[f.month]) monthMap[f.month] = {sum:0,count:0}
+          monthMap[f.month].sum += f.total_score; monthMap[f.month].count++
+        })
+        const topDepts = Object.entries(deptMap).map(([name,d])=>({name,avg:d.sum/d.count,count:d.count})).sort((a,b)=>b.avg-a.avg).slice(0,5)
+        const topEmployees = [...kpiForms].sort((a:any,b:any)=>b.total_score-a.total_score).slice(0,5).map((f:any)=>({
+          name:`${f.employee?.first_name_th||""} ${f.employee?.last_name_th||""}`,
+          avatar_url:f.employee?.avatar_url,
+          position:f.employee?.position?.name,
+          score:f.total_score,grade:f.grade
+        }))
+        const monthlyAvg = Object.entries(monthMap).map(([m,d])=>({month:Number(m),avg:d.sum/d.count,count:d.count})).sort((a,b)=>a.month-b.month)
+        setKpiStats({total:kpiForms.length,avg:totalScore/kpiForms.length,grades,topDepts,topEmployees,monthlyAvg})
+      } else {
+        setKpiStats({total:0,avg:0,grades:{A:0,B:0,C:0,D:0},topDepts:[],topEmployees:[],monthlyAvg:[]})
+      }
 
       // company stats
       if(isSA&&!companyId) {
@@ -833,6 +869,162 @@ export default function AdminDashboard() {
           )}
         </div>
       </div>
+
+      {/* ── KPI Analytics ─────────────────────────────────────── */}
+      {kpiStats.total>0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-black text-slate-700 flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center"><Target size={14} className="text-indigo-600"/></div>
+              KPI ประจำปี {new Date().getFullYear()}
+            </h2>
+            <Link href="/admin/kpi" className="text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors">
+              ดูทั้งหมด →
+            </Link>
+          </div>
+
+          {/* KPI Summary Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+              <p className="text-[10px] font-bold text-slate-400 uppercase">ประเมินแล้ว</p>
+              <p className="text-2xl font-black text-slate-800 mt-1">{kpiStats.total}</p>
+              <p className="text-[10px] text-slate-400">ฟอร์ม</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+              <p className="text-[10px] font-bold text-slate-400 uppercase">คะแนนเฉลี่ย</p>
+              <p className={`text-2xl font-black mt-1 ${kpiStats.avg>=81?"text-emerald-600":kpiStats.avg>=71?"text-amber-600":"text-red-500"}`}>
+                {kpiStats.avg.toFixed(1)}%
+              </p>
+              <p className="text-[10px] text-slate-400">ทั้งบริษัท</p>
+            </div>
+            <div className="bg-emerald-50 rounded-2xl border border-emerald-100 p-4">
+              <p className="text-[10px] font-bold text-emerald-600 uppercase">เกรด A+B</p>
+              <p className="text-2xl font-black text-emerald-700 mt-1">{(kpiStats.grades.A||0)+(kpiStats.grades.B||0)}</p>
+              <p className="text-[10px] text-emerald-600">ดี-ดีมาก</p>
+            </div>
+            <div className="bg-red-50 rounded-2xl border border-red-100 p-4">
+              <p className="text-[10px] font-bold text-red-500 uppercase">เกรด C+D</p>
+              <p className="text-2xl font-black text-red-600 mt-1">{(kpiStats.grades.C||0)+(kpiStats.grades.D||0)}</p>
+              <p className="text-[10px] text-red-500">ต้องปรับปรุง</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Grade Distribution */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-50">
+                <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
+                  <BarChart3 size={14} className="text-indigo-500"/> สัดส่วนเกรด
+                </h3>
+              </div>
+              <div className="px-5 py-4 space-y-3">
+                {(["A","B","C","D"] as const).map(g=>{
+                  const colors={A:{bg:"bg-emerald-500",text:"text-emerald-700",light:"bg-emerald-50"},B:{bg:"bg-blue-500",text:"text-blue-700",light:"bg-blue-50"},C:{bg:"bg-amber-500",text:"text-amber-700",light:"bg-amber-50"},D:{bg:"bg-red-500",text:"text-red-700",light:"bg-red-50"}}
+                  const c=colors[g]
+                  const pct=kpiStats.total>0?((kpiStats.grades[g]||0)/kpiStats.total)*100:0
+                  return(
+                    <div key={g} className="flex items-center gap-3">
+                      <span className={`w-7 h-7 rounded-lg ${c.light} ${c.text} text-xs font-black flex items-center justify-center`}>{g}</span>
+                      <div className="flex-1">
+                        <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${c.bg} transition-all duration-700`} style={{width:`${pct}%`}}/>
+                        </div>
+                      </div>
+                      <span className="text-sm font-black text-slate-700 w-8 text-right">{kpiStats.grades[g]||0}</span>
+                      <span className="text-xs text-slate-400 w-12 text-right">{pct.toFixed(0)}%</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Monthly Trend */}
+            {kpiStats.monthlyAvg.length>0 && (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-50">
+                  <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
+                    <TrendingUp size={14} className="text-emerald-500"/> คะแนนเฉลี่ยรายเดือน
+                  </h3>
+                </div>
+                <div className="px-5 py-4">
+                  <div className="flex items-end gap-2 h-32">
+                    {kpiStats.monthlyAvg.map(m=>{
+                      const h=Math.max((m.avg/100)*100, 8)
+                      const monthNames=["","ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
+                      const barColor=m.avg>=91?"bg-emerald-500":m.avg>=81?"bg-blue-500":m.avg>=71?"bg-amber-500":"bg-red-500"
+                      return(
+                        <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
+                          <span className="text-[10px] font-black text-slate-600">{m.avg.toFixed(0)}</span>
+                          <div className={`w-full max-w-[32px] rounded-t-lg ${barColor} transition-all duration-500`} style={{height:`${h}%`}}/>
+                          <span className="text-[9px] text-slate-400 font-bold">{monthNames[m.month]}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Top Employees */}
+            {kpiStats.topEmployees.length>0 && (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-50">
+                  <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
+                    <Award size={14} className="text-amber-500"/> พนักงานคะแนนสูงสุด
+                  </h3>
+                </div>
+                <div className="divide-y divide-slate-50">
+                  {kpiStats.topEmployees.map((emp,i)=>{
+                    const gc={A:"bg-emerald-100 text-emerald-700",B:"bg-blue-100 text-blue-700",C:"bg-amber-100 text-amber-700",D:"bg-red-100 text-red-700"}
+                    return(
+                      <div key={i} className="flex items-center gap-3 px-5 py-3">
+                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black flex-shrink-0 ${i===0?"bg-amber-100 text-amber-700":"bg-slate-100 text-slate-500"}`}>{i+1}</div>
+                        <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center font-black text-indigo-600 text-xs flex-shrink-0 overflow-hidden">
+                          {emp.avatar_url?<img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>:emp.name[0]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-slate-700 truncate">{emp.name}</p>
+                          <p className="text-xs text-slate-400 truncate">{emp.position}</p>
+                        </div>
+                        <span className={`text-xs font-black px-1.5 py-0.5 rounded-md ${gc[emp.grade as keyof typeof gc]||"bg-slate-100 text-slate-600"}`}>{emp.grade}</span>
+                        <span className="text-sm font-black text-slate-800">{emp.score.toFixed(1)}%</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Department Ranking */}
+            {kpiStats.topDepts.length>0 && (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-50">
+                  <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
+                    <Building2 size={14} className="text-violet-500"/> แผนกคะแนนเฉลี่ยสูงสุด
+                  </h3>
+                </div>
+                <div className="divide-y divide-slate-50">
+                  {kpiStats.topDepts.map((dept,i)=>(
+                    <div key={dept.name} className="flex items-center gap-3 px-5 py-3">
+                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black flex-shrink-0 ${i===0?"bg-violet-100 text-violet-700":"bg-slate-100 text-slate-500"}`}>{i+1}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-slate-700 truncate">{dept.name}</p>
+                        <p className="text-xs text-slate-400">{dept.count} คน</p>
+                      </div>
+                      <div className="w-20 h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${dept.avg>=81?"bg-emerald-500":dept.avg>=71?"bg-amber-500":"bg-red-500"}`} style={{width:`${dept.avg}%`}}/>
+                      </div>
+                      <span className={`text-sm font-black ${dept.avg>=81?"text-emerald-600":dept.avg>=71?"text-amber-600":"text-red-500"}`}>{dept.avg.toFixed(1)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Probation full alert banner ─────────────────────────── */}
       <ProbationBanner list={probList}/>

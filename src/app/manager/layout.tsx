@@ -4,11 +4,12 @@ import Link from "next/link"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { LayoutDashboard, Users, CheckSquare, ChevronLeft, Bell } from "lucide-react"
+import { LayoutDashboard, Users, CheckSquare, ChevronLeft, Bell, Target } from "lucide-react"
 
 const NAV = [
   { href: "/manager/dashboard", icon: LayoutDashboard, label: "ภาพรวม"  },
   { href: "/manager/team",      icon: Users,           label: "ทีม"       },
+  { href: "/manager/kpi",       icon: Target,          label: "KPI"       },
   { href: "/manager/approvals", icon: CheckSquare,     label: "อนุมัติ"   },
 ]
 

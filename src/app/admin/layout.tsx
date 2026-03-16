@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
   LayoutDashboard, Users, Clock, CreditCard, Calendar,
-  Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX,
+  Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target,
 } from "lucide-react"
 
 const SIDEBAR = [
@@ -14,6 +14,7 @@ const SIDEBAR = [
   { href: "/admin/employees",            icon: Users,           label: "พนักงาน",       badge: null as string|null },
   { href: "/admin/attendance",           icon: Clock,           label: "การเข้างาน",    badge: null as string|null },
   { href: "/admin/leave",                icon: Calendar,        label: "การลา",          badge: null as string|null },
+  { href: "/admin/kpi",                  icon: Target,          label: "KPI",            badge: null as string|null },
   { href: "/admin/payroll",              icon: CreditCard,      label: "เงินเดือน",      badge: null as string|null },
   { href: "/admin/payroll-rules",        icon: BookOpen,        label: "สูตรคำนวณ",     badge: null as string|null },
   { href: "/admin/settings",             icon: Settings,        label: "ตั้งค่า",        badge: null as string|null },
