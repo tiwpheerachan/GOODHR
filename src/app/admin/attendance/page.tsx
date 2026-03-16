@@ -181,9 +181,9 @@ export default function AdminAttendancePage() {
       .eq("company_id",activeCid)
       .gte("work_date",listFilters.start).lte("work_date",listFilters.end)
       .order("work_date",{ascending:false}).order("clock_in",{ascending:false})
-      .range(page*PER,(page+1)*PER-1)
+      .range(page*PER,(page+1)*PER-1) as any
     if(listFilters.status) q=q.eq("status",listFilters.status)
-    const {data,count,error}=await q
+    const {data,count,error}=await q as any
     if(error){setErrList(error.message)}
     else{
       let rows=data??[]
@@ -199,9 +199,9 @@ export default function AdminAttendancePage() {
 
   const loadAdj = useCallback(async()=>{
     if(!activeCid) return
-    const {data}=await supabase.from("time_adjustment_requests")
+    const {data}=await (supabase.from("time_adjustment_requests")
       .select(`*,employee:employees!time_adjustment_requests_employee_id_fkey(id,first_name_th,last_name_th,department:departments(name))`)
-      .eq("company_id",activeCid).eq("status","pending").order("created_at",{ascending:true})
+      .eq("company_id",activeCid).eq("status","pending").order("created_at",{ascending:true}) as any)
     setAdjReqs(data??[])
   },[activeCid])
 
@@ -211,7 +211,7 @@ export default function AdminAttendancePage() {
     setLoadingSum(true)
     try{
       const [{data:emps},{data:atts},{data:leaves}]=await Promise.all([
-        supabase.from("employees").select("id,employee_code,first_name_th,last_name_th,department:departments(name),branch:branches(name)").eq("company_id",activeCid).eq("is_active",true),
+        supabase.from("employees").select("id,employee_code,first_name_th,last_name_th,department:departments(name),branch:branches(name)").eq("company_id",activeCid).eq("is_active",true) as any,
         supabase.from("attendance_records").select("employee_id,status,late_minutes").eq("company_id",activeCid).gte("work_date",sumFrom).lte("work_date",sumTo),
         supabase.from("leave_requests").select("employee_id,total_days").eq("company_id",activeCid).eq("status","approved").gte("start_date",sumFrom).lte("end_date",sumTo),
       ])
@@ -220,7 +220,7 @@ export default function AdminAttendancePage() {
       const lvByEmp=new Map<string,number>()
       ;(leaves??[]).forEach(l=>lvByEmp.set(l.employee_id,(lvByEmp.get(l.employee_id)||0)+l.total_days))
 
-      const detail:SummaryEmpRow[]=(emps??[]).map(e=>{
+      const detail:SummaryEmpRow[]=(emps??[]).map((e:any)=>{
         const ea=attByEmp.get(e.id)??[]
         return{employee_code:e.employee_code,name:`${e.first_name_th} ${e.last_name_th}`,
           dept:e.department?.name||"-",branch:e.branch?.name||"-",
@@ -233,7 +233,7 @@ export default function AdminAttendancePage() {
 
       const groupKey=(e:any)=>viewMode==="department"?(e.department?.name||"ไม่ระบุแผนก"):viewMode==="branch"?(e.branch?.name||"ไม่ระบุสาขา"):"ภาพรวมทั้งบริษัท"
       const gm=new Map<string,GroupRow>()
-      ;(emps??[]).forEach(e=>{
+      ;(emps??[]).forEach((e:any)=>{
         const k=groupKey(e)
         if(!gm.has(k)) gm.set(k,{key:k,label:k,employees:0,present:0,late:0,absent:0,leave:0,totalDays:0})
         const g=gm.get(k)!; const ea=attByEmp.get(e.id)??[]
@@ -270,10 +270,10 @@ export default function AdminAttendancePage() {
 
   const handleExportList=async()=>{
     if(!activeCid) return; setExporting(true)
-    const {data}=await supabase.from("attendance_records")
+    const {data}=await (supabase.from("attendance_records")
       .select(`work_date,clock_in,clock_out,status,late_minutes,ot_minutes,
         employee:employees!attendance_records_employee_id_fkey(employee_code,first_name_th,last_name_th,department:departments(name),position:positions(name))`)
-      .eq("company_id",activeCid).gte("work_date",listFilters.start).lte("work_date",listFilters.end).order("work_date",{ascending:false})
+      .eq("company_id",activeCid).gte("work_date",listFilters.start).lte("work_date",listFilters.end).order("work_date",{ascending:false}) as any)
     exportRecordsXLS(data??[],listFilters.start,listFilters.end); setExporting(false)
   }
 

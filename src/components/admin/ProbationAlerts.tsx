@@ -135,7 +135,7 @@ export function ProbationAlerts({ companyId }: { companyId: string }) {
                   className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-1">
                   ดูข้อมูล <ChevronRight size={10}/>
                 </Link>
-                <button onClick={() => setDismissed(s => new Set([...s, a.id]))}
+                <button onClick={() => setDismissed(s => new Set([...Array.from(s), a.id]))}
                   className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white/80 transition-colors">
                   <X size={13}/>
                 </button>

@@ -288,7 +288,7 @@ function ProbationBanner({ list }: { list: ProbPerson[] }) {
                   className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-1">
                   ดูข้อมูล<ChevronRight size={10}/>
                 </Link>
-                <button onClick={() => setDismissed(s => new Set([...s, p.id]))}
+                <button onClick={() => setDismissed(s => new Set([...Array.from(s), p.id]))}
                   className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white/80 transition-colors">
                   <X size={13}/>
                 </button>
@@ -448,11 +448,11 @@ export default function AdminDashboard() {
       // KPI stats
       const kpiYear = new Date().getFullYear()
       const kpiQuery = companyId
-        ? supabase.from("kpi_forms").select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("company_id",companyId).eq("year",kpiYear).eq("status","submitted")
+        ? supabase.from("kpi_forms" as any).select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("company_id",companyId).eq("year",kpiYear).eq("status","submitted")
         : isSA
-          ? supabase.from("kpi_forms").select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("year",kpiYear).eq("status","submitted")
-          : supabase.from("kpi_forms").select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("company_id",myCompanyId!).eq("year",kpiYear).eq("status","submitted")
-      const {data:kpiForms} = await kpiQuery
+          ? supabase.from("kpi_forms" as any).select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("year",kpiYear).eq("status","submitted")
+          : supabase.from("kpi_forms" as any).select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("company_id",myCompanyId!).eq("year",kpiYear).eq("status","submitted")
+      const {data:kpiForms} = await kpiQuery as any
       if(kpiForms && kpiForms.length > 0) {
         const grades:Record<string,number> = {A:0,B:0,C:0,D:0}
         const deptMap:Record<string,{sum:number;count:number}> = {}
