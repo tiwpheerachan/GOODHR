@@ -550,6 +550,13 @@ export default function CheckInPage() {
         @keyframes dayPop{from{transform:scale(.85)}to{transform:scale(1)}}
         @keyframes pulse-ring{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.5);opacity:0}}
         @keyframes float-up{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes twinkle1{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:.9;transform:scale(1.2)}}
+        @keyframes twinkle2{0%,100%{opacity:.25;transform:scale(1)}50%{opacity:1;transform:scale(1.4)}}
+        @keyframes twinkle3{0%,100%{opacity:.1;transform:scale(.6)}50%{opacity:.7;transform:scale(1.1)}}
+        @keyframes driftUp{0%{transform:translateY(0) rotate(0deg);opacity:.6}100%{transform:translateY(-18px) rotate(20deg);opacity:0}}
+        @keyframes shineSwipe{0%{transform:translateX(-100%) rotate(25deg)}100%{transform:translateX(200%) rotate(25deg)}}
+        .ck-star{position:absolute;border-radius:50%;background:#fff}
+        .ck-star-glow{position:absolute;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.6) 0%,transparent 70%)}
         .fi{animation:fin .35s ease both}
         .fi1{animation:fin .35s ease .06s both}
         .fi2{animation:fin .35s ease .12s both}
@@ -635,19 +642,38 @@ export default function CheckInPage() {
 
                   <button onClick={handleClockIn}
                     disabled={loading || !inRadius || branches.length === 0}
-                    className={`relative z-10 w-[148px] h-[148px] rounded-full font-bold text-lg flex flex-col items-center justify-center gap-1.5 transition-all duration-200 active:scale-[.93] ${
+                    className={`relative z-10 w-[148px] h-[148px] rounded-full font-bold text-lg flex flex-col items-center justify-center gap-1.5 transition-all duration-200 active:scale-[.93] overflow-hidden ${
                       inRadius
-                        ? "text-white shadow-xl shadow-indigo-400/30"
+                        ? "text-white"
                         : "bg-gray-200 text-gray-400 cursor-not-allowed"
                     }`}
-                    style={inRadius ? { background: "linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)" } : undefined}>
+                    style={inRadius ? {
+                      background: "linear-gradient(135deg, #1e3a5f 0%, #1a2744 40%, #0f172a 100%)",
+                      boxShadow: "0 8px 32px rgba(15,23,42,.4), 0 2px 8px rgba(15,23,42,.2)"
+                    } : undefined}>
+                    {/* Stars */}
+                    {inRadius && <>
+                      <span className="ck-star" style={{ width:3, height:3, top:"15%", left:"18%", animation:"twinkle1 3s ease-in-out infinite" }}/>
+                      <span className="ck-star" style={{ width:2, height:2, top:"28%", left:"72%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
+                      <span className="ck-star" style={{ width:2.5, height:2.5, top:"60%", left:"25%", animation:"twinkle3 3.5s ease-in-out infinite 1s" }}/>
+                      <span className="ck-star" style={{ width:2, height:2, top:"70%", left:"68%", animation:"twinkle1 4.5s ease-in-out infinite 1.5s" }}/>
+                      <span className="ck-star" style={{ width:3, height:3, top:"42%", left:"85%", animation:"twinkle2 3s ease-in-out infinite 2s" }}/>
+                      <span className="ck-star" style={{ width:1.5, height:1.5, top:"20%", left:"45%", animation:"twinkle3 5s ease-in-out infinite .8s" }}/>
+                      <span className="ck-star" style={{ width:2, height:2, top:"82%", left:"48%", animation:"twinkle1 3.8s ease-in-out infinite 1.2s" }}/>
+                      <span className="ck-star-glow" style={{ width:35, height:35, top:"-5%", right:"10%", opacity:.12 }}/>
+                      <span className="ck-star-glow" style={{ width:25, height:25, bottom:"10%", left:"15%", opacity:.08 }}/>
+                      <span style={{ position:"absolute", top:"30%", right:"22%", fontSize:7, animation:"driftUp 4s ease-in-out infinite", opacity:.35, color:"#fff" }}>✦</span>
+                      <span style={{ position:"absolute", top:"55%", left:"30%", fontSize:5, animation:"driftUp 5s ease-in-out infinite 1.5s", opacity:.25, color:"#fff" }}>✧</span>
+                      {/* Shine swipe */}
+                      <span style={{ position:"absolute", top:"-50%", left:"-50%", width:"60%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent)", animation:"shineSwipe 6s ease-in-out infinite", pointerEvents:"none" }}/>
+                    </>}
                     {loading ? (
-                      <Loader2 size={28} className="animate-spin" />
+                      <Loader2 size={28} className="animate-spin relative z-10" />
                     ) : (
-                      <>
+                      <div className="relative z-10 flex flex-col items-center gap-1.5">
                         <LogIn size={24} strokeWidth={2.2} />
                         <span className="text-[15px] font-bold tracking-wide">Check-In</span>
-                      </>
+                      </div>
                     )}
                   </button>
                 </div>
@@ -710,10 +736,29 @@ export default function CheckInPage() {
           <div className="px-5 mb-4 fi2">
             {inRadius ? (
               <button onClick={handleClockOut} disabled={loading}
-                className="w-full py-4 rounded-2xl font-bold text-[15px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-300/30"
-                style={{ background: "linear-gradient(135deg, #ef4444 0%, #ec4899 50%, #8b5cf6 100%)" }}>
-                {loading ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
-                Check-Out
+                className="w-full py-4 rounded-2xl font-bold text-[15px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2 relative overflow-hidden"
+                style={{
+                  background: "linear-gradient(135deg, #1e3a5f 0%, #1a2744 40%, #0f172a 100%)",
+                  boxShadow: "0 4px 24px rgba(15,23,42,.35)"
+                }}>
+                {/* Stars */}
+                <span className="ck-star" style={{ width:3, height:3, top:"18%", left:"12%", animation:"twinkle1 3s ease-in-out infinite" }}/>
+                <span className="ck-star" style={{ width:2, height:2, top:"30%", left:"28%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
+                <span className="ck-star" style={{ width:2.5, height:2.5, top:"15%", left:"52%", animation:"twinkle3 3.5s ease-in-out infinite 1s" }}/>
+                <span className="ck-star" style={{ width:2, height:2, top:"65%", left:"40%", animation:"twinkle1 4.5s ease-in-out infinite 1.5s" }}/>
+                <span className="ck-star" style={{ width:3, height:3, top:"55%", left:"70%", animation:"twinkle2 3s ease-in-out infinite 2s" }}/>
+                <span className="ck-star" style={{ width:1.5, height:1.5, top:"25%", left:"82%", animation:"twinkle3 5s ease-in-out infinite .8s" }}/>
+                <span className="ck-star" style={{ width:2, height:2, top:"72%", left:"88%", animation:"twinkle1 3.8s ease-in-out infinite 1.2s" }}/>
+                <span className="ck-star-glow" style={{ width:40, height:40, top:"-5%", right:"15%", opacity:.15 }}/>
+                <span className="ck-star-glow" style={{ width:30, height:30, bottom:"10%", left:"25%", opacity:.1 }}/>
+                <span style={{ position:"absolute", top:"35%", right:"30%", fontSize:8, animation:"driftUp 4s ease-in-out infinite", opacity:.4, color:"#fff" }}>✦</span>
+                <span style={{ position:"absolute", top:"50%", right:"50%", fontSize:6, animation:"driftUp 5s ease-in-out infinite 1.5s", opacity:.3, color:"#fff" }}>✧</span>
+                {/* Shine swipe */}
+                <span style={{ position:"absolute", top:"-50%", left:"-50%", width:"60%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent)", animation:"shineSwipe 6s ease-in-out infinite", pointerEvents:"none" }}/>
+                <span className="relative z-10 flex items-center gap-2">
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
+                  Check-Out
+                </span>
               </button>
             ) : (
               <div className="text-center">
