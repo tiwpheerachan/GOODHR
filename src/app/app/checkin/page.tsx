@@ -1105,8 +1105,14 @@ export default function CheckInPage() {
               <AlertCircle size={12} className="inline mr-1 text-orange-400" />
               อยู่นอกรัศมีสาขา
             </p>
-            <button onClick={() => pos && setShowOffsite("clock_in")}
-              disabled={!pos}
+            <button onClick={() => {
+                if (!pos) {
+                  toast.error("กำลังดึงตำแหน่ง กรุณารอสักครู่...")
+                  getLocation()
+                  return
+                }
+                setShowOffsite("clock_in")
+              }}
               className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2.5 relative overflow-hidden"
               style={{
                 background: "linear-gradient(135deg, #d97706 0%, #ea580c 50%, #dc2626 100%)",
@@ -1118,6 +1124,19 @@ export default function CheckInPage() {
               <span className="relative z-10 flex items-center gap-2">
                 <Camera size={16} /> เช็คอินนอกสถานที่
               </span>
+            </button>
+          </div>
+        )}
+
+        {/* ═══════ Off-site camera shortcut (always visible when not clocked in) ═══════ */}
+        {!hasClockedIn && inRadius && (
+          <div className="px-5 mb-3 fi1">
+            <button onClick={() => {
+                if (!pos) { toast.error("กำลังดึงตำแหน่ง กรุณารอสักครู่..."); getLocation(); return }
+                setShowOffsite("clock_in")
+              }}
+              className="w-full py-2.5 rounded-xl text-[12px] font-semibold text-orange-500 bg-orange-50 border border-orange-100 flex items-center justify-center gap-2 hover:bg-orange-100 active:scale-[.98] transition-all">
+              <Camera size={13} /> หรือเช็คอินนอกสถานที่ด้วยรูปถ่าย
             </button>
           </div>
         )}
@@ -1170,8 +1189,14 @@ export default function CheckInPage() {
                   <LogOut size={18} /> Check-Out
                 </div>
                 <p className="text-[11px] text-gray-400 text-center">อยู่นอกรัศมีสาขา</p>
-                <button onClick={() => pos && setShowOffsite("clock_out")}
-                  disabled={!pos}
+                <button onClick={() => {
+                    if (!pos) {
+                      toast.error("กำลังดึงตำแหน่ง กรุณารอสักครู่...")
+                      getLocation()
+                      return
+                    }
+                    setShowOffsite("clock_out")
+                  }}
                   className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2.5 relative overflow-hidden"
                   style={{
                     background: "linear-gradient(135deg, #d97706 0%, #ea580c 50%, #dc2626 100%)",
