@@ -9,13 +9,13 @@ import Link from "next/link"
 import {
   Clock, ChevronRight, FileEdit, Timer, CalendarClock,
   AlertCircle, Shield, Users, TrendingUp, CalendarDays,
-  Wallet, MapPin, LogOut, RefreshCw,
+  Wallet, MapPin, LogOut, Sparkles, UserX, CheckCircle,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
 const DAY_CFG = [
-  { accent:"#8b5cf6", tag:"วันหยุด 🌸", quotes:[
+  { gradient:"linear-gradient(135deg,#8b5cf6 0%,#a855f7 50%,#c084fc 100%)", accent:"#8b5cf6", tag:"วันหยุด 🌸", shadow:"rgba(139,92,246,.3)", quotes:[
     "วันอาทิตย์ไม่ต้องตื่นเช้า ถ้าตื่นเช้าแสดงว่าเป็น PM 😴",
     "โทรศัพท์ปิดเสียง กายบนโซฟา ใจสงบ 🛋️",
     "การพักผ่อนคือการลงทุนที่คืนทุนเร็วที่สุด 💤",
@@ -26,13 +26,8 @@ const DAY_CFG = [
     "วันอาทิตย์คือของขวัญที่ดีที่สุดของสัปดาห์ 🎁",
     "ปล่อยให้ตัวเองขี้เกียจได้บ้าง มันโอเคมาก 🐢",
     "ออกไปรับแดดอ่อนๆ แค่นั้นก็ดีแล้ว ☀️",
-    "วันหยุดคือวันที่นาฬิกาหยุดเดิน 🕰️",
-    "พักเพื่อกลับมาแข็งแกร่งกว่าเดิม 💪",
-    "กินอร่อย นอนหลับ ไม่คิดเรื่องงาน ✅",
-    "วันอาทิตย์ที่ดีคือวันที่ทำในสิ่งที่รัก 🎨",
-    "รีชาร์จ รีเซ็ต พร้อมสำหรับสัปดาห์ใหม่ 🌟",
   ]},
-  { accent:"#3b82f6", tag:"เริ่มสัปดาห์ ☁️", quotes:[
+  { gradient:"linear-gradient(135deg,#3b82f6 0%,#6366f1 50%,#8b5cf6 100%)", accent:"#3b82f6", tag:"เริ่มสัปดาห์ ☁️", shadow:"rgba(59,130,246,.3)", quotes:[
     "วันจันทร์ก็เหมือนกาแฟ ขมนิดหน่อยแต่ทำให้ตื่น ☕",
     "กาแฟ + จันทร์ = ยังไหวอยู่ 💪",
     "สัปดาห์ใหม่ บทเรียนใหม่ 📖",
@@ -43,13 +38,8 @@ const DAY_CFG = [
     "จันทร์นี้เป็นจุดเริ่มต้นของความสำเร็จ 🏆",
     "ยิ้มให้จันทร์ก่อน จันทร์จะยิ้มตอบ 😊",
     "ถ้าผ่านจันทร์ได้ทุกอย่างก็ง่ายขึ้น 🎯",
-    "จันทร์คือหน้าแรกของนิยายที่ยังไม่ได้เขียน ✍️",
-    "เปิดสัปดาห์ด้วยพลังบวก ปิดสัปดาห์ด้วยความสำเร็จ ✨",
-    "ทำงานด้วยใจ ผลลัพธ์จะตามมาเอง 💫",
-    "วันจันทร์คือแรงผลักดันที่ดีที่สุด 🔥",
-    "เริ่มใหม่ได้เสมอ แม้แต่ในวันจันทร์ 🌅",
   ]},
-  { accent:"#f97316", tag:"ลุยเลย 🔥", quotes:[
+  { gradient:"linear-gradient(135deg,#f97316 0%,#ef4444 50%,#f43f5e 100%)", accent:"#f97316", tag:"ลุยเลย 🔥", shadow:"rgba(249,115,22,.3)", quotes:[
     "อังคารไฟแรง จันทร์ผ่านมาได้แล้ว! 🥊",
     "ถ้าผ่านจันทร์มาได้ อังคารก็แค่เรื่องเล็ก 😤",
     "สู้ๆ อีกสามวันก็ศุกร์แล้ว 🎉",
@@ -60,13 +50,8 @@ const DAY_CFG = [
     "กดไม่หยุด วันนี้ต้องปิดงานให้ได้ 🎯",
     "พลังเต็มถัง ออกรถเลย 🏎️",
     "ทำมากกว่าที่คาดหวัง ผลลัพธ์จะน่าประหลาดใจ 🌟",
-    "โฟกัส ลงมือ ไม่ผัดวันประกันพรุ่ง 📌",
-    "อังคารนี้ทุกอุปสรรคคือบทเรียนที่ดี 💡",
-    "ความสำเร็จชอบคนที่ลงมือทำก่อน 🏃",
-    "วันนี้เหนื่อยได้ แต่อย่าหยุด 💪",
-    "ไปต่อ อีกนิดเดียวก็ถึงแล้ว ✅",
   ]},
-  { accent:"#10b981", tag:"กึ่งกลาง 🌿", quotes:[
+  { gradient:"linear-gradient(135deg,#10b981 0%,#14b8a6 50%,#06b6d4 100%)", accent:"#10b981", tag:"กึ่งกลาง 🌿", shadow:"rgba(16,185,129,.3)", quotes:[
     "พุธ = ครึ่งทาง อีกครึ่งทางง่ายกว่า 🏔️",
     "วันพุธคือยอดเขา ข้างหน้าลงเขา 🎿",
     "พุธ: วันที่กาแฟทำงานหนักที่สุด ☕",
@@ -77,13 +62,8 @@ const DAY_CFG = [
     "พุธนี้เป็นวันที่ก้าวกระโดด ไม่ใช่ก้าวเล็กๆ 🦘",
     "หมดแรงนิดหน่อยก็ไม่เป็นไร พักแล้วลุยต่อ 🌱",
     "ทุกขั้นตอนสำคัญ แม้แต่ขั้นกลางๆ 🧩",
-    "มาถึงตรงนี้แล้ว ก็แค่เดินต่อไป 🚶",
-    "พุธคือสัญญาณว่าคุณแข็งแกร่งกว่าที่คิด 💚",
-    "โปรเจกต์ไหนค้างอยู่บ้าง? วันนี้ปิดได้เลย 📋",
-    "ครึ่งหลังของสัปดาห์มักจะดีกว่าครึ่งแรก 🌈",
-    "ถึงพุธแล้ว นั่นแปลว่าคุณเก่งมาก 🌟",
   ]},
-  { accent:"#6366f1", tag:"เกือบถึง ⭐", quotes:[
+  { gradient:"linear-gradient(135deg,#6366f1 0%,#818cf8 50%,#a78bfa 100%)", accent:"#6366f1", tag:"เกือบถึง ⭐", shadow:"rgba(99,102,241,.3)", quotes:[
     "พฤหัสฯ คือแสงสว่างปลายอุโมงค์ 🌟",
     "อีกวันเดียว! กำหมัดไว้ 👊",
     "ใกล้ๆ แล้ว เหนื่อยหน่อยแต่ถึง 🏅",
@@ -94,13 +74,8 @@ const DAY_CFG = [
     "คุณมาไกลมากแล้ว อย่าหยุดตอนนี้ 🚀",
     "เหลือแค่ก้าวสุดท้าย ก้าวเลย 👣",
     "พฤหัสฯ คือวันที่นับถอยหลังสู่ศุกร์ ⏳",
-    "ทำให้ดีที่สุดวันนี้ พรุ่งนี้จะมีรางวัล 🎁",
-    "เกือบถึงแล้ว พลังอีกนิดนะ ⚡",
-    "พฤหัสฯ ให้กำลังใจตัวเองบ้างก็ดีนะ 💜",
-    "อดทนอีกหน่อย ศุกร์อยู่แค่มือเอื้อม 🌸",
-    "คุณผ่านมาได้ถึงตรงนี้ นั่นคือความสำเร็จ 🥇",
   ]},
-  { accent:"#f59e0b", tag:"ศุกร์!! 🎉", quotes:[
+  { gradient:"linear-gradient(135deg,#f59e0b 0%,#f97316 50%,#ef4444 100%)", accent:"#f59e0b", tag:"ศุกร์!! 🎉", shadow:"rgba(245,158,11,.3)", quotes:[
     "ศุกร์แล้วว!! มาไกลมากนะเพื่อน 🎊",
     "TGIF — Thank God It's Friday 🙌",
     "ศุกร์: วันที่ประสิทธิภาพสูงสุดช่วง 17:00–17:30 น. 😂",
@@ -109,15 +84,10 @@ const DAY_CFG = [
     "วันที่ทุกคนรอ มาถึงแล้ว!! 🎉",
     "กาแฟแก้วสุดท้ายของสัปดาห์ ดื่มแบบจุใจ ☕",
     "ศุกร์บ่ายเป็นช่วงเวลาที่ดีที่สุด 🌅",
-    "อีก X ชั่วโมงก็ weekend แล้ว นับได้เลย ⏰",
     "ปิดงานให้หมด แล้วไปพัก! ✅",
     "ศุกร์คือรางวัลของคนที่สู้มาทั้งสัปดาห์ 🥇",
-    "เย้! ผ่านมาได้อีกสัปดาห์แล้ว! 🎈",
-    "วันศุกร์คือ playlist เพลงสนุกๆ ที่ดัง 🎵",
-    "ทุกสัปดาห์มีศุกร์ นั่นคือเหตุผลที่ต้องสู้ต่อ 💛",
-    "ยิ้มได้กว้างหน่อยนะ วันนี้สมควรแล้ว 😄",
   ]},
-  { accent:"#0ea5e9", tag:"วันหยุด 😴", quotes:[
+  { gradient:"linear-gradient(135deg,#0ea5e9 0%,#06b6d4 50%,#14b8a6 100%)", accent:"#0ea5e9", tag:"วันหยุด 😴", shadow:"rgba(14,165,233,.3)", quotes:[
     "เสาร์คือวันที่ alarm ต้องหยุดพัก ⏰",
     "พักผ่อนเยอะๆ นะ จันทร์ยังอีกไกล 🌙",
     "วันนี้ห้ามคิดเรื่องงาน เด็ดขาด 🚫",
@@ -128,18 +98,9 @@ const DAY_CFG = [
     "ชาร์จแบตตัวเอง เหมือนชาร์จโทรศัพท์ 🔋",
     "เสาร์สบายๆ กาแฟร้อนๆ วิวดีๆ ☕",
     "วันนี้เวลาเป็นของคุณ ทำอะไรก็ได้ที่ชอบ 🌈",
-    "เสาร์คือการอนุญาตให้ตัวเองเป็นตัวเอง 💙",
-    "นอนตื่นสาย กินข้าวช้า ใช้ชีวิตสบายๆ 🐌",
-    "วันหยุดสมองจากงาน แต่ไม่หยุดความสุข 😊",
-    "เสาร์นี้ขอแค่มีความสุขเล็กๆ ก็พอ 🌟",
-    "พักผ่อนให้เต็มที่ เพราะคุณสมควรได้รับมัน 💫",
   ]},
 ]
 const DOW_TH = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"]
-const STATUS_LABEL: Record<string,string> = {
-  active:"ทำงานปกติ", probation:"ทดลองงาน", on_leave:"ลาพัก",
-  resigned:"ลาออก", terminated:"เลิกจ้าง", suspended:"พักงาน",
-}
 
 export default function DashboardPage() {
   const { user } = useAuth()
@@ -184,10 +145,30 @@ export default function DashboardPage() {
       }, 350)
     }, 7000)
     return () => clearInterval(id)
-  }, [dow, mounted])
+  }, [dow, mounted]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const hour     = now.getHours()
-  const greet    = hour < 6 ? "ดึกแล้วนะ" : hour < 12 ? "อรุณสวัสดิ์" : hour < 17 ? "สวัสดีตอนบ่าย" : "สวัสดีตอนเย็น"
+  /* ── Time-based greetings with unique emojis ── */
+  const timeGreet = hour < 5
+    ? { text:"ดึกแล้วนะ",       emoji:"🌙", sub:"พักผ่อนบ้างนะ" }
+    : hour < 7
+    ? { text:"ตื่นเช้าจัง",      emoji:"🌅", sub:"เริ่มต้นวันใหม่" }
+    : hour < 9
+    ? { text:"อรุณสวัสดิ์",      emoji:"☀️", sub:"วันนี้จะเป็นวันที่ดี" }
+    : hour < 12
+    ? { text:"สวัสดีตอนสาย",     emoji:"🌤️", sub:"สู้ๆ นะวันนี้" }
+    : hour < 13
+    ? { text:"พักเที่ยงก่อน",    emoji:"🍜", sub:"เติมพลังกันเถอะ" }
+    : hour < 15
+    ? { text:"สวัสดีตอนบ่าย",    emoji:"🌻", sub:"บ่ายนี้สดใส" }
+    : hour < 17
+    ? { text:"เกือบเย็นแล้ว",    emoji:"🧡", sub:"อีกนิดเดียว" }
+    : hour < 19
+    ? { text:"สวัสดีตอนเย็น",    emoji:"🌇", sub:"เย็นนี้ผ่อนคลาย" }
+    : hour < 21
+    ? { text:"ค่ำแล้ว",          emoji:"🌆", sub:"พักผ่อนได้แล้ว" }
+    : { text:"ราตรีสวัสดิ์",     emoji:"🌜", sub:"ฝันดีนะ" }
+  const greet = timeGreet.text
   const liveTime = mounted ? format(now, "HH:mm:ss") : "──:──:──"
 
   const present    = records.filter(r => ["present","late"].includes(r.status)).length
@@ -199,9 +180,24 @@ export default function DashboardPage() {
     style: {
       opacity:   visible ? 1 : 0,
       transform: visible ? "translateY(0)" : "translateY(12px)",
-      transition:`opacity .45s ease ${d}ms, transform .45s ease ${d}ms`,
+      transition:`opacity .5s cubic-bezier(.22,1,.36,1) ${d}ms, transform .5s cubic-bezier(.22,1,.36,1) ${d}ms`,
     }
   })
+
+  /* ring helper for SVG circles */
+  const Ring = ({ size, stroke, pct, color, bg }: { size:number; stroke:number; pct:number; color:string; bg:string }) => {
+    const r = (size - stroke) / 2
+    const c = Math.PI * 2 * r
+    return (
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ position:"absolute", inset:0 }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={bg} strokeWidth={stroke}/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+          strokeDasharray={`${c * pct} ${c}`} strokeLinecap="round"
+          transform={`rotate(-90 ${size/2} ${size/2})`}
+          style={{ transition:"stroke-dasharray 1s cubic-bezier(.22,1,.36,1)" }}/>
+      </svg>
+    )
+  }
 
   return (
     <>
@@ -209,133 +205,169 @@ export default function DashboardPage() {
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700;800;900&display=swap');
         * { font-family: 'Noto Sans Thai', sans-serif; }
         @keyframes pulseDot { 0%{transform:scale(1);opacity:.8} 100%{transform:scale(2);opacity:0} }
-        @keyframes fadeQ    { from{opacity:0} to{opacity:1} }
-        @keyframes checkoutPulse { 0%,100%{box-shadow:0 4px 14px rgba(14,165,233,.35)} 50%{box-shadow:0 4px 22px rgba(14,165,233,.65)} }
-        @keyframes checkoutShimmer { 0%{left:-60%} 100%{left:130%} }
-        .checkout-btn { animation: checkoutPulse 2s ease-in-out infinite; transition: transform .15s ease, opacity .15s ease }
-        .checkout-btn:active { transform:scale(.96); opacity:.9 }
-        .checkout-btn::after {
-          content:""; position:absolute; top:0; bottom:0; width:35%;
-          background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);
-          transform:skewX(-15deg);
-          animation: checkoutShimmer 2.2s ease-in-out infinite;
+        @keyframes floatY { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+        @keyframes softPulse { 0%,100%{opacity:.45} 50%{opacity:1} }
+        @keyframes twinkle1 {
+          0%,100% { opacity:.15; transform:scale(.8) }
+          50% { opacity:.9; transform:scale(1.2) }
         }
-        .page { background:#f5f6fa; min-height:100%; }
-        .c {
-          background:#fff;
-          border:1px solid #e8eaed;
-          border-radius:14px;
+        @keyframes twinkle2 {
+          0%,100% { opacity:.25; transform:scale(1) }
+          50% { opacity:1; transform:scale(1.4) }
         }
-        .press { transition:opacity .15s ease, transform .15s ease }
-        .press:active { opacity:.85; transform:scale(.98) }
+        @keyframes twinkle3 {
+          0%,100% { opacity:.1; transform:scale(.6) }
+          50% { opacity:.7; transform:scale(1.1) }
+        }
+        @keyframes driftUp {
+          0% { transform:translateY(0) rotate(0deg); opacity:.6 }
+          100% { transform:translateY(-18px) rotate(20deg); opacity:0 }
+        }
+        @keyframes gradientShift {
+          0% { background-position:0% 50% }
+          25% { background-position:100% 50% }
+          50% { background-position:100% 0% }
+          75% { background-position:0% 100% }
+          100% { background-position:0% 50% }
+        }
+        @keyframes shineSwipe {
+          0% { transform:translateX(-100%) rotate(25deg) }
+          100% { transform:translateX(200%) rotate(25deg) }
+        }
+        .s { background:#fff; border-radius:20px; box-shadow:0 1px 4px rgba(0,0,0,.04); }
+        .press { transition:opacity .12s ease, transform .12s ease }
+        .press:active { opacity:.85; transform:scale(.97) }
+        .star {
+          position:absolute; border-radius:50%; background:#fff;
+        }
+        .star-glow {
+          position:absolute; border-radius:50%;
+          background:radial-gradient(circle,rgba(255,255,255,.6) 0%,transparent 70%);
+        }
+        .hero-card {
+          border-radius:22px;
+          background-size:300% 300%;
+          animation:gradientShift 8s ease infinite;
+          position:relative; overflow:hidden;
+          box-shadow:
+            0 8px 32px rgba(0,0,0,.18),
+            0 2px 8px rgba(0,0,0,.1),
+            inset 0 1px 0 rgba(255,255,255,.15);
+          transform:perspective(800px) rotateX(1deg);
+          transition:transform .3s ease;
+        }
+        .hero-card::before {
+          content:''; position:absolute; inset:0;
+          background:linear-gradient(135deg,rgba(255,255,255,.12) 0%,transparent 50%,rgba(255,255,255,.05) 100%);
+          border-radius:22px; pointer-events:none; z-index:1;
+        }
+        .hero-card::after {
+          content:''; position:absolute; top:-50%; left:-50%;
+          width:60%; height:200%;
+          background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);
+          animation:shineSwipe 6s ease-in-out infinite;
+          pointer-events:none; z-index:2;
+        }
       `}</style>
 
-      <div className="page px-4 pt-4 pb-10 space-y-3">
+      <div className="px-4 pt-3 pb-10 space-y-3 min-h-screen" style={{ background:"#f0f2f5" }}>
 
-        {/* ── HEADER HERO ───────────────────────── */}
-        <div {...up(0)} className="relative overflow-hidden rounded-2xl" style={{
-          background:`linear-gradient(135deg, ${cfg.accent}ee 0%, ${cfg.accent}bb 100%)`,
-          boxShadow:`0 8px 32px ${cfg.accent}40`
-        }}>
-          <div className="absolute inset-0 pointer-events-none" style={{
-            background:`radial-gradient(ellipse at 90% -10%, rgba(255,255,255,.22) 0%, transparent 55%),
-                        radial-gradient(ellipse at -5% 110%, rgba(0,0,0,.12) 0%, transparent 45%)`
-          }}/>
-          <div className="absolute inset-0 pointer-events-none" style={{
-            backgroundImage:`radial-gradient(circle, rgba(255,255,255,.15) 1px, transparent 1px)`,
-            backgroundSize:"20px 20px"
-          }}/>
-          <div className="absolute bottom-0 inset-x-0 h-px" style={{
-            background:"linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent)"
-          }}/>
+        {/* ── GREETING CARD (3D Credit Card) ──── */}
+        <div {...up(0)}>
+          <div className="hero-card" style={{
+            padding:"22px 22px 18px",
+            background: cfg.gradient,
+          }}>
+            {/* Glass circle decorations */}
+            <div style={{ position:"absolute", top:-40, right:-30, width:140, height:140,
+              borderRadius:"50%", background:"rgba(255,255,255,.06)", zIndex:0 }}/>
+            <div style={{ position:"absolute", bottom:-30, left:-25, width:100, height:100,
+              borderRadius:"50%", background:"rgba(255,255,255,.04)", zIndex:0 }}/>
+            <div style={{ position:"absolute", top:"40%", right:"10%", width:60, height:60,
+              borderRadius:"50%", background:"rgba(255,255,255,.03)", zIndex:0 }}/>
 
-          <div className="relative z-10 px-4 pt-4 pb-3.5">
-            <div className="flex items-start justify-between mb-3">
-              <p style={{ fontSize:11, color:"rgba(255,255,255,.7)", fontWeight:500, letterSpacing:"0.02em" }}>
+            {/* Top row: date + live clock */}
+            <div className="flex items-center justify-between relative" style={{ zIndex:3 }}>
+              <p style={{ fontSize:11, color:"rgba(255,255,255,.6)", fontWeight:500, letterSpacing:"0.02em" }}>
                 {mounted ? `วัน${DOW_TH[dow]} ${format(now,"d MMM yyyy",{locale:th})}` : ""}
               </p>
               <div className="flex items-center gap-1.5 rounded-full px-3 py-1" style={{
-                background:"rgba(0,0,0,.18)", border:"1px solid rgba(255,255,255,.18)"
+                background:"rgba(255,255,255,.1)", backdropFilter:"blur(12px)",
+                border:"1px solid rgba(255,255,255,.08)",
               }}>
                 <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inset-0 rounded-full bg-emerald-300" style={{ animation:"pulseDot 1.6s ease-out infinite" }}/>
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-300"/>
+                  <span className="absolute inset-0 rounded-full" style={{ background:"rgba(255,255,255,.6)", animation:"pulseDot 1.6s ease-out infinite" }}/>
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ background:"#fff" }}/>
                 </span>
-                <p className="tabular-nums font-black text-white" style={{ fontSize:13, letterSpacing:"-0.02em" }}>
+                <p className="tabular-nums" style={{ fontSize:12, fontWeight:700, color:"rgba(255,255,255,.9)", letterSpacing:"-0.01em" }}>
                   {liveTime}
                 </p>
               </div>
             </div>
 
-            <div className="mb-3.5">
-              <p style={{ fontSize:12, color:"rgba(255,255,255,.75)", fontWeight:500 }}>{greet}</p>
-              <h1 style={{ fontSize:22, fontWeight:900, color:"#fff", letterSpacing:"-0.025em", lineHeight:1.15, marginTop:2,
-                textShadow:"0 2px 12px rgba(0,0,0,.15)" }}>
-                {emp?.first_name_th || "สวัสดี"} {emp?.last_name_th || ""} 👋
+            {/* Main greeting: name + sub on same line */}
+            <div className="relative" style={{ zIndex:3, marginTop:16 }}>
+              <h1 style={{
+                fontSize:24, fontWeight:900, color:"#fff",
+                letterSpacing:"-0.03em", lineHeight:1.2,
+                textShadow:"0 2px 8px rgba(0,0,0,.15)",
+              }}>
+                {timeGreet.emoji} {greet}
               </h1>
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                {emp?.position?.name && (
-                  <span style={{
-                    fontSize:10, fontWeight:600, color:"rgba(255,255,255,.9)",
-                    background:"rgba(0,0,0,.18)", border:"1px solid rgba(255,255,255,.2)",
-                    borderRadius:99, padding:"2px 10px"
-                  }}>{emp.position.name}</span>
-                )}
-                {emp?.department?.name && (
-                  <span style={{
-                    fontSize:10, color:"rgba(255,255,255,.65)",
-                    background:"rgba(0,0,0,.12)", border:"1px solid rgba(255,255,255,.14)",
-                    borderRadius:99, padding:"2px 10px"
-                  }}>{emp.department.name}</span>
-                )}
-              </div>
+              <p style={{ fontSize:15, fontWeight:600, color:"rgba(255,255,255,.9)", marginTop:4 }}>
+                {emp?.first_name_th || "สวัสดี"} <span style={{ fontSize:12, fontWeight:400, color:"rgba(255,255,255,.5)", marginLeft:4 }}>{timeGreet.sub}</span>
+              </p>
             </div>
 
-            <div className="rounded-xl px-3 py-2.5 flex items-center gap-2.5" style={{
-              background:"rgba(0,0,0,.15)", border:"1px solid rgba(255,255,255,.12)"
-            }}>
-              <p className="flex-1 italic leading-relaxed" style={{
-                fontSize:11, color:"rgba(255,255,255,.75)",
-                opacity: qFade ? 1 : 0, transition:"opacity .35s ease"
+            {/* Divider line + quote */}
+            <div className="relative" style={{ zIndex:3, marginTop:16 }}>
+              <div style={{ height:1, background:"linear-gradient(90deg,rgba(255,255,255,.15),rgba(255,255,255,.05),transparent)", marginBottom:12 }}/>
+              <p className="italic leading-relaxed" style={{
+                fontSize:12, color:"rgba(255,255,255,.6)",
+                opacity: qFade ? 1 : 0, transition:"opacity .35s ease",
               }}>
                 {quote || ""}
               </p>
-              <span style={{
-                fontSize:10, fontWeight:700, color:"rgba(255,255,255,.9)",
-                background:"rgba(255,255,255,.15)", borderRadius:99, padding:"2px 8px",
-                whiteSpace:"nowrap", flexShrink:0
-              }}>
-                {cfg.tag}
-              </span>
+            </div>
+
+            {/* Card chip decoration (like credit card) */}
+            <div style={{
+              position:"absolute", bottom:18, right:22, zIndex:3,
+              width:32, height:24, borderRadius:5,
+              background:"linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.04))",
+              border:"1px solid rgba(255,255,255,.08)",
+              display:"flex", alignItems:"center", justifyContent:"center",
+            }}>
+              <Sparkles size={12} style={{ color:"rgba(255,255,255,.3)" }}/>
             </div>
           </div>
         </div>
 
         {/* ── ROLE SWITCHER ──────────────────────── */}
         {(isManager || isAdmin) && (
-          <div {...up(60)} className={`grid gap-2 ${isManager && isAdmin ? "grid-cols-2" : "grid-cols-1"}`}>
+          <div {...up(40)} className={`grid gap-2.5 ${isManager && isAdmin ? "grid-cols-2" : "grid-cols-1"}`}>
             {isManager && (
-              <Link href="/manager/dashboard" className="c press flex items-center gap-2.5 px-3.5 py-2.5">
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white flex-shrink-0"
-                  style={{ background:"#3b82f6" }}>
-                  <Users size={14}/>
+              <Link href="/manager/dashboard" className="s press flex items-center gap-3 px-4 py-3.5">
+                <div style={{ width:36, height:36, borderRadius:12, background:"rgba(99,102,241,.08)",
+                  display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <Users size={16} style={{ color:"#6366f1" }}/>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p style={{ fontSize:12, fontWeight:700, color:"#111827" }}>หัวหน้าทีม</p>
-                  <p style={{ fontSize:10, color:"#9ca3af" }}>อนุมัติ · ดูทีม</p>
+                  <p style={{ fontSize:13, fontWeight:700, color:"#1a1a1a" }}>หัวหน้าทีม</p>
+                  <p style={{ fontSize:10, color:"#94a3b8", marginTop:1 }}>อนุมัติ · ดูทีม</p>
                 </div>
                 <ChevronRight size={14} style={{ color:"#d1d5db" }}/>
               </Link>
             )}
             {isAdmin && (
-              <Link href="/admin/dashboard" className="c press flex items-center gap-2.5 px-3.5 py-2.5">
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white flex-shrink-0"
-                  style={{ background:"#10b981" }}>
-                  <Shield size={14}/>
+              <Link href="/admin/dashboard" className="s press flex items-center gap-3 px-4 py-3.5">
+                <div style={{ width:36, height:36, borderRadius:12, background:"rgba(16,185,129,.08)",
+                  display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <Shield size={16} style={{ color:"#10b981" }}/>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p style={{ fontSize:12, fontWeight:700, color:"#111827" }}>HR Admin</p>
-                  <p style={{ fontSize:10, color:"#9ca3af" }}>จัดการ · รายงาน</p>
+                  <p style={{ fontSize:13, fontWeight:700, color:"#1a1a1a" }}>HR Admin</p>
+                  <p style={{ fontSize:10, color:"#94a3b8", marginTop:1 }}>จัดการ · รายงาน</p>
                 </div>
                 <ChevronRight size={14} style={{ color:"#d1d5db" }}/>
               </Link>
@@ -343,175 +375,253 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── TODAY CHECK-IN ─────────────────────── */}
+        {/* ── TODAY ATTENDANCE ────────────────────── */}
         {!isWeekend && (
-          <div {...up(100)}>
+          <div {...up(80)}>
             {todayRecord ? (
-              <div className="c overflow-hidden">
-                {/* header */}
-                <div className="flex items-center justify-between px-4 pt-3.5 pb-3" style={{ borderBottom:"1px solid #f3f4f6" }}>
-                  <div className="flex items-center gap-2">
-                    <span style={{ fontSize:15 }}>🗓️</span>
-                    <p style={{ fontSize:13, fontWeight:700, color:"#111827" }}>บันทึกเวลาวันนี้</p>
-                  </div>
-                  <span style={{ fontSize:11, color:"#9ca3af" }}>
-                    {mounted ? format(now,"d MMM yyyy",{locale:th}) : ""}
-                  </span>
-                </div>
-
-                {/* 3 stat cols */}
-                <div className="grid grid-cols-3" style={{ borderBottom:"1px solid #f3f4f6" }}>
-                  {[
-                    { icon:<Clock size={13} style={{ color:"#ea580c" }}/>,     label:"เข้างาน",  val:formatTime(todayRecord.clock_in)||"—",  accent:"#111827" },
-                    { icon:<LogOut size={13} style={{ color:"#0369a1" }}/>,    label:"ออกงาน",  val:formatTime(todayRecord.clock_out)||"—", accent:"#111827" },
-                    { icon: todayRecord.late_minutes>0
-                        ? <AlertCircle size={13} style={{ color:"#ea580c" }}/>
-                        : <TrendingUp size={13} style={{ color:"#16a34a" }}/>,
-                      label:"สถานะ",
-                      val: todayRecord.late_minutes>0 ? `+${todayRecord.late_minutes}น.` : "ตรงเวลา",
-                      accent:"#111827",
-                      sub: todayRecord.late_minutes>0 ? "มาสาย" : "",
-                      subColor: todayRecord.late_minutes>0 ? "#ea580c" : "#16a34a" },
-                  ].map((s:any,i) => (
-                    <div key={i} className="flex flex-col items-center py-4"
-                      style={{ borderRight: i<2 ? "1px solid #f3f4f6" : "none" }}>
-                      <div style={{ marginBottom:5 }}>{s.icon}</div>
-                      <p style={{ fontSize:9, color:"#9ca3af", fontWeight:600, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:5 }}>{s.label}</p>
-                      <p className="tabular-nums font-black" style={{ fontSize:17, color:s.accent, letterSpacing:"-0.02em", lineHeight:1 }}>{s.val}</p>
-                      {s.sub ? <p style={{ fontSize:9, color:s.subColor, marginTop:3, fontWeight:600, opacity:.75 }}>{s.sub}</p> : null}
-                    </div>
-                  ))}
-                </div>
-
-                {/* checkout row */}
-                {todayRecord.clock_in && !todayRecord.clock_out && (
-                  <div className="flex items-center justify-between px-4 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                        style={{ background:"#fff7ed" }}>
-                        <AlertCircle size={15} style={{ color:"#f97316" }}/>
-                      </div>
-                      <div>
-                        <p style={{ fontSize:12, fontWeight:700, color:"#111827" }}>ยังไม่ได้เช็คเอ้าท์</p>
-                        <p style={{ fontSize:10, color:"#9ca3af", marginTop:1 }}>อย่าลืมบันทึกเวลาออกนะ</p>
-                      </div>
-                    </div>
-                    <Link href="/app/checkin" className="checkout-btn flex items-center gap-1.5 rounded-xl px-3.5 py-2" style={{
-                      background:"linear-gradient(135deg,#0ea5e9,#0891b2)",
-                      fontSize:12, fontWeight:700, color:"#fff",
-                      boxShadow:"0 4px 14px rgba(14,165,233,.35)",
-                      position:"relative", overflow:"hidden"
-                    }}>
-                      <MapPin size={12}/> เช็คเอ้าท์
+              <div className="s" style={{ overflow:"hidden" }}>
+                <div className="px-5 pt-5 pb-5">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-1">
+                    <p style={{ fontSize:16, fontWeight:800, color:"#1a1a1a", letterSpacing:"-0.02em" }}>
+                      บันทึกเวลา
+                    </p>
+                    <Link href="/app/attendance" className="press flex items-center gap-0.5"
+                      style={{ fontSize:12, fontWeight:600, color:"#94a3b8" }}>
+                      ดูประวัติ <ChevronRight size={13}/>
                     </Link>
                   </div>
-                )}
+                  <p style={{ fontSize:11, color:"#b0b0b0", fontWeight:500, marginBottom:20 }}>
+                    {mounted ? format(now,"d MMMM yyyy",{locale:th}) : ""}
+                  </p>
+
+                  {/* ── Clock circles ── */}
+                  <div className="flex items-center justify-center gap-8 mb-5">
+                    {/* Clock In */}
+                    <div className="flex flex-col items-center">
+                      <div className="relative" style={{ width:96, height:96, marginBottom:10 }}>
+                        <Ring size={96} stroke={4} pct={todayRecord.clock_in ? 1 : 0} color="#3b82f6" bg="rgba(59,130,246,.08)"/>
+                        <div style={{
+                          position:"absolute", inset:0, display:"flex", flexDirection:"column",
+                          alignItems:"center", justifyContent:"center",
+                        }}>
+                          <div style={{
+                            width:28, height:28, borderRadius:10, background:"rgba(59,130,246,.1)",
+                            display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4,
+                          }}>
+                            <Clock size={14} style={{ color:"#3b82f6" }}/>
+                          </div>
+                          <p className="tabular-nums" style={{
+                            fontSize:18, fontWeight:900, color:"#1a1a1a",
+                            letterSpacing:"-0.04em", lineHeight:1,
+                          }}>
+                            {formatTime(todayRecord.clock_in) || "—"}
+                          </p>
+                        </div>
+                      </div>
+                      <p style={{ fontSize:12, color:"#64748b", fontWeight:600 }}>เข้างาน</p>
+                    </div>
+
+                    {/* Clock Out */}
+                    <div className="flex flex-col items-center">
+                      <div className="relative" style={{ width:96, height:96, marginBottom:10 }}>
+                        <Ring size={96} stroke={4} pct={todayRecord.clock_out ? 1 : 0}
+                          color={todayRecord.clock_out ? "#7c3aed" : "#e2e8f0"}
+                          bg={todayRecord.clock_out ? "rgba(124,58,237,.08)" : "rgba(0,0,0,.03)"}/>
+                        <div style={{
+                          position:"absolute", inset:0, display:"flex", flexDirection:"column",
+                          alignItems:"center", justifyContent:"center",
+                        }}>
+                          <div style={{
+                            width:28, height:28, borderRadius:10,
+                            background: todayRecord.clock_out ? "rgba(124,58,237,.1)" : "rgba(0,0,0,.04)",
+                            display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4,
+                          }}>
+                            <LogOut size={14} style={{ color: todayRecord.clock_out ? "#7c3aed" : "#cbd5e1" }}/>
+                          </div>
+                          <p className="tabular-nums" style={{
+                            fontSize:18, fontWeight:900,
+                            color: todayRecord.clock_out ? "#1a1a1a" : "#d1d5db",
+                            letterSpacing:"-0.04em", lineHeight:1,
+                          }}>
+                            {formatTime(todayRecord.clock_out) || "—"}
+                          </p>
+                        </div>
+                      </div>
+                      <p style={{ fontSize:12, color:"#64748b", fontWeight:600 }}>ออกงาน</p>
+                    </div>
+                  </div>
+
+                  {/* Status pill */}
+                  <div className="flex items-center justify-center">
+                    <div className="flex items-center gap-2 rounded-full px-4 py-2" style={{
+                      background: todayRecord.late_minutes > 0 ? "rgba(239,68,68,.06)" : "rgba(34,197,94,.06)",
+                    }}>
+                      {todayRecord.late_minutes > 0
+                        ? <AlertCircle size={14} style={{ color:"#ef4444" }}/>
+                        : <CheckCircle size={14} style={{ color:"#22c55e" }}/>
+                      }
+                      <p style={{ fontSize:13, fontWeight:700, color: todayRecord.late_minutes > 0 ? "#dc2626" : "#16a34a" }}>
+                        {todayRecord.late_minutes > 0 ? `มาสาย +${todayRecord.late_minutes} นาที` : "ตรงเวลา"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Checkout CTA */}
+                  {todayRecord.clock_in && !todayRecord.clock_out && (
+                    <Link href="/app/checkin" className="checkout-btn press flex items-center justify-center gap-2 w-full" style={{
+                      background:"#1a1a1a", borderRadius:14, padding:"13px 0", marginTop:16,
+                      fontSize:13, fontWeight:700, color:"#fff",
+                      boxShadow:"0 2px 12px rgba(0,0,0,.12)",
+                      position:"relative", overflow:"hidden",
+                    }}>
+                      <MapPin size={14} style={{ animation:"floatY 2s ease-in-out infinite" }}/> บันทึกเวลาออก
+                    </Link>
+                  )}
+                </div>
               </div>
             ) : (
-              <Link href="/app/checkin" className="press flex items-center gap-3.5 px-4 py-3.5 rounded-[14px]"
-                style={{ background:"linear-gradient(135deg,#0ea5e9,#14b8a6,#10b981)", boxShadow:"0 4px 16px rgba(14,165,233,.25)" }}>
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white flex-shrink-0"
-                  style={{ background:"rgba(255,255,255,.2)", border:"1px solid rgba(255,255,255,.25)" }}>
-                  <MapPin size={19}/>
+              <Link href="/app/checkin" className="press flex items-center gap-4 px-5 py-4" style={{
+                borderRadius:20, overflow:"hidden", position:"relative",
+                background:"linear-gradient(135deg,#f59e0b 0%,#f97316 50%,#ef4444 100%)",
+                boxShadow:"0 4px 20px rgba(249,115,22,.3)",
+              }}>
+                {/* Decorative circle */}
+                <div style={{ position:"absolute", top:-20, right:-20, width:80, height:80,
+                  borderRadius:"50%", background:"rgba(255,255,255,.1)" }}/>
+                <div style={{
+                  width:44, height:44, borderRadius:14, background:"rgba(255,255,255,.18)",
+                  display:"flex", alignItems:"center", justifyContent:"center", position:"relative", zIndex:1,
+                }}>
+                  <MapPin size={20} style={{ color:"#fff", animation:"floatY 2s ease-in-out infinite" }}/>
                 </div>
-                <div className="flex-1">
+                <div className="flex-1" style={{ position:"relative", zIndex:1 }}>
                   <p style={{ fontSize:14, fontWeight:800, color:"#fff" }}>เช็คอินเลย!</p>
-                  <p style={{ fontSize:11, color:"rgba(255,255,255,.75)", marginTop:2 }}>ยังไม่ได้บันทึกเวลาเข้างานวันนี้</p>
+                  <p style={{ fontSize:11, color:"rgba(255,255,255,.65)", marginTop:2 }}>ยังไม่ได้บันทึกเวลาเข้างานวันนี้</p>
                 </div>
-                <ChevronRight size={18} style={{ color:"rgba(255,255,255,.7)" }}/>
+                <ChevronRight size={16} style={{ color:"rgba(255,255,255,.4)", position:"relative", zIndex:1 }}/>
               </Link>
             )}
           </div>
         )}
 
-        {/* ── STATS ROW ──────────────────────────── */}
-        <div {...up(150)} className="c overflow-hidden">
+        {/* ── STATS ─────────────────────────── */}
+        <div {...up(120)} className="s">
           <div className="grid grid-cols-4">
             {[
-              { label:"มาแล้ว",     val:present,    color:"#0369a1" },
-              { label:"มาสาย",      val:late,        color:"#d97706" },
-              { label:"ขาดงาน",     val:absent,      color:"#dc2626" },
-              { label:"วันลาเหลือ", val:totalLeave, color:"#0f766e" },
+              { label:"มาแล้ว",     val:present,    color:"#3b82f6" },
+              { label:"มาสาย",      val:late,        color:"#f59e0b" },
+              { label:"ขาดงาน",     val:absent,      color:"#ef4444" },
+              { label:"วันลาเหลือ", val:totalLeave, color:"#10b981" },
             ].map((s,i) => (
-              <div key={s.label} className="py-3.5 text-center"
-                style={{ borderRight:i<3?"1px solid #f3f4f6":"none" }}>
-                <p className="tabular-nums font-black" style={{ fontSize:21, color:s.color, letterSpacing:"-0.02em" }}>{s.val}</p>
-                <p style={{ fontSize:9, color:"#9ca3af", fontWeight:500, marginTop:3 }}>{s.label}</p>
+              <div key={s.label} className="text-center py-3.5" style={{
+                borderRight: i < 3 ? "1px solid rgba(0,0,0,.04)" : "none",
+              }}>
+                <p className="tabular-nums" style={{ fontSize:20, fontWeight:800, color:s.color, lineHeight:1 }}>{s.val}</p>
+                <p style={{ fontSize:9, color:"#94a3b8", fontWeight:600, marginTop:5 }}>{s.label}</p>
               </div>
             ))}
           </div>
         </div>
 
-        {/* ── SALARY ─────────────────────────────── */}
-        <div {...up(190)}>
-          <Link href="/app/salary" className="press flex items-center gap-3 px-4 py-3.5 rounded-[14px]"
-            style={{ background:"linear-gradient(135deg,#0ea5e9,#14b8a6,#10b981)", boxShadow:"0 4px 16px rgba(14,165,233,.22)" }}>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white flex-shrink-0"
-              style={{ background:"rgba(255,255,255,.2)", border:"1px solid rgba(255,255,255,.25)" }}>
-              <Wallet size={18}/>
+        {/* ── SALARY (constellation / starfield) ── */}
+        <div {...up(160)}>
+          <Link href="/app/salary" className="press flex items-center gap-3.5 px-5 py-4" style={{
+            borderRadius:20, color:"#fff", position:"relative", overflow:"hidden",
+            background:"linear-gradient(135deg,#1e3a5f 0%,#1a2744 40%,#0f172a 100%)",
+            boxShadow:"0 4px 24px rgba(15,23,42,.35)",
+          }}>
+            {/* ★ Stars scattered */}
+            <span className="star" style={{ width:3, height:3, top:"18%", left:"12%", animation:"twinkle1 3s ease-in-out infinite" }}/>
+            <span className="star" style={{ width:2, height:2, top:"30%", left:"28%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
+            <span className="star" style={{ width:2.5, height:2.5, top:"15%", left:"52%", animation:"twinkle3 3.5s ease-in-out infinite 1s" }}/>
+            <span className="star" style={{ width:2, height:2, top:"65%", left:"40%", animation:"twinkle1 4.5s ease-in-out infinite 1.5s" }}/>
+            <span className="star" style={{ width:3, height:3, top:"55%", left:"70%", animation:"twinkle2 3s ease-in-out infinite 2s" }}/>
+            <span className="star" style={{ width:1.5, height:1.5, top:"25%", left:"82%", animation:"twinkle3 5s ease-in-out infinite .8s" }}/>
+            <span className="star" style={{ width:2, height:2, top:"72%", left:"88%", animation:"twinkle1 3.8s ease-in-out infinite 1.2s" }}/>
+            <span className="star" style={{ width:2.5, height:2.5, top:"45%", left:"20%", animation:"twinkle2 4.2s ease-in-out infinite 2.5s" }}/>
+            <span className="star" style={{ width:1.5, height:1.5, top:"80%", left:"58%", animation:"twinkle3 3.2s ease-in-out infinite 0.3s" }}/>
+            <span className="star" style={{ width:2, height:2, top:"10%", left:"95%", animation:"twinkle1 4s ease-in-out infinite 1.8s" }}/>
+
+            {/* Soft glows */}
+            <span className="star-glow" style={{ width:40, height:40, top:"-5%", right:"15%", opacity:.15 }}/>
+            <span className="star-glow" style={{ width:30, height:30, bottom:"10%", left:"25%", opacity:.1 }}/>
+
+            {/* Sparkle emoji drifting */}
+            <span style={{ position:"absolute", top:"35%", right:"30%", fontSize:8, animation:"driftUp 4s ease-in-out infinite", opacity:.4 }}>✦</span>
+            <span style={{ position:"absolute", top:"50%", right:"50%", fontSize:6, animation:"driftUp 5s ease-in-out infinite 1.5s", opacity:.3 }}>✧</span>
+
+            <div style={{
+              width:44, height:44, borderRadius:14, background:"rgba(255,255,255,.08)",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              position:"relative", zIndex:1,
+            }}>
+              <Wallet size={20} style={{ color:"#93c5fd" }}/>
             </div>
-            <div className="flex-1">
-              <p style={{ fontSize:14, fontWeight:800, color:"#fff" }}>สรุปเงินเดือน</p>
-              <p style={{ fontSize:11, color:"rgba(255,255,255,.75)", marginTop:2 }}>รายได้ · การหัก · กราฟรายเดือน</p>
+            <div className="flex-1" style={{ position:"relative", zIndex:1 }}>
+              <p style={{ fontSize:14, fontWeight:800 }}>สรุปเงินเดือน</p>
+              <p style={{ fontSize:11, color:"rgba(255,255,255,.5)", marginTop:2 }}>รายได้ · การหัก · กราฟรายเดือน</p>
             </div>
-            <ChevronRight size={18} style={{ color:"rgba(255,255,255,.7)" }}/>
+            <ChevronRight size={16} style={{ color:"rgba(255,255,255,.3)", position:"relative", zIndex:1 }}/>
           </Link>
         </div>
 
-        {/* ── QUICK ACTIONS ──────────────────────── */}
-        <div {...up(230)}>
-          <p style={{ fontSize:11, fontWeight:700, color:"#9ca3af", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>
+        {/* ── QUICK ACTIONS ───────────────────── */}
+        <div {...up(200)}>
+          <p style={{ fontSize:12, fontWeight:700, color:"#94a3b8", marginBottom:10, letterSpacing:"0.03em" }}>
             ทำรายการ
           </p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2.5">
             {([
-              { href:"/app/checkin",                   label:"เช็คอิน/เอ้าท์",  desc:"บันทึกเวลาเข้า-ออก",    icon:<MapPin size={16}/>,        color:"#0ea5e9" },
-              { href:"/app/leave/new",                 label:"ยื่นใบลา",          desc:"ป่วย · กิจ · พักร้อน",  icon:<CalendarClock size={16}/>, color:"#6366f1" },
-              { href:"/app/leave/new?type=adjustment", label:"แก้ไขเวลา",          desc:"เวลาเข้า-ออกผิดพลาด",    icon:<FileEdit size={16}/>,      color:"#f97316" },
-              { href:"/app/leave/new?type=overtime",   label:"ขอโอที",              desc:"บันทึกเวลาล่วงเวลา",     icon:<Timer size={16}/>,         color:"#10b981" },
-            ] as {href:string;label:string;desc:string;icon:React.ReactNode;color:string}[]).map(a => (
-              <Link key={a.href} href={a.href} className="c press flex items-center gap-3 px-3.5 py-3">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-white"
-                  style={{ background:a.color }}>
+              { href:"/app/checkin",                   label:"เช็คอิน/เอ้าท์",  sub:"บันทึกเวลา",     icon:<MapPin size={16}/>,        color:"#3b82f6" },
+              { href:"/app/leave/new",                 label:"ยื่นใบลา",          sub:"ป่วย · กิจ · พักร้อน",  icon:<CalendarClock size={16}/>, color:"#8b5cf6" },
+              { href:"/app/leave/new?type=adjustment", label:"แก้ไขเวลา",          sub:"เวลาผิดพลาด",     icon:<FileEdit size={16}/>,      color:"#f59e0b" },
+              { href:"/app/leave/new?type=overtime",   label:"ขอโอที",              sub:"เวลาล่วงเวลา",    icon:<Timer size={16}/>,         color:"#10b981" },
+              { href:"/app/resignation",               label:"ลาออก",               sub:"ยื่น · ติดตาม",   icon:<UserX size={16}/>,         color:"#ef4444" },
+              { href:"/app/leave",                     label:"ประวัติคำขอ",          sub:"สถานะ · โควต้า",  icon:<CalendarDays size={16}/>,  color:"#0ea5e9" },
+            ] as {href:string;label:string;sub:string;icon:React.ReactNode;color:string}[]).map(a => (
+              <Link key={a.href} href={a.href} className="s press flex items-center gap-3 px-4 py-3.5">
+                <div style={{ width:36, height:36, borderRadius:12, background:`${a.color}0D`,
+                  display:"flex", alignItems:"center", justifyContent:"center", color:a.color, flexShrink:0 }}>
                   {a.icon}
                 </div>
                 <div className="min-w-0">
-                  <p style={{ fontSize:12, fontWeight:700, color:"#111827", lineHeight:1.2 }}>{a.label}</p>
-                  <p style={{ fontSize:10, color:"#9ca3af", marginTop:2 }}>{a.desc}</p>
+                  <p style={{ fontSize:12, fontWeight:700, color:"#1a1a1a" }}>{a.label}</p>
+                  <p style={{ fontSize:10, color:"#b0b0b0", marginTop:1 }}>{a.sub}</p>
                 </div>
               </Link>
             ))}
           </div>
         </div>
 
-        {/* ── LEAVE BALANCE ──────────────────────── */}
+        {/* ── LEAVE BALANCE ───────────────────── */}
         {balances.length > 0 && (
-          <div {...up(290)} className="c overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom:"1px solid #f3f4f6" }}>
-              <p style={{ fontSize:12, fontWeight:700, color:"#374151" }}>โควต้าการลา</p>
+          <div {...up(260)} className="s">
+            <div className="flex items-center justify-between px-5 pt-4 pb-3">
+              <p style={{ fontSize:14, fontWeight:700, color:"#1a1a1a" }}>โควต้าการลา</p>
               <Link href="/app/leave" className="press flex items-center gap-0.5"
-                style={{ fontSize:11, fontWeight:600, color:"#0ea5e9" }}>
-                ดูทั้งหมด <ChevronRight size={11}/>
+                style={{ fontSize:12, fontWeight:600, color:"#94a3b8" }}>
+                ดูทั้งหมด <ChevronRight size={12}/>
               </Link>
             </div>
-            <div className="px-4 py-3 space-y-3">
+            <div className="px-5 pb-4 space-y-3">
               {balances.slice(0,3).map((b:any) => {
                 const pct = b.entitled_days > 0 ? Math.min(b.used_days/b.entitled_days*100, 100) : 0
-                const col = b.leave_type?.color_hex || "#0ea5e9"
+                const col = b.leave_type?.color_hex || "#6366f1"
                 return (
                   <div key={b.id}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor:col }}/>
-                        <p style={{ fontSize:12, color:"#374151", fontWeight:500 }}>{b.leave_type?.name}</p>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2.5">
+                        <div style={{ width:8, height:8, borderRadius:"50%", backgroundColor:col }}/>
+                        <p style={{ fontSize:12, color:"#374151", fontWeight:600 }}>{b.leave_type?.name}</p>
                       </div>
-                      <p className="tabular-nums" style={{ fontSize:12, color:"#374151", fontWeight:700 }}>
-                        {b.remaining_days}
-                        <span style={{ fontWeight:400, color:"#9ca3af", fontSize:10 }}>/{b.entitled_days}</span>
+                      <p className="tabular-nums" style={{ fontSize:13, fontWeight:800 }}>
+                        <span style={{ color:col }}>{b.remaining_days}</span>
+                        <span style={{ fontWeight:400, color:"#b0b0b0", fontSize:10 }}>/{b.entitled_days}</span>
                       </p>
                     </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background:"#f3f4f6" }}>
-                      <div className="h-full rounded-full transition-all duration-700" style={{ width:`${pct}%`, backgroundColor:col }}/>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background:"rgba(0,0,0,.04)" }}>
+                      <div className="h-full rounded-full transition-all duration-700" style={{ width:`${pct}%`, backgroundColor:col, opacity:.7 }}/>
                     </div>
                   </div>
                 )
@@ -520,13 +630,16 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── WEEKEND ────────────────────────────── */}
+        {/* ── WEEKEND ─────────────────────────── */}
         {isWeekend && (
-          <div {...up(100)} className="c flex items-center gap-3 px-4 py-3.5">
-            <span style={{ fontSize:22 }}>🛋️</span>
+          <div {...up(80)} className="s flex items-center gap-3.5 px-5 py-4">
+            <div style={{ width:44, height:44, borderRadius:14, background:"rgba(0,0,0,.03)",
+              display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <span style={{ fontSize:22 }}>🛋️</span>
+            </div>
             <div>
-              <p style={{ fontSize:13, fontWeight:700, color:"#111827" }}>วันนี้วันหยุด!</p>
-              <p style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>ไม่ต้องเช็คอิน พักผ่อนให้เต็มที่ 😌</p>
+              <p style={{ fontSize:14, fontWeight:800, color:"#1a1a1a" }}>วันนี้วันหยุด!</p>
+              <p style={{ fontSize:11, color:"#94a3b8", marginTop:2 }}>ไม่ต้องเช็คอิน พักผ่อนให้เต็มที่</p>
             </div>
           </div>
         )}

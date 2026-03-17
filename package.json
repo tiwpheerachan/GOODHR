@@ -19,6 +19,7 @@
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.4.1",
     "recharts": "^2.12.7",
+    "resend": "^6.9.3",
     "tailwind-merge": "^2.4.0"
   },
   "devDependencies": {
@@ -27,6 +28,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10",
+    "esbuild-register": "^3.6.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.5",
     "postcss": "^8",

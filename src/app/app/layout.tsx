@@ -1,18 +1,18 @@
 "use client"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
-import { Home, Clock, Calendar, User, Bell, Users, Shield, Target } from "lucide-react"
+import { Home, Clock, Calendar, CalendarDays, User, Bell, Users, Shield, Target } from "lucide-react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useEffect, useState, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 
 const NAV = [
-  { href: "/app/dashboard",  icon: Home,     label: "หน้าหลัก"   },
-  { href: "/app/checkin",    icon: Clock,    label: "เช็คอิน"    },
-  { href: "/app/attendance", icon: Calendar, label: "การเข้างาน" },
-  { href: "/app/leave",      icon: Calendar, label: "การลา"      },
-  { href: "/app/kpi",        icon: Target,   label: "KPI"        },
-  { href: "/app/profile",    icon: User,     label: "โปรไฟล์"   },
+  { href: "/app/dashboard",  icon: Home,         label: "หน้าหลัก"   },
+  { href: "/app/checkin",    icon: Clock,        label: "เช็คอิน"    },
+  { href: "/app/attendance", icon: Calendar,     label: "การเข้างาน" },
+  { href: "/app/leave",      icon: CalendarDays, label: "การลา"      },
+  { href: "/app/kpi",        icon: Target,       label: "KPI"        },
+  { href: "/app/profile",    icon: User,         label: "โปรไฟล์"   },
 ]
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -108,19 +108,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <main className="pb-20 min-h-[calc(100vh-60px)]">{children}</main>
 
       {/* ── Bottom Nav ──────────────────────────────────────────── */}
-      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white/95 backdrop-blur-sm border-t border-slate-100 safe-bottom z-40 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white/95 backdrop-blur-sm border-t border-slate-100 safe-bottom z-40">
         <div className="flex px-1 py-1">
           {NAV.map(({ href, icon: Icon, label }) => {
             const active = pathname === href || (href !== "/app/dashboard" && pathname.startsWith(href))
             return (
               <Link key={href} href={href}
-                className="flex-1 flex flex-col items-center gap-0.5 py-2 transition-all">
-                <div className={`w-10 h-7 flex items-center justify-center rounded-xl transition-all ${
-                  active ? "bg-blue-600 shadow-md shadow-blue-200" : "hover:bg-slate-100"
-                }`}>
-                  <Icon size={18} strokeWidth={active ? 2.5 : 1.5} className={active ? "text-white" : "text-slate-400"}/>
-                </div>
-                <span className={`text-[10px] transition-all ${active ? "font-black text-blue-600" : "font-medium text-slate-400"}`}>
+                className="flex-1 flex flex-col items-center gap-1 py-2">
+                <Icon size={20} strokeWidth={active ? 2.5 : 1.5}
+                  style={{ color: active ? "#3b82f6" : "#cbd5e1", transition:"color .2s ease" }}/>
+                <span style={{
+                  fontSize:10, fontWeight: active ? 800 : 500,
+                  color: active ? "#3b82f6" : "#cbd5e1",
+                  transition:"color .2s ease",
+                }}>
                   {label}
                 </span>
               </Link>

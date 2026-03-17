@@ -9,7 +9,8 @@ import { th } from "date-fns/locale"
 import {
   Plus, Clock, FileEdit, Timer, CalendarCheck,
   X, AlertCircle, CheckCircle2, XCircle, Loader2,
-  CalendarClock, RefreshCw,
+  CalendarClock, RefreshCw, UserX,
+  ChevronRight, CalendarDays,
 } from "lucide-react"
 
 type ReqKind = "leave" | "adjustment" | "overtime"
@@ -25,24 +26,34 @@ function safeFmt(ts: string | null | undefined, fmt: string): string {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
-    pending:   { label: "รออนุมัติ",   cls: "bg-amber-50 text-amber-700 border border-amber-200",      icon: <Clock size={10} /> },
-    approved:  { label: "อนุมัติแล้ว", cls: "bg-emerald-50 text-emerald-700 border border-emerald-200", icon: <CheckCircle2 size={10} /> },
-    rejected:  { label: "ปฏิเสธ",      cls: "bg-red-50 text-red-600 border border-red-200",            icon: <XCircle size={10} /> },
-    cancelled: { label: "ยกเลิกแล้ว",  cls: "bg-slate-100 text-slate-400 border border-slate-200",     icon: <X size={10} /> },
+  const map: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
+    pending:   { label: "รออนุมัติ",   color: "#92400e", bg: "#fef9c3", icon: <Clock size={10} /> },
+    approved:  { label: "อนุมัติแล้ว", color: "#065f46", bg: "#d1fae5", icon: <CheckCircle2 size={10} /> },
+    rejected:  { label: "ปฏิเสธ",      color: "#991b1b", bg: "#fee2e2", icon: <XCircle size={10} /> },
+    cancelled: { label: "ยกเลิกแล้ว",  color: "#64748b", bg: "#f1f5f9", icon: <X size={10} /> },
   }
   const c = map[status] ?? map.pending
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-xl ${c.cls}`}>
+    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full"
+      style={{ background: c.bg, color: c.color }}>
       {c.icon}{c.label}
     </span>
   )
 }
 
 function KindIcon({ kind }: { kind: ReqKind }) {
-  if (kind === "leave")      return <div className="w-10 h-10 rounded-2xl bg-blue-100   flex items-center justify-center flex-shrink-0"><CalendarClock size={18} className="text-blue-600"   /></div>
-  if (kind === "adjustment") return <div className="w-10 h-10 rounded-2xl bg-violet-100 flex items-center justify-center flex-shrink-0"><FileEdit      size={18} className="text-violet-600" /></div>
-  return                            <div className="w-10 h-10 rounded-2xl bg-amber-100  flex items-center justify-center flex-shrink-0"><Timer          size={18} className="text-amber-600"  /></div>
+  const cfg = {
+    leave:      { color: "#3b82f6", bg: "#eff6ff", icon: <CalendarClock size={16} /> },
+    adjustment: { color: "#8b5cf6", bg: "#f5f3ff", icon: <FileEdit size={16} /> },
+    overtime:   { color: "#f59e0b", bg: "#fffbeb", icon: <Timer size={16} /> },
+  }
+  const c = cfg[kind]
+  return (
+    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+      style={{ background: c.bg, color: c.color }}>
+      {c.icon}
+    </div>
+  )
 }
 
 function CancelModal({ item, onConfirm, onClose, loading }: {
@@ -50,12 +61,11 @@ function CancelModal({ item, onConfirm, onClose, loading }: {
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-red-400 to-rose-500" />
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden animate-[slideUp_0.3s_ease]">
         <div className="p-6 space-y-4">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-red-50 flex items-center justify-center flex-shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
               <AlertCircle size={18} className="text-red-500" />
             </div>
             <div>
@@ -64,11 +74,12 @@ function CancelModal({ item, onConfirm, onClose, loading }: {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={onClose} className="flex-1 py-3 border border-slate-200 rounded-2xl text-sm font-semibold text-slate-600 hover:bg-slate-50">
+            <button onClick={onClose}
+              className="flex-1 py-3 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 active:scale-[0.98] transition-all">
               ไม่ยกเลิก
             </button>
             <button onClick={onConfirm} disabled={loading}
-              className="flex-1 py-3 bg-red-500 text-white rounded-2xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-red-600">
+              className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-all">
               {loading ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
               ยกเลิกคำขอ
             </button>
@@ -81,7 +92,7 @@ function CancelModal({ item, onConfirm, onClose, loading }: {
 
 export default function LeavePage() {
   const { user }  = useAuth()
-  const supabase  = useRef(createClient()).current   // stable ref ไม่ recreate
+  const supabase  = useRef(createClient()).current
 
   const empId     = (user as any)?.employee_id ?? (user as any)?.employee?.id
   const { balances } = useLeaveBalance(empId)
@@ -93,6 +104,9 @@ export default function LeavePage() {
   const [cancelItem,  setCancelItem] = useState<AnyReq | null>(null)
   const [cancelling,  setCancelling] = useState(false)
   const [kind,        setKind]       = useState<"all" | ReqKind>("all")
+  const [visible,     setVisible]    = useState(false)
+
+  useEffect(() => { setTimeout(() => setVisible(true), 60) }, [])
 
   const load = useCallback(async () => {
     if (!empId) return
@@ -155,7 +169,6 @@ export default function LeavePage() {
     }
   }, [empId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // โหลดทันที + ทุกครั้งที่ empId พร้อม
   useEffect(() => { if (empId) load() }, [empId, load])
 
   const doCancel = async () => {
@@ -172,110 +185,151 @@ export default function LeavePage() {
   const shown   = kind === "all" ? reqs : reqs.filter(r => r.kind === kind)
   const pending = reqs.filter(r => r.status === "pending").length
 
+  const up = (d: number) => ({
+    style: {
+      opacity: visible ? 1 : 0,
+      transform: visible ? "translateY(0)" : "translateY(14px)",
+      transition: `opacity .45s cubic-bezier(.22,1,.36,1) ${d}ms, transform .45s cubic-bezier(.22,1,.36,1) ${d}ms`,
+    }
+  })
+
   return (
     <>
+      <style suppressHydrationWarning>{`
+        @keyframes slideUp { from{transform:translateY(100%);opacity:0} to{transform:translateY(0);opacity:1} }
+        .press { transition:transform .15s ease }
+        .press:active { transform:scale(0.98) }
+      `}</style>
+
       {cancelItem && <CancelModal item={cancelItem} onConfirm={doCancel} onClose={() => setCancelItem(null)} loading={cancelling} />}
 
-      <div className="min-h-screen bg-slate-50 pb-12">
+      <div className="min-h-screen pb-12" style={{ background:"#f7f8fa" }}>
 
-        {/* Header */}
-        <div className="bg-gradient-to-br from-blue-600 to-blue-700 px-5 pt-6 pb-14 relative overflow-hidden">
-          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle at 80% 20%,#fff,transparent 60%)" }} />
-          <div className="flex items-center justify-between relative z-10">
+        {/* ── Header ───────────────────────────────── */}
+        <div style={{ background:"linear-gradient(135deg,#3b82f6 0%,#6366f1 60%,#8b5cf6 100%)" }}
+          className="relative overflow-hidden px-5 pt-6 pb-16">
+          <div className="absolute -top-14 -right-14 w-44 h-44 rounded-full" style={{ background:"rgba(255,255,255,.06)" }} />
+          <div className="absolute bottom-2 left-[-30px] w-28 h-28 rounded-full" style={{ background:"rgba(255,255,255,.04)" }} />
+          <div className="relative z-10 flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-black text-white tracking-tight">คำขอ & การลา</h1>
-              <p className="text-blue-200 text-xs mt-0.5">ประวัติและสถานะทั้งหมด</p>
+              <h1 className="text-xl font-extrabold text-white tracking-tight">คำขอ & การลา</h1>
+              <p className="text-blue-200/70 text-xs mt-0.5">จัดการวันลาและคำร้องทั้งหมด</p>
             </div>
             <Link href="/app/leave/new"
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 text-white text-sm font-bold rounded-2xl transition-all">
+              className="press flex items-center gap-1.5 px-4 py-2.5 bg-white/15 hover:bg-white/25 border border-white/20 text-white text-sm font-bold rounded-xl backdrop-blur-sm">
               <Plus size={14} /> ยื่นคำขอ
             </Link>
           </div>
         </div>
 
-        <div className="px-4 -mt-8 space-y-3 relative z-10">
+        <div className="px-4 -mt-10 space-y-3 relative z-10">
 
-          {/* Tab */}
-          <div className="bg-white rounded-2xl shadow-lg shadow-blue-100/50 p-1 flex border border-slate-100">
-            {([ ["balance", "โควต้าการลา"], ["history", "ประวัติคำขอ"] ] as const).map(([k, l]) => (
-              <button key={k} onClick={() => setTab(k)}
-                className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all ${tab === k ? "bg-blue-600 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+          {/* ── Tab ─────────────────────────────────── */}
+          <div {...up(0)} className="bg-white rounded-2xl shadow-sm p-1 flex border border-slate-100">
+            {([ ["balance","โควต้าการลา"], ["history","ประวัติคำขอ"] ] as const).map(([k,l]) => (
+              <button key={k} onClick={() => setTab(k as any)}
+                className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all ${
+                  tab === k ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-600"
+                }`}>
                 {l}
                 {k === "history" && pending > 0 && (
-                  <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-black ${tab === "history" ? "bg-white/30 text-white" : "bg-amber-100 text-amber-700"}`}>
-                    {pending}
-                  </span>
+                  <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                    tab === "history" ? "bg-white/25 text-white" : "bg-amber-100 text-amber-700"
+                  }`}>{pending}</span>
                 )}
               </button>
             ))}
           </div>
 
-          {/* ── Balance Tab ─────────────────────────────────────── */}
+          {/* ── Balance Tab ─────────────────────────── */}
           {tab === "balance" && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-2.5">
+
+              {/* Quick Actions */}
+              <div {...up(50)} className="grid grid-cols-4 gap-2">
                 {[
-                  { href: "/app/leave/new?type=leave",      icon: <CalendarClock size={18} />, label: "ยื่นใบลา",  cls: "text-blue-600   border-blue-100   hover:bg-blue-50"   },
-                  { href: "/app/leave/new?type=adjustment", icon: <FileEdit      size={18} />, label: "แก้ไขเวลา", cls: "text-violet-600 border-violet-100 hover:bg-violet-50" },
-                  { href: "/app/leave/new?type=overtime",   icon: <Timer         size={18} />, label: "ขอโอที",    cls: "text-amber-600  border-amber-100  hover:bg-amber-50"  },
-                ].map(a => (
-                  <Link key={a.href} href={a.href}
-                    className={`flex flex-col items-center gap-2 py-4 bg-white rounded-2xl border text-xs font-bold transition-all shadow-sm ${a.cls}`}>
-                    {a.icon}{a.label}
+                  { href:"/app/leave/new?type=leave",      icon:<CalendarClock size={17}/>, label:"ยื่นใบลา",  color:"#3b82f6", bg:"#eff6ff" },
+                  { href:"/app/leave/new?type=adjustment", icon:<FileEdit size={17}/>,      label:"แก้เวลา",   color:"#8b5cf6", bg:"#f5f3ff" },
+                  { href:"/app/leave/new?type=overtime",   icon:<Timer size={17}/>,         label:"ขอโอที",    color:"#f59e0b", bg:"#fffbeb" },
+                  { href:"/app/resignation",               icon:<UserX size={17}/>,         label:"ลาออก",     color:"#ef4444", bg:"#fef2f2" },
+                ].map((a,i) => (
+                  <Link key={a.href} href={a.href} {...up(60 + i * 20)}
+                    className="press flex flex-col items-center gap-2 py-3.5 bg-white rounded-xl border border-slate-100">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background:a.bg, color:a.color }}>
+                      {a.icon}
+                    </div>
+                    <span className="text-[10px] font-semibold text-slate-500">{a.label}</span>
                   </Link>
                 ))}
               </div>
 
-              {balances.length > 0 ? balances.map((b: any) => (
-                <div key={b.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: b.leave_type?.color_hex || "#60a5fa" }} />
-                      <div>
-                        <p className="font-bold text-slate-800 text-sm">{b.leave_type?.name}</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{b.leave_type?.is_paid ? "ได้รับเงิน" : "ไม่ได้รับเงิน"}</p>
+              {/* Leave Balance Cards — clean & minimal */}
+              {balances.length > 0 ? balances.map((b: any, idx: number) => {
+                const pct = b.entitled_days > 0 ? Math.min(b.used_days / b.entitled_days * 100, 100) : 0
+                const hex = b.leave_type?.color_hex || "#3b82f6"
+
+                return (
+                  <div key={b.id} {...up(100 + idx * 35)}
+                    className="press bg-white rounded-xl border border-slate-100 p-4">
+
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: hex }} />
+                        <div>
+                          <p className="font-bold text-slate-800 text-[13px] leading-tight">{b.leave_type?.name}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {b.leave_type?.is_paid ? "ได้รับเงิน" : "ไม่ได้รับเงิน"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-2xl font-extrabold leading-none" style={{ color: hex }}>
+                          {b.remaining_days ?? 0}
+                        </span>
+                        <span className="text-[10px] text-slate-400 ml-0.5">วัน</span>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-black text-blue-600 leading-none">{b.remaining_days ?? 0}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">คงเหลือ / วัน</p>
+
+                    {/* Thin progress bar */}
+                    <div className="w-full h-1.5 rounded-full bg-slate-100 mb-2.5">
+                      <div className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${pct}%`, backgroundColor: hex }} />
+                    </div>
+
+                    {/* Stats row — simple text */}
+                    <div className="flex justify-between text-[10px] text-slate-400">
+                      <span>ใช้ไป <b className="text-slate-600">{b.used_days}</b></span>
+                      <span>รอ <b className="text-amber-600">{b.pending_days}</b></span>
+                      <span>ทั้งหมด <b className="text-slate-600">{b.entitled_days}</b></span>
                     </div>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-1.5 mb-2">
-                    <div className="h-1.5 rounded-full bg-blue-500 transition-all"
-                      style={{ width: b.entitled_days > 0 ? Math.min(b.used_days / b.entitled_days * 100, 100) + "%" : "0%" }} />
-                  </div>
-                  <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>ใช้ไป <b className="text-slate-600">{b.used_days}</b> วัน</span>
-                    <span>รอ <b className="text-amber-600">{b.pending_days}</b> วัน</span>
-                    <span>ทั้งหมด <b className="text-slate-600">{b.entitled_days}</b> วัน</span>
-                  </div>
-                </div>
-              )) : (
-                <div className="bg-white rounded-2xl border border-slate-100 py-12 text-center shadow-sm">
-                  <CalendarCheck size={28} className="text-slate-200 mx-auto mb-2" />
+                )
+              }) : (
+                <div {...up(100)} className="bg-white rounded-xl border border-slate-100 py-14 text-center">
+                  <CalendarCheck size={24} className="text-slate-200 mx-auto mb-2" />
                   <p className="text-slate-400 text-sm">ไม่มีข้อมูลโควต้าการลา</p>
+                  <p className="text-slate-300 text-xs mt-1">ติดต่อ HR เพื่อตั้งค่าโควต้า</p>
                 </div>
               )}
             </div>
           )}
 
-          {/* ── History Tab ─────────────────────────────────────── */}
+          {/* ── History Tab ─────────────────────────── */}
           {tab === "history" && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
 
-              {/* reload */}
-              <div className="flex items-center justify-between">
+              {/* Reload */}
+              <div {...up(50)} className="flex items-center justify-between">
                 <p className="text-xs text-slate-400">{loading ? "กำลังโหลด..." : `${reqs.length} รายการ`}</p>
                 <button onClick={load} disabled={loading}
-                  className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-xl transition-colors disabled:opacity-40">
+                  className="press flex items-center gap-1.5 text-xs font-semibold text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-40">
                   <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> รีเฟรช
                 </button>
               </div>
 
-              {/* error */}
+              {/* Error */}
               {err && (
-                <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3 flex items-start gap-2">
+                <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 flex items-start gap-2">
                   <AlertCircle size={13} className="text-red-500 mt-0.5 flex-shrink-0" />
                   <div>
                     <p className="text-sm font-bold text-red-600">โหลดข้อมูลไม่สำเร็จ</p>
@@ -284,58 +338,67 @@ export default function LeavePage() {
                 </div>
               )}
 
-              {/* stats */}
+              {/* Stats */}
               {reqs.length > 0 && (
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { l: "ทั้งหมด",    v: reqs.length,                                   c: "text-slate-700"   },
-                    { l: "รออนุมัติ",  v: reqs.filter(r => r.status === "pending").length,  c: "text-amber-600"   },
-                    { l: "อนุมัติแล้ว",v: reqs.filter(r => r.status === "approved").length, c: "text-emerald-600" },
-                  ].map(s => (
-                    <div key={s.l} className="bg-white rounded-2xl border border-slate-100 py-3 text-center shadow-sm">
-                      <p className={`text-xl font-black ${s.c}`}>{s.v}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{s.l}</p>
-                    </div>
-                  ))}
+                <div {...up(70)} className="bg-white rounded-xl border border-slate-100 overflow-hidden">
+                  <div className="grid grid-cols-3">
+                    {[
+                      { l:"ทั้งหมด",     v:reqs.length,                                    color:"#1e293b" },
+                      { l:"รออนุมัติ",   v:reqs.filter(r => r.status === "pending").length,  color:"#f59e0b" },
+                      { l:"อนุมัติแล้ว", v:reqs.filter(r => r.status === "approved").length, color:"#10b981" },
+                    ].map((s,i) => (
+                      <div key={s.l} className="py-3 text-center" style={{ borderRight: i < 2 ? "1px solid #f1f5f9" : "none" }}>
+                        <p className="text-lg font-extrabold" style={{ color:s.color }}>{s.v}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{s.l}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
-              {/* filter */}
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {(["all", "leave", "adjustment", "overtime"] as const).map(k => (
-                  <button key={k} onClick={() => setKind(k)}
-                    className={`whitespace-nowrap text-xs font-bold px-3 py-1.5 rounded-xl border transition-all flex-shrink-0 ${
-                      kind === k ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200 hover:border-blue-300"
-                    }`}>
-                    {{ all: "ทั้งหมด", leave: "ใบลา", adjustment: "แก้เวลา", overtime: "โอที" }[k]}
-                  </button>
-                ))}
+              {/* Filter chips */}
+              <div {...up(90)} className="flex gap-1.5 overflow-x-auto pb-1">
+                {(["all","leave","adjustment","overtime"] as const).map(k => {
+                  const labels = { all:"ทั้งหมด", leave:"ใบลา", adjustment:"แก้เวลา", overtime:"โอที" }
+                  const active = kind === k
+                  return (
+                    <button key={k} onClick={() => setKind(k)}
+                      className={`whitespace-nowrap text-xs font-semibold px-3.5 py-1.5 rounded-lg border transition-all flex-shrink-0 ${
+                        active
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "bg-white text-slate-400 border-slate-200 hover:border-slate-300"
+                      }`}>
+                      {labels[k]}
+                    </button>
+                  )
+                })}
               </div>
 
-              {/* loading */}
+              {/* Loading */}
               {loading && (
-                <div className="flex items-center justify-center py-10 gap-2 text-slate-400">
-                  <Loader2 size={18} className="animate-spin" /><span className="text-sm">กำลังโหลด...</span>
+                <div className="flex items-center justify-center py-12 gap-2 text-slate-400">
+                  <Loader2 size={18} className="animate-spin text-blue-500" /><span className="text-sm">กำลังโหลด...</span>
                 </div>
               )}
 
-              {/* cards */}
-              {!loading && shown.map(r => (
-                <div key={r.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+              {/* Request Cards */}
+              {!loading && shown.map((r, idx) => (
+                <div key={r.id} {...up(110 + idx * 25)}
+                  className="press bg-white rounded-xl border border-slate-100 p-4">
                   <div className="flex items-start gap-3">
                     <KindIcon kind={r.kind} />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="flex items-start justify-between gap-2 mb-0.5">
                         <div className="flex-1 min-w-0">
-                          <p className="font-bold text-slate-800 text-sm">{r.title}</p>
-                          <p className="text-xs text-slate-500 mt-0.5">{r.dateLabel} · {r.subtitle}</p>
+                          <p className="font-bold text-slate-800 text-[13px]">{r.title}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{r.dateLabel} · {r.subtitle}</p>
                           {r.reason && <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{r.reason}</p>}
                         </div>
                         <StatusBadge status={r.status} />
                       </div>
                       {r.can_cancel && (
                         <button onClick={() => setCancelItem(r)}
-                          className="mt-2 w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-red-100 text-red-500 text-xs font-semibold hover:bg-red-50 transition-colors">
+                          className="press mt-2 w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-red-100 text-red-500 text-xs font-semibold hover:bg-red-50 transition-colors">
                           <X size={11} /> ยกเลิกคำขอนี้
                         </button>
                       )}
@@ -344,10 +407,10 @@ export default function LeavePage() {
                 </div>
               ))}
 
-              {/* empty */}
+              {/* Empty */}
               {!loading && !err && shown.length === 0 && (
-                <div className="bg-white rounded-2xl border border-slate-100 py-12 text-center shadow-sm">
-                  <CalendarCheck size={28} className="text-slate-200 mx-auto mb-2" />
+                <div className="bg-white rounded-xl border border-slate-100 py-14 text-center">
+                  <CalendarCheck size={24} className="text-slate-200 mx-auto mb-2" />
                   <p className="text-slate-400 text-sm">ยังไม่มีคำขอ</p>
                   <Link href="/app/leave/new"
                     className="inline-flex items-center gap-1.5 mt-3 text-xs font-bold text-blue-600 hover:underline">
