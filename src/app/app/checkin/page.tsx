@@ -9,7 +9,8 @@ import {
   Building2, MapPin, AlertTriangle, Clock, CheckCircle2,
   FileEdit, CalendarClock, Timer, History, ChevronRight,
   Zap, AlertCircle, Navigation, MapPinned, Plus, Info,
-  ChevronLeft, Crosshair
+  ChevronLeft, Crosshair, Camera, MapPinOff, Upload,
+  ShieldCheck, XCircle
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { format, startOfWeek, addDays, addWeeks, isToday, isSameDay } from "date-fns"
@@ -218,6 +219,393 @@ function SuccessOverlay({ show, type, time, onDone }: { show: boolean; type: "in
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   Off-site Check-in Modal — ถ่ายรูป + กรอกสถานที่ + stamp วันเวลา
+   ═══════════════════════════════════════════════════════════════════════════ */
+function OffsiteModal({ action, pos, onClose, onSuccess }: {
+  action: "clock_in" | "clock_out"
+  pos: { lat: number; lng: number }
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
+  const [note, setNote] = useState("")
+  const [locationName, setLocationName] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [stamped, setStamped] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const [cameraActive, setCameraActive] = useState(false)
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment")
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // เปิดกล้อง
+  const startCamera = useCallback(async (facing: "environment" | "user" = facingMode) => {
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop())
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 960 } },
+        audio: false,
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+      }
+      setCameraActive(true)
+    } catch {
+      toast.error("ไม่สามารถเปิดกล้องได้")
+    }
+  }, [facingMode])
+
+  // ปิดกล้อง
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    setCameraActive(false)
+  }, [])
+
+  // สลับกล้องหน้า-หลัง
+  const flipCamera = useCallback(() => {
+    const next = facingMode === "environment" ? "user" : "environment"
+    setFacingMode(next)
+    startCamera(next)
+  }, [facingMode, startCamera])
+
+  // ถ่ายรูป + stamp วันเวลา
+  const capturePhoto = useCallback(() => {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas) return
+
+    const w = video.videoWidth
+    const h = video.videoHeight
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext("2d")!
+    ctx.drawImage(video, 0, 0, w, h)
+
+    // Stamp date/time
+    const now = new Date()
+    const dateStr = now.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Bangkok" })
+    const timeStr = now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Bangkok" })
+    const stampText = `${dateStr}  ${timeStr}`
+    const coordText = `GPS: ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`
+
+    // Background bar
+    const barH = Math.max(60, h * 0.08)
+    ctx.fillStyle = "rgba(0,0,0,0.55)"
+    ctx.fillRect(0, h - barH, w, barH)
+
+    // Date/time text
+    const fontSize = Math.max(16, w * 0.028)
+    ctx.font = `bold ${fontSize}px system-ui, sans-serif`
+    ctx.fillStyle = "#ffffff"
+    ctx.textAlign = "left"
+    ctx.textBaseline = "bottom"
+    ctx.fillText(stampText, 16, h - barH / 2 + fontSize * 0.15)
+
+    // GPS coords
+    ctx.font = `${fontSize * 0.7}px system-ui, sans-serif`
+    ctx.fillStyle = "rgba(255,255,255,0.65)"
+    ctx.fillText(coordText, 16, h - 8)
+
+    // "Off-site" badge
+    ctx.textAlign = "right"
+    ctx.font = `bold ${fontSize * 0.8}px system-ui, sans-serif`
+    ctx.fillStyle = "#fbbf24"
+    ctx.fillText("OFF-SITE", w - 16, h - barH / 2 + fontSize * 0.15)
+
+    // GOODHR watermark
+    ctx.font = `${fontSize * 0.6}px system-ui, sans-serif`
+    ctx.fillStyle = "rgba(255,255,255,0.4)"
+    ctx.fillText("GOODHR", w - 16, h - 8)
+
+    canvas.toBlob(blob => {
+      if (blob) {
+        const file = new File([blob], `offsite_${Date.now()}.jpg`, { type: "image/jpeg" })
+        setPhoto(file)
+        setPreview(canvas.toDataURL("image/jpeg", 0.9))
+        setStamped(stampText)
+        stopCamera()
+      }
+    }, "image/jpeg", 0.9)
+  }, [pos, stopCamera])
+
+  // Upload from gallery
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Stamp the uploaded image too
+    const img = new Image()
+    img.onload = () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext("2d")!
+      ctx.drawImage(img, 0, 0)
+
+      const w = img.width, h = img.height
+      const now = new Date()
+      const dateStr = now.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Bangkok" })
+      const timeStr = now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Bangkok" })
+      const stampText = `${dateStr}  ${timeStr}`
+      const coordText = `GPS: ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`
+
+      const barH = Math.max(60, h * 0.08)
+      ctx.fillStyle = "rgba(0,0,0,0.55)"
+      ctx.fillRect(0, h - barH, w, barH)
+
+      const fontSize = Math.max(16, w * 0.028)
+      ctx.font = `bold ${fontSize}px system-ui, sans-serif`
+      ctx.fillStyle = "#ffffff"
+      ctx.textAlign = "left"
+      ctx.textBaseline = "bottom"
+      ctx.fillText(stampText, 16, h - barH / 2 + fontSize * 0.15)
+      ctx.font = `${fontSize * 0.7}px system-ui, sans-serif`
+      ctx.fillStyle = "rgba(255,255,255,0.65)"
+      ctx.fillText(coordText, 16, h - 8)
+      ctx.textAlign = "right"
+      ctx.font = `bold ${fontSize * 0.8}px system-ui, sans-serif`
+      ctx.fillStyle = "#fbbf24"
+      ctx.fillText("OFF-SITE", w - 16, h - barH / 2 + fontSize * 0.15)
+      ctx.font = `${fontSize * 0.6}px system-ui, sans-serif`
+      ctx.fillStyle = "rgba(255,255,255,0.4)"
+      ctx.fillText("GOODHR", w - 16, h - 8)
+
+      canvas.toBlob(blob => {
+        if (blob) {
+          const stampedFile = new File([blob], `offsite_${Date.now()}.jpg`, { type: "image/jpeg" })
+          setPhoto(stampedFile)
+          setPreview(canvas.toDataURL("image/jpeg", 0.9))
+          setStamped(stampText)
+        }
+      }, "image/jpeg", 0.9)
+    }
+    img.src = URL.createObjectURL(file)
+  }
+
+  // Retake
+  const retake = () => {
+    setPhoto(null)
+    setPreview(null)
+    setStamped(null)
+    startCamera()
+  }
+
+  // Submit
+  const submit = async () => {
+    if (!photo) return toast.error("กรุณาถ่ายรูปก่อน")
+    setSaving(true)
+
+    const fd = new FormData()
+    fd.append("action", action)
+    fd.append("lat", String(pos.lat))
+    fd.append("lng", String(pos.lng))
+    fd.append("photo", photo)
+    fd.append("note", note)
+    fd.append("location_name", locationName)
+
+    try {
+      const res = await fetch("/api/checkin/offsite", { method: "POST", body: fd })
+      const data = await res.json()
+      if (data.success) {
+        toast.success(data.message || (action === "clock_in" ? "เช็คอินนอกสถานที่สำเร็จ" : "เช็คเอ้าท์นอกสถานที่สำเร็จ"))
+        onSuccess()
+        onClose()
+      } else {
+        toast.error(data.error || "เกิดข้อผิดพลาด")
+      }
+    } catch {
+      toast.error("เกิดข้อผิดพลาดในการเชื่อมต่อ")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => { stopCamera() }
+  }, [stopCamera])
+
+  const isIn = action === "clock_in"
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { stopCamera(); onClose() }} />
+      <div className="relative w-full max-w-md bg-white rounded-t-3xl shadow-2xl overflow-hidden max-h-[92vh] overflow-y-auto"
+        style={{ animation: "mUp .3s cubic-bezier(.34,1.56,.64,1)" }}>
+        <style>{`@keyframes mUp{from{transform:translateY(40px);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
+
+        {/* Header gradient */}
+        <div className="h-1.5 w-full" style={{ background: "linear-gradient(90deg, #f59e0b, #f97316, #ef4444)" }} />
+
+        <div className="px-5 py-5">
+          {/* Title */}
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
+                <Camera size={18} className="text-white" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-[15px]">
+                  {isIn ? "เช็คอินนอกสถานที่" : "เช็คเอ้าท์นอกสถานที่"}
+                </h3>
+                <p className="text-[11px] text-gray-400 mt-0.5">ถ่ายรูปยืนยันตำแหน่ง · รออนุมัติจาก HR</p>
+              </div>
+            </div>
+            <button onClick={() => { stopCamera(); onClose() }}
+              className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 hover:bg-gray-200 active:scale-95 transition-all">
+              <X size={14} />
+            </button>
+          </div>
+
+          {/* Camera / Preview area */}
+          <div className="relative rounded-2xl overflow-hidden bg-gray-900 mb-4" style={{ aspectRatio: "4/3" }}>
+            {/* Hidden canvas for stamping */}
+            <canvas ref={canvasRef} className="hidden" />
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
+
+            {preview ? (
+              /* Show stamped preview */
+              <div className="relative w-full h-full">
+                <img src={preview} alt="Preview" className="w-full h-full object-cover" />
+                {/* Retake button */}
+                <button onClick={retake}
+                  className="absolute top-3 right-3 px-3 py-1.5 bg-black/50 backdrop-blur-sm rounded-full text-white text-[11px] font-semibold flex items-center gap-1.5 active:scale-95 transition-all">
+                  <RefreshCw size={11} /> ถ่ายใหม่
+                </button>
+                {/* Stamp badge */}
+                <div className="absolute bottom-3 left-3 px-2.5 py-1 bg-black/50 backdrop-blur-sm rounded-lg">
+                  <p className="text-[10px] text-amber-300 font-bold flex items-center gap-1">
+                    <CheckCircle2 size={10} /> Stamped
+                  </p>
+                </div>
+              </div>
+            ) : cameraActive ? (
+              /* Live camera */
+              <div className="relative w-full h-full">
+                <video ref={videoRef} playsInline autoPlay muted
+                  className="w-full h-full object-cover" style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }} />
+                {/* Camera controls */}
+                <div className="absolute bottom-4 left-0 right-0 flex items-center justify-center gap-6">
+                  {/* Flip camera */}
+                  <button onClick={flipCamera}
+                    className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white active:scale-90 transition-all">
+                    <RefreshCw size={16} />
+                  </button>
+                  {/* Capture */}
+                  <button onClick={capturePhoto}
+                    className="w-16 h-16 rounded-full border-4 border-white bg-white/20 backdrop-blur-sm flex items-center justify-center active:scale-90 transition-all">
+                    <div className="w-12 h-12 rounded-full bg-white" />
+                  </button>
+                  {/* Gallery */}
+                  <button onClick={() => fileInputRef.current?.click()}
+                    className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white active:scale-90 transition-all">
+                    <Upload size={16} />
+                  </button>
+                </div>
+                {/* Time overlay */}
+                <div className="absolute top-3 left-3 px-2.5 py-1 bg-black/40 backdrop-blur-sm rounded-lg">
+                  <p className="text-[11px] text-white font-mono tabular-nums">
+                    {new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              /* No camera yet — show open camera / gallery buttons */
+              <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-gray-50">
+                <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
+                  <Camera size={28} className="text-gray-300" />
+                </div>
+                <p className="text-sm text-gray-400">ถ่ายรูปเพื่อยืนยัน</p>
+                <div className="flex gap-3">
+                  <button onClick={() => startCamera()}
+                    className="px-5 py-2.5 rounded-xl text-sm font-bold text-white flex items-center gap-2 active:scale-[.97] transition-all"
+                    style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
+                    <Camera size={14} /> เปิดกล้อง
+                  </button>
+                  <button onClick={() => fileInputRef.current?.click()}
+                    className="px-5 py-2.5 rounded-xl text-sm font-bold border border-gray-200 text-gray-600 flex items-center gap-2 hover:bg-gray-50 active:scale-[.97] transition-all">
+                    <Upload size={14} /> เลือกรูป
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Location name */}
+          <div className="mb-3">
+            <p className="text-[11px] font-medium text-gray-500 mb-1.5 flex items-center gap-1.5">
+              <MapPin size={10} className="text-orange-400" /> สถานที่ทำงาน
+            </p>
+            <input value={locationName} onChange={e => setLocationName(e.target.value)}
+              placeholder="เช่น สำนักงานลูกค้า ABC, งานแสดงสินค้า..."
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-50 transition-all" />
+          </div>
+
+          {/* Note */}
+          <div className="mb-4">
+            <p className="text-[11px] font-medium text-gray-500 mb-1.5 flex items-center gap-1.5">
+              <FileEdit size={10} className="text-gray-400" /> หมายเหตุ (ไม่บังคับ)
+            </p>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {["ประชุมลูกค้า", "ติดตั้งงาน", "ส่งสินค้า", "อบรม/สัมมนา", "ซ่อมบำรุง"].map(r => (
+                <button key={r} onClick={() => setNote(r)}
+                  className={`text-[11px] px-3 py-1.5 rounded-full font-medium border transition-all ${note === r
+                    ? "bg-orange-500 text-white border-orange-500"
+                    : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"}`}>
+                  {r}
+                </button>
+              ))}
+            </div>
+            <textarea value={note} onChange={e => setNote(e.target.value)}
+              placeholder="รายละเอียดเพิ่มเติม..."
+              rows={2}
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-600 placeholder-gray-300 outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-50 resize-none transition-all" />
+          </div>
+
+          {/* Info badge */}
+          <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-amber-50 rounded-xl mb-4">
+            <ShieldCheck size={14} className="text-amber-500 shrink-0" />
+            <p className="text-[11px] text-amber-700">
+              {isIn ? "เช็คอิน" : "เช็คเอ้าท์"}จะถูกบันทึกทันที แต่สถานะจะเป็น <b>"รออนุมัติ"</b> จนกว่า HR จะตรวจสอบ
+            </p>
+          </div>
+
+          {/* Submit */}
+          <button onClick={submit} disabled={saving || !photo}
+            className="w-full py-3.5 rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 transition-all active:scale-[.98] disabled:opacity-50 relative overflow-hidden"
+            style={{
+              background: photo
+                ? "linear-gradient(135deg, #1e3a5f 0%, #1a2744 40%, #0f172a 100%)"
+                : "#d1d5db",
+              boxShadow: photo ? "0 4px 24px rgba(15,23,42,.35)" : "none"
+            }}>
+            {photo && <>
+              <span className="ck-star" style={{ width:2.5, height:2.5, top:"20%", left:"15%", animation:"twinkle1 3s ease-in-out infinite" }}/>
+              <span className="ck-star" style={{ width:2, height:2, top:"60%", left:"75%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
+              <span className="ck-star" style={{ width:1.5, height:1.5, top:"30%", left:"85%", animation:"twinkle3 3.5s ease-in-out infinite 1s" }}/>
+              <span style={{ position:"absolute", top:"35%", right:"25%", fontSize:7, animation:"driftUp 4s ease-in-out infinite", opacity:.35, color:"#fff" }}>✦</span>
+            </>}
+            <span className="relative z-10 flex items-center gap-2">
+              {saving ? <Loader2 size={14} className="animate-spin" /> : isIn ? <LogIn size={14} /> : <LogOut size={14} />}
+              {isIn ? "เช็คอินนอกสถานที่" : "เช็คเอ้าท์นอกสถานที่"}
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    Adjust Modal
    ═══════════════════════════════════════════════════════════════════════════ */
 function AdjustModal({ record, onClose }: { record: any; onClose: () => void }) {
@@ -344,6 +732,7 @@ export default function CheckInPage() {
   const [nearest, setNearest] = useState<Branch | null>(null)
   const [distance, setDistance] = useState<number | null>(null)
   const [showAdj, setShowAdj] = useState(false)
+  const [showOffsite, setShowOffsite] = useState<"clock_in" | "clock_out" | null>(null)
   const [burst, setBurst] = useState(false)
   const [burstType, setBurstType] = useState<"in" | "out">("in")
   const [burstTime, setBurstTime] = useState("")
@@ -543,6 +932,7 @@ export default function CheckInPage() {
     <>
       {MAPS_KEY && <Script src={`https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}&callback=initCheckinMap`} strategy="afterInteractive" onLoad={handleScriptLoad} />}
       {showAdj && todayRecord && <AdjustModal record={todayRecord} onClose={() => setShowAdj(false)} />}
+      {showOffsite && pos && <OffsiteModal action={showOffsite} pos={pos} onClose={() => setShowOffsite(null)} onSuccess={refetch} />}
       <SuccessOverlay show={burst} type={burstType} time={burstTime} onDone={() => setBurst(false)} />
 
       <style>{`
@@ -708,13 +1098,27 @@ export default function CheckInPage() {
           <div className="h-28 bg-gradient-to-b from-transparent via-white/60 to-white" />
           <div className="bg-white">
 
-        {/* ═══════ Not in radius warning ═══════ */}
+        {/* ═══════ Not in radius — show off-site check-in option ═══════ */}
         {!hasClockedIn && !inRadius && branches.length > 0 && (
-          <div className="px-5 mb-3 fi1">
-            <p className="text-center text-[12px] text-gray-400">
+          <div className="px-5 mb-4 fi1">
+            <p className="text-center text-[12px] text-gray-400 mb-3">
               <AlertCircle size={12} className="inline mr-1 text-orange-400" />
-              กรุณาเข้าใกล้สาขาเพื่อเช็คอิน
+              อยู่นอกรัศมีสาขา
             </p>
+            <button onClick={() => pos && setShowOffsite("clock_in")}
+              disabled={!pos}
+              className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2.5 relative overflow-hidden"
+              style={{
+                background: "linear-gradient(135deg, #d97706 0%, #ea580c 50%, #dc2626 100%)",
+                boxShadow: "0 4px 20px rgba(234,88,12,.3)"
+              }}>
+              <span className="ck-star" style={{ width:2.5, height:2.5, top:"20%", left:"12%", animation:"twinkle1 3s ease-in-out infinite" }}/>
+              <span className="ck-star" style={{ width:2, height:2, top:"60%", left:"80%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
+              <span style={{ position:"absolute", top:"30%", right:"20%", fontSize:7, animation:"driftUp 4s ease-in-out infinite", opacity:.35, color:"#fff" }}>✦</span>
+              <span className="relative z-10 flex items-center gap-2">
+                <Camera size={16} /> เช็คอินนอกสถานที่
+              </span>
+            </button>
           </div>
         )}
 
@@ -761,11 +1165,24 @@ export default function CheckInPage() {
                 </span>
               </button>
             ) : (
-              <div className="text-center">
+              <div className="space-y-2.5">
                 <div className="w-full py-4 rounded-2xl font-bold text-[15px] text-gray-400 bg-gray-100 flex items-center justify-center gap-2">
                   <LogOut size={18} /> Check-Out
                 </div>
-                <p className="text-[11px] text-gray-400 mt-2">กรุณาเข้าใกล้สาขาเพื่อเช็คเอ้าท์</p>
+                <p className="text-[11px] text-gray-400 text-center">อยู่นอกรัศมีสาขา</p>
+                <button onClick={() => pos && setShowOffsite("clock_out")}
+                  disabled={!pos}
+                  className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2.5 relative overflow-hidden"
+                  style={{
+                    background: "linear-gradient(135deg, #d97706 0%, #ea580c 50%, #dc2626 100%)",
+                    boxShadow: "0 4px 20px rgba(234,88,12,.3)"
+                  }}>
+                  <span className="ck-star" style={{ width:2, height:2, top:"25%", left:"15%", animation:"twinkle1 3s ease-in-out infinite" }}/>
+                  <span className="ck-star" style={{ width:2, height:2, top:"55%", left:"82%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
+                  <span className="relative z-10 flex items-center gap-2">
+                    <Camera size={16} /> เช็คเอ้าท์นอกสถานที่
+                  </span>
+                </button>
               </div>
             )}
           </div>
