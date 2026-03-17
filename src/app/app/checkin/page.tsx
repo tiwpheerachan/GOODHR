@@ -9,7 +9,7 @@ import {
   Building2, MapPin, AlertTriangle, Clock, CheckCircle2,
   FileEdit, CalendarClock, Timer, History, ChevronRight,
   Zap, AlertCircle, Navigation, MapPinned, Plus, Info,
-  ChevronLeft
+  ChevronLeft, Crosshair
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { format, startOfWeek, addDays, addWeeks, isToday, isSameDay } from "date-fns"
@@ -114,7 +114,7 @@ function WeekStrip({ weekOffset, onChangeWeek, onSelectDay, selectedDay }: {
 /* ═══════════════════════════════════════════════════════════════════════════
    Circular Progress Ring (SVG)
    ═══════════════════════════════════════════════════════════════════════════ */
-function ProgressRing({ progress, size = 240, stroke = 10, children }: {
+function ProgressRing({ progress, size = 180, stroke = 8, children }: {
   progress: number; size?: number; stroke?: number; children?: React.ReactNode
 }) {
   const radius = (size - stroke) / 2
@@ -126,18 +126,18 @@ function ProgressRing({ progress, size = 240, stroke = 10, children }: {
       <svg width={size} height={size} className="transform -rotate-90">
         {/* bg track */}
         <circle cx={size / 2} cy={size / 2} r={radius}
-          fill="none" stroke="#f1f5f9" strokeWidth={stroke} />
+          fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth={stroke} />
         {/* progress */}
         <circle cx={size / 2} cy={size / 2} r={radius}
-          fill="none" stroke="url(#ringGrad)" strokeWidth={stroke}
+          fill="none" stroke="url(#ringGradNew)" strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           className="transition-all duration-1000 ease-out" />
         <defs>
-          <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#818cf8" />
-            <stop offset="100%" stopColor="#a78bfa" />
+          <linearGradient id="ringGradNew" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#a78bfa" />
+            <stop offset="100%" stopColor="#818cf8" />
           </linearGradient>
         </defs>
       </svg>
@@ -323,7 +323,7 @@ function AdjustModal({ record, onClose }: { record: any; onClose: () => void }) 
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Main Page
+   Main Page — Map-first layout with floating check-in circle
    ═══════════════════════════════════════════════════════════════════════════ */
 export default function CheckInPage() {
   const { user } = useAuth()
@@ -347,7 +347,6 @@ export default function CheckInPage() {
   const [burst, setBurst] = useState(false)
   const [burstType, setBurstType] = useState<"in" | "out">("in")
   const [burstTime, setBurstTime] = useState("")
-  const [showMap, setShowMap] = useState(false)
   const [weekOffset, setWeekOffset] = useState(0)
   const [selectedDay, setSelectedDay] = useState(new Date())
 
@@ -410,23 +409,35 @@ export default function CheckInPage() {
     drawables.current.forEach(d => d.setMap(null)); drawables.current = []
     bl.forEach(b => {
       const distM = calcGeoDistance(lat, lng, b.latitude, b.longitude), inR = distM <= b.geo_radius_m
+      // Radius circle — always 200m (or branch geo_radius_m)
       const circle = new window.google.maps.Circle({
         map, center: { lat: b.latitude, lng: b.longitude }, radius: b.geo_radius_m,
-        fillColor: inR ? "#818cf8" : "#94a3b8", fillOpacity: 0.08, strokeColor: inR ? "#6366f1" : "#94a3b8", strokeOpacity: 0.5, strokeWeight: 1.5, clickable: false,
+        fillColor: inR ? "#818cf8" : "#94a3b8", fillOpacity: inR ? 0.12 : 0.06,
+        strokeColor: inR ? "#6366f1" : "#94a3b8", strokeOpacity: 0.6, strokeWeight: 2,
+        clickable: false,
       })
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
-        <path d="M16 0C7.16 0 0 7.16 0 16c0 11 16 24 16 24S32 27 32 16C32 7.16 24.84 0 16 0z" fill="${inR ? "#6366f1" : "#94a3b8"}" stroke="white" stroke-width="2"/>
-        <circle cx="16" cy="16" r="7" fill="white"/><circle cx="16" cy="16" r="3.5" fill="${inR ? "#6366f1" : "#94a3b8"}"/>
+      // Branch marker pin
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+        <filter id="ds" x="-20%" y="-10%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.15"/></filter>
+        <path d="M18 2C9.72 2 3 8.72 3 17c0 12 15 25 15 25S33 29 33 17C33 8.72 26.28 2 18 2z" fill="${inR ? "#6366f1" : "#94a3b8"}" stroke="white" stroke-width="2" filter="url(#ds)"/>
+        <circle cx="18" cy="17" r="7" fill="white"/><circle cx="18" cy="17" r="3.5" fill="${inR ? "#6366f1" : "#94a3b8"}"/>
       </svg>`
       const marker = new window.google.maps.Marker({
         map, position: { lat: b.latitude, lng: b.longitude }, title: b.name,
-        icon: { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`, scaledSize: new window.google.maps.Size(32, 40), anchor: new window.google.maps.Point(16, 40) }
+        icon: { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`, scaledSize: new window.google.maps.Size(36, 44), anchor: new window.google.maps.Point(18, 44) }
       })
+      // Info window with distance + radius info
       const info = new window.google.maps.InfoWindow({
-        content: `<div style="font-family:system-ui;padding:6px 4px;min-width:140px">
-          <b style="font-size:13px;color:#1e293b">${b.name}</b>
-          <p style="font-size:11px;color:#64748b;margin:3px 0 1px">รัศมี ${b.geo_radius_m} ม. · ห่าง ${Math.round(distM)} ม.</p>
-          <p style="font-size:12px;font-weight:700;margin:4px 0 0;color:${inR ? "#6366f1" : "#dc2626"}">${inR ? "เช็คอินได้" : "อยู่นอกรัศมี"}</p></div>`,
+        content: `<div style="font-family:system-ui;padding:8px 6px;min-width:160px">
+          <b style="font-size:14px;color:#1e293b">${b.name}</b>
+          <div style="display:flex;gap:12px;margin:6px 0 4px">
+            <div><span style="font-size:10px;color:#94a3b8">รัศมี</span><br/><b style="font-size:13px;color:#6366f1">${b.geo_radius_m} ม.</b></div>
+            <div><span style="font-size:10px;color:#94a3b8">ระยะห่าง</span><br/><b style="font-size:13px;color:#334155">${Math.round(distM)} ม.</b></div>
+          </div>
+          <div style="margin-top:6px;padding:4px 8px;border-radius:6px;text-align:center;font-size:12px;font-weight:700;color:white;background:${inR ? "#6366f1" : "#ef4444"}">
+            ${inR ? "อยู่ในรัศมี — เช็คอินได้" : "อยู่นอกรัศมี"}
+          </div>
+        </div>`,
       })
       marker.addListener("click", () => info.open(map, marker))
       drawables.current.push(circle, marker)
@@ -440,6 +451,7 @@ export default function CheckInPage() {
     const map = new window.google.maps.Map(mapRef.current, {
       center: { lat, lng }, zoom: 17,
       mapTypeControl: false, streetViewControl: false, fullscreenControl: false, zoomControl: false,
+      gestureHandling: "greedy",
       styles: [
         { featureType: "poi", stylers: [{ visibility: "off" }] },
         { featureType: "transit", stylers: [{ visibility: "off" }] },
@@ -447,18 +459,18 @@ export default function CheckInPage() {
       ],
     })
     mapObj.current = map
-    const pinSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#6366f1" stroke="white" stroke-width="2.5"/><circle cx="10" cy="10" r="3" fill="white"/></svg>`
+    const pinSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#6366f1" stroke="white" stroke-width="3"/><circle cx="12" cy="12" r="4" fill="white"/></svg>`
     userPin.current = new window.google.maps.Marker({
       map, position: { lat, lng }, zIndex: 99,
-      icon: { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(pinSvg)}`, scaledSize: new window.google.maps.Size(20, 20), anchor: new window.google.maps.Point(10, 10) }
+      icon: { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(pinSvg)}`, scaledSize: new window.google.maps.Size(24, 24), anchor: new window.google.maps.Point(12, 12) }
     })
     setMapInited(true)
   }, [])
 
   const panToUser = useCallback((lat: number, lng: number) => {
     setPos({ lat, lng }); setGpsL(false)
-    const pinSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#6366f1" stroke="white" stroke-width="2.5"/><circle cx="10" cy="10" r="3" fill="white"/></svg>`
-    const icon = { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(pinSvg)}`, scaledSize: new window.google.maps.Size(20, 20), anchor: new window.google.maps.Point(10, 10) }
+    const pinSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#6366f1" stroke="white" stroke-width="3"/><circle cx="12" cy="12" r="4" fill="white"/></svg>`
+    const icon = { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(pinSvg)}`, scaledSize: new window.google.maps.Size(24, 24), anchor: new window.google.maps.Point(12, 12) }
     if (userPin.current) { userPin.current.setPosition({ lat, lng }); mapObj.current?.panTo({ lat, lng }); mapObj.current?.setZoom(17) }
     else if (mapObj.current) { userPin.current = new window.google.maps.Marker({ map: mapObj.current, position: { lat, lng }, zIndex: 99, icon }); mapObj.current.panTo({ lat, lng }); mapObj.current.setZoom(17) }
   }, [])
@@ -536,6 +548,8 @@ export default function CheckInPage() {
       <style>{`
         @keyframes fin{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
         @keyframes dayPop{from{transform:scale(.85)}to{transform:scale(1)}}
+        @keyframes pulse-ring{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.5);opacity:0}}
+        @keyframes float-up{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
         .fi{animation:fin .35s ease both}
         .fi1{animation:fin .35s ease .06s both}
         .fi2{animation:fin .35s ease .12s both}
@@ -546,20 +560,214 @@ export default function CheckInPage() {
 
       <div className="min-h-screen bg-white pb-28">
 
-        {/* ═══════ Top: Month & Request ═══════ */}
-        <div className="px-5 pt-6 pb-3 fi">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-[22px] font-bold text-gray-900 flex items-center gap-2.5">
-              <CalendarClock size={20} className="text-indigo-500" />
-              {format(new Date(), "MMMM yyyy", { locale: th })}
-            </h1>
-            <Link href={`/app/leave/new?type=adjustment&date=${today}`}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-gray-200 text-[12px] font-semibold text-gray-600 hover:bg-gray-50 active:scale-[.97] transition-all">
-              Request <Plus size={13} />
-            </Link>
+        {/* ═══════════════════════════════════════════════════════════════
+            MAP HERO — full width, tall, with floating check-in overlay
+           ═══════════════════════════════════════════════════════════════ */}
+        <div className="relative" style={{ height: "52vh", minHeight: 340, maxHeight: 480 }}>
+          {/* Map container */}
+          <div ref={mapRef} className="absolute inset-0 bg-gray-100" />
+
+          {/* Loading state */}
+          {!mapInited && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gray-50 z-10">
+              {MAPS_KEY
+                ? <><Loader2 size={24} className="animate-spin text-indigo-400" /><p className="text-sm text-gray-400">กำลังโหลดแผนที่...</p></>
+                : <><MapPin size={28} className="text-gray-300" /><p className="text-sm text-gray-400 text-center px-6">ตั้งค่า Google Maps API Key</p></>}
+            </div>
+          )}
+
+          {/* Top gradient overlay for readability */}
+          <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black/20 to-transparent z-10 pointer-events-none" />
+
+          {/* GPS refresh button */}
+          <button onClick={getLocation} disabled={gpsLoading}
+            className="absolute top-4 right-4 w-10 h-10 bg-white rounded-xl shadow-lg flex items-center justify-center z-20 text-gray-500 hover:text-indigo-500 active:scale-95 transition-all border border-gray-100/50">
+            {gpsLoading ? <Loader2 size={16} className="animate-spin" /> : <Crosshair size={16} />}
+          </button>
+
+          {/* Location status badge — top left */}
+          {nearest && (
+            <div className="absolute top-4 left-4 z-20" style={{ animation: "float-up .4s ease both" }}>
+              <div className={`flex items-center gap-2 px-3 py-2 rounded-xl shadow-lg backdrop-blur-md border ${
+                inRadius
+                  ? "bg-white/90 border-indigo-200/50"
+                  : "bg-white/90 border-gray-200/50"
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${inRadius ? "bg-green-400" : "bg-orange-400"}`}>
+                  {inRadius && <div className="w-2 h-2 rounded-full bg-green-400" style={{ animation: "pulse-ring 1.5s ease-out infinite" }} />}
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-800 leading-tight">{nearest.name}</p>
+                  <p className="text-[10px] text-gray-400">{distance}m · รัศมี {nearest.geo_radius_m}m</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        {/* ═══════ Content section — pulled up to overlap map ═══════ */}
+        <div className="relative z-20" style={{ marginTop: -160 }}>
+          {/* Floating circle — sits between map and white content */}
+          <div className="relative z-30 flex flex-col items-center mb-[-90px]" style={{ animation: "float-up .5s ease .2s both" }}>
+            {!hasClockedIn ? (
+              /* ── Before Check-in: Large glowing circle button ── */
+              <div className="relative">
+                {/* Outer glow ring */}
+                {inRadius && (
+                  <div className="absolute inset-0 rounded-full"
+                    style={{
+                      background: "radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%)",
+                      transform: "scale(1.3)",
+                    }} />
+                )}
+                {/* Dotted background container */}
+                <div className="w-[180px] h-[180px] rounded-full flex items-center justify-center relative bg-white shadow-2xl shadow-gray-300/50 border border-gray-100"
+                  style={{ boxShadow: inRadius ? "0 8px 40px rgba(99,102,241,0.2), 0 0 0 1px rgba(99,102,241,0.1)" : "0 8px 30px rgba(0,0,0,0.08)" }}>
+                  {/* dot pattern overlay */}
+                  <div className="absolute inset-3 rounded-full overflow-hidden opacity-[0.08]">
+                    <div style={{
+                      width: "100%", height: "100%",
+                      backgroundImage: "radial-gradient(circle, #94a3b8 1px, transparent 1px)",
+                      backgroundSize: "10px 10px",
+                    }} />
+                  </div>
+
+                  <button onClick={handleClockIn}
+                    disabled={loading || !inRadius || branches.length === 0}
+                    className={`relative z-10 w-[148px] h-[148px] rounded-full font-bold text-lg flex flex-col items-center justify-center gap-1.5 transition-all duration-200 active:scale-[.93] ${
+                      inRadius
+                        ? "text-white shadow-xl shadow-indigo-400/30"
+                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    }`}
+                    style={inRadius ? { background: "linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)" } : undefined}>
+                    {loading ? (
+                      <Loader2 size={28} className="animate-spin" />
+                    ) : (
+                      <>
+                        <LogIn size={24} strokeWidth={2.2} />
+                        <span className="text-[15px] font-bold tracking-wide">Check-In</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* ── After Check-in: Duration ring ── */
+              <div className="relative">
+                <div className="w-[180px] h-[180px] rounded-full flex items-center justify-center bg-white shadow-2xl shadow-gray-300/50 border border-gray-100"
+                  style={{ boxShadow: "0 8px 40px rgba(99,102,241,0.15), 0 0 0 1px rgba(99,102,241,0.05)" }}>
+                  <ProgressRing progress={workProgress} size={160} stroke={7}>
+                    <p className="text-[9px] text-gray-400 font-semibold tracking-wider uppercase mb-0.5">ชั่วโมงทำงาน</p>
+                    <p className="text-[28px] font-black tabular-nums text-gray-800 tracking-tight leading-none"
+                      style={{ fontVariantNumeric: "tabular-nums" }}>
+                      {pad(workH)}:{pad(workM)}
+                    </p>
+                    <p className="text-[11px] text-gray-300 font-mono tabular-nums mt-0.5">:{pad(workS)}</p>
+                    {!hasClockedOut && remainSec > 0 && (
+                      <p className="text-[9px] text-indigo-400 font-semibold mt-1">เหลือ {remainH}h {remainM}m</p>
+                    )}
+                    {hasClockedOut && (
+                      <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-500">
+                        <CheckCircle2 size={10} /> เสร็จสิ้น
+                      </div>
+                    )}
+                  </ProgressRing>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Week Strip */}
+          {/* Gradient fade from transparent to white — starts at circle midpoint */}
+          <div className="h-28 bg-gradient-to-b from-transparent via-white/60 to-white" />
+          <div className="bg-white">
+
+        {/* ═══════ Not in radius warning ═══════ */}
+        {!hasClockedIn && !inRadius && branches.length > 0 && (
+          <div className="px-5 mb-3 fi1">
+            <p className="text-center text-[12px] text-gray-400">
+              <AlertCircle size={12} className="inline mr-1 text-orange-400" />
+              กรุณาเข้าใกล้สาขาเพื่อเช็คอิน
+            </p>
+          </div>
+        )}
+
+        {/* ═══════ No branch assigned warning ═══════ */}
+        {branches.length === 0 && user?.employee_id && !gpsLoading && (
+          <div className="px-5 mb-4 fi1">
+            <div className="flex items-center gap-3 px-4 py-3 bg-orange-50 rounded-xl">
+              <AlertCircle size={16} className="text-orange-400" />
+              <div>
+                <p className="text-[13px] font-bold text-gray-700">ยังไม่ได้รับสิทธิ์เช็คอิน</p>
+                <p className="text-[10px] text-gray-400">กรุณาติดต่อ HR เพื่อกำหนดสาขา</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════ Check-Out Button (after clock in, before clock out) ═══════ */}
+        {hasClockedIn && !hasClockedOut && (
+          <div className="px-5 mb-4 fi2">
+            {inRadius ? (
+              <button onClick={handleClockOut} disabled={loading}
+                className="w-full py-4 rounded-2xl font-bold text-[15px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-300/30"
+                style={{ background: "linear-gradient(135deg, #ef4444 0%, #ec4899 50%, #8b5cf6 100%)" }}>
+                {loading ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
+                Check-Out
+              </button>
+            ) : (
+              <div className="text-center">
+                <div className="w-full py-4 rounded-2xl font-bold text-[15px] text-gray-400 bg-gray-100 flex items-center justify-center gap-2">
+                  <LogOut size={18} /> Check-Out
+                </div>
+                <p className="text-[11px] text-gray-400 mt-2">กรุณาเข้าใกล้สาขาเพื่อเช็คเอ้าท์</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══════ 3 Column Stats ═══════ */}
+        <div className="px-5 mb-4 fi2">
+          <div className="grid grid-cols-3 gap-2.5">
+            {/* Check-In */}
+            <div className="bg-gray-50 rounded-2xl py-3.5 px-2 text-center">
+              <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center mx-auto mb-2">
+                <LogIn size={14} className="text-indigo-500" />
+              </div>
+              <p className={`text-[17px] font-black tabular-nums ${hasClockedIn ? (isLate ? "text-orange-500" : "text-gray-800") : "text-gray-300"}`}>
+                {hasClockedIn ? formatTime(todayRecord?.clock_in) : "—:—"}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-0.5">เข้างาน</p>
+              {isLate && <p className="text-[9px] text-orange-400 font-semibold mt-0.5">สาย {lateMin} น.</p>}
+            </div>
+
+            {/* Check-Out */}
+            <div className="bg-gray-50 rounded-2xl py-3.5 px-2 text-center">
+              <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center mx-auto mb-2">
+                <LogOut size={14} className="text-rose-400" />
+              </div>
+              <p className={`text-[17px] font-black tabular-nums ${hasClockedOut ? "text-gray-800" : "text-gray-300"}`}>
+                {hasClockedOut ? formatTime(todayRecord?.clock_out) : "—:—"}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-0.5">ออกงาน</p>
+              {isEarlyOut && hasClockedOut && <p className="text-[9px] text-orange-400 font-semibold mt-0.5">ก่อน {earlyOutMin} น.</p>}
+            </div>
+
+            {/* Total Hours */}
+            <div className="bg-gray-50 rounded-2xl py-3.5 px-2 text-center">
+              <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center mx-auto mb-2">
+                <Clock size={14} className="text-emerald-500" />
+              </div>
+              <p className={`text-[17px] font-black tabular-nums ${hasClockedIn ? "text-gray-800" : "text-gray-300"}`}>
+                {hasClockedIn ? `${workH}:${pad(workM)}` : "—:—"}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-0.5">รวม</p>
+            </div>
+          </div>
+        </div>
+
+        {/* ═══════ Week Calendar ═══════ */}
+        <div className="px-5 mb-4 fi2">
           <WeekStrip
             weekOffset={weekOffset}
             onChangeWeek={setWeekOffset}
@@ -573,7 +781,7 @@ export default function CheckInPage() {
 
         {/* ═══════ Past Day Banner ═══════ */}
         {!isToday(selectedDay) && (
-          <div className="px-5 mb-3 fi1">
+          <div className="px-5 mb-3 fi2">
             <Link href={`/app/attendance`}
               className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-50 hover:bg-blue-100/70 transition-colors group">
               <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
@@ -583,188 +791,20 @@ export default function CheckInPage() {
                 <p className="text-[13px] font-bold text-blue-700">
                   {format(selectedDay, "d MMMM yyyy", { locale: th })}
                 </p>
-                <p className="text-[10px] text-blue-400">แตะเพื่อดูประวัติเข้างานวันนี้</p>
+                <p className="text-[10px] text-blue-400">แตะเพื่อดูประวัติเข้างาน</p>
               </div>
               <ChevronRight size={14} className="text-blue-300 group-hover:text-blue-500 transition-colors" />
             </Link>
           </div>
         )}
 
-        {/* ═══════ Location Card ═══════ */}
-        <div className="px-5 mb-5 fi1">
-          {nearest ? (
-            <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl">
-              <MapPinned size={16} className={inRadius ? "text-indigo-500" : "text-gray-400"} />
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-gray-400 font-medium">
-                  {inRadius ? "Checked in at" : "Location Registered"}
-                </p>
-                <p className="text-[13px] font-bold text-gray-800 truncate">{nearest.name}</p>
-              </div>
-              <span className="text-sm font-bold tabular-nums text-gray-500">{distance}m</span>
-            </div>
-          ) : branches.length === 0 && user?.employee_id && !gpsLoading ? (
-            <div className="flex items-center gap-3 px-4 py-3 bg-orange-50 rounded-xl">
-              <AlertCircle size={16} className="text-orange-400" />
-              <div>
-                <p className="text-[13px] font-bold text-gray-700">ยังไม่ได้รับสิทธิ์เช็คอิน</p>
-                <p className="text-[10px] text-gray-400">กรุณาติดต่อ HR เพื่อกำหนดสาขา</p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl">
-              <MapPinned size={16} className="text-gray-300" />
-              <p className="text-[13px] text-gray-400">กำลังค้นหาตำแหน่ง...</p>
-            </div>
-          )}
-        </div>
-
-        {/* ═══════ Big Circle Button / Duration Ring ═══════ */}
-        <div className="flex flex-col items-center px-5 mb-6 fi2">
-          {!hasClockedIn ? (
-            /* ── Before Check-in: Large circle button ── */
-            <div className="relative">
-              {/* dotted pattern background */}
-              <div className="w-[240px] h-[240px] rounded-full flex items-center justify-center relative"
-                style={{
-                  background: "radial-gradient(circle at 50% 50%, #f8fafc 60%, #f1f5f9 100%)",
-                  boxShadow: "0 0 0 1px #e2e8f0, 0 8px 30px rgba(0,0,0,0.04)"
-                }}>
-                {/* dot pattern overlay */}
-                <div className="absolute inset-4 rounded-full overflow-hidden opacity-20">
-                  <div style={{
-                    width: "100%", height: "100%",
-                    backgroundImage: "radial-gradient(circle, #94a3b8 1px, transparent 1px)",
-                    backgroundSize: "12px 12px",
-                  }} />
-                </div>
-
-                <button onClick={handleClockIn}
-                  disabled={loading || !inRadius || branches.length === 0}
-                  className={`relative z-10 w-[190px] h-[190px] rounded-full font-bold text-xl flex flex-col items-center justify-center gap-2 transition-all duration-200 active:scale-[.95] ${
-                    inRadius
-                      ? "text-white shadow-xl shadow-blue-300/40"
-                      : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                  }`}
-                  style={inRadius ? { background: "linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)" } : undefined}>
-                  {loading ? (
-                    <Loader2 size={32} className="animate-spin" />
-                  ) : (
-                    <>
-                      <LogIn size={28} strokeWidth={2} />
-                      <span className="text-lg tracking-wide">Check-In</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {!inRadius && branches.length > 0 && (
-                <p className="text-center text-[11px] text-gray-400 mt-3">
-                  กรุณาเข้าใกล้สาขาเพื่อเช็คอิน
-                </p>
-              )}
-            </div>
-          ) : (
-            /* ── After Check-in: Duration ring ── */
-            <div className="relative">
-              <ProgressRing progress={workProgress} size={240} stroke={10}>
-                <p className="text-[11px] text-gray-400 font-medium mb-1">Work Duration</p>
-                <p className="text-[38px] font-black tabular-nums text-gray-900 tracking-tight leading-none"
-                  style={{ fontVariantNumeric: "tabular-nums", fontFeatureSettings: '"tnum"' }}>
-                  {pad(workH)}:{pad(workM)}:{pad(workS)}
-                </p>
-                {!hasClockedOut && remainSec > 0 && (
-                  <div className="mt-2">
-                    <p className="text-[10px] text-gray-400 mb-0.5">Remaining Time</p>
-                    <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-indigo-500">
-                      <Info size={10} />
-                      <span>{remainH}h {remainM}m left today</span>
-                    </div>
-                  </div>
-                )}
-                {hasClockedOut && (
-                  <div className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-emerald-500">
-                    <CheckCircle2 size={12} />
-                    <span>เสร็จสิ้น</span>
-                  </div>
-                )}
-              </ProgressRing>
-            </div>
-          )}
-        </div>
-
-        {/* ═══════ 3 Column Stats ═══════ */}
-        <div className="px-5 mb-5 fi2">
-          <div className="grid grid-cols-3 gap-3">
-            {/* Check-In */}
-            <div className="bg-gray-50 rounded-xl py-3.5 px-2 text-center">
-              <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center mx-auto mb-2">
-                <LogIn size={15} className="text-orange-500" />
-              </div>
-              <p className={`text-[17px] font-black tabular-nums ${hasClockedIn ? (isLate ? "text-orange-500" : "text-gray-800") : "text-gray-300"}`}>
-                {hasClockedIn ? formatTime(todayRecord?.clock_in) : "—:—"}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">Check-In</p>
-              {isLate && <p className="text-[9px] text-orange-400 font-semibold mt-0.5">สาย {lateMin} น.</p>}
-            </div>
-
-            {/* Check-Out */}
-            <div className="bg-gray-50 rounded-xl py-3.5 px-2 text-center">
-              <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center mx-auto mb-2">
-                <LogOut size={15} className="text-red-400" />
-              </div>
-              <p className={`text-[17px] font-black tabular-nums ${hasClockedOut ? "text-gray-800" : "text-gray-300"}`}>
-                {hasClockedOut ? formatTime(todayRecord?.clock_out) : "—:—"}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">Check-Out</p>
-              {isEarlyOut && hasClockedOut && <p className="text-[9px] text-orange-400 font-semibold mt-0.5">ก่อน {earlyOutMin} น.</p>}
-            </div>
-
-            {/* Total Hours */}
-            <div className="bg-gray-50 rounded-xl py-3.5 px-2 text-center">
-              <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center mx-auto mb-2">
-                <Clock size={15} className="text-indigo-500" />
-              </div>
-              <p className={`text-[17px] font-black tabular-nums ${hasClockedIn ? "text-gray-800" : "text-gray-300"}`}>
-                {hasClockedIn ? `${workH}:${pad(workM)}` : "—:—"}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">Total Hours</p>
-            </div>
-          </div>
-        </div>
-
-        {/* ═══════ Check-Out Button (after clock in) ═══════ */}
-        {hasClockedIn && !hasClockedOut && (
-          <div className="px-5 mb-5 fi2">
-            {inRadius ? (
-              <button onClick={handleClockOut} disabled={loading}
-                className="w-full py-4 rounded-xl font-bold text-[15px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-200/40"
-                style={{ background: "linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)" }}>
-                {loading ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
-                Check-Out
-              </button>
-            ) : (
-              <div className="text-center">
-                <div className="w-full py-4 rounded-xl font-bold text-[15px] text-gray-400 bg-gray-100 flex items-center justify-center gap-2">
-                  <LogOut size={18} /> Check-Out
-                </div>
-                <p className="text-[11px] text-gray-400 mt-2">
-                  {remainSec > 0
-                    ? `Check-Out available · กรุณาเข้าใกล้สาขา`
-                    : "กรุณาเข้าใกล้สาขาเพื่อเช็คเอ้าท์"}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ═══════ Alert Cards ═══════ */}
-        <div className="px-5 space-y-3">
+        <div className="px-5 space-y-3 fi3">
           {/* Late */}
-          {isLate && (
-            <div className="bg-white rounded-xl p-4 space-y-3 border border-gray-100 fi3">
+          {isLate && !hasClockedOut && (
+            <div className="bg-white rounded-2xl p-4 space-y-3 border border-gray-100 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
                   <AlertTriangle size={16} className="text-amber-500" />
                 </div>
                 <div>
@@ -774,11 +814,11 @@ export default function CheckInPage() {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setShowAdj(true)}
-                  className="flex-1 py-2.5 rounded-lg text-xs font-bold text-white flex items-center justify-center gap-1.5 active:scale-[.98] transition-all" style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}>
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 active:scale-[.98] transition-all" style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}>
                   <FileEdit size={11} /> แก้ไขเวลา
                 </button>
                 <Link href={`/app/leave/new?type=leave&date=${today}`}
-                  className="flex-1 py-2.5 rounded-lg text-xs font-bold border border-gray-200 text-gray-600 flex items-center justify-center gap-1.5 hover:bg-gray-50 transition-colors">
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-gray-200 text-gray-600 flex items-center justify-center gap-1.5 hover:bg-gray-50 transition-colors">
                   <CalendarClock size={11} /> ยื่นใบลา
                 </Link>
               </div>
@@ -787,9 +827,9 @@ export default function CheckInPage() {
 
           {/* Early out */}
           {hasClockedOut && isEarlyOut && !isLate && (
-            <div className="bg-white rounded-xl p-4 space-y-3 border border-gray-100 fi3">
+            <div className="bg-white rounded-2xl p-4 space-y-3 border border-gray-100 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
                   <LogOut size={16} className="text-amber-500" />
                 </div>
                 <div>
@@ -799,11 +839,11 @@ export default function CheckInPage() {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setShowAdj(true)}
-                  className="flex-1 py-2.5 rounded-lg text-xs font-bold text-white flex items-center justify-center gap-1.5 active:scale-[.98] transition-all" style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}>
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 active:scale-[.98] transition-all" style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}>
                   <FileEdit size={11} /> แก้ไขเวลา
                 </button>
                 <Link href={`/app/leave/new?type=leave&date=${today}`}
-                  className="flex-1 py-2.5 rounded-lg text-xs font-bold border border-gray-200 text-gray-600 flex items-center justify-center gap-1.5 hover:bg-gray-50 transition-colors">
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-gray-200 text-gray-600 flex items-center justify-center gap-1.5 hover:bg-gray-50 transition-colors">
                   <CalendarClock size={11} /> ยื่นใบลา
                 </Link>
               </div>
@@ -812,9 +852,9 @@ export default function CheckInPage() {
 
           {/* On time complete */}
           {hasClockedOut && !isLate && !isEarlyOut && (
-            <div className="bg-white rounded-xl p-4 flex items-center gap-3 border border-gray-100 fi3">
-              <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
-                <CheckCircle2 size={16} className="text-indigo-500" />
+            <div className="bg-white rounded-2xl p-4 flex items-center gap-3 border border-gray-100 shadow-sm">
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
+                <CheckCircle2 size={16} className="text-emerald-500" />
               </div>
               <div>
                 <p className="font-bold text-gray-700 text-sm">มาตรงเวลา ทำได้ดี!</p>
@@ -827,9 +867,9 @@ export default function CheckInPage() {
 
           {/* Late + Early */}
           {hasClockedOut && isLate && isEarlyOut && (
-            <div className="bg-white rounded-xl p-4 space-y-3 border border-gray-100 fi3">
+            <div className="bg-white rounded-2xl p-4 space-y-3 border border-gray-100 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-rose-50 flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-rose-50 flex items-center justify-center shrink-0">
                   <AlertTriangle size={16} className="text-rose-400" />
                 </div>
                 <div>
@@ -839,11 +879,11 @@ export default function CheckInPage() {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setShowAdj(true)}
-                  className="flex-1 py-2.5 rounded-lg text-xs font-bold text-white flex items-center justify-center gap-1.5 active:scale-[.98] transition-all" style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}>
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 active:scale-[.98] transition-all" style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}>
                   <FileEdit size={11} /> แก้ไขเวลา
                 </button>
                 <Link href={`/app/leave/new?type=leave&date=${today}`}
-                  className="flex-1 py-2.5 rounded-lg text-xs font-bold border border-gray-200 text-gray-600 flex items-center justify-center gap-1.5 hover:bg-gray-50 transition-colors">
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-gray-200 text-gray-600 flex items-center justify-center gap-1.5 hover:bg-gray-50 transition-colors">
                   <CalendarClock size={11} /> ยื่นใบลา
                 </Link>
               </div>
@@ -851,47 +891,18 @@ export default function CheckInPage() {
           )}
         </div>
 
-        {/* ═══════ Map (toggleable) ═══════ */}
-        <div className="px-5 mt-4 fi3">
-          <button onClick={() => setShowMap(!showMap)}
-            className="flex items-center gap-2 text-[12px] font-semibold text-gray-400 hover:text-gray-600 transition-colors mb-2">
-            <MapPin size={12} />
-            {showMap ? "ซ่อนแผนที่" : "ดูแผนที่"}
-            <ChevronRight size={12} className={`transition-transform ${showMap ? "rotate-90" : ""}`} />
-          </button>
-
-          {showMap && (
-            <div className="bg-white rounded-xl border border-gray-100 overflow-hidden" style={{ animation: "fin .3s ease both" }}>
-              <div className="relative" style={{ height: 180 }}>
-                <div ref={mapRef} className="w-full h-full bg-gray-50" />
-                {!mapInited && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-50">
-                    {MAPS_KEY
-                      ? <><Loader2 size={16} className="animate-spin text-indigo-400" /><p className="text-[11px] text-gray-400">โหลดแผนที่…</p></>
-                      : <><MapPin size={18} className="text-gray-300" /><p className="text-[11px] text-gray-400 text-center px-6">ตั้งค่า Google Maps API Key</p></>}
-                  </div>
-                )}
-                <button onClick={getLocation} disabled={gpsLoading}
-                  className="absolute top-3 right-3 w-8 h-8 bg-white rounded-lg shadow-md flex items-center justify-center z-10 text-gray-400 hover:text-indigo-500 active:scale-95 transition-all border border-gray-100">
-                  {gpsLoading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* ═══════ Quick Actions ═══════ */}
         <div className="px-5 mt-4 fi3">
-          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
             {([
               { href: `/app/leave/new?type=adjustment&date=${today}`, icon: <FileEdit size={14} />, label: "ขอแก้ไขเวลา", desc: "เวลาเข้า-ออกผิดพลาด", iconBg: "bg-indigo-50", iconColor: "text-indigo-500" },
               { href: `/app/leave/new?type=leave&date=${today}`, icon: <CalendarClock size={14} />, label: "ยื่นใบลา", desc: "ลาป่วย ลากิจ พักร้อน", iconBg: "bg-orange-50", iconColor: "text-orange-500" },
               { href: `/app/leave/new?type=overtime&date=${today}`, icon: <Timer size={14} />, label: "ขอทำ OT", desc: "บันทึกเวลาล่วงเวลา", iconBg: "bg-blue-50", iconColor: "text-blue-500" },
               { href: "/app/attendance", icon: <History size={14} />, label: "ประวัติเข้างาน", desc: "ดูสถิติย้อนหลัง", iconBg: "bg-gray-100", iconColor: "text-gray-500" },
-            ].map((a, i, arr) => (
+            ] as const).map((a, i, arr) => (
               <Link key={a.href} href={a.href}
-                className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group ${i < arr.length - 1 ? "border-b border-gray-50" : ""}`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${a.iconBg} ${a.iconColor}`}>
+                className={`flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 transition-colors group ${i < arr.length - 1 ? "border-b border-gray-50" : ""}`}>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${a.iconBg} ${a.iconColor}`}>
                   {a.icon}
                 </div>
                 <div className="flex-1">
@@ -900,11 +911,11 @@ export default function CheckInPage() {
                 </div>
                 <ChevronRight size={13} className="text-gray-200 group-hover:text-gray-400 transition-colors" />
               </Link>
-            )))}
+            ))}
           </div>
         </div>
 
-        {/* ═══════ Branches ═══════ */}
+        {/* ═══════ Branches List ═══════ */}
         {branches.length > 1 && (
           <div className="px-5 mt-4 fi3">
             <p className="text-[10px] font-bold text-gray-400 tracking-widest uppercase mb-2 flex items-center gap-1.5">
@@ -916,15 +927,15 @@ export default function CheckInPage() {
                 const ok = d !== null && d <= b.geo_radius_m
                 const isNearest = nearest?.id === b.id
                 return (
-                  <div key={b.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${isNearest && ok ? "bg-indigo-50/50" : "bg-gray-50"}`}>
+                  <div key={b.id} className={`flex items-center gap-3 px-3.5 py-3 rounded-xl transition-colors ${isNearest && ok ? "bg-indigo-50/60 border border-indigo-100/50" : "bg-gray-50"}`}>
                     <Building2 size={14} className={ok ? "text-indigo-500" : "text-gray-300"} />
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-semibold text-gray-700 truncate">{b.name}</p>
-                      <p className="text-[10px] text-gray-400">{b.geo_radius_m}m{d !== null ? ` · ${d}m` : ""}</p>
+                      <p className="text-[10px] text-gray-400">รัศมี {b.geo_radius_m}m{d !== null ? ` · ห่าง ${d}m` : ""}</p>
                     </div>
                     {d !== null && (
-                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${ok ? "bg-indigo-100 text-indigo-600" : "bg-gray-100 text-gray-400"}`}>
-                        {ok ? "OK" : "ไกล"}
+                      <span className={`text-[9px] font-bold px-2.5 py-1 rounded-full ${ok ? "bg-indigo-100 text-indigo-600" : "bg-gray-100 text-gray-400"}`}>
+                        {ok ? "ในรัศมี" : "นอกรัศมี"}
                       </span>
                     )}
                   </div>
@@ -933,6 +944,9 @@ export default function CheckInPage() {
             </div>
           </div>
         )}
+
+          </div>{/* end rounded white card */}
+        </div>{/* end content section overlap */}
 
       </div>
     </>
