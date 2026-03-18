@@ -144,6 +144,48 @@ export default function MigrationPage() {
     setRunning(false)
   }
 
+  // ── Fix branches ──
+  const fixBranches = async () => {
+    if (!confirm("จะ Deduplicate branches (119→67) + สร้าง allowed locations ให้ทุกคน?\n\nยืนยัน?")) return
+    setRunning(true)
+    setLogs([])
+
+    try {
+      setPhase("1/2 Dedup branches...")
+      log("Deduplicate branches (53 ซ้ำ → merge, remap employees)...")
+      const r1 = await fetch("/api/migration/fix-branches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: "dedup_branches", confirm: "YES_FIX" }),
+      }).then(r => r.json())
+
+      if (r1.error) { log(`ERROR: ${r1.error}`, false) }
+      else {
+        log(`Dedup: remap ${r1.remapped_employees} employees, ลบ ${r1.deleted_branches} branches`)
+        if (r1.errors?.length) r1.errors.forEach((e: string) => log(`  ERR: ${e}`, false))
+      }
+
+      setPhase("2/2 Assign locations...")
+      log("สร้าง employee_allowed_locations (ทุกคน = ICS Mall + สาขาตัวเอง)...")
+      const r2 = await fetch("/api/migration/fix-branches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: "assign_locations", confirm: "YES_FIX" }),
+      }).then(r => r.json())
+
+      if (r2.error) { log(`ERROR: ${r2.error}`, false) }
+      else {
+        log(`Locations: ${r2.employees} employees, ${r2.locations_created} locations created`)
+      }
+
+      setPhase("เสร็จสิ้น!")
+      log("=== Fix branches เสร็จ ===", true)
+    } catch (e: any) {
+      log(`ERROR: ${e.message}`, false)
+    }
+    setRunning(false)
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
@@ -162,9 +204,32 @@ export default function MigrationPage() {
         </ul>
       </div>
 
+      <div className="flex gap-3">
+        <button
+          onClick={runAll}
+          disabled={running}
+          className={`flex-1 py-4 rounded-xl text-lg font-black transition-colors ${
+            running ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-indigo-600 text-white hover:bg-indigo-700"
+          }`}
+        >
+          {running ? `กำลังทำงาน... ${phase}` : "นำเข้าพนักงาน"}
+        </button>
+
+        <button
+          onClick={fixBranches}
+          disabled={running}
+          className={`py-4 px-6 rounded-xl text-sm font-black transition-colors ${
+            running ? "bg-slate-200 text-slate-400" : "bg-orange-600 text-white hover:bg-orange-700"
+          }`}
+        >
+          Fix Branches + Locations
+        </button>
+      </div>
+
       <button
-        onClick={runAll}
-        disabled={running}
+        onClick={() => {}}
+        disabled={true}
+        className="hidden"
         className={`w-full py-4 rounded-xl text-lg font-black transition-colors ${
           running
             ? "bg-slate-200 text-slate-400 cursor-not-allowed"

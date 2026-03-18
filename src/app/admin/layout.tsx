@@ -7,10 +7,12 @@ import { createClient } from "@/lib/supabase/client"
 import {
   LayoutDashboard, Users, Clock, CreditCard, Calendar,
   Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target, Camera, CalendarClock,
+  Network,
 } from "lucide-react"
 
 const SIDEBAR = [
   { href: "/admin/dashboard",            icon: LayoutDashboard, label: "ภาพรวม",        badge: null as string|null },
+  { href: "/admin/org",                  icon: Network,         label: "โครงสร้าง",      badge: null as string|null },
   { href: "/admin/employees",            icon: Users,           label: "พนักงาน",       badge: null as string|null },
   { href: "/admin/attendance",           icon: Clock,           label: "การเข้างาน",    badge: null as string|null },
   { href: "/admin/attendance/offsite",   icon: Camera,          label: "นอกสถานที่",    badge: null as string|null },

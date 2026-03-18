@@ -113,8 +113,26 @@ function BranchesTab({ companyId }: { companyId: string }) {
   const [form, setForm] = useState<any>({})
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from("branches").select("*").eq("company_id", companyId).order("name")
-    setBranches(data ?? [])
+    // Load branches owned by this company
+    const { data: ownBranches } = await supabase.from("branches").select("*").eq("company_id", companyId).order("name")
+
+    // Also load branches used by employees in this company (via employee_allowed_locations or employees.branch_id)
+    const { data: empBranches } = await supabase
+      .from("employees")
+      .select("branch:branches(*)")
+      .eq("company_id", companyId)
+      .eq("is_active", true)
+      .not("branch_id", "is", null)
+
+    // Merge unique branches
+    const branchMap = new Map<string, any>()
+    for (const b of (ownBranches ?? [])) branchMap.set(b.id, b)
+    for (const e of (empBranches ?? [])) {
+      const b = (e as any).branch
+      if (b && !branchMap.has(b.id)) branchMap.set(b.id, { ...b, _shared: true })
+    }
+
+    setBranches(Array.from(branchMap.values()).sort((a: any, b: any) => (a.name || "").localeCompare(b.name || "")))
   }, [companyId])
 
   useEffect(() => { load() }, [load])
@@ -169,6 +187,8 @@ function BranchesTab({ companyId }: { companyId: string }) {
             <div className="flex-1 min-w-0">
               <p className="font-bold text-slate-800 text-sm">{b.name}
                 <span className="text-slate-400 font-normal text-xs ml-2">{b.code}</span>
+                {b._shared && <span className="text-[9px] font-bold bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full ml-2">ใช้ร่วม</span>}
+                {!b.latitude && <span className="text-[9px] font-bold bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full ml-1">ไม่มี GPS</span>}
               </p>
               {b.address && <p className="text-xs text-slate-400 mt-0.5 truncate">{b.address}</p>}
               {b.latitude && (
