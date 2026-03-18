@@ -235,11 +235,14 @@ export async function POST(req: NextRequest) {
 
       // Ensure supervisor_id column exists
       try {
-        await supa.rpc("exec_sql", {
+        const rpcResult = await supa.rpc("exec_sql", {
           query: "ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_id UUID REFERENCES employees(id);"
-        }).catch(() => {})
-        // Fallback: try direct update — if column exists it'll just work
-      } catch {}
+        })
+        // Ignore RPC errors — column might already exist or function might not exist
+        void rpcResult
+      } catch {
+        // Silently ignore — we'll check via test update below
+      }
 
       // First, try to add the column if it doesn't exist
       // Use a test update to check
