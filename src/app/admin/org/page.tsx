@@ -108,19 +108,19 @@ export default function OrgMapPage() {
 
     // Build groups: each manager + their subordinates
     const groups: { manager: Emp; subordinates: Emp[] }[] = []
-    const assigned = new Set<string>()
+    const assigned: Record<string, boolean> = {}
 
-    for (const mgId of managerIds) {
+    Array.from(managerIds).forEach(mgId => {
       const mg = members.find(m => m.id === mgId)
-      if (!mg) continue
+      if (!mg) return
       const subs = members.filter(m => m.supervisor_id === mgId && m.id !== mgId)
       groups.push({ manager: mg, subordinates: subs })
-      assigned.add(mgId)
-      subs.forEach(s => assigned.add(s.id))
-    }
+      assigned[mgId] = true
+      subs.forEach(s => { assigned[s.id] = true })
+    })
 
     // Unassigned members (not a manager and not under any manager in this dept)
-    const unassigned = members.filter(m => !assigned.has(m.id))
+    const unassigned = members.filter(m => !assigned[m.id])
 
     return { groups, unassigned }
   }
