@@ -64,6 +64,7 @@ export interface SalaryStructure {
   allowance_position: number; allowance_transport: number; allowance_food: number
   allowance_phone: number; allowance_housing: number
   ot_rate_normal: number; ot_rate_holiday: number
+  tax_withholding_pct?: number | null  // NULL = auto (ขั้นบันได), 0-35 = fixed %
   effective_from: string; effective_to?: string; change_reason?: string
 }
 

@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr"
+import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import { cookies } from "next/headers"
 
 type CookieItem = { name: string; value: string; options?: Record<string, unknown> }
@@ -17,15 +18,15 @@ export function createClient() {
   )
 }
 
+/** Service-role client — bypasses ALL RLS (database + storage) */
 export function createServiceClient() {
-  const cookieStore = cookies()
-  return createServerClient(
+  return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
-      cookies: {
-        getAll() { return cookieStore.getAll() },
-        setAll(cs: CookieItem[]) { try { cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options as any)) } catch {} },
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
       },
     }
   )

@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   // ── ดึงข้อมูล user + employee ─────────────────────────────────
   const { data: userData } = await supa
     .from("users")
-    .select("employee_id, employee:employees(*, branch:branches(*), department:departments(name))")
+    .select("employee_id, employee:employees(*, branch:branches(*), department:departments(name), company:companies(code))")
     .eq("id", user.id)
     .single()
 
@@ -45,6 +45,7 @@ export async function POST(request: Request) {
 
   const emp      = userData.employee as any
   const deptName = emp.department?.name as string | undefined
+  const companyCode = emp.company?.code as string | undefined
   const now      = new Date()
   const today    = todayBKK()   // ✅ ใช้เวลาไทย ไม่ใช่ server timezone
 
@@ -105,26 +106,47 @@ export async function POST(request: Request) {
   }
 
   // ── Shift template ─────────────────────────────────────────────
-  const { data: schedule } = await supa
-    .from("work_schedules")
+  // 1) ดึงจาก monthly_shift_assignments ก่อน (ระบบจัดกะรายเดือน)
+  const { data: monthlyAssignment } = await supa
+    .from("monthly_shift_assignments")
     .select("*, shift:shift_templates(*)")
     .eq("employee_id", emp.id)
-    .lte("effective_from", today)
-    .order("effective_from", { ascending: false })
-    .limit(1)
+    .eq("work_date", today)
     .maybeSingle()
 
-  const shift = (schedule as any)?.shift as any | null
+  // 2) ถ้าไม่มีใน monthly → fallback ไปที่ work_schedules เดิม
+  let shift: any = null
+  let schedule: any = null
+
+  if (monthlyAssignment?.shift) {
+    shift = monthlyAssignment.shift
+    // ถ้าวันนี้เป็น dayoff ตามตารางกะ → เตือน
+    if (monthlyAssignment.assignment_type === "dayoff") {
+      // ยังให้เช็คอินได้ แต่จะ flag ไว้
+      console.log(`[checkin] employee ${emp.id} checking in on dayoff (${today})`)
+    }
+  } else {
+    const { data: schedData } = await supa
+      .from("work_schedules")
+      .select("*, shift:shift_templates(*)")
+      .eq("employee_id", emp.id)
+      .lte("effective_from", today)
+      .order("effective_from", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    schedule = schedData
+    shift = (schedData as any)?.shift ?? null
+  }
 
   // work_date: overnight shift ให้นับวันก่อนหน้า
   const workDate = shift?.is_overnight
     ? calcWorkDate(now, true, "Asia/Bangkok")
     : today
 
-  // grace period ตามแผนก (หรือจาก work_schedule ถ้ามี override)
+  // grace period ตามบริษัท+แผนก (หรือจาก work_schedule ถ้ามี override)
   const lateThreshold: number =
     (schedule as any)?.late_threshold_minutes ??
-    getLateThreshold(deptName)
+    getLateThreshold(deptName, companyCode)
 
   // ════════════════════════════════════════════════════════════════
   // CLOCK IN

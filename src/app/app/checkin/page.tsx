@@ -223,7 +223,7 @@ function SuccessOverlay({ show, type, time, onDone }: { show: boolean; type: "in
    ═══════════════════════════════════════════════════════════════════════════ */
 function OffsiteModal({ action, pos, onClose, onSuccess }: {
   action: "clock_in" | "clock_out"
-  pos: { lat: number; lng: number }
+  pos: { lat: number; lng: number } | null
   onClose: () => void
   onSuccess: () => void
 }) {
@@ -293,7 +293,7 @@ function OffsiteModal({ action, pos, onClose, onSuccess }: {
     const dateStr = now.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Bangkok" })
     const timeStr = now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Bangkok" })
     const stampText = `${dateStr}  ${timeStr}`
-    const coordText = `GPS: ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`
+    const coordText = pos ? `GPS: ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` : "GPS: ไม่ระบุตำแหน่ง"
 
     // Background bar
     const barH = Math.max(60, h * 0.08)
@@ -355,7 +355,7 @@ function OffsiteModal({ action, pos, onClose, onSuccess }: {
       const dateStr = now.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Bangkok" })
       const timeStr = now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Bangkok" })
       const stampText = `${dateStr}  ${timeStr}`
-      const coordText = `GPS: ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`
+      const coordText = pos ? `GPS: ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` : "GPS: ไม่ระบุตำแหน่ง"
 
       const barH = Math.max(60, h * 0.08)
       ctx.fillStyle = "rgba(0,0,0,0.55)"
@@ -405,8 +405,9 @@ function OffsiteModal({ action, pos, onClose, onSuccess }: {
 
     const fd = new FormData()
     fd.append("action", action)
-    fd.append("lat", String(pos.lat))
-    fd.append("lng", String(pos.lng))
+    fd.append("lat", pos ? String(pos.lat) : "0")
+    fd.append("lng", pos ? String(pos.lng) : "0")
+    fd.append("has_gps", pos ? "true" : "false")
     fd.append("photo", photo)
     fd.append("note", note)
     fd.append("location_name", locationName)
@@ -442,15 +443,15 @@ function OffsiteModal({ action, pos, onClose, onSuccess }: {
         style={{ animation: "mUp .3s cubic-bezier(.34,1.56,.64,1)" }}>
         <style>{`@keyframes mUp{from{transform:translateY(40px);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
 
-        {/* Header gradient */}
-        <div className="h-1.5 w-full" style={{ background: "linear-gradient(90deg, #f59e0b, #f97316, #ef4444)" }} />
+        {/* Header — subtle dark gradient */}
+        <div className="h-1 w-full" style={{ background: "linear-gradient(90deg, #1e3a5f, #334155, #1e3a5f)" }} />
 
         <div className="px-5 py-5">
           {/* Title */}
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
+                style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)" }}>
                 <Camera size={18} className="text-white" />
               </div>
               <div>
@@ -483,7 +484,7 @@ function OffsiteModal({ action, pos, onClose, onSuccess }: {
                 </button>
                 {/* Stamp badge */}
                 <div className="absolute bottom-3 left-3 px-2.5 py-1 bg-black/50 backdrop-blur-sm rounded-lg">
-                  <p className="text-[10px] text-amber-300 font-bold flex items-center gap-1">
+                  <p className="text-[10px] text-white/80 font-bold flex items-center gap-1">
                     <CheckCircle2 size={10} /> Stamped
                   </p>
                 </div>
@@ -521,14 +522,14 @@ function OffsiteModal({ action, pos, onClose, onSuccess }: {
             ) : (
               /* No camera yet — show open camera / gallery buttons */
               <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-gray-50">
-                <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
-                  <Camera size={28} className="text-gray-300" />
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)" }}>
+                  <Camera size={28} className="text-white/60" />
                 </div>
                 <p className="text-sm text-gray-400">ถ่ายรูปเพื่อยืนยัน</p>
                 <div className="flex gap-3">
                   <button onClick={() => startCamera()}
                     className="px-5 py-2.5 rounded-xl text-sm font-bold text-white flex items-center gap-2 active:scale-[.97] transition-all"
-                    style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
+                    style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)", boxShadow: "0 4px 16px rgba(15,23,42,.25)" }}>
                     <Camera size={14} /> เปิดกล้อง
                   </button>
                   <button onClick={() => fileInputRef.current?.click()}
@@ -543,11 +544,11 @@ function OffsiteModal({ action, pos, onClose, onSuccess }: {
           {/* Location name */}
           <div className="mb-3">
             <p className="text-[11px] font-medium text-gray-500 mb-1.5 flex items-center gap-1.5">
-              <MapPin size={10} className="text-orange-400" /> สถานที่ทำงาน
+              <MapPin size={10} className="text-slate-400" /> สถานที่ทำงาน
             </p>
             <input value={locationName} onChange={e => setLocationName(e.target.value)}
               placeholder="เช่น สำนักงานลูกค้า ABC, งานแสดงสินค้า..."
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-50 transition-all" />
+              className="w-full bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-50 transition-all" />
           </div>
 
           {/* Note */}
@@ -559,7 +560,7 @@ function OffsiteModal({ action, pos, onClose, onSuccess }: {
               {["ประชุมลูกค้า", "ติดตั้งงาน", "ส่งสินค้า", "อบรม/สัมมนา", "ซ่อมบำรุง"].map(r => (
                 <button key={r} onClick={() => setNote(r)}
                   className={`text-[11px] px-3 py-1.5 rounded-full font-medium border transition-all ${note === r
-                    ? "bg-orange-500 text-white border-orange-500"
+                    ? "bg-slate-800 text-white border-slate-800"
                     : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"}`}>
                   {r}
                 </button>
@@ -568,13 +569,13 @@ function OffsiteModal({ action, pos, onClose, onSuccess }: {
             <textarea value={note} onChange={e => setNote(e.target.value)}
               placeholder="รายละเอียดเพิ่มเติม..."
               rows={2}
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-600 placeholder-gray-300 outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-50 resize-none transition-all" />
+              className="w-full bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 text-sm text-gray-600 placeholder-gray-300 outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-50 resize-none transition-all" />
           </div>
 
           {/* Info badge */}
-          <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-amber-50 rounded-xl mb-4">
-            <ShieldCheck size={14} className="text-amber-500 shrink-0" />
-            <p className="text-[11px] text-amber-700">
+          <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-slate-50 rounded-xl mb-4 border border-slate-100">
+            <ShieldCheck size={14} className="text-slate-400 shrink-0" />
+            <p className="text-[11px] text-slate-600">
               {isIn ? "เช็คอิน" : "เช็คเอ้าท์"}จะถูกบันทึกทันที แต่สถานะจะเป็น <b>"รออนุมัติ"</b> จนกว่า HR จะตรวจสอบ
             </p>
           </div>
@@ -932,7 +933,7 @@ export default function CheckInPage() {
     <>
       {MAPS_KEY && <Script src={`https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}&callback=initCheckinMap`} strategy="afterInteractive" onLoad={handleScriptLoad} />}
       {showAdj && todayRecord && <AdjustModal record={todayRecord} onClose={() => setShowAdj(false)} />}
-      {showOffsite && pos && <OffsiteModal action={showOffsite} pos={pos} onClose={() => setShowOffsite(null)} onSuccess={refetch} />}
+      {showOffsite && <OffsiteModal action={showOffsite} pos={pos} onClose={() => setShowOffsite(null)} onSuccess={refetch} />}
       <SuccessOverlay show={burst} type={burstType} time={burstTime} onDone={() => setBurst(false)} />
 
       <style>{`
@@ -1098,45 +1099,37 @@ export default function CheckInPage() {
           <div className="h-28 bg-gradient-to-b from-transparent via-white/60 to-white" />
           <div className="bg-white">
 
-        {/* ═══════ Not in radius — show off-site check-in option ═══════ */}
+        {/* ═══════ Not in radius warning ═══════ */}
         {!hasClockedIn && !inRadius && branches.length > 0 && (
-          <div className="px-5 mb-4 fi1">
-            <p className="text-center text-[12px] text-gray-400 mb-3">
+          <div className="px-5 mb-2 fi1">
+            <p className="text-center text-[12px] text-gray-400">
               <AlertCircle size={12} className="inline mr-1 text-orange-400" />
               อยู่นอกรัศมีสาขา
             </p>
-            <button onClick={() => {
-                if (!pos) {
-                  toast.error("กำลังดึงตำแหน่ง กรุณารอสักครู่...")
-                  getLocation()
-                  return
-                }
-                setShowOffsite("clock_in")
-              }}
-              className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2.5 relative overflow-hidden"
-              style={{
-                background: "linear-gradient(135deg, #d97706 0%, #ea580c 50%, #dc2626 100%)",
-                boxShadow: "0 4px 20px rgba(234,88,12,.3)"
-              }}>
-              <span className="ck-star" style={{ width:2.5, height:2.5, top:"20%", left:"12%", animation:"twinkle1 3s ease-in-out infinite" }}/>
-              <span className="ck-star" style={{ width:2, height:2, top:"60%", left:"80%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
-              <span style={{ position:"absolute", top:"30%", right:"20%", fontSize:7, animation:"driftUp 4s ease-in-out infinite", opacity:.35, color:"#fff" }}>✦</span>
-              <span className="relative z-10 flex items-center gap-2">
-                <Camera size={16} /> เช็คอินนอกสถานที่
-              </span>
-            </button>
           </div>
         )}
 
-        {/* ═══════ Off-site camera shortcut (always visible when not clocked in) ═══════ */}
-        {!hasClockedIn && inRadius && (
-          <div className="px-5 mb-3 fi1">
-            <button onClick={() => {
-                if (!pos) { toast.error("กำลังดึงตำแหน่ง กรุณารอสักครู่..."); getLocation(); return }
-                setShowOffsite("clock_in")
-              }}
-              className="w-full py-2.5 rounded-xl text-[12px] font-semibold text-orange-500 bg-orange-50 border border-orange-100 flex items-center justify-center gap-2 hover:bg-orange-100 active:scale-[.98] transition-all">
-              <Camera size={13} /> หรือเช็คอินนอกสถานที่ด้วยรูปถ่าย
+        {/* ═══════ Off-site check-in button (always visible when not clocked in) ═══════ */}
+        {!hasClockedIn && (
+          <div className="px-5 mb-4 fi1">
+            <button onClick={() => setShowOffsite("clock_in")}
+              className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2.5 relative overflow-hidden"
+              style={{
+                background: "linear-gradient(135deg, #1e3a5f 0%, #1a2744 40%, #0f172a 100%)",
+                boxShadow: "0 4px 20px rgba(15,23,42,.3)"
+              }}>
+              <span className="ck-star" style={{ width:2.5, height:2.5, top:"18%", left:"10%", animation:"twinkle1 3s ease-in-out infinite" }}/>
+              <span className="ck-star" style={{ width:2, height:2, top:"55%", left:"25%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
+              <span className="ck-star" style={{ width:2, height:2, top:"22%", left:"65%", animation:"twinkle3 3.5s ease-in-out infinite 1s" }}/>
+              <span className="ck-star" style={{ width:1.5, height:1.5, top:"65%", left:"82%", animation:"twinkle1 4.5s ease-in-out infinite 1.5s" }}/>
+              <span className="ck-star-glow" style={{ width:30, height:30, top:"-5%", right:"18%", opacity:.12 }}/>
+              <span style={{ position:"absolute", top:"30%", right:"22%", fontSize:7, animation:"driftUp 4s ease-in-out infinite", opacity:.35, color:"#fff" }}>✦</span>
+              <span style={{ position:"absolute", top:"50%", left:"40%", fontSize:5, animation:"driftUp 5s ease-in-out infinite 1.5s", opacity:.25, color:"#fff" }}>✧</span>
+              <span style={{ position:"absolute", top:"-50%", left:"-50%", width:"60%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent)", animation:"shineSwipe 6s ease-in-out infinite", pointerEvents:"none" }}/>
+              <span className="relative z-10 flex items-center gap-2">
+                <Camera size={15} />
+                เช็คอินนอกสถานที่
+              </span>
             </button>
           </div>
         )}
@@ -1156,7 +1149,8 @@ export default function CheckInPage() {
 
         {/* ═══════ Check-Out Button (after clock in, before clock out) ═══════ */}
         {hasClockedIn && !hasClockedOut && (
-          <div className="px-5 mb-4 fi2">
+          <div className="px-5 mb-4 fi2 space-y-2.5">
+            {/* Normal check-out (only when in radius) */}
             {inRadius ? (
               <button onClick={handleClockOut} disabled={loading}
                 className="w-full py-4 rounded-2xl font-bold text-[15px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2 relative overflow-hidden"
@@ -1184,32 +1178,34 @@ export default function CheckInPage() {
                 </span>
               </button>
             ) : (
-              <div className="space-y-2.5">
+              <>
                 <div className="w-full py-4 rounded-2xl font-bold text-[15px] text-gray-400 bg-gray-100 flex items-center justify-center gap-2">
                   <LogOut size={18} /> Check-Out
                 </div>
                 <p className="text-[11px] text-gray-400 text-center">อยู่นอกรัศมีสาขา</p>
-                <button onClick={() => {
-                    if (!pos) {
-                      toast.error("กำลังดึงตำแหน่ง กรุณารอสักครู่...")
-                      getLocation()
-                      return
-                    }
-                    setShowOffsite("clock_out")
-                  }}
-                  className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2.5 relative overflow-hidden"
-                  style={{
-                    background: "linear-gradient(135deg, #d97706 0%, #ea580c 50%, #dc2626 100%)",
-                    boxShadow: "0 4px 20px rgba(234,88,12,.3)"
-                  }}>
-                  <span className="ck-star" style={{ width:2, height:2, top:"25%", left:"15%", animation:"twinkle1 3s ease-in-out infinite" }}/>
-                  <span className="ck-star" style={{ width:2, height:2, top:"55%", left:"82%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
-                  <span className="relative z-10 flex items-center gap-2">
-                    <Camera size={16} /> เช็คเอ้าท์นอกสถานที่
-                  </span>
-                </button>
-              </div>
+              </>
             )}
+
+            {/* Off-site check-out button (always visible) */}
+            <button onClick={() => setShowOffsite("clock_out")}
+              className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2.5 relative overflow-hidden"
+              style={{
+                background: "linear-gradient(135deg, #1e3a5f 0%, #1a2744 40%, #0f172a 100%)",
+                boxShadow: "0 4px 20px rgba(15,23,42,.3)"
+              }}>
+              <span className="ck-star" style={{ width:2.5, height:2.5, top:"18%", left:"10%", animation:"twinkle1 3s ease-in-out infinite" }}/>
+              <span className="ck-star" style={{ width:2, height:2, top:"55%", left:"25%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
+              <span className="ck-star" style={{ width:2, height:2, top:"22%", left:"65%", animation:"twinkle3 3.5s ease-in-out infinite 1s" }}/>
+              <span className="ck-star" style={{ width:1.5, height:1.5, top:"65%", left:"82%", animation:"twinkle1 4.5s ease-in-out infinite 1.5s" }}/>
+              <span className="ck-star-glow" style={{ width:30, height:30, top:"-5%", right:"18%", opacity:.12 }}/>
+              <span style={{ position:"absolute", top:"30%", right:"22%", fontSize:7, animation:"driftUp 4s ease-in-out infinite", opacity:.35, color:"#fff" }}>✦</span>
+              <span style={{ position:"absolute", top:"50%", left:"40%", fontSize:5, animation:"driftUp 5s ease-in-out infinite 1.5s", opacity:.25, color:"#fff" }}>✧</span>
+              <span style={{ position:"absolute", top:"-50%", left:"-50%", width:"60%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent)", animation:"shineSwipe 6s ease-in-out infinite", pointerEvents:"none" }}/>
+              <span className="relative z-10 flex items-center gap-2">
+                <Camera size={15} />
+                เช็คเอ้าท์นอกสถานที่
+              </span>
+            </button>
           </div>
         )}
 

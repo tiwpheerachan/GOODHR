@@ -6,8 +6,9 @@ import {
   Download, RefreshCw, AlertCircle, Check, X,
   Clock, Users, TrendingUp, AlertTriangle,
   Search, ChevronLeft, ChevronRight,
-  Building2, GitBranch, BarChart2, List,
+  Building2, GitBranch, BarChart2, List, Camera,
 } from "lucide-react"
+import Link from "next/link"
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns"
 import { th } from "date-fns/locale"
 import { statusToTH } from "@/lib/utils/attendance"
@@ -132,6 +133,7 @@ export default function AdminAttendancePage() {
   const [adjReqs,      setAdjReqs]      = useState<any[]>([])
   const [kpi,          setKpi]          = useState({present:0,late:0,absent:0,leave:0})
   const [exporting,    setExporting]    = useState(false)
+  const [offsitePending, setOffsitePending] = useState(0)
   const [listFilters,  setListFilters]  = useState({
     start:  format(subDays(new Date(),7),"yyyy-MM-dd"),
     end:    today, status:"", dept:"", search:"",
@@ -162,12 +164,15 @@ export default function AdminAttendancePage() {
   // ── LIST: load kpi today ──────────────────────────────────────
   const loadKpi = useCallback(async()=>{
     if(!activeCid) return
-    const results = await Promise.all(["present","late","absent","leave"].map(s=>
-      supabase.from("attendance_records").select("id",{count:"exact",head:true})
-        .eq("company_id",activeCid).eq("work_date",today).eq("status",s)
-    ))
-    const [present,late,absent,leave]=results.map(r=>r.count??0)
-    setKpi({present,late,absent,leave})
+    const [r0,r1,r2,r3,osRes] = await Promise.all([
+      supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("company_id",activeCid).eq("work_date",today).eq("status","present"),
+      supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("company_id",activeCid).eq("work_date",today).eq("status","late"),
+      supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("company_id",activeCid).eq("work_date",today).eq("status","absent"),
+      supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("company_id",activeCid).eq("work_date",today).eq("status","leave"),
+      supabase.from("offsite_checkin_requests").select("id",{count:"exact",head:true}).eq("company_id",activeCid).eq("status","pending"),
+    ])
+    setKpi({present:r0.count??0,late:r1.count??0,absent:r2.count??0,leave:r3.count??0})
+    setOffsitePending(osRes.count??0)
   },[activeCid,today])
 
   // ── LIST: load records ────────────────────────────────────────
@@ -314,6 +319,25 @@ export default function AdminAttendancePage() {
           </button>
         </div>
       </div>
+
+      {/* ── Pending offsite banner ──────────────────────────────── */}
+      {offsitePending > 0 && (
+        <Link href="/admin/attendance/offsite"
+          className="flex items-center gap-3 bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-3.5 hover:bg-slate-50 transition-colors group">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)" }}>
+            <Camera size={15} className="text-white" />
+          </div>
+          <div className="flex-1">
+            <p className="font-bold text-sm text-slate-800">เช็คอินนอกสถานที่รออนุมัติ</p>
+            <p className="text-[11px] text-slate-400">กดเพื่อตรวจสอบและอนุมัติคำขอ</p>
+          </div>
+          <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-2 text-[11px] font-black text-white">
+            {offsitePending}
+          </span>
+          <ChevronRight size={14} className="text-slate-300 group-hover:text-slate-500 transition-colors" />
+        </Link>
+      )}
 
       {/* ── KPI strip (วันนี้) ─────────────────────────────────── */}
       <div className="grid grid-cols-4 gap-3">
@@ -464,8 +488,30 @@ export default function AdminAttendancePage() {
                       <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap font-medium">{safeFmt(r.work_date+"T00:00:00","d MMM")}</td>
                       <td className="px-4 py-3.5"><p className="font-bold text-slate-800">{r.employee?.first_name_th} {r.employee?.last_name_th}</p><p className="text-[11px] text-slate-400 mt-0.5 font-mono">{r.employee?.employee_code}</p></td>
                       <td className="px-4 py-3.5 text-slate-500 text-xs">{r.employee?.department?.name||"—"}</td>
-                      <td className="px-4 py-3.5"><span className={`font-black tabular-nums text-sm ${r.clock_in?"text-slate-800":"text-slate-300"}`}>{safeFmt(r.clock_in,"HH:mm")}</span></td>
-                      <td className="px-4 py-3.5"><span className={`font-black tabular-nums text-sm ${r.clock_out?"text-slate-800":"text-slate-300"}`}>{safeFmt(r.clock_out,"HH:mm")}</span></td>
+                      <td className="px-4 py-3.5">
+                        <span className={`font-black tabular-nums text-sm ${r.clock_in?"text-slate-800":"text-slate-300"}`}>{safeFmt(r.clock_in,"HH:mm")}</span>
+                        {r.is_offsite_in && (
+                          <span className={`inline-flex items-center gap-0.5 ml-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold ${
+                            r.offsite_in_status==="approved" ? "bg-emerald-50 text-emerald-600"
+                            : r.offsite_in_status==="rejected" ? "bg-rose-50 text-rose-500"
+                            : "bg-amber-50 text-amber-600"
+                          }`}>
+                            <Camera size={8}/>{r.offsite_in_status==="approved"?"อนุมัติ":r.offsite_in_status==="rejected"?"ปฏิเสธ":"รอ"}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`font-black tabular-nums text-sm ${r.clock_out?"text-slate-800":"text-slate-300"}`}>{safeFmt(r.clock_out,"HH:mm")}</span>
+                        {r.is_offsite_out && (
+                          <span className={`inline-flex items-center gap-0.5 ml-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold ${
+                            r.offsite_out_status==="approved" ? "bg-emerald-50 text-emerald-600"
+                            : r.offsite_out_status==="rejected" ? "bg-rose-50 text-rose-500"
+                            : "bg-amber-50 text-amber-600"
+                          }`}>
+                            <Camera size={8}/>{r.offsite_out_status==="approved"?"อนุมัติ":r.offsite_out_status==="rejected"?"ปฏิเสธ":"รอ"}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3.5">{(r.late_minutes??0)>0?<span className="font-black text-amber-600 tabular-nums">{r.late_minutes}<span className="text-[10px] font-normal">น.</span></span>:<span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5">{(r.ot_minutes??0)>0?<span className="font-bold text-blue-600 tabular-nums">{r.ot_minutes}<span className="text-[10px] font-normal">น.</span></span>:<span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5"><StatusBadge status={r.status}/></td>

@@ -30,16 +30,14 @@ type OffsiteRequest = {
   employee: {
     id: string
     employee_code: string
-    first_name: string
-    last_name: string
+    first_name_th: string
+    last_name_th: string
     first_name_en: string | null
     last_name_en: string | null
     department: { name: string } | null
     position: { name: string } | null
   } | null
-  reviewer: {
-    employee: { first_name: string; last_name: string } | null
-  } | null
+  reviewed_by_name?: string | null
 }
 
 export default function OffsiteReviewPage() {
@@ -61,8 +59,14 @@ export default function OffsiteReviewPage() {
       if (data.success) {
         setRequests(data.data || [])
         setTotal(data.total || 0)
+      } else {
+        console.error("offsite review error:", data.error)
+        toast.error(data.error || "โหลดข้อมูลไม่สำเร็จ")
+        setRequests([])
+        setTotal(0)
       }
-    } catch {
+    } catch (err) {
+      console.error("offsite review fetch error:", err)
       toast.error("โหลดข้อมูลไม่สำเร็จ")
     } finally {
       setLoading(false)
@@ -108,7 +112,7 @@ export default function OffsiteReviewPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg, #f59e0b, #ea580c)" }}>
+              style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)" }}>
               <Camera size={18} className="text-white" />
             </div>
             <div>
@@ -164,7 +168,7 @@ export default function OffsiteReviewPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-bold text-gray-800 truncate">
-                      {emp?.first_name} {emp?.last_name}
+                      {emp?.first_name_th} {emp?.last_name_th}
                       <span className="text-gray-400 font-normal ml-1.5">({emp?.employee_code})</span>
                     </p>
                     <p className="text-[10px] text-gray-400">
@@ -249,10 +253,9 @@ export default function OffsiteReviewPage() {
                 )}
 
                 {/* Reviewer info */}
-                {req.reviewed_at && req.reviewer && (
+                {req.reviewed_at && (
                   <div className="px-4 pb-3 text-[10px] text-gray-400">
-                    โดย {(req.reviewer as any)?.employee?.first_name} {(req.reviewer as any)?.employee?.last_name}
-                    {" · "}{format(new Date(req.reviewed_at), "d MMM HH:mm", { locale: th })}
+                    ตรวจสอบเมื่อ {format(new Date(req.reviewed_at), "d MMM HH:mm", { locale: th })}
                   </div>
                 )}
               </div>

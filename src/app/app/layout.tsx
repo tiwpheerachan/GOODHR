@@ -1,7 +1,7 @@
 "use client"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
-import { Home, Clock, Calendar, CalendarDays, User, Bell, Users, Shield, Target } from "lucide-react"
+import { Home, Clock, Calendar, CalendarDays, CalendarClock, User, Bell, Users, Shield, Target } from "lucide-react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useEffect, useState, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -10,6 +10,7 @@ const NAV = [
   { href: "/app/dashboard",  icon: Home,         label: "หน้าหลัก"   },
   { href: "/app/checkin",    icon: Clock,        label: "เช็คอิน"    },
   { href: "/app/attendance", icon: Calendar,     label: "การเข้างาน" },
+  { href: "/app/schedule",   icon: CalendarClock, label: "ตารางกะ"   },
   { href: "/app/leave",      icon: CalendarDays, label: "การลา"      },
   { href: "/app/kpi",        icon: Target,       label: "KPI"        },
   { href: "/app/profile",    icon: User,         label: "โปรไฟล์"   },

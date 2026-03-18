@@ -6,13 +6,15 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
   LayoutDashboard, Users, Clock, CreditCard, Calendar,
-  Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target,
+  Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target, Camera, CalendarClock,
 } from "lucide-react"
 
 const SIDEBAR = [
   { href: "/admin/dashboard",            icon: LayoutDashboard, label: "ภาพรวม",        badge: null as string|null },
   { href: "/admin/employees",            icon: Users,           label: "พนักงาน",       badge: null as string|null },
   { href: "/admin/attendance",           icon: Clock,           label: "การเข้างาน",    badge: null as string|null },
+  { href: "/admin/attendance/offsite",   icon: Camera,          label: "นอกสถานที่",    badge: null as string|null },
+  { href: "/admin/shifts",              icon: CalendarClock,   label: "จัดกะ",          badge: null as string|null },
   { href: "/admin/leave",                icon: Calendar,        label: "การลา",          badge: null as string|null },
   { href: "/admin/kpi",                  icon: Target,          label: "KPI",            badge: null as string|null },
   { href: "/admin/payroll",              icon: CreditCard,      label: "เงินเดือน",      badge: null as string|null },
@@ -39,11 +41,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const companyId = (user as any)?.company_id ?? user?.employee?.company_id
     if (!companyId) return
     const load = async () => {
-      const [lv, rs] = await Promise.all([
+      const [lv, rs, os] = await Promise.all([
         supabase.from("leave_requests").select("id",{count:"exact",head:true}).eq("company_id",companyId).eq("status","pending"),
         supabase.from("resignation_requests").select("id",{count:"exact",head:true}).eq("company_id",companyId).eq("status","pending_hr"),
+        supabase.from("offsite_checkin_requests").select("id",{count:"exact",head:true}).eq("company_id",companyId).eq("status","pending"),
       ])
-      setBadgeCounts({ "/admin/leave": (lv.count??0) + (rs.count??0) })
+      setBadgeCounts({
+        "/admin/leave": (lv.count??0) + (rs.count??0),
+        "/admin/attendance/offsite": os.count??0,
+      })
     }
     load()
   }, [user]) // eslint-disable-line
@@ -56,7 +62,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const roleLabel   = ROLE_LABEL[user?.role ?? ""] ?? user?.role ?? ""
 
   const pageLabel =
-    SIDEBAR.find(i => pathname.startsWith(i.href))?.label ??
+    SIDEBAR.slice().sort((a,b) => b.href.length - a.href.length).find(i => pathname.startsWith(i.href))?.label ??
     (pathname.startsWith("/admin/profile") ? "โปรไฟล์" : "Admin")
 
   return (
@@ -87,7 +93,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* Nav */}
         <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
           {SIDEBAR.map(({ href, icon: Icon, label }) => {
-            const active = pathname.startsWith(href)
+            const active = href === "/admin/attendance"
+              ? pathname === "/admin/attendance" || pathname === "/admin/attendance/"
+              : href === "/admin/shifts"
+              ? pathname.startsWith("/admin/shifts")
+              : href === "/admin/payroll"
+              ? pathname.startsWith("/admin/payroll")
+              : pathname.startsWith(href)
             return (
               <Link key={href} href={href} onClick={() => setOpen(false)}
                 className={

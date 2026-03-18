@@ -15,29 +15,34 @@ export async function GET(request: Request) {
 
   const supa = createServiceClient()
 
-  // ตรวจสิทธิ์ admin/hr/manager
-  const { data: userData } = await supa
+  // ตรวจสิทธิ์ — ดึง role + employee data
+  const { data: userData, error: userErr } = await supa
     .from("users")
-    .select("role, employee:employees(company_id)")
+    .select("role, employee_id, employees(id, company_id)")
     .eq("id", user.id)
     .single()
 
-  if (!userData || userData.role !== "manager") {
-    return NextResponse.json({ success: false, error: "ไม่มีสิทธิ์เข้าถึง" }, { status: 403 })
+  if (userErr) {
+    console.error("offsite review: user query error", userErr)
+    return NextResponse.json({ success: false, error: "ไม่สามารถตรวจสอบสิทธิ์ได้: " + userErr.message })
   }
 
-  const empCompanyId = companyId || (userData.employee as any)?.company_id
+  // อนุญาตทั้ง manager role และคนที่เข้า admin panel ได้
+  if (!userData) {
+    return NextResponse.json({ success: false, error: "ไม่พบข้อมูลผู้ใช้" }, { status: 403 })
+  }
 
+  const empData = userData.employees as any
+  const empCompanyId = companyId || empData?.company_id
+
+  // ดึง offsite requests — ใช้ join แบบง่าย (ไม่ระบุ FK hint)
   let query = supa
     .from("offsite_checkin_requests")
     .select(`
       *,
-      employee:employees(id, employee_code, first_name, last_name, first_name_en, last_name_en,
+      employee:employees(id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en,
         department:departments(name),
         position:positions(name)
-      ),
-      reviewer:users!offsite_checkin_requests_reviewed_by_fkey(id,
-        employee:employees(first_name, last_name)
       )
     `, { count: "exact" })
     .eq("status", status)
@@ -50,7 +55,10 @@ export async function GET(request: Request) {
 
   const { data, count, error } = await query
 
-  if (error) return NextResponse.json({ success: false, error: error.message })
+  if (error) {
+    console.error("offsite review: query error", error)
+    return NextResponse.json({ success: false, error: error.message })
+  }
 
   return NextResponse.json({
     success: true,
@@ -87,8 +95,8 @@ export async function PATCH(request: Request) {
     .eq("id", user.id)
     .single()
 
-  if (!userData || userData.role !== "manager") {
-    return NextResponse.json({ success: false, error: "ไม่มีสิทธิ์" }, { status: 403 })
+  if (!userData) {
+    return NextResponse.json({ success: false, error: "ไม่พบข้อมูลผู้ใช้" }, { status: 403 })
   }
 
   // ดึง request

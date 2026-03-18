@@ -48,12 +48,23 @@ export function calcOT(base: number, minutes: number, type: OtType = "weekday"):
 }
 
 // ─────────────────────────────────────────────────────────────
-// ประกันสังคม (SSO)
+// ประกันสังคม (SSO) — อัปเดตตามกฎใหม่ 2567-2568
 // ─────────────────────────────────────────────────────────────
-/** SSO: 5% ของฐาน แต่ฐานสูงสุด 15,000 ต่ำสุด 1,650 */
-export function calcSSO(base: number, rate = 0.05): number {
-  const capped = Math.min(Math.max(base, 1_650), 15_000)
-  return Math.round(capped * rate * 100) / 100
+/**
+ * SSO: 5% ของเงินเดือน แต่ไม่เกิน 875 บาท
+ * (ฐานเงินเดือนสูงสุด 17,500 × 5% = 875)
+ * ต่ำสุด 1,650 × 5% = 82.50
+ */
+export const SSO_RATE        = 0.05
+export const SSO_MAX_AMOUNT  = 875   // บาท/เดือน
+export const SSO_MIN_BASE    = 1_650
+export const SSO_MAX_BASE    = 17_500
+
+export function calcSSO(base: number, rate = SSO_RATE): number {
+  if (base <= 0) return 0
+  const capped = Math.min(Math.max(base, SSO_MIN_BASE), SSO_MAX_BASE)
+  const amount = Math.round(capped * rate * 100) / 100
+  return Math.min(amount, SSO_MAX_AMOUNT)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -107,8 +118,8 @@ export function calcMonthlyTax(grossMonthly: number, ssoMonthly: number): number
   // ค่าลดหย่อนส่วนตัว = 60,000 บาทต่อปี
   const personalDeduct = 60_000
 
-  // SSO ที่จ่ายต่อปี (สูงสุด 9,000 บาท เพราะฐาน max 15,000 * 5% * 12 = 9,000)
-  const ssoAnnual = Math.min(ssoMonthly * 12, 9_000)
+  // SSO ที่จ่ายต่อปี (สูงสุด 10,500 บาท เพราะ max 875 * 12 = 10,500)
+  const ssoAnnual = Math.min(ssoMonthly * 12, SSO_MAX_AMOUNT * 12)
 
   const netIncome = Math.max(annualGross - expenseDeduct - personalDeduct - ssoAnnual, 0)
 
@@ -117,36 +128,67 @@ export function calcMonthlyTax(grossMonthly: number, ssoMonthly: number): number
 }
 
 // ─────────────────────────────────────────────────────────────
-// Late threshold ตามแผนก (นาที) — กฎ PTC Excel
+// Late threshold ตามบริษัท+แผนก (นาที grace period)
 // ─────────────────────────────────────────────────────────────
-const LATE_THRESHOLD_BY_DEPT: Record<string, number> = {
-  "คลังสินค้า": 5,
-  "warehouse":  5,
-  "service":    5,
+// กฎ:
+//   PTC ทุกแผนก          → 0 นาที (หักตั้งแต่นาทีที่ 1)
+//   คลังสินค้า, Service    → 5 นาที (หักตั้งแต่นาทีที่ 6)
+//   แอดมินออนไลน์          → 0 นาที (หักตั้งแต่นาทีที่ 1)
+//   Marketing, MC Live Streaming (Tiktok), HR, Accounting (บัญชี),
+//   Sale Offline, Brand Shop, Dealer, Support, KAM
+//                          → 10 นาที (หักตั้งแต่นาทีที่ 11)
+//   อื่นๆ (ไม่ระบุ)        → 0 นาที (default)
+// ─────────────────────────────────────────────────────────────
 
-  "marketing":      10,
-  "tiktok":         10,
-  "hr":             10,
-  "accounting":     10,
-  "sale offline":   10,
-  "brand shop":     10,
-  "dealer":         10,
-  "support":        10,
-  "kam":            10,
-  "บัญชี":          10,
-  "ทรัพยากรบุคคล": 10,
-  "การตลาด":        10,
+// Grace = 0 (หักตั้งแต่นาทีที่ 1)
+const GRACE_0_DEPTS = [
+  "admin online", "แอดมินออนไลน์",
+]
 
-  "admin online":   0,
-  "แอดมินออนไลน์": 0,
-}
+// Grace = 5 (อนุโลม 5 นาที → หักนาทีที่ 6)
+const GRACE_5_DEPTS = [
+  "คลังสินค้า", "warehouse", "service",
+]
 
-export function getLateThreshold(departmentName?: string | null): number {
+// Grace = 10 (อนุโลม 10 นาที → หักนาทีที่ 11)
+const GRACE_10_DEPTS = [
+  "marketing", "การตลาด", "mc live streaming", "tiktok",
+  "hr", "ทรัพยากรบุคคล", "บุคคล",
+  "accounting", "บัญชี",
+  "sale offline",
+  "brand shop",
+  "dealer",
+  "support", "สนับสนุน",
+  "kam",
+  "content", "graphic",
+]
+
+// Companies ที่ทุกแผนก grace = 0
+const GRACE_0_COMPANIES = ["ptc"]
+
+export function getLateThreshold(
+  departmentName?: string | null,
+  companyCode?: string | null,
+): number {
+  // PTC ทุกแผนก → 0 (หักตั้งแต่นาทีที่ 1)
+  if (companyCode) {
+    const co = companyCode.toLowerCase().trim()
+    if (GRACE_0_COMPANIES.some(c => co.includes(c))) return 0
+  }
+
   if (!departmentName) return 0
   const key = departmentName.toLowerCase().trim()
-  for (const [k, v] of Object.entries(LATE_THRESHOLD_BY_DEPT)) {
-    if (key.includes(k)) return v
-  }
+
+  // Check grace = 0
+  if (GRACE_0_DEPTS.some(d => key.includes(d))) return 0
+
+  // Check grace = 5
+  if (GRACE_5_DEPTS.some(d => key.includes(d))) return 5
+
+  // Check grace = 10
+  if (GRACE_10_DEPTS.some(d => key.includes(d))) return 10
+
+  // Default: 0 (หักตั้งแต่นาทีที่ 1)
   return 0
 }
 
@@ -202,6 +244,11 @@ export function calculatePayrollSummary(args: {
   lateMinutes?:     number
   earlyOutMinutes?: number
   loanDeduction?:   number
+  /**
+   * ภาษีหัก ณ ที่จ่าย: ถ้าตั้งค่า (0-100) จะใช้ % นี้แทนสูตรขั้นบันได
+   * null/undefined = คำนวณอัตโนมัติตามกฎหมายไทย
+   */
+  taxWithholdingPct?: number | null
 }) {
   const {
     baseSalary,
@@ -213,6 +260,7 @@ export function calculatePayrollSummary(args: {
     loanDeduction = 0,
     otBreakdown,
     otMinutes    = 0,
+    taxWithholdingPct,
   } = args
 
   // ── รายได้ ──────────────────────────────────────────────────
@@ -230,9 +278,19 @@ export function calculatePayrollSummary(args: {
   // ── ประกันสังคม ─────────────────────────────────────────────
   const sso = calcSSO(baseSalary)
 
-  // ── ภาษีหัก ณ ที่จ่าย (คำนวณถูกต้องตามกฎหมายไทย) ──────────
-  // ✅ ส่ง gross และ sso เพื่อให้ calcMonthlyTax คิดค่าลดหย่อนถูกต้อง
-  const tax = calcMonthlyTax(gross, sso)
+  // ── ภาษีหัก ณ ที่จ่าย ─────────────────────────────────────────
+  let tax: number
+  let taxMethod: "auto" | "fixed_pct"
+
+  if (taxWithholdingPct != null && taxWithholdingPct >= 0) {
+    // ใช้ % ที่ตั้งไว้ (เช่น 3% ของ gross)
+    tax = Math.round(gross * (taxWithholdingPct / 100) * 100) / 100
+    taxMethod = "fixed_pct"
+  } else {
+    // คำนวณอัตโนมัติตามกฎหมายไทย (ขั้นบันได)
+    tax = calcMonthlyTax(gross, sso)
+    taxMethod = "auto"
+  }
 
   // ── รายการหัก ───────────────────────────────────────────────
   const deductAbsent   = calcAbsentDeduction(baseSalary, absentDays)
@@ -245,6 +303,7 @@ export function calculatePayrollSummary(args: {
     otAmount,
     sso,
     tax,
+    taxMethod,
     deductAbsent,
     deductLate,
     deductEarlyOut,

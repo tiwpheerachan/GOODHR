@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   // ── ดึง adjustment request ─────────────────────────────────
   const { data: req } = await supa
     .from("time_adjustment_requests")
-    .select("*, employee:employees!time_adjustment_requests_employee_id_fkey(id, company_id, department:departments(name))")
+    .select("*, employee:employees!time_adjustment_requests_employee_id_fkey(id, company_id, department:departments(name), company:companies(code))")
     .eq("id", request_id)
     .single()
 
@@ -60,7 +60,8 @@ export async function POST(request: Request) {
 
   // ── คำนวณ late_minutes ใหม่ ───────────────────────────────
   const deptName      = (req.employee as any)?.department?.name ?? null
-  const lateThreshold = getLateThreshold(deptName)
+  const companyCode   = (req.employee as any)?.company?.code ?? null
+  const lateThreshold = getLateThreshold(deptName, companyCode)
   let newLateMin = 0
 
   if (newClockIn && shift?.work_start) {

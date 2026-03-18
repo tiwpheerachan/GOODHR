@@ -12,8 +12,11 @@ export async function POST(request: Request) {
   const formData = await request.formData()
 
   const action   = formData.get("action") as "clock_in" | "clock_out"
-  const lat      = parseFloat(formData.get("lat") as string)
-  const lng      = parseFloat(formData.get("lng") as string)
+  const rawLat   = parseFloat(formData.get("lat") as string)
+  const rawLng   = parseFloat(formData.get("lng") as string)
+  const hasGps   = formData.get("has_gps") !== "false"
+  const lat      = hasGps && !isNaN(rawLat) ? rawLat : 0
+  const lng      = hasGps && !isNaN(rawLng) ? rawLng : 0
   const photo    = formData.get("photo") as File | null
   const note     = (formData.get("note") as string) || ""
   const locationName = (formData.get("location_name") as string) || ""
@@ -21,9 +24,6 @@ export async function POST(request: Request) {
   // Validate
   if (action !== "clock_in" && action !== "clock_out") {
     return NextResponse.json({ success: false, error: "Invalid action" })
-  }
-  if (isNaN(lat) || isNaN(lng)) {
-    return NextResponse.json({ success: false, error: "lat/lng required" })
   }
   if (!photo) {
     return NextResponse.json({ success: false, error: "กรุณาถ่ายรูปเพื่อยืนยัน" })
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   // Employee data
   const { data: userData } = await supa
     .from("users")
-    .select("employee_id, employee:employees(*, department:departments(name))")
+    .select("employee_id, employee:employees(*, department:departments(name), company:companies(code))")
     .eq("id", user.id)
     .single()
 
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
 
   const emp      = userData.employee as any
   const deptName = emp.department?.name as string | undefined
+  const companyCode = emp.company?.code as string | undefined
   const now      = new Date()
   const today    = todayBKK()
 
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
 
   const lateThreshold: number =
     (schedule as any)?.late_threshold_minutes ??
-    getLateThreshold(deptName)
+    getLateThreshold(deptName, companyCode)
 
   // ── Upload photo to Supabase Storage ────────────────────────────────
   const fileExt = photo.name?.split(".").pop() || "jpg"

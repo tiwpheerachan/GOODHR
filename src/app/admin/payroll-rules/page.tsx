@@ -20,8 +20,9 @@ const COMPANY_COLORS = [
 
 const LATE_GRACE_DEPT = [
   { dept: "คลังสินค้า, Service", grace: 5, note: "อนุโลม 5 นาที — หักเริ่มนาทีที่ 6" },
-  { dept: "Marketing, HR, Accounting, Sale Offline, Brand Shop, Dealer, Support, KAM, Tiktok", grace: 10, note: "อนุโลม 10 นาที — หักเริ่มนาทีที่ 11" },
-  { dept: "Admin Online, PTC ทุกแผนก", grace: 0, note: "ไม่มีขอนุโลม — หักตั้งแต่นาทีที่ 1" },
+  { dept: "Marketing, MC Live Streaming, HR, Accounting, Sale Offline, Brand Shop, Dealer, Support, KAM, Content, Graphic", grace: 10, note: "อนุโลม 10 นาที — หักเริ่มนาทีที่ 11" },
+  { dept: "แอดมินออนไลน์ (Admin Online)", grace: 0, note: "ไม่มีอนุโลม — หักตั้งแต่นาทีที่ 1" },
+  { dept: "PTC ทุกแผนก", grace: 0, note: "ไม่มีอนุโลม — หักตั้งแต่นาทีที่ 1 (ทุกแผนกในบริษัท PTC)" },
 ]
 
 const ANNUAL_LEAVE_LEVELS = [
@@ -328,50 +329,92 @@ export default function PayrollRulesPage() {
           {/* ── 4. SSO + ภาษี ─────────────────────────────────── */}
           <Section title="ประกันสังคม & ภาษีเงินได้" icon={Shield}>
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs font-black text-slate-600 mb-2 flex items-center gap-1.5"><Percent size={11}/> ประกันสังคม</p>
+              {/* SSO */}
+              <div>
+                <p className="text-xs font-black text-slate-600 mb-2 flex items-center gap-1.5"><Percent size={11}/> ประกันสังคม (SSO) — อัปเดต 2567-2568</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <FormulaBox
-                    title="SSO = 5% ของฐานเงินเดือน"
-                    formula="MIN(MAX(เงินเดือน, 1,650), 15,000) × 5%"
-                    example="ฐานสูงสุด ฿15,000 → หักสูงสุด ฿750/เดือน"
+                    title="SSO = 5% ของฐานเงินเดือน (สูงสุด ฿875)"
+                    formula="MIN(MAX(เงินเดือน, 1,650), 17,500) × 5%"
+                    example="ฐานต่ำสุด ฿1,650 (หัก ฿82.50) · ฐานสูงสุด ฿17,500 (หัก ฿875)"
                     color="violet"
                   />
+                  <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-2">
+                    <p className="text-[10px] font-black text-violet-800 uppercase tracking-wide">ตัวอย่าง</p>
+                    <div className="space-y-1.5 font-mono text-xs text-violet-900">
+                      <p>เงินเดือน ฿15,000 → ฿15,000 × 5% = <strong>฿750</strong></p>
+                      <p>เงินเดือน ฿25,000 → MIN(25,000, 17,500) × 5% = <strong>฿875</strong></p>
+                      <p>เงินเดือน ฿352,000 → MIN(352,000, 17,500) × 5% = <strong>฿875</strong></p>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs font-black text-slate-600 mb-2 flex items-center gap-1.5"><Percent size={11}/> ภาษีเงินได้บุคคลธรรมดา</p>
+              </div>
+
+              {/* Tax */}
+              <div>
+                <p className="text-xs font-black text-slate-600 mb-2 flex items-center gap-1.5"><Percent size={11}/> ภาษีเงินได้บุคคลธรรมดา</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* Tax brackets */}
                   <div className="bg-violet-50 border border-violet-200 rounded-xl overflow-hidden">
                     <div className="px-4 py-2 bg-violet-100">
-                      <p className="text-[10px] font-black text-violet-800 uppercase tracking-wide">อัตราภาษีแบบขั้นบันได</p>
+                      <p className="text-[10px] font-black text-violet-800 uppercase tracking-wide">อัตราภาษีแบบขั้นบันได (รายได้สุทธิทั้งปี)</p>
                     </div>
                     <table className="w-full text-xs">
                       <tbody className="divide-y divide-violet-100">
                         {[
-                          { from:"0",        to:"150,000",   rate:"0%"  },
-                          { from:"150,001",  to:"300,000",   rate:"5%"  },
-                          { from:"300,001",  to:"500,000",   rate:"10%" },
-                          { from:"500,001",  to:"750,000",   rate:"15%" },
-                          { from:"750,001",  to:"1,000,000", rate:"20%" },
-                          { from:"1,000,001",to:"2,000,000", rate:"25%" },
-                          { from:"2,000,001",to:"5,000,000", rate:"30%" },
-                          { from:"5,000,001",to:"ขึ้นไป",    rate:"35%" },
+                          { from:"0",        to:"150,000",   rate:"0%",  desc:"ยกเว้น" },
+                          { from:"150,001",  to:"300,000",   rate:"5%",  desc:"฿7,500" },
+                          { from:"300,001",  to:"500,000",   rate:"10%", desc:"฿20,000" },
+                          { from:"500,001",  to:"750,000",   rate:"15%", desc:"฿37,500" },
+                          { from:"750,001",  to:"1,000,000", rate:"20%", desc:"฿50,000" },
+                          { from:"1,000,001",to:"2,000,000", rate:"25%", desc:"฿250,000" },
+                          { from:"2,000,001",to:"5,000,000", rate:"30%", desc:"สูงสุด ฿900,000" },
+                          { from:"5,000,001",to:"ขึ้นไป",    rate:"35%", desc:"" },
                         ].map(b => (
                           <tr key={b.from}>
                             <td className="px-3 py-1.5 text-slate-500">{b.from} – {b.to}</td>
                             <td className="px-3 py-1.5 text-right font-black text-violet-700">{b.rate}</td>
+                            <td className="px-3 py-1.5 text-right text-violet-500 text-[10px]">{b.desc}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Tax calculation steps */}
+                  <div className="space-y-3">
+                    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                      <p className="text-[10px] font-black text-indigo-800 uppercase tracking-wide mb-2">ขั้นตอนคำนวณ (อัตโนมัติ)</p>
+                      <div className="space-y-1.5 text-xs text-indigo-800">
+                        <p className="flex items-start gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center flex-shrink-0 text-[10px] font-black">1</span> รายได้ต่อปี = Gross × 12</p>
+                        <p className="flex items-start gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center flex-shrink-0 text-[10px] font-black">2</span> หักค่าใช้จ่าย = 50% ของรายได้ (สูงสุด ฿100,000)</p>
+                        <p className="flex items-start gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center flex-shrink-0 text-[10px] font-black">3</span> หักค่าลดหย่อนส่วนตัว = ฿60,000</p>
+                        <p className="flex items-start gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center flex-shrink-0 text-[10px] font-black">4</span> หักประกันสังคมทั้งปี = SSO × 12 (สูงสุด ฿10,500)</p>
+                        <p className="flex items-start gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center flex-shrink-0 text-[10px] font-black">5</span> รายได้สุทธิ = ①−②−③−④</p>
+                        <p className="flex items-start gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center flex-shrink-0 text-[10px] font-black">6</span> ภาษีรายเดือน = ภาษีขั้นบันไดจาก ⑤ ÷ 12</p>
+                      </div>
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                      <p className="text-[10px] font-black text-amber-800 uppercase tracking-wide mb-2">หัก % คงที่ (ตั้งค่าเอง)</p>
+                      <div className="text-xs text-amber-800">
+                        <p>กรณีตั้งค่า Withholding Tax % ในหน้าเงินเดือนพนักงาน</p>
+                        <code className="block mt-1.5 font-black">ภาษีรายเดือน = Gross × (% ที่ตั้ง ÷ 100)</code>
+                        <p className="mt-1.5 text-amber-600">ถ้าไม่ตั้งค่า → ใช้ขั้นบันไดอัตโนมัติ</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <FormulaBox
-                title="ภาษีรายเดือน (Withholding Tax)"
-                formula="(ภาษีรวมทั้งปี − ภาษีที่หักไปแล้ว) ÷ เดือนที่เหลือ"
-                example="คำนวณจากรายได้ × 12 หักค่าลดหย่อนส่วนตัว 60,000 − ประกันสังคม"
-                color="violet"
-              />
+
+              {/* Gross & Net summary */}
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                <p className="text-[10px] font-black text-green-800 uppercase tracking-wide mb-2">สูตรรวม: Gross → Net</p>
+                <div className="space-y-1.5 text-xs text-green-800">
+                  <code className="block font-black">Gross = เงินเดือน + เบี้ยตำแหน่ง + ค่าเดินทาง + ค่าอาหาร + ค่าโทรศัพท์ + ค่าที่พัก + OT + โบนัส</code>
+                  <code className="block font-black">รวมหัก = SSO + ภาษี + หักมาสาย + หักออกก่อน + หักขาดงาน + หักเงินกู้</code>
+                  <code className="block font-black text-green-900">Net = Gross − รวมหัก</code>
+                </div>
+              </div>
             </div>
           </Section>
 
@@ -390,8 +433,8 @@ export default function PayrollRulesPage() {
                   c: "bg-green-50 border-green-200 text-green-700"
                 },
                 {
-                  icon: "💳", label: "วันจ่ายเงินเดือน", value: "25 ของเดือนนี้",
-                  note: "เช่น งวด มี.ค. 2569 → จ่าย 25 มี.ค. 2569",
+                  icon: "💳", label: "วันจ่ายเงินเดือน", value: "สิ้นเดือน (31 หรือ 30)",
+                  note: "จ่ายก่อนวันที่ 1 ของเดือนถัดไป เช่น งวด มี.ค. → จ่าย 31 มี.ค. / งวด เม.ย. → จ่าย 30 เม.ย.",
                   c: "bg-amber-50 border-amber-200 text-amber-700"
                 },
               ].map(item => (
@@ -566,10 +609,10 @@ export default function PayrollRulesPage() {
               {/* Example 4: SSO */}
               <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-2">
                 <p className="text-xs font-black text-violet-800 flex items-center gap-1.5"><Shield size={11}/> ตัวอย่าง: ประกันสังคม</p>
-                <p className="text-xs text-violet-700">เงินเดือน ฿25,000 (เกินเพดาน ฿15,000)</p>
+                <p className="text-xs text-violet-700">เงินเดือน ฿25,000 (เกินเพดาน ฿17,500)</p>
                 <div className="space-y-1 font-mono text-xs text-violet-900 bg-violet-100 rounded-lg p-3">
-                  <p>ฐาน SSO = MIN(25,000, 15,000) = ฿15,000</p>
-                  <p>฿15,000 × 5% = <strong>฿750</strong></p>
+                  <p>ฐาน SSO = MIN(25,000, 17,500) = ฿17,500</p>
+                  <p>฿17,500 × 5% = <strong>฿875</strong></p>
                 </div>
               </div>
             </div>

@@ -63,7 +63,7 @@ async function calcAndSave(
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
-      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, effective_from, effective_to")
+      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, effective_from, effective_to")
       .eq("employee_id", employee_id)
       .is("effective_to", null)
       .order("effective_from", { ascending: false })
@@ -210,6 +210,10 @@ async function calcAndSave(
     (Number(sal.allowance_phone)     || 0) +
     (Number(sal.allowance_housing)   || 0)
 
+  // ── ภาษีหัก ณ ที่จ่าย (% ตั้งค่าเอง หรือ auto) ───────────────
+  const taxWithholdingPct: number | null =
+    sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
+
   // ── คำนวณ ─────────────────────────────────────────────────────
   const result = calculatePayrollSummary({
     baseSalary:      Number(sal.base_salary),
@@ -220,6 +224,7 @@ async function calcAndSave(
     lateMinutes:     totalLateMin,
     earlyOutMinutes: totalEarlyMin,
     loanDeduction,
+    taxWithholdingPct,
   })
 
   // ── upsert ────────────────────────────────────────────────────
@@ -303,7 +308,10 @@ async function calcAndSave(
     base_salary:        Number(sal.base_salary),
     gross:              result.gross,
     sso:                result.sso,
+    sso_max:            875,
     tax_monthly:        result.tax,
+    tax_method:         result.taxMethod,
+    tax_withholding_pct: taxWithholdingPct,
     late_count:         lateCount,
     late_total_min:     totalLateMin,
     deduct_late:        result.deductLate,

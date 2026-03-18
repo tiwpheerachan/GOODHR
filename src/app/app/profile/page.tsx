@@ -45,6 +45,7 @@ export default function ProfilePage() {
   const [uploading,    setUploading]    = useState(false)
   const [avatarUrl,    setAvatarUrl]    = useState<string | null>(emp?.avatar_url ?? null)
   const [shift,        setShift]        = useState<any>(null)
+  const [supervisor,   setSupervisor]   = useState<any>(null)
   const [resignStatus, setResignStatus] = useState<string | null>(null)
   const { balances } = useLeaveBalance(empId)
   const supabase = useRef(createClient()).current
@@ -69,6 +70,17 @@ export default function ProfilePage() {
       .order("effective_from", { ascending: false })
       .limit(1).maybeSingle()
       .then(({ data }) => setShift((data as any)?.shift ?? null))
+  }, [empId]) // eslint-disable-line
+
+  // โหลดข้อมูลหัวหน้า
+  useEffect(() => {
+    if (!empId) return
+    supabase.from("employee_manager_history")
+      .select("manager:employees!manager_id(id,first_name_th,last_name_th,nickname,employee_code,position:positions(name),avatar_url)")
+      .eq("employee_id", empId)
+      .is("effective_to", null)
+      .limit(1).maybeSingle()
+      .then(({ data }) => setSupervisor((data as any)?.manager ?? null))
   }, [empId]) // eslint-disable-line
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -133,6 +145,7 @@ export default function ProfilePage() {
     { icon: Cake,      label: "วันเกิด",         value: safeFmt(emp.birth_date) },
     { icon: User,      label: "ชื่อเล่น",        value: emp.nickname },
     { icon: Clock,     label: "กะงาน",           value: shift ? `${shift.name} · ${shift.work_start?.slice(0,5)}–${shift.work_end?.slice(0,5)}` : null },
+    { icon: ShieldCheck,label: "หัวหน้างาน",     value: supervisor ? `${supervisor.first_name_th} ${supervisor.last_name_th}${supervisor.nickname ? ` (${supervisor.nickname})` : ""} · ${supervisor.position?.name || ""}` : null },
   ].filter(i => i.value)
 
   return (

@@ -13,7 +13,7 @@ import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
-const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า"]
+const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท"]
 const inp = "input-field"
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ export default function EmployeeDetailPage() {
     if (!sf.base_salary) return toast.error("กรุณากรอกเงินเดือน")
     setLoading(true)
     if (salary?.id) await supabase.from("salary_structures").update({ effective_to:sf.effective_from }).eq("id",salary.id)
-    const { error } = await supabase.from("salary_structures").insert({ employee_id:id, base_salary:+sf.base_salary, allowance_position:+(sf.allowance_position||0), allowance_transport:+(sf.allowance_transport||0), allowance_food:+(sf.allowance_food||0), allowance_phone:+(sf.allowance_phone||0), allowance_housing:+(sf.allowance_housing||0), ot_rate_normal:+(sf.ot_rate_normal||1.5), ot_rate_holiday:+(sf.ot_rate_holiday||3), effective_from:sf.effective_from||format(new Date(),"yyyy-MM-dd"), change_reason:sf.change_reason, created_by:user?.employee_id })
+    const { error } = await supabase.from("salary_structures").insert({ employee_id:id, base_salary:+sf.base_salary, allowance_position:+(sf.allowance_position||0), allowance_transport:+(sf.allowance_transport||0), allowance_food:+(sf.allowance_food||0), allowance_phone:+(sf.allowance_phone||0), allowance_housing:+(sf.allowance_housing||0), ot_rate_normal:+(sf.ot_rate_normal||1.5), ot_rate_holiday:+(sf.ot_rate_holiday||3), tax_withholding_pct: sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? +sf.tax_withholding_pct : null, effective_from:sf.effective_from||format(new Date(),"yyyy-MM-dd"), change_reason:sf.change_reason, created_by:user?.employee_id })
     if (error) toast.error("เกิดข้อผิดพลาด"); else toast.success("บันทึกเงินเดือนสำเร็จ")
     setLoading(false)
   }
@@ -181,6 +181,38 @@ export default function EmployeeDetailPage() {
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">วันที่มีผล*</label><input type="date" value={sf.effective_from||""} onChange={e => setSf((f: any) => ({ ...f, effective_from:e.target.value }))} className={inp}/></div>
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">เหตุผล</label><input value={sf.change_reason||""} onChange={e => setSf((f: any) => ({ ...f, change_reason:e.target.value }))} className={inp} placeholder="เช่น ปรับเงินเดือนประจำปี"/></div>
           </div>
+
+          {/* ── ภาษีหัก ณ ที่จ่าย ── */}
+          <div className="mt-6 p-4 rounded-2xl border-2 border-indigo-100 bg-indigo-50/50">
+            <h4 className="font-bold text-slate-800 text-sm mb-1">ภาษีหัก ณ ที่จ่าย</h4>
+            <p className="text-xs text-slate-400 mb-3">ตั้งค่า % ที่จะหักจาก Gross Income ทุกเดือน — เว้นว่างเพื่อคำนวณอัตโนมัติตามขั้นบันไดภาษี</p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 max-w-[200px]">
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="35"
+                    value={sf.tax_withholding_pct ?? ""}
+                    onChange={e => setSf((f: any) => ({ ...f, tax_withholding_pct: e.target.value === "" ? null : e.target.value }))}
+                    className={inp + " pr-8"}
+                    placeholder="อัตโนมัติ"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 font-bold">%</span>
+                </div>
+              </div>
+              <div className="text-xs text-slate-500 space-y-0.5">
+                {sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? (
+                  <p className="text-indigo-600 font-bold">หักคงที่ {sf.tax_withholding_pct}% ของรายได้รวม</p>
+                ) : (
+                  <p className="text-emerald-600 font-bold">คำนวณอัตโนมัติตามขั้นบันไดภาษี</p>
+                )}
+                <p className="text-slate-400">ประกันสังคม: 5% สูงสุด 875 บาท/เดือน</p>
+              </div>
+            </div>
+          </div>
+
           <button onClick={saveSalary} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึกเงินเดือน</button>
         </>}
 
@@ -211,6 +243,9 @@ export default function EmployeeDetailPage() {
             {mgrHistory.length === 0 && <p className="text-center text-slate-400 text-sm py-4">ไม่มีประวัติ</p>}
           </div>
         </>}
+
+        {/* ── Tab 7: บทบาท (Role Management) ── */}
+        {tab === 7 && <RoleManagementTab employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`}/>}
 
       </div>
     </div>
@@ -961,6 +996,151 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
           {allBranches.length === 0 && <p className="text-center text-slate-300 py-6 text-sm">ยังไม่มีสาขา</p>}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── RoleManagementTab ───────────────────────────────────────────────────────
+function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
+  const [currentRole, setCurrentRole] = useState<string | null>(null)
+  const [selectedRole, setSelectedRole] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [hasAccount, setHasAccount] = useState(false)
+
+  const ROLES = [
+    { value: "employee",    label: "พนักงาน",      desc: "เข้าถึงได้เฉพาะหน้าพนักงาน (เช็คอิน, ดูตาราง, ลา)",                        color: "bg-slate-100 text-slate-700 border-slate-200",    icon: "👤" },
+    { value: "manager",     label: "หัวหน้าทีม",    desc: "อนุมัติคำขอ, จัดกะ, ดูข้อมูลลูกทีม + สิทธิ์พนักงาน",                        color: "bg-violet-100 text-violet-700 border-violet-200", icon: "👥" },
+    { value: "hr_admin",    label: "HR Admin",      desc: "จัดการพนักงาน, เงินเดือน, รายงาน, ตั้งค่าทั้งหมดในบริษัท",                   color: "bg-blue-100 text-blue-700 border-blue-200",       icon: "🛡️" },
+    { value: "super_admin", label: "Super Admin",   desc: "สิทธิ์สูงสุด — จัดการทุกบริษัท, ดูข้อมูลข้ามบริษัท",                         color: "bg-amber-100 text-amber-700 border-amber-200",    icon: "⚡" },
+  ]
+
+  useEffect(() => {
+    fetch(`/api/users/role?employee_id=${employeeId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.user) {
+          setCurrentRole(data.user.role)
+          setSelectedRole(data.user.role)
+          setHasAccount(true)
+        } else {
+          setHasAccount(false)
+        }
+        setLoading(false)
+      })
+  }, [employeeId])
+
+  const handleSave = async () => {
+    if (!selectedRole || selectedRole === currentRole) return
+    setSaving(true)
+    const res = await fetch("/api/users/role", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employee_id: employeeId, role: selectedRole }),
+    })
+    const data = await res.json()
+    if (data.success) {
+      toast.success(data.message)
+      setCurrentRole(selectedRole)
+    } else {
+      toast.error(data.error)
+    }
+    setSaving(false)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="h-6 w-6 animate-spin rounded-full border-3 border-indigo-200 border-t-indigo-600" />
+      </div>
+    )
+  }
+
+  if (!hasAccount) {
+    return (
+      <div className="text-center py-12">
+        <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-4">
+          <AlertTriangle size={28} className="text-amber-400" />
+        </div>
+        <p className="font-bold text-slate-700">พนักงานนี้ยังไม่มี Account</p>
+        <p className="text-sm text-slate-400 mt-1">ต้องสร้าง Account ให้พนักงานก่อนจึงจะกำหนดบทบาทได้</p>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h3 className="font-bold text-slate-800">บทบาทและสิทธิ์การเข้าถึง</h3>
+          <p className="text-xs text-slate-400 mt-0.5">กำหนดระดับการเข้าถึงระบบของ {employeeName}</p>
+        </div>
+        {currentRole && (
+          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border ${ROLES.find(r => r.value === currentRole)?.color ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+            {ROLES.find(r => r.value === currentRole)?.icon} ปัจจุบัน: {ROLES.find(r => r.value === currentRole)?.label ?? currentRole}
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-3 mb-6">
+        {ROLES.map(role => {
+          const isSelected = selectedRole === role.value
+          const isCurrent = currentRole === role.value
+          return (
+            <button
+              key={role.value}
+              onClick={() => setSelectedRole(role.value)}
+              className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
+                isSelected
+                  ? "border-indigo-400 bg-indigo-50 shadow-md ring-2 ring-indigo-200"
+                  : "border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 ${isSelected ? "bg-indigo-100" : "bg-slate-50"}`}>
+                  {role.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className={`font-bold text-sm ${isSelected ? "text-indigo-800" : "text-slate-700"}`}>{role.label}</p>
+                    {isCurrent && (
+                      <span className="text-[9px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full">ปัจจุบัน</span>
+                    )}
+                  </div>
+                  <p className={`text-xs mt-0.5 ${isSelected ? "text-indigo-600" : "text-slate-400"}`}>{role.desc}</p>
+                </div>
+                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-1 transition-colors ${
+                  isSelected ? "border-indigo-500 bg-indigo-500" : "border-slate-200"
+                }`}>
+                  {isSelected && <Check size={12} className="text-white" />}
+                </div>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {selectedRole !== currentRole && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-indigo-700 transition-colors disabled:opacity-50"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            บันทึกบทบาท
+          </button>
+          <button
+            onClick={() => setSelectedRole(currentRole ?? "")}
+            className="text-sm text-slate-400 hover:text-slate-600"
+          >
+            ยกเลิก
+          </button>
+          <p className="text-xs text-amber-600 flex items-center gap-1">
+            <AlertTriangle size={12} /> เปลี่ยนจาก {ROLES.find(r => r.value === currentRole)?.label} → {ROLES.find(r => r.value === selectedRole)?.label}
+          </p>
+        </div>
+      )}
     </div>
   )
 }
