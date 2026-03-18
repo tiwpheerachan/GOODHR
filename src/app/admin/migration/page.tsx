@@ -226,18 +226,7 @@ export default function MigrationPage() {
         </button>
       </div>
 
-      <button
-        onClick={() => {}}
-        disabled={true}
-        className="hidden"
-        className={`w-full py-4 rounded-xl text-lg font-black transition-colors ${
-          running
-            ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-            : "bg-indigo-600 text-white hover:bg-indigo-700"
-        }`}
-      >
-        {running ? `กำลังทำงาน... ${phase}` : "เริ่มนำเข้าข้อมูล"}
-      </button>
+      {/* hidden placeholder removed */}
 
       {logs.length > 0 && (
         <div className="bg-slate-900 rounded-xl p-4 max-h-[60vh] overflow-y-auto font-mono text-xs">
