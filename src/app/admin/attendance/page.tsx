@@ -226,9 +226,9 @@ export default function AdminAttendancePage() {
         addCo2(supabase.from("leave_requests").select("employee_id,total_days").eq("status","approved").gte("start_date",sumFrom).lte("end_date",sumTo)),
       ])
       const attByEmp=new Map<string,any[]>()
-      ;(atts??[]).forEach(a=>{if(!attByEmp.has(a.employee_id))attByEmp.set(a.employee_id,[]);attByEmp.get(a.employee_id)!.push(a)})
+      ;(atts??[]).forEach((a:any)=>{if(!attByEmp.has(a.employee_id))attByEmp.set(a.employee_id,[]);attByEmp.get(a.employee_id)!.push(a)})
       const lvByEmp=new Map<string,number>()
-      ;(leaves??[]).forEach(l=>lvByEmp.set(l.employee_id,(lvByEmp.get(l.employee_id)||0)+l.total_days))
+      ;(leaves??[]).forEach((l:any)=>lvByEmp.set(l.employee_id,(lvByEmp.get(l.employee_id)||0)+l.total_days))
 
       const detail:SummaryEmpRow[]=(emps??[]).map((e:any)=>{
         const ea=attByEmp.get(e.id)??[]
