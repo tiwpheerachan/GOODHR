@@ -257,9 +257,9 @@ export default function AdminAttendancePage() {
 
       setSummaryRows(Array.from(gm.values()).sort((a,b)=>b.present-a.present))
       setSummaryEmps(detail)
-      const allPres=(atts??[]).filter(a=>["present","wfh","late"].includes(a.status)).length
-      const allLate=(atts??[]).filter(a=>a.status==="late").length
-      const allAbs=(atts??[]).filter(a=>a.status==="absent").length
+      const allPres=(atts??[]).filter((a:any)=>["present","wfh","late"].includes(a.status)).length
+      const allLate=(atts??[]).filter((a:any)=>a.status==="late").length
+      const allAbs=(atts??[]).filter((a:any)=>a.status==="absent").length
       const allLv=Array.from(lvByEmp.values()).reduce((s,v)=>s+v,0)
       setSumKpi({totalEmp:emps?.length??0,presentDays:allPres,lateDays:allLate,absentDays:allAbs,leaveDays:allLv})
     }catch(e){console.error(e)}
