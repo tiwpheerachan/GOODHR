@@ -90,38 +90,69 @@ export default function OrgMapPage() {
   // Then within each department, find managers and their subordinates
 
   const buildManagerGroups = (members: Emp[]) => {
-    // Find who is a manager (someone else's supervisor_id points to them)
+    // Use ALL employees (not just dept members) to find who is a manager
     const managerIds = new Set<string>()
+
+    // Anyone whose ID is referenced as supervisor_id by a dept member
     members.forEach(m => {
-      if (m.supervisor_id && members.some(e => e.id === m.supervisor_id)) {
-        managerIds.add(m.supervisor_id)
+      if (m.supervisor_id) {
+        // Check if supervisor is in THIS department
+        const supInDept = members.find(e => e.id === m.supervisor_id)
+        if (supInDept) managerIds.add(m.supervisor_id)
+      }
+    })
+
+    // Also: anyone in this dept who HAS subordinates (even cross-dept)
+    members.forEach(m => {
+      if (employees.some(e => e.supervisor_id === m.id)) {
+        managerIds.add(m.id)
       }
     })
 
     // Also include people with manager/lead/หัวหน้า in position
     members.forEach(m => {
       const pos = (m.position?.name || "").toLowerCase()
-      if (pos.includes("manager") || pos.includes("lead") || pos.includes("หัวหน้า") || pos.includes("head") || pos.includes("director") || pos.includes("supervisor")) {
+      if (pos.includes("manager") || pos.includes("lead") || pos.includes("หัวหน้า") || pos.includes("head") || pos.includes("director") || pos.includes("supervisor") || pos.includes("team lead")) {
         managerIds.add(m.id)
       }
     })
 
-    // Build groups: each manager + their subordinates
+    // Build groups
     const groups: { manager: Emp; subordinates: Emp[] }[] = []
     const assigned: Record<string, boolean> = {}
 
     Array.from(managerIds).forEach(mgId => {
       const mg = members.find(m => m.id === mgId)
       if (!mg) return
+      // Get subordinates: people in THIS dept whose supervisor_id = mgId
       const subs = members.filter(m => m.supervisor_id === mgId && m.id !== mgId)
       groups.push({ manager: mg, subordinates: subs })
       assigned[mgId] = true
       subs.forEach(s => { assigned[s.id] = true })
     })
 
-    // Unassigned members (not a manager and not under any manager in this dept)
-    const unassigned = members.filter(m => !assigned[m.id])
+    // People who have supervisor_id pointing to someone OUTSIDE this dept → show under "หัวหน้าอื่นแผนก"
+    const crossDeptSubs = members.filter(m =>
+      !assigned[m.id] && m.supervisor_id && !members.some(e => e.id === m.supervisor_id)
+    )
+    if (crossDeptSubs.length > 0) {
+      // Group by their actual supervisor
+      const crossGroups: Record<string, Emp[]> = {}
+      crossDeptSubs.forEach(m => {
+        const supId = m.supervisor_id!
+        if (!crossGroups[supId]) crossGroups[supId] = []
+        crossGroups[supId].push(m)
+      })
+      for (const [supId, subs] of Object.entries(crossGroups)) {
+        const sup = employees.find(e => e.id === supId)
+        if (sup) {
+          groups.push({ manager: sup, subordinates: subs })
+          subs.forEach(s => { assigned[s.id] = true })
+        }
+      }
+    }
 
+    const unassigned = members.filter(m => !assigned[m.id])
     return { groups, unassigned }
   }
 
@@ -392,12 +423,33 @@ export default function OrgMapPage() {
               </p>
               <select
                 value={e.position_id || ""}
-                onChange={ev => changePosition(e.id, ev.target.value)}
+                onChange={async ev => {
+                  if (ev.target.value === "__new__") {
+                    const name = prompt("ชื่อตำแหน่งใหม่:")
+                    if (!name) { ev.target.value = e.position_id || ""; return }
+                    setSaving(true)
+                    const res = await fetch("/api/org", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "create_position", name, company_id: e.company_id }),
+                    })
+                    const data = await res.json()
+                    setSaving(false)
+                    if (data.position_id) {
+                      await changePosition(e.id, data.position_id)
+                    } else {
+                      toast.error(data.error || "สร้างตำแหน่งไม่สำเร็จ")
+                    }
+                  } else {
+                    changePosition(e.id, ev.target.value)
+                  }
+                }}
                 disabled={saving}
                 className="w-full bg-violet-50 border border-violet-200 rounded-lg px-2 py-1.5 text-[10px] font-bold text-violet-800 outline-none focus:border-violet-400"
               >
                 <option value="">— ไม่ระบุ —</option>
                 {allPositions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                <option value="__new__">+ เพิ่มตำแหน่งใหม่...</option>
               </select>
             </div>
           </div>

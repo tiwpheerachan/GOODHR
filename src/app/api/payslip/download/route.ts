@@ -1,0 +1,125 @@
+import { NextRequest, NextResponse } from "next/server"
+import { createServiceClient, createClient } from "@/lib/supabase/server"
+
+export async function GET(req: NextRequest) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const supa = createServiceClient()
+  const recordId = req.nextUrl.searchParams.get("record_id")
+  const employeeId = req.nextUrl.searchParams.get("employee_id")
+  const periodId = req.nextUrl.searchParams.get("period_id")
+
+  if (!recordId && !(employeeId && periodId)) {
+    return NextResponse.json({ error: "record_id or (employee_id + period_id) required" }, { status: 400 })
+  }
+
+  // Get payroll record
+  let query = supa.from("payroll_records")
+    .select(`*, employee:employees!payroll_records_employee_id_fkey(
+      id, employee_code, first_name_th, last_name_th, nickname,
+      department:departments(name), position:positions(name),
+      company:companies(id, code, name_th)),
+      period:payroll_periods(year, month)`)
+
+  if (recordId) query = query.eq("id", recordId)
+  else query = query.eq("employee_id", employeeId!).eq("payroll_period_id", periodId!)
+
+  const { data: record, error } = await query.single()
+  if (error || !record) return NextResponse.json({ error: "Record not found" }, { status: 404 })
+
+  // Permission check: user can only download own payslip
+  const { data: userData } = await supa.from("users").select("role, employee_id").eq("id", user.id).single()
+  const isAdmin = userData?.role === "super_admin" || userData?.role === "hr_admin"
+  if (!isAdmin && userData?.employee_id !== record.employee_id) {
+    return NextResponse.json({ error: "No permission" }, { status: 403 })
+  }
+
+  // Generate PDF as JSON data (client will render)
+  const emp = record.employee as any
+  const period = record.period as any
+  const ie = record.income_extras || {}
+  const de = record.deduction_extras || {}
+
+  const thMonths = ["","มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"]
+  const monthName = thMonths[period?.month || record.month] || ""
+  const yearBE = (period?.year || record.year) + 543
+
+  // Build earnings/deductions arrays
+  const earnings: { label: string; amount: number; number?: string }[] = []
+  const n = (v: any) => Number(v) || 0
+
+  if (n(record.base_salary)) earnings.push({ label: "อัตรา\nเงินเดือน", amount: n(record.base_salary) })
+  if (n(record.bonus)) earnings.push({ label: "โบนัส", amount: n(record.bonus) })
+  if (n(record.ot_weekday_minutes)) {
+    const rate = n(record.base_salary) / 30 / 8
+    earnings.push({ label: "โอทีล่วงเวลา (x1.5)", amount: Math.round(rate * n(record.ot_weekday_minutes) / 60 * 1.5), number: `${Math.floor(n(record.ot_weekday_minutes)/60)}:${String(n(record.ot_weekday_minutes)%60).padStart(2,"0")}` })
+  }
+  if (n(record.ot_holiday_reg_minutes)) {
+    const rate = n(record.base_salary) / 30 / 8
+    earnings.push({ label: "โอทีวันหยุด (x1.0)", amount: Math.round(rate * n(record.ot_holiday_reg_minutes) / 60), number: `${Math.floor(n(record.ot_holiday_reg_minutes)/60)}:${String(n(record.ot_holiday_reg_minutes)%60).padStart(2,"0")}` })
+  }
+  if (n(record.allowance_position)) earnings.push({ label: "ค่าตำแหน่ง", amount: n(record.allowance_position) })
+  if (n(record.commission)) earnings.push({ label: "Commission", amount: n(record.commission) })
+  if (n(ie.kpi)) earnings.push({ label: "KPI", amount: n(ie.kpi) })
+  if (n(ie.incentive)) earnings.push({ label: "Incentive", amount: n(ie.incentive) })
+  if (n(ie.performance_bonus)) earnings.push({ label: "Performance Bonus", amount: n(ie.performance_bonus) })
+  if (n(ie.service_fee)) earnings.push({ label: "ค่าบริการ", amount: n(ie.service_fee) })
+  if (n(record.allowance_transport)) earnings.push({ label: "ค่าเดินทาง", amount: n(record.allowance_transport) })
+  if (n(ie.depreciation)) earnings.push({ label: "ค่าเสื่อมสภาพ", amount: n(ie.depreciation) })
+  if (n(ie.expressway)) earnings.push({ label: "ค่าทางด่วน", amount: n(ie.expressway) })
+  if (n(ie.fuel)) earnings.push({ label: "ค่าน้ำมัน", amount: n(ie.fuel) })
+  if (n(ie.campaign)) earnings.push({ label: "แคมเปญ", amount: n(ie.campaign) })
+  if (n(ie.per_diem)) earnings.push({ label: "เบี้ยเลี้ยง", amount: n(ie.per_diem) })
+  if (n(ie.diligence_bonus)) earnings.push({ label: "เบี้ยขยัน", amount: n(ie.diligence_bonus) })
+  if (n(ie.referral_bonus)) earnings.push({ label: "เพื่อนแนะนำเพื่อน", amount: n(ie.referral_bonus) })
+  if (n(record.other_income)) earnings.push({ label: "รายได้อื่นๆ", amount: n(record.other_income) })
+
+  const deductions: { label: string; amount: number }[] = []
+  if (n(record.deduct_absent)) deductions.push({ label: "หักขาดงาน", amount: n(record.deduct_absent) })
+  if (n(record.deduct_late)) deductions.push({ label: "หักมาสาย", amount: n(record.deduct_late) })
+  if (n(de.card_lost)) deductions.push({ label: "บัตรจอดรถ ICS", amount: n(de.card_lost) })
+  if (n(de.uniform)) deductions.push({ label: "ค่าซื้อเสื้อพนักงาน", amount: n(de.uniform) })
+  if (n(de.parking)) deductions.push({ label: "ค่าบัตรจอดรถ", amount: n(de.parking) })
+  if (n(de.employee_products)) deductions.push({ label: "สินค้าพนักงาน", amount: n(de.employee_products) })
+  if (n(de.legal_enforcement)) deductions.push({ label: "กรมบังคับคดี", amount: n(de.legal_enforcement) })
+  if (n(de.student_loan)) deductions.push({ label: "กยศ.", amount: n(de.student_loan) })
+  if (n(de.suspension)) deductions.push({ label: "พักงาน", amount: n(de.suspension) })
+  if (n(record.deduct_loan)) deductions.push({ label: "หักเงินกู้", amount: n(record.deduct_loan) })
+  if (n(record.social_security_amount)) deductions.push({ label: "ประกันสังคม", amount: n(record.social_security_amount) })
+  if (n(record.monthly_tax_withheld)) deductions.push({ label: "ภาษี", amount: n(record.monthly_tax_withheld) })
+  if (n(record.deduct_other)) deductions.push({ label: "หักอื่นๆ", amount: n(record.deduct_other) })
+
+  const payslipData = {
+    company: {
+      name: emp?.company?.name_th || "SHD : บริษัท เอสเอชดี เทคโนโลยี จำกัด",
+      code: emp?.company?.code || "SHD",
+      address: "ที่อยู่ : อาคาร ICS ห้องเลขที่ 703-704 ชั้นที่ 7 เลขที่ 168 ถนนเจริญนคร แขวงคลองต้นไทร เขตคลองสาน กรุงเทพมหานคร 10600",
+      phone: "เบอร์โทร : 02-1151262 แฟกซ์ : -",
+      logo: "/logo-shd.png",
+    },
+    employee: {
+      code: emp?.employee_code || "",
+      name: `${emp?.first_name_th || ""} ${emp?.last_name_th || ""}`.trim(),
+      department: emp?.department?.name || "",
+      position: emp?.position?.name || "",
+    },
+    period: `ประจำเดือน : ${monthName} ${yearBE}`,
+    payDate: `${new Date(record.year, record.month, 0).getDate()}/${String(record.month).padStart(2,"0")}/${yearBE}`,
+    earnings,
+    deductions,
+    totalEarnings: n(record.gross_income),
+    totalDeductions: n(record.total_deductions),
+    netPay: n(record.net_salary),
+    ytd: {
+      income: n(record.gross_income),
+      tax: n(record.monthly_tax_withheld),
+      providentFund: 0,
+      socialSecurity: n(record.social_security_amount),
+      otherDeductions: n(record.total_deductions) - n(record.social_security_amount) - n(record.monthly_tax_withheld),
+    },
+  }
+
+  return NextResponse.json(payslipData)
+}

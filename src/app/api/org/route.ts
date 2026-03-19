@@ -166,5 +166,22 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true })
   }
 
+  // ── Create new position ──
+  if (action === "create_position") {
+    const { name, company_id } = body
+    if (!name) return NextResponse.json({ error: "Missing position name" }, { status: 400 })
+
+    // Check if already exists
+    const { data: existing } = await supa.from("positions")
+      .select("id").eq("name", name).eq("company_id", company_id).maybeSingle()
+    if (existing) return NextResponse.json({ position_id: existing.id, message: "Already exists" })
+
+    const code = name.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 20) + "_" + Date.now().toString(36).slice(-4)
+    const { data: created, error } = await supa.from("positions")
+      .insert({ name, code, company_id }).select("id").single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ position_id: created.id, success: true })
+  }
+
   return NextResponse.json({ error: "Unknown action" }, { status: 400 })
 }

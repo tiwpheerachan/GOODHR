@@ -268,6 +268,19 @@ export default function ProfilePage() {
             </div>
           </Link>
 
+          {/* ── Payslip PDF ──────────────────────────────────────── */}
+          <Link href="/app/payslip"
+            className="group flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 transition-all active:scale-[0.98]">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white">
+              <WalletCards size={18}/>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-emerald-800">สลิปเงินเดือน PDF</p>
+              <p className="text-[11px] text-emerald-600">ดาวน์โหลดสลิปเงินเดือนเป็น PDF</p>
+            </div>
+            <ChevronRight size={16} className="text-emerald-400"/>
+          </Link>
+
           {/* ── Info card ───────────────────────────────────────── */}
           <div className="overflow-hidden rounded-[28px] border border-white/90 bg-white/92 shadow-[0_18px_42px_rgba(15,23,42,0.07)] backdrop-blur-md">
             <div className="border-b border-sky-100/80 bg-gradient-to-r from-sky-50/90 via-cyan-50/80 to-emerald-50/90 px-5 py-3.5">

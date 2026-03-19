@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { useLeaveBalance } from "@/lib/hooks/useLeave"
 import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
+import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import {
@@ -17,7 +18,7 @@ type ReqKind = "leave" | "adjustment" | "overtime"
 type AnyReq = {
   id: string; kind: ReqKind; title: string; subtitle: string
   dateLabel: string; reason?: string; status: string
-  created_at: string; can_cancel: boolean
+  created_at: string; can_cancel: boolean; can_request_cancel?: boolean; is_cancel_requested?: boolean
 }
 
 function safeFmt(ts: string | null | undefined, fmt: string): string {
@@ -27,10 +28,11 @@ function safeFmt(ts: string | null | undefined, fmt: string): string {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
-    pending:   { label: "รออนุมัติ",   color: "#92400e", bg: "#fef9c3", icon: <Clock size={10} /> },
-    approved:  { label: "อนุมัติแล้ว", color: "#065f46", bg: "#d1fae5", icon: <CheckCircle2 size={10} /> },
-    rejected:  { label: "ปฏิเสธ",      color: "#991b1b", bg: "#fee2e2", icon: <XCircle size={10} /> },
-    cancelled: { label: "ยกเลิกแล้ว",  color: "#64748b", bg: "#f1f5f9", icon: <X size={10} /> },
+    pending:          { label: "รออนุมัติ",      color: "#92400e", bg: "#fef9c3", icon: <Clock size={10} /> },
+    approved:         { label: "อนุมัติแล้ว",    color: "#065f46", bg: "#d1fae5", icon: <CheckCircle2 size={10} /> },
+    rejected:         { label: "ปฏิเสธ",         color: "#991b1b", bg: "#fee2e2", icon: <XCircle size={10} /> },
+    cancelled:        { label: "ยกเลิกแล้ว",     color: "#64748b", bg: "#f1f5f9", icon: <X size={10} /> },
+    cancel_requested: { label: "ขอยกเลิก (รอ HR)", color: "#d97706", bg: "#fff7ed", icon: <Clock size={10} /> },
   }
   const c = map[status] ?? map.pending
   return (
@@ -69,8 +71,15 @@ function CancelModal({ item, onConfirm, onClose, loading }: {
               <AlertCircle size={18} className="text-red-500" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-800">ยืนยันการยกเลิก</h3>
+              <h3 className="font-bold text-slate-800">
+                {item.status === "approved" ? "ขอยกเลิกคำขอที่อนุมัติแล้ว" : "ยืนยันการยกเลิก"}
+              </h3>
               <p className="text-sm text-slate-500 mt-0.5">คำขอ <b>{item.title}</b> · {item.dateLabel}</p>
+              {item.status === "approved" && (
+                <p className="text-xs text-amber-600 mt-1 bg-amber-50 rounded-lg px-2 py-1">
+                  คำขอนี้อนุมัติแล้ว — จะส่งคำขอยกเลิกไปให้ HR พิจารณา
+                </p>
+              )}
             </div>
           </div>
           <div className="flex gap-2">
@@ -79,9 +88,13 @@ function CancelModal({ item, onConfirm, onClose, loading }: {
               ไม่ยกเลิก
             </button>
             <button onClick={onConfirm} disabled={loading}
-              className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-all">
+              className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-all ${
+                item.status === "approved"
+                  ? "bg-amber-500 hover:bg-amber-600 text-white"
+                  : "bg-red-500 hover:bg-red-600 text-white"
+              }`}>
               {loading ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
-              ยกเลิกคำขอ
+              {item.status === "approved" ? "ส่งคำขอยกเลิก" : "ยกเลิกคำขอ"}
             </button>
           </div>
         </div>
@@ -114,14 +127,14 @@ export default function LeavePage() {
     try {
       const [lv, adj, ot] = await Promise.all([
         supabase.from("leave_requests")
-          .select("id,status,start_date,end_date,total_days,reason,created_at,leave_type:leave_types(name,color_hex)")
+          .select("id,status,start_date,end_date,total_days,reason,review_note,created_at,leave_type:leave_types(name,color_hex)")
           .eq("employee_id", empId).is("deleted_at", null)
           .order("created_at", { ascending: false }),
         supabase.from("time_adjustment_requests")
-          .select("id,status,work_date,requested_clock_in,requested_clock_out,reason,created_at")
+          .select("id,status,work_date,requested_clock_in,requested_clock_out,reason,review_note,created_at")
           .eq("employee_id", empId).order("created_at", { ascending: false }),
         supabase.from("overtime_requests")
-          .select("id,status,work_date,ot_start,ot_end,reason,created_at")
+          .select("id,status,work_date,ot_start,ot_end,reason,review_note,created_at")
           .eq("employee_id", empId).order("created_at", { ascending: false }),
       ])
 
@@ -138,7 +151,10 @@ export default function LeavePage() {
           out.push({ id: r.id, kind: "leave", title: (r as any).leave_type?.name ?? "ใบลา",
             subtitle: `${r.total_days} วัน`, dateLabel: s + e,
             reason: r.reason ?? undefined, status: r.status,
-            created_at: r.created_at, can_cancel: r.status === "pending" })
+            created_at: r.created_at,
+            can_cancel: r.status === "pending",
+            can_request_cancel: r.status === "approved" && !((r as any).review_note || "").includes("CANCEL_REQ"),
+            is_cancel_requested: r.status === "approved" && ((r as any).review_note || "").includes("CANCEL_REQ") })
         } catch { /* skip malformed */ }
       }
       for (const r of (adj.data ?? [])) {
@@ -147,7 +163,10 @@ export default function LeavePage() {
             subtitle: `เข้า ${safeFmt(r.requested_clock_in,"HH:mm")} · ออก ${safeFmt(r.requested_clock_out,"HH:mm")}`,
             dateLabel: safeFmt(r.work_date + "T00:00:00", "d MMM yy"),
             reason: r.reason ?? undefined, status: r.status,
-            created_at: r.created_at, can_cancel: r.status === "pending" })
+            created_at: r.created_at,
+            can_cancel: r.status === "pending",
+            can_request_cancel: r.status === "approved" && !((r as any).review_note || "").includes("CANCEL_REQ"),
+            is_cancel_requested: r.status === "approved" && ((r as any).review_note || "").includes("CANCEL_REQ") })
         } catch { /* skip */ }
       }
       for (const r of (ot.data ?? [])) {
@@ -156,7 +175,10 @@ export default function LeavePage() {
             subtitle: `${safeFmt(r.ot_start,"HH:mm")} – ${safeFmt(r.ot_end,"HH:mm")}`,
             dateLabel: safeFmt(r.work_date + "T00:00:00", "d MMM yy"),
             reason: r.reason ?? undefined, status: r.status,
-            created_at: r.created_at, can_cancel: r.status === "pending" })
+            created_at: r.created_at,
+            can_cancel: r.status === "pending",
+            can_request_cancel: r.status === "approved" && !((r as any).review_note || "").includes("CANCEL_REQ"),
+            is_cancel_requested: r.status === "approved" && ((r as any).review_note || "").includes("CANCEL_REQ") })
         } catch { /* skip */ }
       }
 
@@ -174,12 +196,36 @@ export default function LeavePage() {
   const doCancel = async () => {
     if (!cancelItem) return
     setCancelling(true)
-    const tbl = { leave: "leave_requests", adjustment: "time_adjustment_requests", overtime: "overtime_requests" }
-    const { error } = await supabase.from(tbl[cancelItem.kind]).update({ status: "cancelled" }).eq("id", cancelItem.id)
-    setCancelling(false)
-    if (error) { setErr(error.message); return }
-    setCancelItem(null)
-    setReqs(prev => prev.map(r => r.id === cancelItem.id ? { ...r, status: "cancelled", can_cancel: false } : r))
+
+    if (cancelItem.can_request_cancel && cancelItem.status === "approved") {
+      // Approved → ส่งคำขอยกเลิกไป HR (ไม่ยกเลิกตรง)
+      const res = await fetch("/api/requests/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "request_cancel",
+          request_id: cancelItem.id,
+          request_type: cancelItem.kind,
+          reason: "พนักงานขอยกเลิก",
+        }),
+      })
+      const data = await res.json()
+      setCancelling(false)
+      if (!res.ok) { setErr(data.error || "เกิดข้อผิดพลาด"); setCancelItem(null); return }
+      toast.success("ส่งคำขอยกเลิกไป HR แล้ว")
+      setCancelItem(null)
+      setReqs(prev => prev.map(r => r.id === cancelItem.id
+        ? { ...r, can_cancel: false, can_request_cancel: false, is_cancel_requested: true }
+        : r))
+    } else {
+      // Pending → ยกเลิกตรง
+      const tbl: Record<string, string> = { leave: "leave_requests", adjustment: "time_adjustment_requests", overtime: "overtime_requests" }
+      const { error } = await supabase.from(tbl[cancelItem.kind]).update({ status: "cancelled" }).eq("id", cancelItem.id)
+      setCancelling(false)
+      if (error) { setErr(error.message); return }
+      setCancelItem(null)
+      setReqs(prev => prev.map(r => r.id === cancelItem.id ? { ...r, status: "cancelled", can_cancel: false } : r))
+    }
   }
 
   const shown   = kind === "all" ? reqs : reqs.filter(r => r.kind === kind)
@@ -401,6 +447,17 @@ export default function LeavePage() {
                           className="press mt-2 w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-red-100 text-red-500 text-xs font-semibold hover:bg-red-50 transition-colors">
                           <X size={11} /> ยกเลิกคำขอนี้
                         </button>
+                      )}
+                      {r.can_request_cancel && (
+                        <button onClick={() => setCancelItem(r)}
+                          className="press mt-2 w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-amber-200 text-amber-600 text-xs font-semibold hover:bg-amber-50 transition-colors">
+                          <X size={11} /> ขอยกเลิก (ส่ง HR อนุมัติ)
+                        </button>
+                      )}
+                      {r.is_cancel_requested && (
+                        <div className="mt-2 text-center text-[10px] font-bold text-amber-600 bg-amber-50 rounded-lg py-1.5">
+                          รอ HR อนุมัติยกเลิก...
+                        </div>
                       )}
                     </div>
                   </div>

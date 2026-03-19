@@ -695,6 +695,16 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
               <p className="text-sm opacity-75 mt-0.5">{emp?.employee_code} · {emp?.position?.name}</p>
             </div>
             <div className="flex gap-2">
+              <button onClick={async () => {
+                const res = await fetch(`/api/payslip/download?record_id=${record.id}`)
+                if (!res.ok) return
+                const data = await res.json()
+                const html = buildPayslipHTML(data)
+                const win = window.open("", "_blank")
+                if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 500) }
+              }} className="flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 px-2.5 py-1.5 rounded-lg font-bold transition-colors">
+                <Download size={10}/> PDF
+              </button>
               <button onClick={onEdit} className="flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 px-2.5 py-1.5 rounded-lg font-bold transition-colors">
                 <Edit2 size={10}/> แก้ไข
               </button>
@@ -1165,4 +1175,30 @@ export default function PayrollPage() {
       )}
     </div>
   )
+}
+
+// ── Payslip HTML Builder ──
+function buildPayslipHTML(d: any): string {
+  const { company, employee, period, payDate, earnings, deductions, totalEarnings, totalDeductions, netPay, ytd } = d
+  const fmt = (v: number) => v.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const eRows = earnings.map((e: any) => `<tr><td>${e.label}</td><td class="r">${e.number||""}</td><td class="r">${fmt(e.amount)}</td></tr>`).join("")
+  const dRows = deductions.map((e: any) => `<tr><td>${e.label}</td><td class="r">${fmt(e.amount)}</td></tr>`).join("")
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>สลิปเงินเดือน</title>
+<style>@page{size:A4;margin:15mm}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Sarabun','Noto Sans Thai',sans-serif;font-size:11px;color:#333}@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap');
+.c{max-width:720px;margin:0 auto;padding:20px}.hdr{text-align:center;margin-bottom:15px;border-bottom:2px solid #c8a14e;padding-bottom:10px}.hdr h1{font-size:16px;font-weight:700}.st{font-size:18px;font-weight:700;color:#c8a14e}.ci{font-size:10px;color:#666;margin-top:4px}.per{font-size:12px;font-weight:700;color:#c8a14e}.logo{height:36px}
+.ei{display:flex;justify-content:space-between;margin:10px 0;font-size:11px}.ei b{color:#000}table{width:100%;border-collapse:collapse;font-size:10.5px}.mt{margin-top:8px}.mt th{background:#f5f0e0;color:#7a6520;font-weight:700;padding:6px 8px;border:1px solid #d4c98a;text-align:center}.mt td{padding:4px 8px;border:1px solid #e5e5e5}.r{text-align:right}
+.tr{background:#faf6e8;font-weight:700}.tr td{border-top:2px solid #c8a14e;padding:6px 8px}.nb{background:#c8a14e;color:#fff;padding:10px 15px;text-align:right;font-size:18px;font-weight:700;margin-top:-1px}.nl{font-size:11px;font-weight:700}
+.yt{margin-top:12px}.yt th{background:#c8a14e;color:#fff;font-weight:700;padding:5px 6px;border:1px solid #b89430;text-align:center;font-size:9.5px}.yt td{text-align:center;padding:5px 6px;border:1px solid #e5e5e5;font-size:10px}
+.ft{margin-top:30px;font-size:9px;color:#999;display:flex;justify-content:space-between}.tc{display:grid;grid-template-columns:1fr 1fr}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>
+<div class="c"><div class="hdr"><div style="display:flex;align-items:center;justify-content:space-between">
+<div style="display:flex;align-items:center;gap:8px"><img src="https://shd-technology.co.th/images/logo.png" class="logo" onerror="this.style.display='none'"/>
+<div style="text-align:left"><h1>${company.code} : ${company.name}</h1><div class="ci">${company.address}</div><div class="ci">${company.phone}</div></div></div>
+<div><div class="st">สลิปเงินเดือน</div><div class="per">${period}</div></div></div></div>
+<div class="ei"><div>รหัสพนักงาน : <b>${employee.code}</b> &nbsp; ชื่อ : <b>${employee.name}</b></div><div><b>แผนก:</b> ${employee.department}</div><div><b>ตำแหน่ง :</b> ${employee.position}</div></div>
+<div class="tc"><table class="mt"><thead><tr><th colspan="2">รายได้ / Earnings</th><th>จำนวน</th><th>Amount</th></tr></thead><tbody>${eRows}<tr class="tr"><td colspan="3">รวมเงินได้ / Total Earnings</td><td class="r">${fmt(totalEarnings)}</td></tr></tbody></table>
+<div><table class="mt"><thead><tr><th>รายการหัก / Deductions</th><th>Amount</th><th>วันที่จ่าย</th></tr></thead><tbody>${dRows}<tr class="tr"><td>รวมรายการหัก / Total Deduction</td><td class="r">${fmt(totalDeductions)}</td><td>${payDate}</td></tr></tbody></table>
+<div class="nb"><div class="nl">เงินรับสุทธิ / Net To Pay</div>${fmt(netPay)}</div></div></div>
+<table class="yt"><thead><tr><th>เงินได้สะสมต่อปี</th><th>ภาษีสะสมต่อปี</th><th>กองทุนสะสมต่อปี</th><th>ประกันสังคมต่อปี</th><th>ค่าลดหย่อนอื่นๆ</th><th>ลงชื่อพนักงาน</th></tr></thead>
+<tbody><tr><td>${fmt(ytd.income)}</td><td>${fmt(ytd.tax)}</td><td>${fmt(ytd.providentFund)}</td><td>${fmt(ytd.socialSecurity)}</td><td>${fmt(ytd.otherDeductions)}</td><td></td></tr></tbody></table>
+<div class="ft"><div>พิมพ์โดย : ${employee.name}</div><div>${new Date().toLocaleDateString("th-TH")} ${new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}</div></div></div></body></html>`
 }

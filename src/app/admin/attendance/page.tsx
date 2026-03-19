@@ -122,7 +122,7 @@ export default function AdminAttendancePage() {
   // ── shared state ──────────────────────────────────────────────
   const [companies,    setCompanies]    = useState<any[]>([])
   const [departments,  setDepartments]  = useState<any[]>([])
-  const [selCompany,   setSelCompany]   = useState("")
+  const [selCompany,   setSelCompany]   = useState("all")
 
   // ── list tab state ────────────────────────────────────────────
   const [records,      setRecords]      = useState<any[]>([])
@@ -149,27 +149,29 @@ export default function AdminAttendancePage() {
   const [loadingSum,   setLoadingSum]   = useState(false)
   const [sumKpi,       setSumKpi]       = useState({totalEmp:0,presentDays:0,lateDays:0,absentDays:0,leaveDays:0})
 
-  const activeCid = isSuperAdmin ? (selCompany || companyId || "") : (companyId || "")
+  const activeCid = isSuperAdmin ? (selCompany || "all") : (companyId || "")
 
   // load companies + departments
   useEffect(() => {
     if (!activeCid) return
     if (isSuperAdmin)
-      supabase.from("companies").select("id,name_th").eq("is_active",true).order("name_th")
+      supabase.from("companies").select("id,name_th,code").eq("is_active",true).order("name_th")
         .then(({data})=>setCompanies(data??[]))
-    supabase.from("departments").select("id,name").eq("company_id",activeCid).order("name")
-      .then(({data})=>setDepartments(data??[]))
+    let dq = supabase.from("departments").select("id,name").order("name")
+    if (activeCid !== "all") dq = dq.eq("company_id", activeCid)
+    dq.then(({data})=>setDepartments(data??[]))
   }, [activeCid, isSuperAdmin])
 
   // ── LIST: load kpi today ──────────────────────────────────────
   const loadKpi = useCallback(async()=>{
     if(!activeCid) return
+    const addCo = (q: any) => activeCid !== "all" ? q.eq("company_id", activeCid) : q
     const [r0,r1,r2,r3,osRes] = await Promise.all([
-      supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("company_id",activeCid).eq("work_date",today).eq("status","present"),
-      supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("company_id",activeCid).eq("work_date",today).eq("status","late"),
-      supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("company_id",activeCid).eq("work_date",today).eq("status","absent"),
-      supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("company_id",activeCid).eq("work_date",today).eq("status","leave"),
-      supabase.from("offsite_checkin_requests").select("id",{count:"exact",head:true}).eq("company_id",activeCid).eq("status","pending"),
+      addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","present")),
+      addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","late")),
+      addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","absent")),
+      addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","leave")),
+      addCo(supabase.from("offsite_checkin_requests").select("id",{count:"exact",head:true}).eq("status","pending")),
     ])
     setKpi({present:r0.count??0,late:r1.count??0,absent:r2.count??0,leave:r3.count??0})
     setOffsitePending(osRes.count??0)
@@ -182,9 +184,9 @@ export default function AdminAttendancePage() {
     let q = supabase.from("attendance_records")
       .select(`*,employee:employees!attendance_records_employee_id_fkey(
         id,first_name_th,last_name_th,employee_code,
-        department:departments(id,name),position:positions(name))`,{count:"exact"})
-      .eq("company_id",activeCid)
+        department:departments(id,name),position:positions(name),company:companies(code))`,{count:"exact"})
       .gte("work_date",listFilters.start).lte("work_date",listFilters.end)
+    if (activeCid !== "all") q = q.eq("company_id",activeCid)
       .order("work_date",{ascending:false}).order("clock_in",{ascending:false})
       .range(page*PER,(page+1)*PER-1) as any
     if(listFilters.status) q=q.eq("status",listFilters.status)
@@ -204,9 +206,11 @@ export default function AdminAttendancePage() {
 
   const loadAdj = useCallback(async()=>{
     if(!activeCid) return
-    const {data}=await (supabase.from("time_adjustment_requests")
+    let aq = supabase.from("time_adjustment_requests")
       .select(`*,employee:employees!time_adjustment_requests_employee_id_fkey(id,first_name_th,last_name_th,department:departments(name))`)
-      .eq("company_id",activeCid).eq("status","pending").order("created_at",{ascending:true}) as any)
+      .eq("status","pending").order("created_at",{ascending:true})
+    if (activeCid !== "all") aq = aq.eq("company_id", activeCid) as any
+    const {data}=await (aq as any)
     setAdjReqs(data??[])
   },[activeCid])
 
@@ -215,10 +219,11 @@ export default function AdminAttendancePage() {
     if(!activeCid) return
     setLoadingSum(true)
     try{
+      const addCo2 = (q: any) => activeCid !== "all" ? q.eq("company_id", activeCid) : q
       const [{data:emps},{data:atts},{data:leaves}]=await Promise.all([
-        supabase.from("employees").select("id,employee_code,first_name_th,last_name_th,department:departments(name),branch:branches(name)").eq("company_id",activeCid).eq("is_active",true) as any,
-        supabase.from("attendance_records").select("employee_id,status,late_minutes").eq("company_id",activeCid).gte("work_date",sumFrom).lte("work_date",sumTo),
-        supabase.from("leave_requests").select("employee_id,total_days").eq("company_id",activeCid).eq("status","approved").gte("start_date",sumFrom).lte("end_date",sumTo),
+        addCo2(supabase.from("employees").select("id,employee_code,first_name_th,last_name_th,department:departments(name),branch:branches(name)").eq("is_active",true)) as any,
+        addCo2(supabase.from("attendance_records").select("employee_id,status,late_minutes").gte("work_date",sumFrom).lte("work_date",sumTo)),
+        addCo2(supabase.from("leave_requests").select("employee_id,total_days").eq("status","approved").gte("start_date",sumFrom).lte("end_date",sumTo)),
       ])
       const attByEmp=new Map<string,any[]>()
       ;(atts??[]).forEach(a=>{if(!attByEmp.has(a.employee_id))attByEmp.set(a.employee_id,[]);attByEmp.get(a.employee_id)!.push(a)})
@@ -275,10 +280,12 @@ export default function AdminAttendancePage() {
 
   const handleExportList=async()=>{
     if(!activeCid) return; setExporting(true)
-    const {data}=await (supabase.from("attendance_records")
+    let eq = supabase.from("attendance_records")
       .select(`work_date,clock_in,clock_out,status,late_minutes,ot_minutes,
         employee:employees!attendance_records_employee_id_fkey(employee_code,first_name_th,last_name_th,department:departments(name),position:positions(name))`)
-      .eq("company_id",activeCid).gte("work_date",listFilters.start).lte("work_date",listFilters.end).order("work_date",{ascending:false}) as any)
+      .gte("work_date",listFilters.start).lte("work_date",listFilters.end).order("work_date",{ascending:false})
+    if (activeCid !== "all") eq = eq.eq("company_id",activeCid) as any
+    const {data}=await (eq as any)
     exportRecordsXLS(data??[],listFilters.start,listFilters.end); setExporting(false)
   }
 
@@ -304,8 +311,8 @@ export default function AdminAttendancePage() {
           {isSuperAdmin && companies.length > 0 && (
             <select value={selCompany} onChange={e=>setSelCompany(e.target.value)}
               className="border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-white outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">บริษัทของฉัน</option>
-              {companies.map(c=><option key={c.id} value={c.id}>{c.name_th}</option>)}
+              <option value="all">ทุกบริษัท</option>
+              {companies.map(c=><option key={c.id} value={c.id}>{c.code} — {c.name_th}</option>)}
             </select>
           )}
           <button onClick={()=>{loadList();loadAdj();loadKpi()}} disabled={loadingList}
@@ -359,38 +366,6 @@ export default function AdminAttendancePage() {
           </div>
         ))}
       </div>
-
-      {/* ── Pending adjustments ────────────────────────────────── */}
-      {adjReqs.length>0&&(
-        <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-amber-100 bg-amber-50">
-            <AlertCircle size={15} className="text-amber-500"/>
-            <p className="font-black text-sm text-amber-800">คำขอแก้ไขเวลา รออนุมัติ</p>
-            <span className="ml-auto text-[11px] font-black bg-amber-500 text-white px-2 py-0.5 rounded-full">{adjReqs.length}</span>
-          </div>
-          <div className="divide-y divide-amber-50">
-            {adjReqs.map(req=>(
-              <div key={req.id} className="flex items-center gap-4 px-5 py-3.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center font-black text-amber-700 text-sm flex-shrink-0">{req.employee?.first_name_th?.[0]}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-sm text-slate-800">{req.employee?.first_name_th} {req.employee?.last_name_th}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {req.employee?.department?.name&&<span className="mr-2">{req.employee.department.name}</span>}
-                    {safeFmt(req.work_date+"T00:00:00","d MMM yyyy")}
-                    {req.requested_clock_in&&<span className="ml-2 text-emerald-600">เข้า {safeFmt(req.requested_clock_in,"HH:mm")}</span>}
-                    {req.requested_clock_out&&<span className="ml-2 text-blue-600">ออก {safeFmt(req.requested_clock_out,"HH:mm")}</span>}
-                  </p>
-                  {req.reason&&<p className="text-xs text-slate-400 mt-0.5 italic">"{req.reason}"</p>}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={()=>approveAdj(req,"rejected")} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-red-50 border border-red-200 text-red-700 rounded-xl hover:bg-red-100 transition-colors"><X size={12}/>ปฏิเสธ</button>
-                  <button onClick={()=>approveAdj(req,"approved")} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-colors"><Check size={12}/>อนุมัติ</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── Tabs ───────────────────────────────────────────────── */}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-2xl w-fit">

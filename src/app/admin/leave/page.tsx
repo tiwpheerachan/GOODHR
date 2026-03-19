@@ -65,7 +65,7 @@ export default function AdminLeavePage() {
   const [dateStart,    setDateStart]    = useState(format(startOfMonth(new Date()),"yyyy-MM-dd"))
   const [dateEnd,      setDateEnd]      = useState(format(endOfMonth(new Date()),"yyyy-MM-dd"))
   const [rejectTarget, setRejectTarget] = useState<any>(null)
-  const [counts,       setCounts]       = useState({ pending:0, approved:0, rejected:0, all:0 })
+  const [counts,       setCounts]       = useState({ pending:0, approved:0, rejected:0, cancel_requested:0, all:0 })
   const [processingId, setProcessingId] = useState<string|null>(null)
   const PER = 20
 
@@ -113,14 +113,20 @@ export default function AdminLeavePage() {
       let q=fc(supabase.from("leave_requests").select("id",{count:"exact",head:true}))
       if(s) q=q.eq("status",s)
       if(ltFilter) q=q.eq("leave_type_id",ltFilter)
-      // ไม่กรอง date ตอนนับ pending เพื่อให้ count ถูกต้อง
       if(s !== "pending") {
         if(dateStart) q=q.gte("start_date",dateStart)
         if(dateEnd)   q=q.lte("end_date",dateEnd)
       }
       return q
     }))
-    setCounts({ pending:res[0].count??0, approved:res[1].count??0, rejected:res[2].count??0, all:res[3].count??0 })
+    // Count cancel_requested via API (bypasses RLS)
+    let crCount = 0
+    try {
+      const crRes = await fetch("/api/requests/cancel")
+      const crData = await crRes.json()
+      crCount = crData.requests?.length ?? 0
+    } catch {}
+    setCounts({ pending:res[0].count??0, approved:res[1].count??0, rejected:res[2].count??0, cancel_requested:crCount, all:res[3].count??0 })
   },[cid,isSA,myId,ltFilter,dateStart,dateEnd])
 
   // ── Leave: load requests ──────────────────────────────────────────────────
@@ -128,6 +134,17 @@ export default function AdminLeavePage() {
     if(!isSA&&!myId)return
     setLoading(true)
     try{
+      // Special case: cancel_requested → use API
+      if(statusTab === "cancel_requested") {
+        const crRes = await fetch("/api/requests/cancel")
+        const crData = await crRes.json()
+        const crReqs = (crData.requests ?? []).filter((r:any) => r.request_type === "leave")
+        setRequests(crReqs)
+        setTotal(crReqs.length)
+        setLoading(false)
+        return
+      }
+
       let q=fc(supabase.from("leave_requests")
         .select(`id,employee_id,leave_type_id,company_id,
           start_date,end_date,total_days,is_half_day,half_day_period,
@@ -139,10 +156,11 @@ export default function AdminLeavePage() {
           {count:"exact"})
         .order("created_at",{ascending:false})
         .range(page*PER,(page+1)*PER-1))
-      if(statusTab) q=q.eq("status",statusTab)
+      if(statusTab) {
+        q=q.eq("status",statusTab)
+      }
       if(ltFilter)  q=q.eq("leave_type_id",ltFilter)
-      // ถ้าเป็น pending ไม่กรอง date เพื่อให้เห็นทุกใบที่รออนุมัติ
-      if(statusTab !== "pending") {
+      if(statusTab !== "pending" && statusTab !== "cancel_requested") {
         if(dateStart) q=q.gte("start_date",dateStart)
         if(dateEnd)   q=q.lte("end_date",dateEnd)
       }
@@ -272,7 +290,7 @@ export default function AdminLeavePage() {
       r.employee?.employee_code, r.employee?.first_name_th, r.employee?.last_name_th,
       (r.employee?.department as any)?.name, (r.leave_type as any)?.name,
       r.start_date, r.end_date, r.total_days, r.reason||"",
-      {pending:"รออนุมัติ",approved:"อนุมัติ",rejected:"ปฏิเสธ",cancelled:"ยกเลิก"}[r.status as string]||r.status,
+      {pending:"รออนุมัติ",approved:"อนุมัติ",rejected:"ปฏิเสธ",cancelled:"ยกเลิก",cancel_requested:"ขอยกเลิก"}[r.status as string]||r.status,
       r.requested_at?format(new Date(r.requested_at),"dd/MM/yyyy"):"",
       r.review_note||"",
     ])
@@ -283,10 +301,11 @@ export default function AdminLeavePage() {
   }
 
   const STATUS_TABS=[
-    {v:"pending",  l:"รออนุมัติ",  c:"bg-amber-100 text-amber-700",  n:counts.pending},
-    {v:"approved", l:"อนุมัติแล้ว",c:"bg-green-100 text-green-700",  n:counts.approved},
-    {v:"rejected", l:"ปฏิเสธ",     c:"bg-red-100 text-red-600",      n:counts.rejected},
-    {v:"",         l:"ทั้งหมด",    c:"bg-slate-100 text-slate-600",  n:counts.all},
+    {v:"pending",          l:"รออนุมัติ",   c:"bg-amber-100 text-amber-700",   n:counts.pending},
+    {v:"cancel_requested", l:"ขอยกเลิก",   c:"bg-orange-100 text-orange-700", n:counts.cancel_requested},
+    {v:"approved",         l:"อนุมัติแล้ว", c:"bg-green-100 text-green-700",   n:counts.approved},
+    {v:"rejected",         l:"ปฏิเสธ",      c:"bg-red-100 text-red-600",       n:counts.rejected},
+    {v:"",                 l:"ทั้งหมด",     c:"bg-slate-100 text-slate-600",   n:counts.all},
   ]
 
   const resignStatusLabel=(s:string)=>({
@@ -438,9 +457,10 @@ export default function AdminLeavePage() {
                             r.status==="pending"?"bg-amber-100 text-amber-700":
                             r.status==="approved"?"bg-green-100 text-green-700":
                             r.status==="rejected"?"bg-red-100 text-red-600":
+                            r.status==="approved"&&(r.review_note||"").includes("CANCEL_REQ")?"bg-orange-100 text-orange-700":
                             "bg-slate-100 text-slate-500"
                           }`}>
-                            {r.status==="pending"?"รออนุมัติ":r.status==="approved"?"อนุมัติแล้ว":r.status==="rejected"?"ปฏิเสธ":"ยกเลิก"}
+                            {r.status==="pending"?"รออนุมัติ":r.status==="approved"&&(r.review_note||"").includes("CANCEL_REQ")?"ขอยกเลิก":r.status==="approved"?"อนุมัติแล้ว":r.status==="rejected"?"ปฏิเสธ":"ยกเลิก"}
                           </span>
                         </td>
                         <td className="px-4 py-3">
@@ -453,6 +473,30 @@ export default function AdminLeavePage() {
                               <button onClick={()=>handle(r.id,"approved")} disabled={isProcessing}
                                 className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-50 transition-colors">
                                 {isProcessing?<div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"/>:<Check size={11}/>} อนุมัติ
+                              </button>
+                            </div>
+                          )}
+                          {r.status==="approved"&&(r.review_note||"").includes("CANCEL_REQ")&&(
+                            <div className="flex gap-2 whitespace-nowrap">
+                              <button onClick={async()=>{
+                                setProcessingId(r.id)
+                                const res=await fetch("/api/requests/cancel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"reject_cancel",request_id:r.id,request_type:"leave"})})
+                                const d=await res.json()
+                                setProcessingId(null)
+                                if(d.success){toast.success("ปฏิเสธการยกเลิก — คงอนุมัติ");load();loadCounts()}else toast.error(d.error)
+                              }} disabled={isProcessing}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 disabled:opacity-50">
+                                <X size={11}/> ไม่ยกเลิก
+                              </button>
+                              <button onClick={async()=>{
+                                setProcessingId(r.id)
+                                const res=await fetch("/api/requests/cancel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"approve_cancel",request_id:r.id,request_type:"leave"})})
+                                const d=await res.json()
+                                setProcessingId(null)
+                                if(d.success){toast.success("ยกเลิกคำขอลาแล้ว");load();loadCounts()}else toast.error(d.error)
+                              }} disabled={isProcessing}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold bg-orange-500 text-white rounded-xl hover:bg-orange-600 disabled:opacity-50">
+                                {isProcessing?<div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"/>:<Check size={11}/>} อนุมัติยกเลิก
                               </button>
                             </div>
                           )}
