@@ -14,6 +14,7 @@ interface Emp {
   id: string; employee_code: string; first_name_th: string; last_name_th: string
   nickname: string; email: string; phone: string; avatar_url: string
   supervisor_id: string | null; department_id: string; position_id: string; branch_id: string
+  company_id: string | null
   department: { id: string; name: string } | null
   position: { id: string; name: string } | null
   branch: { id: string; name: string } | null
