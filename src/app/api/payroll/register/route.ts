@@ -76,8 +76,8 @@ export async function PATCH(req: Request) {
     const ie = income_extras ?? rec.income_extras ?? {}
     const de = deduction_extras ?? rec.deduction_extras ?? {}
 
-    const extraIncomeTotal = Object.values(ie as Record<string, number>).reduce((s: number, v) => s + (Number(v) || 0), 0)
-    const extraDeductTotal = Object.values(de as Record<string, number>).reduce((s: number, v) => s + (Number(v) || 0), 0)
+    const extraIncomeTotal = Object.values(ie as Record<string, number>).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
+    const extraDeductTotal = Object.values(de as Record<string, number>).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
 
     const newGross =
       Number(rec.base_salary) +

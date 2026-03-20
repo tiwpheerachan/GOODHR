@@ -171,9 +171,9 @@ export default function DashboardPage() {
   const greet = timeGreet.text
   const liveTime = mounted ? format(now, "HH:mm:ss") : "──:──:──"
 
-  const present    = records.filter(r => ["present","late"].includes(r.status)).length
-  const late       = records.filter(r => r.status === "late").length
-  const absent     = records.filter(r => r.status === "absent").length
+  const present    = records.filter((r: any) => ["present","late"].includes(r.status)).length
+  const late       = records.filter((r: any) => r.status === "late").length
+  const absent     = records.filter((r: any) => r.status === "absent").length
   const totalLeave = balances.reduce((s:number,b:any) => s+(b.remaining_days??0), 0)
 
   const up = (d:number) => ({

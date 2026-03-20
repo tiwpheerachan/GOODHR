@@ -215,7 +215,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-50">
-          {records.map(r => {
+          {records.map((r: any) => {
             const totalAllow = n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)
             const totalDeductWork = n(r.deduct_late)+n(r.deduct_absent)
             return (
@@ -251,12 +251,12 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
         <tfoot className="bg-indigo-50 border-t-2 border-indigo-100">
           <tr>
             <td className="px-4 py-3 font-black text-slate-700">{records.length} คน</td>
-            <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s,r)=>s+n(r.base_salary),0))}</td>
-            <td className="px-3 py-3 text-right font-bold text-green-700">฿{thb(records.reduce((s,r)=>s+n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing),0))}</td>
-            <td className="px-3 py-3 font-bold text-amber-700">฿{thb(records.reduce((s,r)=>s+n(r.ot_amount),0))}</td>
-            <td className="px-3 py-3 text-right font-bold text-red-600">-฿{thb(records.reduce((s,r)=>s+n(r.deduct_late)+n(r.deduct_absent),0))}</td>
-            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s,r)=>s+n(r.social_security_amount),0))}</td>
-            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s,r)=>s+n(r.monthly_tax_withheld),0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.base_salary),0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-green-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing),0))}</td>
+            <td className="px-3 py-3 font-bold text-amber-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.ot_amount),0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-red-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.deduct_late)+n(r.deduct_absent),0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.social_security_amount),0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.monthly_tax_withheld),0))}</td>
             <td className="px-3 py-3 text-right font-black text-indigo-700 text-sm">฿{thb(totalNet)}</td>
             <td/>
           </tr>
@@ -280,13 +280,13 @@ function exportXLSX(records: any[], period: any) {
   const totalRow: Record<string, any> = {}
   REG_COLS.forEach(col => {
     if (col.group === "info") { totalRow[col.label] = col.key === "name" ? "รวมทั้งหมด" : ""; return }
-    totalRow[col.label] = records.reduce((s, r, i) => { const v = col.get(r, i); return typeof v === "number" ? s + v : s }, 0)
+    totalRow[col.label] = records.reduce((s: number, r: any, i: number) => { const v = col.get(r, i); return typeof v === "number" ? s + v : s }, 0)
   })
   rows.push(totalRow)
 
   // Dept summary sheet
   const deptMap = new Map<string, { count: number; gross: number; deduct: number; net: number }>()
-  records.forEach(r => {
+  records.forEach((r: any) => {
     const d = r.employee?.department?.name || "ไม่ระบุ"
     const p = deptMap.get(d) || { count: 0, gross: 0, deduct: 0, net: 0 }
     p.count++; p.gross += n(r.gross_income); p.deduct += n(r.total_deductions); p.net += n(r.net_salary)
@@ -931,7 +931,7 @@ export default function PayrollPage() {
 
   const exportCSV = () => {
     const hdr = ["รหัส","ชื่อ","นามสกุล","ตำแหน่ง","แผนก","เงินเดือนฐาน","เบี้ยตำแหน่ง","ค่าเดินทาง","ค่าอาหาร","OT฿","OT1.5x(น.)","OT1.0x(น.)","OT3.0x(น.)","โบนัส","คอมมิชชั่น","รวมรายรับ","หักขาด","หักสาย","หักกู้","SSO","ภาษี","หักรวม","สุทธิ","วันมา","วันขาด","สาย","ลาจ่าย","ลาไม่จ่าย","แก้ไขโดยHR"]
-    const rows = records.map(r => [
+    const rows = records.map((r: any) => [
       r.employee?.employee_code, r.employee?.first_name_th, r.employee?.last_name_th,
       r.employee?.position?.name, r.employee?.department?.name,
       r.base_salary||0, r.allowance_position||0, r.allowance_transport||0, r.allowance_food||0,
@@ -950,20 +950,20 @@ export default function PayrollPage() {
     a.click(); URL.revokeObjectURL(url)
   }
 
-  const departments = Array.from(new Set(records.map(r => r.employee?.department?.name).filter(Boolean))).sort() as string[]
+  const departments = Array.from(new Set(records.map((r: any) => r.employee?.department?.name).filter(Boolean))).sort() as string[]
 
-  const filtered   = records.filter(r => {
+  const filtered   = records.filter((r: any) => {
     if (filterDept && r.employee?.department?.name !== filterDept) return false
     if (!search) return true
     return `${r.employee?.first_name_th} ${r.employee?.last_name_th} ${r.employee?.employee_code} ${r.employee?.nickname||""}`
       .toLowerCase().includes(search.toLowerCase())
   })
-  const totalGross = filtered.reduce((s, r) => s + (r.gross_income||0), 0)
-  const totalNet   = filtered.reduce((s, r) => s + (r.net_salary||0), 0)
-  const totalOT    = filtered.reduce((s, r) => s + (r.ot_amount||0), 0)
-  const totalSSO   = filtered.reduce((s, r) => s + (r.social_security_amount||0), 0)
-  const totalTax   = filtered.reduce((s, r) => s + (r.monthly_tax_withheld||0), 0)
-  const overrideCount = records.filter(r => r.is_manual_override).length
+  const totalGross = filtered.reduce((s: number, r: any) => s + (r.gross_income||0), 0)
+  const totalNet   = filtered.reduce((s: number, r: any) => s + (r.net_salary||0), 0)
+  const totalOT    = filtered.reduce((s: number, r: any) => s + (r.ot_amount||0), 0)
+  const totalSSO   = filtered.reduce((s: number, r: any) => s + (r.social_security_amount||0), 0)
+  const totalTax   = filtered.reduce((s: number, r: any) => s + (r.monthly_tax_withheld||0), 0)
+  const overrideCount = records.filter((r: any) => r.is_manual_override).length
 
   const statusCfg  = STATUS_CFG[selected?.status ?? "draft"] ?? STATUS_CFG.draft
 

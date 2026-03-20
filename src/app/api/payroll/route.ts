@@ -163,30 +163,30 @@ async function calcAndSave(
   }
 
   // ── สรุป attendance ────────────────────────────────────────────
-  const presentDays = records.filter(r =>
+  const presentDays = records.filter((r: any) =>
     ["present", "late", "early_out", "wfh"].includes(r.status as string)
   ).length
 
   // ✅ นับครั้งสาย: status=late หรือ late_minutes > 0 (Number() เพราะ Supabase อาจ return string)
-  const lateCount = records.filter(r =>
+  const lateCount = records.filter((r: any) =>
     r.status === "late" || (Number(r.late_minutes) || 0) > 0
   ).length
 
-  const earlyCount = records.filter(r =>
+  const earlyCount = records.filter((r: any) =>
     r.status === "early_out" || (Number(r.early_out_minutes) || 0) > 0
   ).length
 
   const totalLateMin = records.reduce(
-    (s, r) => s + (Number(r.late_minutes)      || 0), 0
+    (s: number, r: any) => s + (Number(r.late_minutes)      || 0), 0
   )
   const totalEarlyMin = records.reduce(
-    (s, r) => s + (Number(r.early_out_minutes) || 0), 0
+    (s: number, r: any) => s + (Number(r.early_out_minutes) || 0), 0
   )
 
   // ── OT แยกประเภท ──────────────────────────────────────────────
   // ot_type column ไม่มีใน schema → นับ ot_minutes ทั้งหมดเป็น weekday OT
   const otBreakdown: OTBreakdown = {
-    weekday_minutes:         records.reduce((s, r) => s + (Number(r.ot_minutes) || 0), 0),
+    weekday_minutes:         records.reduce((s: number, r: any) => s + (Number(r.ot_minutes) || 0), 0),
     holiday_regular_minutes: 0,
     holiday_ot_minutes:      0,
   }

@@ -792,7 +792,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
   const toggleBranch = async (branchId: string) => {
     setSaving(branchId)
     if (branchAllowedIds.has(branchId)) {
-      const row = allowedRows.find(r => r.branch_id === branchId)
+      const row = allowedRows.find((r: any) => r.branch_id === branchId)
       if (row) await supabase.from("employee_allowed_locations").delete().eq("id", row.id)
       toast.success("ยกเลิกสิทธิ์แล้ว")
     } else {

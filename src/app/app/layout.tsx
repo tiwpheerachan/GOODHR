@@ -3,19 +3,21 @@ import { usePathname } from "next/navigation"
 import Link from "next/link"
 import {
   Home, Clock, Calendar, CalendarDays, CalendarClock, User, Bell, Users, Shield, Target,
-  Megaphone, FileText, Grip, X,
+  Megaphone, FileText, Grip, X, MessageCircle,
 } from "lucide-react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useEffect, useState, useRef, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
 
-// ── Bottom Nav (5 main items) ──
+// ── Bottom Nav (7 main items) ──
 const NAV = [
-  { href: "/app/dashboard",      icon: Home,         label: "หน้าหลัก" },
-  { href: "/app/checkin",        icon: Clock,        label: "เช็คอิน"  },
-  { href: "/app/announcements",  icon: Megaphone,    label: "ประกาศ"   },
-  { href: "/app/leave",          icon: CalendarDays, label: "การลา"    },
-  { href: "/app/profile",        icon: User,         label: "โปรไฟล์" },
+  { href: "/app/dashboard",      icon: Home,           label: "หน้าหลัก" },
+  { href: "/app/checkin",        icon: Clock,          label: "เช็คอิน"  },
+  { href: "/app/announcements",  icon: Megaphone,      label: "ประกาศ"   },
+  { href: "/app/chat",           icon: MessageCircle,  label: "แชท"      },
+  { href: "/app/leave",          icon: CalendarDays,   label: "การลา"    },
+  { href: "/app/attendance",     icon: Calendar,       label: "เข้างาน"  },
+  { href: "/app/profile",        icon: User,           label: "โปรไฟล์" },
 ]
 
 // ── AssistiveTouch Menu Items ──
@@ -23,7 +25,6 @@ const FLOAT_MENU = [
   { href: "/app/schedule",       icon: CalendarClock, label: "ตารางกะ",   color: "from-violet-500 to-purple-500" },
   { href: "/app/kpi",            icon: Target,        label: "KPI",       color: "from-amber-500 to-orange-500" },
   { href: "/app/payslip",        icon: FileText,      label: "สลิป",      color: "from-emerald-500 to-green-500" },
-  { href: "/app/attendance",     icon: Calendar,      label: "เข้างาน",   color: "from-blue-500 to-indigo-500" },
 ]
 
 // ── AssistiveTouch Component ──
@@ -132,6 +133,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const empId     = (user as any)?.employee_id ?? emp?.id
   const [unread, setUnread] = useState(0)
   const [unreadAnn, setUnreadAnn] = useState(0)
+  const [unreadChat, setUnreadChat] = useState(0)
 
   useEffect(() => {
     if (!empId) return
@@ -150,6 +152,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     fetch("/api/announcements").then(r => r.json()).then(d => setUnreadAnn(d.unreadCount ?? 0)).catch(() => {})
+    fetch("/api/chat").then(r => r.json()).then(d => setUnreadChat(d.unreadCount ?? 0)).catch(() => {})
   }, [pathname])
 
   useEffect(() => {
@@ -208,17 +211,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {NAV.map(({ href, icon: Icon, label }) => {
             const active = pathname === href || (href !== "/app/dashboard" && pathname.startsWith(href))
             return (
-              <Link key={href} href={href} className="flex-1 flex flex-col items-center gap-1 py-2 relative">
+              <Link key={href} href={href} className="flex-1 flex flex-col items-center gap-0.5 py-2 relative">
                 <div className="relative">
-                  <Icon size={20} strokeWidth={active ? 2.5 : 1.5}
+                  <Icon size={18} strokeWidth={active ? 2.5 : 1.5}
                     style={{ color: active ? "#3b82f6" : "#cbd5e1", transition:"color .2s ease" }}/>
                   {href === "/app/announcements" && unreadAnn > 0 && (
-                    <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 shadow-sm">
+                    <span className="absolute -top-1.5 -right-2.5 min-w-[14px] h-3.5 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center px-0.5 shadow-sm">
                       {unreadAnn > 99 ? "99+" : unreadAnn}
                     </span>
                   )}
+                  {href === "/app/chat" && unreadChat > 0 && (
+                    <span className="absolute -top-1.5 -right-2.5 min-w-[14px] h-3.5 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center px-0.5 shadow-sm">
+                      {unreadChat > 99 ? "99+" : unreadChat}
+                    </span>
+                  )}
                 </div>
-                <span style={{ fontSize:10, fontWeight: active ? 800 : 500, color: active ? "#3b82f6" : "#cbd5e1", transition:"color .2s ease" }}>
+                <span style={{ fontSize:9, fontWeight: active ? 800 : 500, color: active ? "#3b82f6" : "#cbd5e1", transition:"color .2s ease" }}>
                   {label}
                 </span>
               </Link>

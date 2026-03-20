@@ -416,15 +416,15 @@ function LeaveTypesTab({ companyId }: { companyId: string }) {
   return (
     <>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-black text-slate-700 text-sm">ประเภทการลา ({leaveTypes.filter(l => l.is_active).length})</h3>
+        <h3 className="font-black text-slate-700 text-sm">ประเภทการลา ({leaveTypes.filter((l: any) => l.is_active).length})</h3>
         <button onClick={openAdd}
           className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors">
           <Plus size={12}/> เพิ่มประเภทลา
         </button>
       </div>
       <div className="space-y-2.5">
-        {leaveTypes.filter(l => l.is_active).length === 0 && <p className="text-center text-slate-300 py-8 text-sm">ยังไม่มีประเภทการลา</p>}
-        {leaveTypes.filter(l => l.is_active).map(lt => (
+        {leaveTypes.filter((l: any) => l.is_active).length === 0 && <p className="text-center text-slate-300 py-8 text-sm">ยังไม่มีประเภทการลา</p>}
+        {leaveTypes.filter((l: any) => l.is_active).map((lt: any) => (
           <div key={lt.id} className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
             <div className="w-4 h-4 rounded-full flex-shrink-0 shadow-sm" style={{ backgroundColor: lt.color_hex || "#6366f1" }}/>
             <div className="flex-1 min-w-0">

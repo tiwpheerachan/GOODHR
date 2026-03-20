@@ -170,13 +170,13 @@ export default function PayrollRegisterPage() {
   // ── Unique departments & companies for filter ─────────────
   const departments = useMemo(() => {
     const set = new Set<string>()
-    records.forEach(r => { if (r.employee?.department?.name) set.add(r.employee.department.name) })
+    records.forEach((r: any) => { if (r.employee?.department?.name) set.add(r.employee.department.name) })
     return Array.from(set).sort()
   }, [records])
 
   const companies = useMemo(() => {
     const map = new Map<string, string>()
-    records.forEach(r => {
+    records.forEach((r: any) => {
       const co = r.employee?.company
       if (co) map.set(co.code, co.name_th)
     })
@@ -185,7 +185,7 @@ export default function PayrollRegisterPage() {
 
   // ── Filtered records ──────────────────────────────────────
   const filtered = useMemo(() => {
-    return records.filter(r => {
+    return records.filter((r: any) => {
       const emp = r.employee || {}
       if (filterDept && emp.department?.name !== filterDept) return false
       if (filterCo && emp.company?.code !== filterCo) return false
@@ -202,7 +202,7 @@ export default function PayrollRegisterPage() {
   const totals = useMemo(() => {
     const sums: Record<string, number> = {}
     DATA_COLS.forEach(col => { sums[col.key] = 0 })
-    filtered.forEach(r => {
+    filtered.forEach((r: any) => {
       DATA_COLS.forEach(col => {
         const v = getCellValue(r, col)
         if (typeof v === "number") sums[col.key] += v
@@ -214,7 +214,7 @@ export default function PayrollRegisterPage() {
   // ── Department summary ────────────────────────────────────
   const deptSummary = useMemo(() => {
     const map = new Map<string, { count: number; gross: number; deduct: number; net: number }>()
-    filtered.forEach(r => {
+    filtered.forEach((r: any) => {
       const dept = r.employee?.department?.name || "ไม่ระบุ"
       const prev = map.get(dept) || { count: 0, gross: 0, deduct: 0, net: 0 }
       prev.count++
@@ -519,7 +519,7 @@ export default function PayrollRegisterPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {(() => {
               const coMap = new Map<string, { name: string; count: number; gross: number; deduct: number; net: number }>()
-              filtered.forEach(r => {
+              filtered.forEach((r: any) => {
                 const co = r.employee?.company
                 const code = co?.code || "N/A"
                 const prev = coMap.get(code) || { name: co?.name_th || "", count: 0, gross: 0, deduct: 0, net: 0 }

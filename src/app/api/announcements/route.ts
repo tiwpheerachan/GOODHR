@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
   if (userData?.employee_id) {
     const { data: rd } = await supa.from("announcement_reads")
       .select("announcement_id").eq("employee_id", userData.employee_id).in("announcement_id", annIds)
-    reads = (rd ?? []).map(r => r.announcement_id)
+    reads = (rd ?? []).map((r: any) => r.announcement_id)
   }
 
   // Get reactions (counts + my reaction + reactor profiles)

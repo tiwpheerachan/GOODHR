@@ -458,7 +458,7 @@ export default function AdminAttendancePage() {
                     <tr><td colSpan={8} className="px-4 py-14 text-center"><RefreshCw size={18} className="animate-spin text-slate-300 mx-auto mb-2"/><p className="text-sm text-slate-400">กำลังโหลด…</p></td></tr>
                   ):records.length===0?(
                     <tr><td colSpan={8} className="px-4 py-14 text-center text-slate-400 text-sm">ไม่พบข้อมูลในช่วงวันที่เลือก</td></tr>
-                  ):records.map(r=>(
+                  ):records.map((r: any)=>(
                     <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap font-medium">{safeFmt(r.work_date+"T00:00:00","d MMM")}</td>
                       <td className="px-4 py-3.5"><p className="font-bold text-slate-800">{r.employee?.first_name_th} {r.employee?.last_name_th}</p><p className="text-[11px] text-slate-400 mt-0.5 font-mono">{r.employee?.employee_code}</p></td>

@@ -171,9 +171,9 @@ export async function POST(request: Request) {
         .lte("work_date", monthEnd)
 
       const rows          = attRows ?? []
-      const lateCount     = rows.filter(r => r.status === "late").length
-      const absentCount   = rows.filter(r => r.status === "absent").length
-      const totalLateMin  = rows.reduce((s, r) => s + (r.late_minutes || 0), 0)
+      const lateCount     = rows.filter((r: any) => r.status === "late").length
+      const absentCount   = rows.filter((r: any) => r.status === "absent").length
+      const totalLateMin  = rows.reduce((s: number, r: any) => s + (r.late_minutes || 0), 0)
       const dailyRate     = (payrollRec.base_salary ?? 0) / 26
       const minuteRate    = dailyRate / 8 / 60
       const newDeductLate   = Math.round(totalLateMin * minuteRate * 100) / 100
