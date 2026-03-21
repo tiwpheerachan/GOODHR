@@ -3,8 +3,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import {
   Send, ImagePlus, X, MessageCircle, ChevronDown, ChevronLeft, Smile,
   Download, Plus, File, Search, Users, UserPlus, Check, Hash, Settings,
-  MoreVertical, LogOut, Bell, BellOff, Camera, Trash2, Edit3, UserMinus,
-  ChevronRight, Image as ImageIcon, Shield,
+  LogOut, Camera, Trash2, Edit3, UserMinus, Shield, Pin, Copy,
+  ChevronRight as ChevronR, ArrowLeft, ArrowRight, ZoomIn,
 } from "lucide-react"
 import { format, isToday, isYesterday, formatDistanceToNow } from "date-fns"
 import { th } from "date-fns/locale"
@@ -67,6 +67,18 @@ function lastSeenText(d: string | null) {
   try { return formatDistanceToNow(new Date(d), { addSuffix: true, locale: th }) } catch { return "" }
 }
 
+// Collect all images from messages for gallery
+function collectAllImages(msgs: any[]): { url: string; msgId: string; time: string }[] {
+  const images: { url: string; msgId: string; time: string }[] = []
+  for (const m of msgs) {
+    const allMedia = m.images || []
+    for (const u of allMedia) {
+      if (isImageUrl(u)) images.push({ url: u, msgId: m.id, time: m.created_at })
+    }
+  }
+  return images
+}
+
 // ══════════════════════════════════════════
 // MAIN COMPONENT
 // ══════════════════════════════════════════
@@ -93,7 +105,11 @@ export default function UserChatPage() {
   const [showEmoji, setShowEmoji] = useState(false)
   const [showAttach, setShowAttach] = useState(false)
   const [showScroll, setShowScroll] = useState(false)
-  const [imgModal, setImgModal] = useState<string | null>(null)
+
+  // Image gallery state
+  const [galleryImages, setGalleryImages] = useState<{ url: string; msgId: string; time: string }[]>([])
+  const [galleryIndex, setGalleryIndex] = useState(0)
+  const [showGallery, setShowGallery] = useState(false)
 
   const [employees, setEmployees] = useState<any[]>([])
   const [empSearch, setEmpSearch] = useState("")
@@ -103,24 +119,29 @@ export default function UserChatPage() {
   const [selectedMembers, setSelectedMembers] = useState<any[]>([])
   const [editingGroupName, setEditingGroupName] = useState(false)
   const [newGroupName, setNewGroupName] = useState("")
-  const [contextMenu, setContextMenu] = useState<{ msgId: string; isMe: boolean; x: number; y: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ msgId: string; isMe: boolean; x: number; y: number; hasImage?: string } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<"conversation" | null>(null)
   const [confirmMsgDelete, setConfirmMsgDelete] = useState<string | null>(null)
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [pinnedMessage, setPinnedMessage] = useState<any>(null)
+  const [showPinBanner, setShowPinBanner] = useState(true)
 
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
   const groupAvatarRef = useRef<HTMLInputElement>(null)
   const msgsRef = useRef<any[]>([])
+  const pollRef = useRef<number>(0) // Track poll generation to cancel stale polls
+  const galleryTouchStart = useRef<{ x: number; y: number } | null>(null)
 
   const scrollToBottom = useCallback((smooth = true) => {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "instant" }), 50)
   }, [])
 
   // ═══════════════════════════════════════
-  // LOAD CONVERSATION LIST
+  // LOAD CONVERSATION LIST (with cache)
   // ═══════════════════════════════════════
   const loadConversations = useCallback(async () => {
     try {
@@ -129,7 +150,6 @@ export default function UserChatPage() {
       if (d.me) setMyEmpId(d.me)
       if (d.conversations) {
         setConversations(d.conversations)
-        // Auto-open HR chat if only 1 HR conversation
         if (d.conversations.length === 1 && (!d.conversations[0].type || d.conversations[0].type === "hr")) {
           openChat(d.conversations[0].id, d.conversations[0].type || "hr")
           return
@@ -163,6 +183,9 @@ export default function UserChatPage() {
     setAttachments([])
     setShowEmoji(false)
     setShowAttach(false)
+    setPinnedMessage(null)
+    setShowPinBanner(true)
+    pollRef.current += 1
 
     try {
       const url = `/api/chat?conversation_id=${convId}`
@@ -170,6 +193,7 @@ export default function UserChatPage() {
       const d = await r.json()
       if (d.conversation) {
         setActiveConv({ ...d.conversation, type: d.conversation.type || convType || "hr" })
+        if (d.conversation.pinned_message) setPinnedMessage(d.conversation.pinned_message)
       }
       if (d.messages) { msgsRef.current = d.messages; setMsgs(d.messages) }
       if (d.members) setMembers(d.members)
@@ -180,29 +204,42 @@ export default function UserChatPage() {
     setLoadingList(false)
   }, [scrollToBottom])
 
-  // Poll active chat
+  // Smart polling: only fetch delta, skip if tab not visible
   useEffect(() => {
     if (view !== "chat" || !activeConv?.id) return
+    const gen = pollRef.current
     const poll = async () => {
+      if (gen !== pollRef.current) return // Stale poll
       try {
         const url = `/api/chat?conversation_id=${activeConv.id}`
         const r = await fetch(url)
         const d = await r.json()
+        if (gen !== pollRef.current) return
         const newMsgs = d.messages ?? []
         const existingIds = new Set(msgsRef.current.map((m: any) => m.id))
         const added = newMsgs.filter((m: any) => !existingIds.has(m.id))
+
+        // Check for deleted messages
+        const newIds = new Set(newMsgs.map((m: any) => m.id))
+        const deleted = msgsRef.current.filter((m: any) => !newIds.has(m.id))
+
         let changed = false
-        const updated = msgsRef.current.map((m: any) => {
-          const fresh = newMsgs.find((n: any) => n.id === m.id)
-          if (fresh && fresh.is_read !== m.is_read) { changed = true; return { ...m, is_read: fresh.is_read } }
-          return m
-        })
-        if (added.length > 0 || changed) {
+        const updated = msgsRef.current
+          .filter((m: any) => newIds.has(m.id)) // Remove deleted
+          .map((m: any) => {
+            const fresh = newMsgs.find((n: any) => n.id === m.id)
+            if (fresh && fresh.is_read !== m.is_read) { changed = true; return { ...m, is_read: fresh.is_read } }
+            return m
+          })
+        if (added.length > 0 || changed || deleted.length > 0) {
           const merged = [...updated, ...added]
           msgsRef.current = merged
           setMsgs(merged)
           if (added.length > 0) scrollToBottom(true)
         }
+        // Update pinned message
+        if (d.conversation?.pinned_message) setPinnedMessage(d.conversation.pinned_message)
+        else if (!d.conversation?.pinned_message_id) setPinnedMessage(null)
       } catch {}
     }
     const iv = setInterval(() => {
@@ -264,7 +301,6 @@ export default function UserChatPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "add_members", conversation_id: activeConv.id, member_ids: selectedMembers.map((m: any) => m.id) })
       })
-      // Refresh conversation
       openChat(activeConv.id, activeConv.type)
     } catch {}
   }
@@ -334,17 +370,51 @@ export default function UserChatPage() {
   }
 
   const deleteMessage = async (msgId: string) => {
+    // Optimistic removal
+    const prev = msgsRef.current
+    const updated = prev.filter((m: any) => m.id !== msgId)
+    msgsRef.current = updated
+    setMsgs(updated)
     try {
       const r = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete_message", message_id: msgId })
       })
       const d = await r.json()
-      if (d.success) {
-        const updated = msgsRef.current.filter((m: any) => m.id !== msgId)
-        msgsRef.current = updated
-        setMsgs(updated)
+      if (!d.success) {
+        // Rollback
+        msgsRef.current = prev
+        setMsgs(prev)
       }
+    } catch {
+      msgsRef.current = prev
+      setMsgs(prev)
+    }
+  }
+
+  // ═══════════════════════════════════════
+  // PIN MESSAGE
+  // ═══════════════════════════════════════
+  const pinMessage = async (msgId: string) => {
+    if (!activeConv?.id) return
+    try {
+      const r = await fetch("/api/chat", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "pin_message", conversation_id: activeConv.id, message_id: msgId })
+      })
+      const d = await r.json()
+      if (d.success && d.pinned) { setPinnedMessage(d.pinned); setShowPinBanner(true) }
+    } catch {}
+  }
+
+  const unpinMessage = async () => {
+    if (!activeConv?.id) return
+    try {
+      await fetch("/api/chat", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unpin_message", conversation_id: activeConv.id })
+      })
+      setPinnedMessage(null)
     } catch {}
   }
 
@@ -362,6 +432,19 @@ export default function UserChatPage() {
       if (d.urls) setImages(prev => [...prev, ...d.urls])
     } catch {}
     setUploading(false); if (fileRef.current) fileRef.current.value = ""
+  }
+
+  const handleCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files; if (!files?.length) return
+    setUploading(true); setShowAttach(false)
+    try {
+      const fd = new FormData()
+      fd.append("files", files[0])
+      const r = await fetch("/api/chat/upload", { method: "POST", body: fd })
+      const d = await r.json()
+      if (d.urls) setImages(prev => [...prev, ...d.urls])
+    } catch {}
+    setUploading(false); if (cameraRef.current) cameraRef.current.value = ""
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -383,6 +466,50 @@ export default function UserChatPage() {
   }
 
   // ═══════════════════════════════════════
+  // SAVE IMAGE (download)
+  // ═══════════════════════════════════════
+  const saveImage = async (url: string) => {
+    try {
+      const a = document.createElement("a")
+      a.href = url
+      a.download = getFileName(url)
+      a.target = "_blank"
+      a.rel = "noopener noreferrer"
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    } catch {}
+  }
+
+  // ═══════════════════════════════════════
+  // GALLERY NAVIGATION
+  // ═══════════════════════════════════════
+  const openGallery = (imageUrl: string) => {
+    const allImgs = collectAllImages(msgsRef.current)
+    if (allImgs.length === 0) return
+    const idx = allImgs.findIndex(i => i.url === imageUrl)
+    setGalleryImages(allImgs)
+    setGalleryIndex(idx >= 0 ? idx : 0)
+    setShowGallery(true)
+  }
+
+  const galleryPrev = () => setGalleryIndex(i => Math.max(0, i - 1))
+  const galleryNext = () => setGalleryIndex(i => Math.min(galleryImages.length - 1, i + 1))
+
+  const handleGalleryTouchStart = (e: React.TouchEvent) => {
+    galleryTouchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+  }
+  const handleGalleryTouchEnd = (e: React.TouchEvent) => {
+    if (!galleryTouchStart.current) return
+    const dx = e.changedTouches[0].clientX - galleryTouchStart.current.x
+    if (Math.abs(dx) > 50) {
+      if (dx > 0) galleryPrev()
+      else galleryNext()
+    }
+    galleryTouchStart.current = null
+  }
+
+  // ═══════════════════════════════════════
   // SEND MESSAGE
   // ═══════════════════════════════════════
   const sendMessage = async (msgText?: string) => {
@@ -390,19 +517,40 @@ export default function UserChatPage() {
     if (!finalText && images.length === 0 && attachments.length === 0) return
     if (!activeConv) return
     setSending(true); setShowEmoji(false); setShowAttach(false)
+
+    // Optimistic: add temp message
+    const tempId = `temp_${Date.now()}`
+    const tempMsg = {
+      id: tempId, message: finalText || null,
+      images: [...images, ...attachments.map(a => a.url)],
+      sender_id: myEmpId, sender_role: "user",
+      created_at: new Date().toISOString(), is_read: false, _sending: true,
+      sender: null,
+    }
+    const optimistic = [...msgsRef.current, tempMsg]
+    msgsRef.current = optimistic; setMsgs(optimistic)
+    setText(""); setImages([]); setAttachments([]); scrollToBottom(true)
+
     try {
-      const allMedia = [...images, ...attachments.map(a => a.url)]
+      const allMedia = [...tempMsg.images]
       const r = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "send", conversation_id: activeConv.id, message: finalText || null, images: allMedia }),
       })
       const d = await r.json()
       if (d.success && d.message) {
-        const merged = [...msgsRef.current, d.message]
-        msgsRef.current = merged; setMsgs(merged)
-        setText(""); setImages([]); setAttachments([]); scrollToBottom(true)
+        // Replace temp with real
+        const replaced = msgsRef.current.map((m: any) => m.id === tempId ? d.message : m)
+        msgsRef.current = replaced; setMsgs(replaced)
+      } else {
+        // Remove temp on failure
+        const rollback = msgsRef.current.filter((m: any) => m.id !== tempId)
+        msgsRef.current = rollback; setMsgs(rollback)
       }
-    } catch {}
+    } catch {
+      const rollback = msgsRef.current.filter((m: any) => m.id !== tempId)
+      msgsRef.current = rollback; setMsgs(rollback)
+    }
     setSending(false)
   }
 
@@ -417,6 +565,7 @@ export default function UserChatPage() {
 
   const goBack = () => {
     setView("list"); setActiveConv(null); setMsgs([]); msgsRef.current = []
+    setPinnedMessage(null); pollRef.current += 1
     loadConversations()
   }
 
@@ -439,7 +588,6 @@ export default function UserChatPage() {
 
   const filteredEmps = useMemo(() => {
     let list = employees
-    // For add_members, exclude current members
     if (view === "add_members") {
       const memberIds = new Set(members.map((m: any) => m.employee_id))
       list = list.filter((e: any) => !memberIds.has(e.id))
@@ -504,7 +652,6 @@ export default function UserChatPage() {
     return { ...info, subtitle }
   }
 
-  // My role in current group
   const myRole = useMemo(() => {
     const me = members.find((m: any) => m.employee_id === myEmpId)
     return me?.role || "member"
@@ -530,7 +677,6 @@ export default function UserChatPage() {
       style={{ width: size, height: size }} />
   )
 
-  // Fixed container wrapper
   const PageShell = ({ children }: { children: React.ReactNode }) => (
     <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] z-30" style={{ top: 52, bottom: 56 }}>
       <div className="flex flex-col h-full bg-white">{children}</div>
@@ -544,7 +690,6 @@ export default function UserChatPage() {
   if (view === "list") {
     return (
       <PageShell>
-        {/* Header */}
         <div className="flex-shrink-0 px-4 pt-4 pb-2">
           <div className="flex items-center justify-between mb-3">
             <h1 className="text-xl font-black text-gray-900">แชท</h1>
@@ -629,7 +774,7 @@ export default function UserChatPage() {
                 const ct = c.type || "hr"
                 const lm = c.last_message
                 const unread = c.unread_count || 0
-                let preview = lm?.message || (lm?.images?.length ? "📷 ส่งรูปภาพ" : "เริ่มสนทนา...")
+                const preview = lm?.message || (lm?.images?.length ? "📷 ส่งรูปภาพ" : "เริ่มสนทนา...")
 
                 return (
                   <button key={c.id} onClick={() => openChat(c.id, ct)}
@@ -826,9 +971,7 @@ export default function UserChatPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {/* Group avatar + name */}
           <div className="flex flex-col items-center py-6 border-b border-gray-50">
-            {/* Avatar with upload overlay */}
             <div className="relative mb-3">
               <div className={`w-20 h-20 rounded-full bg-gradient-to-br ${info.gradient} flex items-center justify-center overflow-hidden`}>
                 {activeConv?.avatar_url
@@ -844,7 +987,6 @@ export default function UserChatPage() {
               <input ref={groupAvatarRef} type="file" accept="image/*" className="hidden" onChange={updateGroupAvatar} />
             </div>
 
-            {/* Name */}
             {editingGroupName ? (
               <div className="flex items-center gap-2 px-4 w-full max-w-[280px]">
                 <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)}
@@ -870,7 +1012,22 @@ export default function UserChatPage() {
             <p className="text-[12px] text-gray-400 mt-1">สมาชิก {members.length} คน</p>
           </div>
 
-          {/* Members section */}
+          {/* Pinned message section */}
+          {pinnedMessage && (
+            <div className="px-4 py-3 border-b border-gray-50">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-1.5">
+                  <Pin size={13} className="text-amber-500" />
+                  <span className="text-[12px] font-bold text-gray-600">ข้อความที่ปักหมุด</span>
+                </div>
+                {isGrpAdmin && (
+                  <button onClick={unpinMessage} className="text-[11px] text-red-400 font-semibold active:scale-95">ยกเลิก</button>
+                )}
+              </div>
+              <p className="text-[12px] text-gray-500 line-clamp-2">{pinnedMessage.message || "📷 รูปภาพ"}</p>
+            </div>
+          )}
+
           <div className="px-4 py-3">
             <div className="flex items-center justify-between mb-2">
               <p className="text-[13px] font-bold text-gray-700">สมาชิก ({members.length})</p>
@@ -916,7 +1073,6 @@ export default function UserChatPage() {
             </div>
           </div>
 
-          {/* Danger zone */}
           <div className="px-4 py-4 border-t border-gray-50 space-y-2">
             <button onClick={leaveGroup}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-orange-50 text-orange-600 active:bg-orange-100">
@@ -933,7 +1089,6 @@ export default function UserChatPage() {
           </div>
         </div>
 
-        {/* Delete confirmation modal */}
         {confirmDelete && (
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-8" onClick={() => setConfirmDelete(null)}>
             <div className="bg-white rounded-2xl p-5 w-full max-w-[320px] shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -988,7 +1143,6 @@ export default function UserChatPage() {
                 }`}>{header.subtitle}</p>
               )}
             </div>
-            {/* Settings button for group/department */}
             {(convType === "group" || convType === "department") && (
               <button onClick={() => setView("group_settings")}
                 className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center active:scale-90 flex-shrink-0">
@@ -996,6 +1150,19 @@ export default function UserChatPage() {
               </button>
             )}
           </div>
+
+          {/* ═══ PINNED MESSAGE BANNER ═══ */}
+          {pinnedMessage && showPinBanner && (
+            <div className="flex-shrink-0 bg-amber-50 border-b border-amber-100 px-3 py-1.5 flex items-center gap-2">
+              <Pin size={13} className="text-amber-500 flex-shrink-0" />
+              <p className="flex-1 text-[11px] text-amber-800 font-medium truncate">
+                {pinnedMessage.message || "📷 รูปภาพ"}
+              </p>
+              <button onClick={() => setShowPinBanner(false)} className="flex-shrink-0 active:scale-90">
+                <X size={14} className="text-amber-400" />
+              </button>
+            </div>
+          )}
 
           {/* ═══ MESSAGES AREA ═══ */}
           <div ref={chatRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain relative">
@@ -1044,27 +1211,29 @@ export default function UserChatPage() {
                         const fileUrls = allMedia.filter((u: string) => !isImageUrl(u))
                         const isConsecutive = mi > 0 && g.msgs[mi - 1]?.sender_id === m.sender_id
                         const showAvatar = !isMe && !isConsecutive
+                        const isSending = m._sending
+                        const isPinned = pinnedMessage?.id === m.id
 
                         const handleMsgTouchStart = (e: React.TouchEvent) => {
-                          if (!isMe) return
                           const touch = e.touches[0]
                           const x = touch.clientX; const y = touch.clientY
                           longPressTimer.current = setTimeout(() => {
-                            setContextMenu({ msgId: m.id, isMe, x, y })
+                            const firstImg = imgUrls.length > 0 ? imgUrls[0] : undefined
+                            setContextMenu({ msgId: m.id, isMe, x, y, hasImage: firstImg })
                           }, 500)
                         }
                         const handleMsgTouchEnd = () => {
                           if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
                         }
                         const handleMsgContextMenu = (e: React.MouseEvent) => {
-                          if (!isMe) return
                           e.preventDefault()
-                          setContextMenu({ msgId: m.id, isMe, x: e.clientX, y: e.clientY })
+                          const firstImg = imgUrls.length > 0 ? imgUrls[0] : undefined
+                          setContextMenu({ msgId: m.id, isMe, x: e.clientX, y: e.clientY, hasImage: firstImg })
                         }
 
                         return (
                           <div key={m.id}
-                            className={`flex gap-1.5 ${isConsecutive ? "mt-0.5" : "mt-2"} ${isMe ? "justify-end" : "justify-start"}`}
+                            className={`flex gap-1.5 ${isConsecutive ? "mt-0.5" : "mt-2"} ${isMe ? "justify-end" : "justify-start"} ${isSending ? "opacity-60" : ""}`}
                             onTouchStart={handleMsgTouchStart}
                             onTouchEnd={handleMsgTouchEnd}
                             onTouchMove={handleMsgTouchEnd}
@@ -1087,11 +1256,27 @@ export default function UserChatPage() {
                                 <span className="text-[10px] text-white/60 font-medium ml-1 mb-0.5">{senderName}</span>
                               )}
 
+                              {/* Pinned indicator */}
+                              {isPinned && (
+                                <div className="flex items-center gap-0.5 mb-0.5">
+                                  <Pin size={9} className="text-amber-400" />
+                                  <span className="text-[9px] text-amber-300 font-medium">ปักหมุด</span>
+                                </div>
+                              )}
+
                               {imgUrls.length > 0 && (
                                 <div className={`grid gap-1 mb-0.5 ${imgUrls.length === 1 ? "grid-cols-1" : "grid-cols-2"}`} style={{ maxWidth: 230 }}>
                                   {imgUrls.map((url: string, ii: number) => (
-                                    <img key={ii} src={url} alt="" onClick={() => setImgModal(url)}
-                                      className={`rounded-2xl object-cover cursor-pointer shadow ${imgUrls.length === 1 ? "max-h-[200px] w-full" : "h-[100px] w-full"}`} />
+                                    <div key={ii} className="relative group">
+                                      <img src={url} alt="" onClick={() => openGallery(url)}
+                                        className={`rounded-2xl object-cover cursor-pointer shadow ${imgUrls.length === 1 ? "max-h-[200px] w-full" : "h-[100px] w-full"}`} />
+                                      {/* Image count badge for multiple images */}
+                                      {imgUrls.length > 1 && ii === 0 && (
+                                        <span className="absolute top-1.5 right-1.5 bg-black/50 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                                          {imgUrls.length}
+                                        </span>
+                                      )}
+                                    </div>
                                   ))}
                                 </div>
                               )}
@@ -1158,6 +1343,10 @@ export default function UserChatPage() {
                 <button onClick={() => fileRef.current?.click()} className="flex flex-col items-center gap-1 active:scale-95">
                   <div className="w-11 h-11 rounded-full bg-green-500 flex items-center justify-center shadow"><ImagePlus size={18} className="text-white" /></div>
                   <span className="text-[9px] font-bold text-gray-500">รูปภาพ</span>
+                </button>
+                <button onClick={() => cameraRef.current?.click()} className="flex flex-col items-center gap-1 active:scale-95">
+                  <div className="w-11 h-11 rounded-full bg-amber-500 flex items-center justify-center shadow"><Camera size={18} className="text-white" /></div>
+                  <span className="text-[9px] font-bold text-gray-500">กล้อง</span>
                 </button>
                 <button onClick={() => docRef.current?.click()} className="flex flex-col items-center gap-1 active:scale-95">
                   <div className="w-11 h-11 rounded-full bg-blue-500 flex items-center justify-center shadow"><File size={18} className="text-white" /></div>
@@ -1226,27 +1415,129 @@ export default function UserChatPage() {
       </div>
 
       <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCameraCapture} />
       <input ref={docRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.rtf,.zip,.rar,.7z,.mp3,.mp4,.mov" multiple className="hidden" onChange={handleFileUpload} />
 
-      {imgModal && (
-        <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center" onClick={() => setImgModal(null)}>
-          <button className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/15 flex items-center justify-center"
-            onClick={() => setImgModal(null)}><X size={20} className="text-white" /></button>
-          <img src={imgModal} alt="" className="max-w-[95%] max-h-[85vh] object-contain" onClick={e => e.stopPropagation()} />
+      {/* ═══ IMAGE GALLERY VIEWER ═══ */}
+      {showGallery && galleryImages.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col"
+          onTouchStart={handleGalleryTouchStart}
+          onTouchEnd={handleGalleryTouchEnd}
+        >
+          {/* Gallery header */}
+          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3">
+            <button onClick={() => setShowGallery(false)}
+              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center active:scale-90">
+              <X size={20} className="text-white" />
+            </button>
+            <span className="text-white/70 text-[13px] font-medium">
+              {galleryIndex + 1} / {galleryImages.length}
+            </span>
+            <button onClick={() => saveImage(galleryImages[galleryIndex].url)}
+              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center active:scale-90">
+              <Download size={18} className="text-white" />
+            </button>
+          </div>
+
+          {/* Image */}
+          <div className="flex-1 flex items-center justify-center relative overflow-hidden">
+            <img src={galleryImages[galleryIndex].url} alt=""
+              className="max-w-[95%] max-h-[80vh] object-contain select-none"
+              draggable={false}
+              onClick={e => e.stopPropagation()} />
+
+            {/* Navigation arrows */}
+            {galleryIndex > 0 && (
+              <button onClick={galleryPrev}
+                className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/30 flex items-center justify-center active:scale-90">
+                <ArrowLeft size={18} className="text-white" />
+              </button>
+            )}
+            {galleryIndex < galleryImages.length - 1 && (
+              <button onClick={galleryNext}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/30 flex items-center justify-center active:scale-90">
+                <ArrowRight size={18} className="text-white" />
+              </button>
+            )}
+          </div>
+
+          {/* Thumbnail strip */}
+          {galleryImages.length > 1 && (
+            <div className="flex-shrink-0 py-3 px-4">
+              <div className="flex gap-2 overflow-x-auto no-scrollbar justify-center">
+                {galleryImages.map((img, i) => (
+                  <button key={i} onClick={() => setGalleryIndex(i)}
+                    className={`w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 border-2 transition-all ${
+                      i === galleryIndex ? "border-white scale-105" : "border-transparent opacity-50"
+                    }`}>
+                    <img src={img.url} alt="" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Timestamp */}
+          <div className="flex-shrink-0 text-center pb-4">
+            <span className="text-white/40 text-[11px]">{fmtDate(galleryImages[galleryIndex]?.time)} {fmtTime(galleryImages[galleryIndex]?.time)}</span>
+          </div>
         </div>
       )}
 
-      {/* Message context menu */}
+      {/* ═══ CONTEXT MENU (enhanced with pin & save) ═══ */}
       {contextMenu && (
         <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)}>
-          <div className="absolute bg-white rounded-xl shadow-2xl border border-gray-100 py-1 min-w-[140px] overflow-hidden"
-            style={{ left: Math.min(contextMenu.x, window.innerWidth - 160), top: Math.min(contextMenu.y, window.innerHeight - 100) }}
+          <div className="absolute bg-white rounded-xl shadow-2xl border border-gray-100 py-1 min-w-[160px] overflow-hidden"
+            style={{ left: Math.min(contextMenu.x, window.innerWidth - 180), top: Math.min(contextMenu.y, window.innerHeight - 200) }}
             onClick={e => e.stopPropagation()}>
-            <button onClick={() => { setConfirmMsgDelete(contextMenu.msgId); setContextMenu(null) }}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-red-50 active:bg-red-100">
-              <Trash2 size={15} className="text-red-500" />
-              <span className="text-[13px] font-semibold text-red-600">ลบข้อความ</span>
-            </button>
+
+            {/* Copy text */}
+            {(() => {
+              const msg = msgsRef.current.find((m: any) => m.id === contextMenu.msgId)
+              if (msg?.message) return (
+                <button onClick={() => { navigator.clipboard.writeText(msg.message); setContextMenu(null) }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-gray-50 active:bg-gray-100">
+                  <Copy size={15} className="text-gray-500" />
+                  <span className="text-[13px] font-semibold text-gray-700">คัดลอกข้อความ</span>
+                </button>
+              )
+              return null
+            })()}
+
+            {/* Pin message */}
+            {convType !== "hr" && (
+              pinnedMessage?.id === contextMenu.msgId ? (
+                <button onClick={() => { unpinMessage(); setContextMenu(null) }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-gray-50 active:bg-gray-100">
+                  <Pin size={15} className="text-amber-500" />
+                  <span className="text-[13px] font-semibold text-amber-600">ยกเลิกปักหมุด</span>
+                </button>
+              ) : (
+                <button onClick={() => { pinMessage(contextMenu.msgId); setContextMenu(null) }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-gray-50 active:bg-gray-100">
+                  <Pin size={15} className="text-amber-500" />
+                  <span className="text-[13px] font-semibold text-gray-700">ปักหมุดข้อความ</span>
+                </button>
+              )
+            )}
+
+            {/* Save image */}
+            {contextMenu.hasImage && (
+              <button onClick={() => { saveImage(contextMenu.hasImage!); setContextMenu(null) }}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-gray-50 active:bg-gray-100">
+                <Download size={15} className="text-blue-500" />
+                <span className="text-[13px] font-semibold text-gray-700">บันทึกรูปภาพ</span>
+              </button>
+            )}
+
+            {/* Delete (own messages only) */}
+            {contextMenu.isMe && (
+              <button onClick={() => { setConfirmMsgDelete(contextMenu.msgId); setContextMenu(null) }}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-red-50 active:bg-red-100">
+                <Trash2 size={15} className="text-red-500" />
+                <span className="text-[13px] font-semibold text-red-600">ลบข้อความ</span>
+              </button>
+            )}
           </div>
         </div>
       )}

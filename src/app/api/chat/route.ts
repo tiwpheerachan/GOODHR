@@ -336,8 +336,17 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Get pinned message if any
+    let pinnedMessage = null
+    if (conv?.pinned_message_id) {
+      const { data: pm } = await supa.from("chat_messages")
+        .select("id, message, images, created_at, sender_id, sender:employees!sender_id(first_name_th, nickname)")
+        .eq("id", conv.pinned_message_id).maybeSingle()
+      pinnedMessage = pm
+    }
+
     return NextResponse.json({
-      conversation: { ...conv, type: convType, other_user: otherUser, member_count: members.length },
+      conversation: { ...conv, type: convType, other_user: otherUser, member_count: members.length, pinned_message: pinnedMessage },
       messages: messages ?? [],
       members,
       me: empId,
@@ -626,6 +635,30 @@ export async function POST(req: NextRequest) {
     await supa.from("employee_online_status")
       .update({ is_online: false, last_seen: new Date().toISOString() })
       .eq("employee_id", empId)
+    return NextResponse.json({ success: true })
+  }
+
+  // ── Pin message ──
+  if (action === "pin_message") {
+    const { conversation_id, message_id } = body
+    if (!conversation_id || !message_id) return NextResponse.json({ error: "conversation_id and message_id required" }, { status: 400 })
+    // Verify message belongs to this conversation
+    const { data: msg } = await supa.from("chat_messages")
+      .select("id, message, images, created_at, sender_id, sender:employees!sender_id(first_name_th, nickname)")
+      .eq("id", message_id).eq("conversation_id", conversation_id).single()
+    if (!msg) return NextResponse.json({ error: "Message not found" }, { status: 404 })
+    await supa.from("chat_conversations")
+      .update({ pinned_message_id: message_id, updated_at: new Date().toISOString() })
+      .eq("id", conversation_id)
+    return NextResponse.json({ success: true, pinned: msg })
+  }
+
+  // ── Unpin message ──
+  if (action === "unpin_message") {
+    const { conversation_id } = body
+    await supa.from("chat_conversations")
+      .update({ pinned_message_id: null, updated_at: new Date().toISOString() })
+      .eq("id", conversation_id)
     return NextResponse.json({ success: true })
   }
 
