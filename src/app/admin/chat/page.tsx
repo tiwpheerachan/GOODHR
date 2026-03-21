@@ -14,7 +14,6 @@ function isImageUrl(url: string): boolean {
   const ext = url.split("?")[0].split(".").pop()?.toLowerCase() || ""
   return ["jpg","jpeg","png","gif","webp","svg","bmp","ico"].includes(ext)
 }
-function isFileUrl(url: string): boolean { return !isImageUrl(url) }
 function getFileIcon(url: string): string {
   const ext = url.split("?")[0].split(".").pop()?.toLowerCase() || ""
   if (["pdf"].includes(ext)) return "📕"
@@ -29,8 +28,7 @@ function getFileIcon(url: string): string {
 }
 function getFileName(url: string): string {
   try {
-    const path = url.split("?")[0]
-    const parts = path.split("/")
+    const parts = url.split("?")[0].split("/")
     const name = parts[parts.length - 1] || "file"
     return decodeURIComponent(name.replace(/^\d+_[a-z0-9]+_/, ""))
   } catch { return "file" }
@@ -64,7 +62,6 @@ export default function AdminChatPage() {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "instant" }), 30)
   }, [])
 
-  // ── Smart load conversations ──
   const loadConvs = useCallback(async (silent = false) => {
     try {
       const r = await fetch("/api/chat?mode=admin")
@@ -80,7 +77,6 @@ export default function AdminChatPage() {
     if (!silent) setLoading(false)
   }, [])
 
-  // ── Smart load messages ──
   const loadMsgs = useCallback(async (convId: string, initial = false) => {
     if (initial) setLoadingMsgs(true)
     try {
@@ -113,7 +109,6 @@ export default function AdminChatPage() {
   }, [scrollToBottom])
 
   useEffect(() => { loadConvs() }, [loadConvs])
-
   useEffect(() => {
     const interval = setInterval(() => {
       if (document.visibilityState !== "visible") return
@@ -124,28 +119,16 @@ export default function AdminChatPage() {
   }, [selectedId, loadConvs, loadMsgs])
 
   const openConv = (conv: any) => {
-    setSelectedId(conv.id)
-    setSelectedEmp(conv.employee || null)
-    setMsgs([])
-    msgsRef.current = []
-    loadMsgs(conv.id, true)
+    setSelectedId(conv.id); setSelectedEmp(conv.employee || null)
+    setMsgs([]); msgsRef.current = []; loadMsgs(conv.id, true)
   }
-
   const goBack = () => {
-    setSelectedId(null)
-    setSelectedEmp(null)
-    setMsgs([])
-    msgsRef.current = []
-    setText("")
-    setImages([])
-    setAttachments([])
-    loadConvs()
+    setSelectedId(null); setSelectedEmp(null); setMsgs([]); msgsRef.current = []
+    setText(""); setImages([]); setAttachments([]); loadConvs()
   }
 
-  // Upload images
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files?.length) return
+    const files = e.target.files; if (!files?.length) return
     setUploading(true)
     try {
       const fd = new FormData()
@@ -154,14 +137,11 @@ export default function AdminChatPage() {
       const d = await r.json()
       if (d.urls) setImages((p: any) => [...p, ...d.urls])
     } catch { }
-    setUploading(false)
-    if (fileRef.current) fileRef.current.value = ""
+    setUploading(false); if (fileRef.current) fileRef.current.value = ""
   }
 
-  // Upload files (documents)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files?.length) return
+    const files = e.target.files; if (!files?.length) return
     setUploading(true)
     try {
       const fd = new FormData()
@@ -169,48 +149,31 @@ export default function AdminChatPage() {
       const r = await fetch("/api/chat/upload", { method: "POST", body: fd })
       const d = await r.json()
       if (d.files) {
-        const newImages: string[] = []
-        const newFiles: Array<{ url: string; name: string; size: number; type: string }> = []
-        for (const f of d.files) {
-          if (f.type?.startsWith("image/")) {
-            newImages.push(f.url)
-          } else {
-            newFiles.push(f)
-          }
-        }
-        if (newImages.length) setImages((prev: any) => [...prev, ...newImages])
-        if (newFiles.length) setAttachments((prev: any) => [...prev, ...newFiles])
+        const ni: string[] = []; const nf: Array<{ url: string; name: string; size: number; type: string }> = []
+        for (const f of d.files) { f.type?.startsWith("image/") ? ni.push(f.url) : nf.push(f) }
+        if (ni.length) setImages((p: any) => [...p, ...ni])
+        if (nf.length) setAttachments((p: any) => [...p, ...nf])
       }
     } catch { }
-    setUploading(false)
-    if (docRef.current) docRef.current.value = ""
+    setUploading(false); if (docRef.current) docRef.current.value = ""
   }
 
   const sendMessage = async (msgText?: string) => {
     const finalText = msgText ?? text.trim()
     if (!finalText && images.length === 0 && attachments.length === 0) return
     if (!selectedId) return
-    setSending(true)
-    setShowEmoji(false)
+    setSending(true); setShowEmoji(false)
     try {
-      const allMedia = [
-        ...images,
-        ...attachments.map((a: any) => a.url),
-      ]
+      const allMedia = [...images, ...attachments.map((a: any) => a.url)]
       const r = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "send", conversation_id: selectedId, message: finalText || null, images: allMedia }),
       })
       const d = await r.json()
       if (d.success && d.message) {
         const merged = [...msgsRef.current, d.message]
-        msgsRef.current = merged
-        setMsgs(merged)
-        setText("")
-        setImages([])
-        setAttachments([])
-        scrollToBottom(true)
+        msgsRef.current = merged; setMsgs(merged)
+        setText(""); setImages([]); setAttachments([]); scrollToBottom(true)
       }
     } catch { }
     setSending(false)
@@ -242,8 +205,7 @@ export default function AdminChatPage() {
   }), [convs, search, filter])
 
   const grouped = useMemo(() => {
-    const g: { date: string; msgs: any[] }[] = []
-    let ld = ""
+    const g: { date: string; msgs: any[] }[] = []; let ld = ""
     for (const m of msgs) {
       const d = m.created_at?.slice(0, 10) || ""
       if (d !== ld) { g.push({ date: d, msgs: [] }); ld = d }
@@ -252,24 +214,31 @@ export default function AdminChatPage() {
     return g
   }, [msgs])
 
-  // File card component
-  const FileCard = ({ url, isMe }: { url: string; isMe: boolean }) => {
-    const name = getFileName(url)
-    const icon = getFileIcon(url)
-    return (
-      <a href={url} target="_blank" rel="noopener noreferrer"
-        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-1 transition-all hover:opacity-80 ${
-          isMe ? "bg-white/20 border border-white/30" : "bg-slate-50 border border-slate-200"
-        }`}>
-        <div className="text-2xl flex-shrink-0">{icon}</div>
-        <div className="flex-1 min-w-0">
-          <p className={`text-xs font-bold truncate ${isMe ? "text-white" : "text-slate-700"}`}>{name}</p>
-          <p className={`text-[10px] ${isMe ? "text-white/70" : "text-slate-400"}`}>แตะเพื่อเปิด</p>
-        </div>
-        <Download size={14} className={`flex-shrink-0 ${isMe ? "text-white/70" : "text-slate-400"}`} />
-      </a>
-    )
-  }
+  // ── File Card ──
+  const FileCard = ({ url, isMe }: { url: string; isMe: boolean }) => (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+      className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all hover:shadow-md ${
+        isMe
+          ? "bg-white/20 backdrop-blur-sm border border-white/20"
+          : "bg-white border border-slate-200 shadow-sm"
+      }`}
+      style={{ minWidth: 200, maxWidth: 300 }}>
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+        isMe ? "bg-white/20" : "bg-slate-100"
+      }`}>
+        <span className="text-xl">{getFileIcon(url)}</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className={`text-[13px] font-bold truncate ${isMe ? "text-white" : "text-slate-700"}`}>
+          {getFileName(url)}
+        </p>
+        <p className={`text-[11px] mt-0.5 ${isMe ? "text-white/60" : "text-slate-400"}`}>
+          แตะเพื่อดาวน์โหลด
+        </p>
+      </div>
+      <Download size={16} className={`flex-shrink-0 ${isMe ? "text-white/50" : "text-slate-300"}`} />
+    </a>
+  )
 
   // ══════════════════════════════════════════════════════════
   // ── CONVERSATION LIST VIEW ──
@@ -277,16 +246,13 @@ export default function AdminChatPage() {
   if (!selectedId) {
     return (
       <div className="space-y-5">
-        {/* Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-black text-slate-800 flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
-                <MessageCircle size={17} className="text-white" />
-              </div>
-              แชทกับพนักงาน
-            </h1>
-          </div>
+          <h1 className="text-xl font-black text-slate-800 flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+              <MessageCircle size={17} className="text-white" />
+            </div>
+            แชทกับพนักงาน
+          </h1>
           {totalUnread > 0 && (
             <span className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-black rounded-full border border-red-100">
               {totalUnread} ใหม่
@@ -294,13 +260,12 @@ export default function AdminChatPage() {
           )}
         </div>
 
-        {/* Search + filter */}
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300" />
             <input value={search} onChange={(e: any) => setSearch(e.target.value)}
               placeholder="ค้นหาชื่อ, รหัสพนักงาน..."
-              className="w-full pl-10 pr-4 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all" />
+              className="w-full pl-10 pr-4 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300" />
           </div>
           <div className="flex bg-white rounded-xl border border-slate-200 overflow-hidden">
             {(["all","unread"] as const).map((f: any) => (
@@ -312,7 +277,6 @@ export default function AdminChatPage() {
           </div>
         </div>
 
-        {/* Conversation list */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-500" />
@@ -335,40 +299,26 @@ export default function AdminChatPage() {
               const dept = emp.department?.name || ""
               const lastMsg = c.last_message
               const unread = c.unread_count || 0
-
               return (
                 <button key={c.id} onClick={() => openConv(c)}
-                  className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl border transition-all hover:shadow-md active:scale-[0.995] ${
-                    unread > 0
-                      ? "bg-gradient-to-r from-indigo-50/80 to-blue-50/50 border-indigo-100 shadow-sm"
-                      : "bg-white border-slate-100 hover:border-slate-200"
+                  className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl border transition-all hover:shadow-md ${
+                    unread > 0 ? "bg-gradient-to-r from-indigo-50/80 to-blue-50/50 border-indigo-100 shadow-sm" : "bg-white border-slate-100 hover:border-slate-200"
                   }`}>
                   <div className="relative flex-shrink-0">
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-black overflow-hidden shadow-sm ${
-                      unread > 0
-                        ? "bg-gradient-to-br from-indigo-500 to-blue-600 ring-2 ring-indigo-200"
-                        : "bg-gradient-to-br from-slate-300 to-slate-400"
+                      unread > 0 ? "bg-gradient-to-br from-indigo-500 to-blue-600 ring-2 ring-indigo-200" : "bg-gradient-to-br from-slate-300 to-slate-400"
                     }`}>
-                      {emp.avatar_url
-                        ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" />
-                        : name[0]}
+                      {emp.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" /> : name[0]}
                     </div>
                     {unread > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 shadow-sm ring-2 ring-white">
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 ring-2 ring-white">
                         {unread > 9 ? "9+" : unread}
                       </span>
                     )}
                   </div>
                   <div className="flex-1 min-w-0 text-left">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <p className={`text-sm truncate ${unread > 0 ? "font-black text-slate-800" : "font-semibold text-slate-600"}`}>
-                          {name}
-                        </p>
-                        {emp.employee_code && (
-                          <span className="text-[10px] text-slate-300 font-mono flex-shrink-0">{emp.employee_code}</span>
-                        )}
-                      </div>
+                      <p className={`text-sm truncate ${unread > 0 ? "font-black text-slate-800" : "font-semibold text-slate-600"}`}>{name}</p>
                       <span className={`text-[10px] flex-shrink-0 ${unread > 0 ? "text-indigo-500 font-bold" : "text-slate-300"}`}>
                         {lastMsg ? timeAgo(lastMsg.created_at) : ""}
                       </span>
@@ -377,7 +327,7 @@ export default function AdminChatPage() {
                     {lastMsg && (
                       <p className={`text-xs truncate mt-0.5 ${unread > 0 ? "text-slate-600 font-bold" : "text-slate-400"}`}>
                         {lastMsg.sender_role !== "user" ? "คุณ: " : ""}
-                        {lastMsg.message || (lastMsg.images?.length > 0 ? "🖼️ ส่งรูปภาพ/ไฟล์" : "")}
+                        {lastMsg.message || (lastMsg.images?.length > 0 ? "📎 ส่งไฟล์/รูปภาพ" : "")}
                       </p>
                     )}
                   </div>
@@ -397,34 +347,31 @@ export default function AdminChatPage() {
   const empName = emp.nickname || `${emp.first_name_th || ""} ${emp.last_name_th || ""}`.trim() || "พนักงาน"
 
   return (
-    <div className="flex flex-col -mx-4 -mt-4 sm:-mx-6 sm:-mt-6" style={{ height: "calc(100vh - 16px)" }}>
-      {/* ── Chat header ── */}
-      <div className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3 flex-shrink-0">
+    <div className="flex flex-col rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm"
+      style={{ height: "calc(100vh - 120px)" }}>
+
+      {/* ── Chat header — always visible ── */}
+      <div className="flex-shrink-0 bg-white border-b border-slate-100 px-5 py-3 flex items-center gap-3">
         <button onClick={goBack}
-          className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors flex-shrink-0">
-          <ArrowLeft size={16} className="text-slate-600" />
+          className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors flex-shrink-0">
+          <ArrowLeft size={18} className="text-slate-600" />
         </button>
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white text-sm font-black overflow-hidden shadow-sm flex-shrink-0 ring-2 ring-white">
-          {emp.avatar_url
-            ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" />
-            : empName[0]}
+        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white text-sm font-black overflow-hidden shadow-sm ring-2 ring-white flex-shrink-0">
+          {emp.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" /> : empName[0]}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-black text-slate-800 truncate">{empName}</p>
           <p className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
             {emp.employee_code && <span className="font-mono">{emp.employee_code}</span>}
             {emp.department?.name && (
-              <>
-                <span className="text-slate-200">·</span>
-                <span>{emp.department.name}</span>
-              </>
+              <><span className="text-slate-200">·</span><span>{emp.department.name}</span></>
             )}
           </p>
         </div>
       </div>
 
-      {/* ── Messages area ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 bg-gradient-to-b from-slate-50/80 to-white">
+      {/* ── Messages — only this part scrolls ── */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 bg-gradient-to-b from-slate-50 to-white">
         {loadingMsgs ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-500" />
@@ -440,7 +387,7 @@ export default function AdminChatPage() {
           </div>
         ) : (
           <div className="space-y-1">
-            {grouped.map((g: any, gi: number) => (
+            {grouped.map((g: any) => (
               <div key={g.date}>
                 <div className="flex items-center justify-center my-4">
                   <div className="h-px bg-slate-200 flex-1" />
@@ -456,31 +403,31 @@ export default function AdminChatPage() {
                   const senderName = m.sender ? (m.sender.nickname || m.sender.first_name_th) : ""
                   const allMedia = m.images || []
                   const imgUrls = allMedia.filter((u: string) => isImageUrl(u))
-                  const fileUrls = allMedia.filter((u: string) => isFileUrl(u))
+                  const fileUrls = allMedia.filter((u: string) => !isImageUrl(u))
                   const isConsecutive = mi > 0 && g.msgs[mi - 1]?.sender_role === m.sender_role
 
                   return (
-                    <div key={m.id} className={`flex gap-2 ${isConsecutive ? "mt-0.5" : "mt-3"} ${isMe ? "justify-end" : "justify-start"}`}>
+                    <div key={m.id} className={`flex gap-2.5 ${isConsecutive ? "mt-0.5" : "mt-3"} ${isMe ? "justify-end" : "justify-start"}`}>
                       {isUser && (
-                        <div className="w-8 h-8 flex-shrink-0 mt-auto">
+                        <div className="w-9 h-9 flex-shrink-0 mt-auto">
                           {showAvatar ? (
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-300 to-slate-400 flex items-center justify-center text-white text-[10px] font-black overflow-hidden shadow-sm">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-300 to-slate-400 flex items-center justify-center text-white text-[10px] font-black overflow-hidden shadow-sm">
                               {m.sender?.avatar_url
                                 ? <img src={m.sender.avatar_url} alt="" className="w-full h-full object-cover" />
                                 : senderName?.[0] || "?"}
                             </div>
-                          ) : <div className="w-8" />}
+                          ) : <div className="w-9" />}
                         </div>
                       )}
 
-                      <div className={`max-w-[70%] flex flex-col ${isMe ? "items-end" : "items-start"}`}>
+                      <div className={`max-w-[65%] flex flex-col ${isMe ? "items-end" : "items-start"}`}>
                         {/* Images */}
                         {imgUrls.length > 0 && (
-                          <div className={`grid gap-1.5 mb-1 ${imgUrls.length === 1 ? "grid-cols-1" : "grid-cols-2"} max-w-[280px]`}>
+                          <div className={`grid gap-1.5 mb-1 ${imgUrls.length === 1 ? "grid-cols-1" : "grid-cols-2"}`} style={{ maxWidth: 300 }}>
                             {imgUrls.map((url: string, ii: number) => (
                               <img key={ii} src={url} alt="" onClick={() => setImgModal(url)}
-                                className={`rounded-2xl object-cover cursor-pointer shadow-sm hover:opacity-90 transition-opacity border border-white/50 ${
-                                  imgUrls.length === 1 ? "max-h-[220px] w-full" : "h-[110px] w-full"
+                                className={`rounded-2xl object-cover cursor-pointer shadow-sm hover:opacity-90 transition-opacity ${
+                                  imgUrls.length === 1 ? "max-h-[240px] w-full" : "h-[120px] w-full"
                                 }`} />
                             ))}
                           </div>
@@ -488,7 +435,7 @@ export default function AdminChatPage() {
 
                         {/* File attachments */}
                         {fileUrls.length > 0 && (
-                          <div className="w-full max-w-[280px] space-y-1 mb-1">
+                          <div className="space-y-1.5 mb-1">
                             {fileUrls.map((url: string, fi: number) => (
                               <FileCard key={fi} url={url} isMe={isMe} />
                             ))}
@@ -497,9 +444,9 @@ export default function AdminChatPage() {
 
                         {/* Text bubble */}
                         {m.message && (
-                          <div className={`px-3.5 py-2.5 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words ${
+                          <div className={`px-4 py-2.5 text-[14px] leading-relaxed whitespace-pre-wrap break-words ${
                             isMe
-                              ? "bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-2xl rounded-br-md shadow-md shadow-indigo-200/30"
+                              ? "bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-2xl rounded-br-md shadow-md"
                               : "bg-white text-slate-700 rounded-2xl rounded-bl-md shadow-sm border border-slate-100"
                           }`}>
                             {m.message}
@@ -508,12 +455,12 @@ export default function AdminChatPage() {
 
                         {/* Time + read */}
                         {!isConsecutive && (
-                          <div className={`flex items-center gap-1 mt-1 ${isMe ? "mr-1" : "ml-1"}`}>
+                          <div className={`flex items-center gap-1.5 mt-1 ${isMe ? "mr-1" : "ml-1"}`}>
                             <span className="text-[10px] text-slate-300">{fmtTime(m.created_at)}</span>
                             {isMe && (
                               m.is_read
-                                ? <CheckCheck size={12} className="text-blue-400" />
-                                : <Check size={12} className="text-slate-300" />
+                                ? <CheckCheck size={13} className="text-blue-400" />
+                                : <Check size={13} className="text-slate-300" />
                             )}
                           </div>
                         )}
@@ -528,9 +475,9 @@ export default function AdminChatPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* ── Quick emoji bar ── */}
+      {/* ── Emoji bar ── */}
       {showEmoji && (
-        <div className="bg-white border-t border-slate-100 px-4 py-2.5 flex gap-1 overflow-x-auto no-scrollbar flex-shrink-0">
+        <div className="flex-shrink-0 bg-white border-t border-slate-100 px-4 py-2 flex gap-1 overflow-x-auto no-scrollbar">
           {QUICK_EMOJIS.map((e: string) => (
             <button key={e} onClick={() => sendMessage(e)}
               className="w-10 h-10 rounded-xl hover:bg-slate-100 flex items-center justify-center text-xl transition-all hover:scale-110 active:scale-95 flex-shrink-0">
@@ -540,27 +487,27 @@ export default function AdminChatPage() {
         </div>
       )}
 
-      {/* ── Attachment preview bar ── */}
+      {/* ── Preview bar ── */}
       {(images.length > 0 || attachments.length > 0) && (
-        <div className="bg-white border-t border-slate-100 px-4 py-2.5 flex-shrink-0">
+        <div className="flex-shrink-0 bg-white border-t border-slate-100 px-4 py-2.5">
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
             {images.map((url: string, i: number) => (
               <div key={`img-${i}`} className="relative flex-shrink-0 group">
-                <img src={url} alt="" className="w-16 h-16 rounded-xl object-cover border-2 border-indigo-200 shadow-sm" />
+                <img src={url} alt="" className="w-16 h-16 rounded-xl object-cover border-2 border-indigo-200" />
                 <button onClick={() => setImages((p: any) => p.filter((_: any, j: number) => j !== i))}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                  className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   <X size={10} />
                 </button>
               </div>
             ))}
             {attachments.map((f: any, i: number) => (
               <div key={`file-${i}`} className="relative flex-shrink-0 group">
-                <div className="w-16 h-16 rounded-xl bg-indigo-50 border-2 border-indigo-200 shadow-sm flex flex-col items-center justify-center gap-0.5">
+                <div className="w-16 h-16 rounded-xl bg-indigo-50 border-2 border-indigo-200 flex flex-col items-center justify-center gap-0.5">
                   <span className="text-xl">{getFileIcon(f.name || f.url)}</span>
-                  <span className="text-[8px] text-slate-500 font-bold truncate max-w-[52px] px-0.5">{f.name?.split(".").pop()?.toUpperCase()}</span>
+                  <span className="text-[8px] text-slate-500 font-bold">{f.name?.split(".").pop()?.toUpperCase()}</span>
                 </div>
                 <button onClick={() => setAttachments((p: any) => p.filter((_: any, j: number) => j !== i))}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                  className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   <X size={10} />
                 </button>
               </div>
@@ -569,57 +516,51 @@ export default function AdminChatPage() {
         </div>
       )}
 
-      {/* ── Input bar ── */}
-      <div className="bg-white border-t border-slate-100 px-4 py-3 flex items-end gap-2 flex-shrink-0">
+      {/* ── Input bar — always at bottom ── */}
+      <div className="flex-shrink-0 bg-white border-t border-slate-200 px-4 py-3 flex items-end gap-2.5">
         <button onClick={() => setShowEmoji(!showEmoji)}
-          className={`w-9 h-9 flex-shrink-0 rounded-xl flex items-center justify-center transition-all ${
-            showEmoji ? "bg-indigo-100 text-indigo-600" : "bg-slate-100 text-slate-400 hover:text-slate-600 hover:bg-slate-200"
+          className={`w-10 h-10 flex-shrink-0 rounded-xl flex items-center justify-center transition-all ${
+            showEmoji ? "bg-indigo-100 text-indigo-600" : "bg-slate-100 text-slate-400 hover:bg-slate-200"
           }`}>
-          <Smile size={18} />
+          <Smile size={20} />
         </button>
 
-        {/* Image upload */}
         <button onClick={() => fileRef.current?.click()} disabled={uploading}
-          className="w-9 h-9 flex-shrink-0 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all">
-          {uploading ? <div className="w-4 h-4 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" /> : <ImagePlus size={18} />}
+          className="w-10 h-10 flex-shrink-0 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all">
+          {uploading ? <div className="w-4 h-4 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" /> : <ImagePlus size={20} />}
         </button>
         <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
 
-        {/* File upload */}
         <button onClick={() => docRef.current?.click()} disabled={uploading}
-          className="w-9 h-9 flex-shrink-0 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-all">
-          <Paperclip size={18} />
+          className="w-10 h-10 flex-shrink-0 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-all">
+          <Paperclip size={20} />
         </button>
         <input ref={docRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.rtf,.zip,.rar,.7z,.mp3,.mp4,.mov" multiple className="hidden" onChange={handleFileUpload} />
 
-        {/* Text input */}
-        <div className="flex-1 bg-slate-100 rounded-2xl px-4 py-2.5 min-h-[40px] max-h-[120px] flex items-end">
+        <div className="flex-1 bg-slate-100 rounded-2xl px-4 py-2.5 min-h-[44px] max-h-[120px] flex items-end">
           <textarea value={text} onChange={(e: any) => setText(e.target.value)} onKeyDown={handleKeyDown}
             placeholder="พิมพ์ข้อความ..." rows={1}
             className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 resize-none outline-none max-h-[80px] leading-[1.4]" />
         </div>
 
-        {/* Send button */}
         <button onClick={() => sendMessage()} disabled={sending || (!text.trim() && images.length === 0 && attachments.length === 0)}
           className={`w-10 h-10 flex-shrink-0 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
             text.trim() || images.length > 0 || attachments.length > 0
-              ? "bg-gradient-to-br from-indigo-500 to-blue-600 text-white shadow-lg shadow-indigo-200/50"
+              ? "bg-gradient-to-br from-indigo-500 to-blue-600 text-white shadow-lg"
               : "bg-slate-100 text-slate-300"
           }`}>
-          {sending
-            ? <div className="w-4 h-4 border-2 border-white/50 border-t-white rounded-full animate-spin" />
-            : <Send size={17} />}
+          {sending ? <div className="w-4 h-4 border-2 border-white/50 border-t-white rounded-full animate-spin" /> : <Send size={18} />}
         </button>
       </div>
 
-      {/* ── Image lightbox ── */}
+      {/* Lightbox */}
       {imgModal && (
-        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center backdrop-blur-sm" onClick={() => setImgModal(null)}>
-          <button className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm hover:bg-white/30 transition-colors z-10"
+        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center" onClick={() => setImgModal(null)}>
+          <button className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 flex items-center justify-center"
             onClick={() => setImgModal(null)}>
             <X size={20} className="text-white" />
           </button>
-          <img src={imgModal} alt="" className="max-w-[90%] max-h-[85vh] object-contain rounded-lg shadow-2xl" onClick={(e: any) => e.stopPropagation()} />
+          <img src={imgModal} alt="" className="max-w-[90%] max-h-[85vh] object-contain rounded-lg" onClick={(e: any) => e.stopPropagation()} />
         </div>
       )}
 
