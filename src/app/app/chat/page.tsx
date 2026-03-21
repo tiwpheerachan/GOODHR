@@ -204,7 +204,7 @@ export default function UserChatPage() {
   return (
     <>
       <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] z-30"
-        style={{ top: 52, bottom: 72 }}>
+        style={{ top: 52, bottom: 56 }}>
         <div className="flex flex-col h-full bg-[#7494C0]">
 
           {/* ═══ CHAT HEADER ═══ */}
@@ -428,7 +428,7 @@ export default function UserChatPage() {
             )}
 
             {/* ── INPUT ROW ── */}
-            <div className="border-t border-gray-100 px-2 py-1.5 flex items-end gap-1">
+            <div className="border-t border-gray-100 px-2 py-1 flex items-end gap-1">
               {/* + */}
               <button onClick={() => { setShowAttach(!showAttach); setShowEmoji(false) }}
                 className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center transition-all active:scale-90 ${
