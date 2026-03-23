@@ -23,9 +23,18 @@ function thbShort(n?: number | null) {
 const MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
 
 // ── Page ──────────────────────────────────────────────────────────
+// ⚡ ตรวจจับเดือนงวดปัจจุบัน: ถ้าวันที่ > 21 → อยู่ในงวดเดือนถัดไป
+function getCurrentPeriodDate(): Date {
+  const now = new Date()
+  if (now.getDate() > 21) {
+    return new Date(now.getFullYear(), now.getMonth() + 1, 1) // เดือนถัดไป
+  }
+  return now
+}
+
 export default function SalaryPage() {
   const { user } = useAuth()
-  const [month,   setMonth]   = useState(new Date())
+  const [month,   setMonth]   = useState(getCurrentPeriodDate())
   const [record,  setRecord]  = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -64,6 +73,21 @@ export default function SalaryPage() {
     if (!empId) return
     loadAll(month.getFullYear(), month.getMonth() + 1)
   }, [empId, month.getFullYear(), month.getMonth()]) // eslint-disable-line
+
+  // Auto-refresh ทุก 60 วินาที → อัพเดทเงินเดือน real-time
+  useEffect(() => {
+    if (!empId) return
+    const interval = setInterval(() => {
+      fetchPayroll(month.getFullYear(), month.getMonth() + 1)
+        .then(json => {
+          setRecord(json.record ?? null)
+          setHistory(json.history ?? [])
+          if (json.debug) setDebug(json.debug)
+        })
+        .catch(() => {})
+    }, 60_000)
+    return () => clearInterval(interval)
+  }, [empId, month, fetchPayroll])
 
   const handleRecalc = async () => {
     if (!empId || working) return

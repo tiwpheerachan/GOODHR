@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   LayoutDashboard, Users, Clock, CreditCard, Calendar,
   Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target, Camera, CalendarClock,
-  Network, ClipboardCheck, Megaphone, MessageCircle,
+  Network, ClipboardCheck, Megaphone, MessageCircle, Car,
 } from "lucide-react"
 
 const SIDEBAR = [
@@ -22,6 +22,7 @@ const SIDEBAR = [
   { href: "/admin/shifts",              icon: CalendarClock,   label: "จัดกะ",          badge: null as string|null },
   { href: "/admin/leave",                icon: Calendar,        label: "การลา",          badge: null as string|null },
   { href: "/admin/kpi",                  icon: Target,          label: "KPI",            badge: null as string|null },
+  { href: "/admin/transport-claims",     icon: Car,             label: "ค่าเดินทาง",     badge: null as string|null },
   { href: "/admin/payroll",              icon: CreditCard,      label: "เงินเดือน",      badge: null as string|null },
   { href: "/admin/payroll-rules",        icon: BookOpen,        label: "สูตรคำนวณ",     badge: null as string|null },
   { href: "/admin/settings",             icon: Settings,        label: "ตั้งค่า",        badge: null as string|null },
@@ -46,16 +47,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const companyId = (user as any)?.company_id ?? user?.employee?.company_id
     if (!companyId) return
     const load = async () => {
-      const [lv, adj, ot, os] = await Promise.all([
+      const [lv, adj, ot, os, tc] = await Promise.all([
         supabase.from("leave_requests").select("id",{count:"exact",head:true}).eq("company_id",companyId).eq("status","pending"),
         supabase.from("time_adjustment_requests").select("id",{count:"exact",head:true}).eq("company_id",companyId).eq("status","pending"),
         supabase.from("overtime_requests").select("id",{count:"exact",head:true}).eq("company_id",companyId).eq("status","pending"),
         supabase.from("offsite_checkin_requests").select("id",{count:"exact",head:true}).eq("company_id",companyId).eq("status","pending"),
+        supabase.from("transport_claims").select("id",{count:"exact",head:true}).eq("company_id",companyId).eq("status","pending"),
       ])
       const totalPending = (lv.count??0) + (adj.count??0) + (ot.count??0)
       setBadgeCounts({
         "/admin/approvals": totalPending,
         "/admin/attendance/offsite": os.count??0,
+        "/admin/transport-claims": tc.count??0,
       })
     }
     load()

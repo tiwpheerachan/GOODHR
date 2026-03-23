@@ -1,11 +1,12 @@
 "use client"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
   Download, Play, CheckCircle, Loader2, Plus,
   ChevronDown, AlertCircle, TrendingUp, Users, Banknote,
-  Clock, Info, Search, Eye, Edit2, Save, X, RotateCcw, Table2, Filter
+  Clock, Info, Search, Eye, Edit2, Save, X, RotateCcw, Table2, Filter,
+  Copy, ClipboardCheck, Columns3
 } from "lucide-react"
 import Link from "next/link"
 import { format } from "date-fns"
@@ -69,10 +70,11 @@ const REG_COLS: RCol[] = [
   { key:"other_inc",   label:"รายได้อื่นๆ",            group:"income", get:r=>n(r.other_income) },
   // deduction
   { key:"late",        label:"หักมาสาย",             group:"deduction", get:r=>n(r.deduct_late) },
+  { key:"early",       label:"ออกก่อนกำหนด",        group:"deduction", get:r=>n(r.deduct_early_out) },
   { key:"absent",      label:"ขาดงาน/ลางาน",        group:"deduction", get:r=>n(r.deduct_absent) },
   { key:"suspend",     label:"พักงาน",              group:"deduction", get:r=>n((r.deduction_extras||{}).suspension) },
   { key:"ded_other",   label:"เงินหักอื่นๆ",          group:"deduction", get:r=>n(r.deduct_other) },
-  { key:"sub_ded",     label:"รวมเป็นเงิน",          group:"deduction", get:r=>n(r.deduct_late)+n(r.deduct_absent)+n((r.deduction_extras||{}).suspension)+n(r.deduct_other) },
+  { key:"sub_ded",     label:"รวมเป็นเงิน",          group:"deduction", get:r=>n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)+n((r.deduction_extras||{}).suspension)+n(r.deduct_other) },
   { key:"card",        label:"บัตรหาย/ชำรุด",        group:"deduction", get:r=>n((r.deduction_extras||{}).card_lost) },
   { key:"uniform",     label:"ค่าซื้อเสื้อพนักงาน",    group:"deduction", get:r=>n((r.deduction_extras||{}).uniform) },
   { key:"parking",     label:"ค่าบัตรจอดรถ",         group:"deduction", get:r=>n((r.deduction_extras||{}).parking) },
@@ -90,8 +92,13 @@ const REG_COLS: RCol[] = [
 const INFO_C = REG_COLS.filter(c => c.group === "info")
 const DATA_C = REG_COLS.filter(c => c.group !== "info")
 
-// ── Full Register Table Component ───────────────────────────────────────
+// ── Full Register Table Component (Sticky info + Excel-like copy) ──────
 function FullRegisterTable({ records, onEdit, onView }: { records: any[]; onEdit: (r:any)=>void; onView: (r:any)=>void }) {
+  const [copied, setCopied] = useState<string|null>(null)     // flash "copied!" badge
+  const [selCol,  setSelCol]  = useState<string|null>(null)   // highlight selected column
+  const [selRow,  setSelRow]  = useState<number|null>(null)   // highlight selected row
+  const tableRef = useRef<HTMLDivElement>(null)
+
   // Compute totals
   const totals: Record<string, number> = {}
   DATA_C.forEach(col => { totals[col.key] = 0 })
@@ -105,93 +112,237 @@ function FullRegisterTable({ records, onEdit, onView }: { records: any[]; onEdit
     summary:   { bg: "bg-indigo-50",   text: "text-indigo-700" },
   }
 
+  // ── Copy helpers ───────────────────────────────────────────────────
+  const flash = (key: string) => { setCopied(key); setTimeout(() => setCopied(null), 1500) }
+
+  // Copy entire row as tab-separated (paste into Excel)
+  const copyRow = (idx: number) => {
+    const r = records[idx]
+    const vals = REG_COLS.map(c => {
+      const v = c.get(r, idx)
+      return typeof v === "number" ? v.toString() : String(v)
+    })
+    navigator.clipboard.writeText(vals.join("\t"))
+    flash(`row-${idx}`)
+    setSelRow(idx); setTimeout(() => setSelRow(null), 1500)
+  }
+
+  // Copy entire column (header + values + total) as newline-separated
+  const copyCol = (col: RCol) => {
+    const lines = [col.label]
+    records.forEach((r, i) => {
+      const v = col.get(r, i)
+      lines.push(typeof v === "number" ? v.toString() : String(v))
+    })
+    if (col.group !== "info") lines.push((totals[col.key] || 0).toString())
+    navigator.clipboard.writeText(lines.join("\n"))
+    flash(`col-${col.key}`)
+    setSelCol(col.key); setTimeout(() => setSelCol(null), 1500)
+  }
+
+  // Copy whole table (for pasting into Excel)
+  const copyAll = () => {
+    const header = REG_COLS.map(c => c.label).join("\t")
+    const rows = records.map((r, i) => REG_COLS.map(c => {
+      const v = c.get(r, i)
+      return typeof v === "number" ? v.toString() : String(v)
+    }).join("\t"))
+    const footer = REG_COLS.map(c =>
+      c.group === "info" ? "" : (totals[c.key] || 0).toString()
+    ).join("\t")
+    navigator.clipboard.writeText([header, ...rows, footer].join("\n"))
+    flash("all")
+  }
+
+  // ── Sticky column widths (CSS variable approach) ──────────────────
+  // We compute cumulative left offsets for each info column
+  const INFO_WIDTHS: Record<string, number> = {
+    no: 42, code: 100, name: 160, nick: 80, pos: 120, dept: 100, comp: 60, brand: 70
+  }
+  const ACTION_W = 48
+  const infoLeft: number[] = []
+  let cumLeft = 0
+  INFO_C.forEach((c, i) => { infoLeft[i] = cumLeft; cumLeft += INFO_WIDTHS[c.key] || 80 })
+  const actionLeft = cumLeft
+  const stickyEnd = cumLeft + ACTION_W // total frozen width
+
+  const stickyBase = "sticky z-10"
+  const stickyShadow = "after:absolute after:top-0 after:right-0 after:bottom-0 after:w-px after:bg-slate-200"
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-[11px] border-collapse whitespace-nowrap">
-        {/* Group header */}
-        <thead>
-          <tr>
-            <th colSpan={INFO_C.length + 1} className="px-2 py-1.5 text-left text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border-r border-slate-200">
-              ข้อมูลพนักงาน
-            </th>
-            {(["income","deduction","summary"] as const).map(g => (
-              <th key={g} colSpan={DATA_C.filter(c=>c.group===g).length}
-                className={`px-2 py-1.5 text-center text-[10px] font-black uppercase tracking-wider ${GC[g].text} ${GC[g].bg} border-r last:border-r-0 border-slate-200`}>
-                {g === "income" ? "รายรับ" : g === "deduction" ? "รายหัก" : "สรุป"}
-              </th>
-            ))}
-          </tr>
-          {/* Column headers */}
-          <tr className="border-b-2 border-slate-200">
-            {INFO_C.map(col => (
-              <th key={col.key} className="px-2 py-2 text-left font-bold text-slate-600 bg-slate-50">{col.label}</th>
-            ))}
-            <th className="px-2 py-2 text-center font-bold text-slate-400 bg-slate-50 border-r border-slate-200 w-12"></th>
-            {DATA_C.map(col => {
-              const gc = GC[col.group]
-              return <th key={col.key} className={`px-2 py-2 text-right font-bold ${gc.text} ${gc.bg}`}>{col.label}</th>
-            })}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-50">
-          {records.map((r, idx) => (
-            <tr key={r.id} className="hover:bg-slate-50/50 transition-colors group">
-              {INFO_C.map(col => {
-                const v = col.get(r, idx)
-                return (
-                  <td key={col.key} className={`px-2 py-1.5 ${
-                    col.key === "no" ? "text-center text-slate-400 w-10" :
-                    col.key === "code" ? "font-bold text-indigo-600" :
-                    col.key === "name" ? "font-bold text-slate-800" :
-                    "text-slate-600"
-                  }`}>{v}</td>
-                )
-              })}
-              {/* actions mini */}
-              <td className="px-1 py-1.5 text-center border-r border-slate-100">
-                <div className="flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => onView(r)} className="p-1 hover:bg-indigo-100 rounded text-indigo-500"><Eye size={10}/></button>
-                  <button onClick={() => onEdit(r)} className="p-1 hover:bg-amber-100 rounded text-amber-500"><Edit2 size={10}/></button>
-                </div>
-              </td>
+    <div className="relative">
+      {/* Copy all button */}
+      <div className="absolute -top-9 right-0 flex gap-1.5 z-20">
+        <button onClick={copyAll}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+            copied === "all"
+              ? "bg-green-100 text-green-700"
+              : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+          }`}>
+          {copied === "all" ? <><ClipboardCheck size={10}/> คัดลอกแล้ว!</> : <><Copy size={10}/> คัดลอกทั้งตาราง</>}
+        </button>
+      </div>
+
+      <div ref={tableRef} className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] border border-slate-200 rounded-xl">
+        <table className="text-[11px] border-collapse whitespace-nowrap" style={{ minWidth: stickyEnd + DATA_C.length * 100 }}>
+          {/* ── Group header row ─────────────────────────────── */}
+          <thead className="sticky top-0 z-30">
+            <tr>
+              {/* Frozen: ข้อมูลพนักงาน group */}
+              {INFO_C.map((col, ci) => (
+                <th key={col.key}
+                  className={`${stickyBase} bg-slate-100 px-2 py-1.5 text-left text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200`}
+                  style={{ left: infoLeft[ci], width: INFO_WIDTHS[col.key], minWidth: INFO_WIDTHS[col.key], zIndex: 40 }}>
+                  {ci === 0 ? "ข้อมูลพนักงาน" : ""}
+                </th>
+              ))}
+              {/* Frozen: action spacer */}
+              <th className={`${stickyBase} bg-slate-100 border-b border-slate-200 border-r border-slate-300`}
+                style={{ left: actionLeft, width: ACTION_W, minWidth: ACTION_W, zIndex: 40 }}/>
+              {/* Scrollable: group headers */}
+              {(["income","deduction","summary"] as const).map(g => (
+                <th key={g} colSpan={DATA_C.filter(c=>c.group===g).length}
+                  className={`px-2 py-1.5 text-center text-[10px] font-black uppercase tracking-wider ${GC[g].text} ${GC[g].bg} border-b border-r last:border-r-0 border-slate-200`}>
+                  {g === "income" ? "รายรับ" : g === "deduction" ? "รายหัก" : "สรุป"}
+                </th>
+              ))}
+            </tr>
+
+            {/* ── Column header row ────────────────────────────── */}
+            <tr className="border-b-2 border-slate-300">
+              {INFO_C.map((col, ci) => (
+                <th key={col.key}
+                  onClick={() => copyCol(col)}
+                  title={`คลิกเพื่อคัดลอกคอลัม "${col.label}"`}
+                  className={`${stickyBase} bg-slate-50 px-2 py-2 text-left font-bold text-slate-600 cursor-pointer hover:bg-indigo-100 select-none transition-colors border-b-2 border-slate-300 ${
+                    selCol === col.key ? "!bg-indigo-100 ring-2 ring-inset ring-indigo-400" : ""
+                  }`}
+                  style={{ left: infoLeft[ci], width: INFO_WIDTHS[col.key], minWidth: INFO_WIDTHS[col.key], zIndex: 40 }}>
+                  <span className="flex items-center gap-1">
+                    {col.label}
+                    {copied === `col-${col.key}` && <ClipboardCheck size={9} className="text-green-600"/>}
+                  </span>
+                </th>
+              ))}
+              <th className={`${stickyBase} bg-slate-50 border-r border-slate-300 border-b-2`}
+                style={{ left: actionLeft, width: ACTION_W, minWidth: ACTION_W, zIndex: 40 }}/>
               {DATA_C.map(col => {
-                const v = col.get(r, idx)
-                const numVal = typeof v === "number" ? v : 0
-                const zero = numVal === 0
-                const isSummary = col.group === "summary"
+                const gc = GC[col.group]
                 return (
-                  <td key={col.key} className={`px-2 py-1.5 text-right font-mono ${
-                    isSummary && col.key === "net" ? "font-black text-emerald-700 bg-emerald-50/40" :
-                    isSummary && col.key === "total_ded" ? "font-bold text-rose-600" :
-                    isSummary ? "font-bold text-indigo-700 bg-indigo-50/30" :
-                    col.group === "deduction" && !zero ? "text-rose-600" :
-                    col.group === "income" && !zero ? "text-slate-700" :
-                    "text-slate-300"
-                  }`}>
-                    {zero && !isSummary ? "-" : thb(numVal)}
-                  </td>
+                  <th key={col.key}
+                    onClick={() => copyCol(col)}
+                    title={`คลิกเพื่อคัดลอกคอลัม "${col.label}"`}
+                    className={`px-2 py-2 text-right font-bold cursor-pointer hover:brightness-90 select-none transition-all border-b-2 border-slate-300 ${gc.text} ${gc.bg} ${
+                      selCol === col.key ? "ring-2 ring-inset ring-indigo-400" : ""
+                    }`}>
+                    <span className="flex items-center justify-end gap-1">
+                      {col.label}
+                      {copied === `col-${col.key}` && <ClipboardCheck size={9} className="text-green-600"/>}
+                    </span>
+                  </th>
                 )
               })}
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-slate-300 bg-slate-50 font-black">
-            <td colSpan={INFO_C.length} className="px-2 py-2.5 text-slate-700">รวม {records.length} คน</td>
-            <td className="border-r border-slate-200"/>
-            {DATA_C.map(col => (
-              <td key={col.key} className={`px-2 py-2.5 text-right font-mono ${
-                col.key === "net" ? "text-emerald-700 bg-emerald-100/50" :
-                col.key === "total_ded" ? "text-rose-600" :
-                col.group === "deduction" && (totals[col.key]||0) > 0 ? "text-rose-600" :
-                "text-slate-700"
-              }`}>
-                {(totals[col.key] || 0) === 0 ? "-" : thb(totals[col.key])}
-              </td>
-            ))}
-          </tr>
-        </tfoot>
-      </table>
+          </thead>
+
+          {/* ── Body ─────────────────────────────────────────── */}
+          <tbody className="divide-y divide-slate-50">
+            {records.map((r, idx) => {
+              const isRowSel = selRow === idx
+              return (
+                <tr key={r.id} className={`group transition-colors ${isRowSel ? "!bg-indigo-50" : "hover:bg-slate-50/50"}`}>
+                  {/* Frozen info cells */}
+                  {INFO_C.map((col, ci) => {
+                    const v = col.get(r, idx)
+                    return (
+                      <td key={col.key}
+                        className={`${stickyBase} px-2 py-1.5 border-b border-slate-50 ${
+                          isRowSel ? "bg-indigo-50" : "bg-white group-hover:bg-slate-50"
+                        } ${
+                          col.key === "no" ? "text-center text-slate-400" :
+                          col.key === "code" ? "font-bold text-indigo-600" :
+                          col.key === "name" ? "font-bold text-slate-800" :
+                          "text-slate-600"
+                        } ${selCol === col.key ? "!bg-indigo-50" : ""}`}
+                        style={{ left: infoLeft[ci], width: INFO_WIDTHS[col.key], minWidth: INFO_WIDTHS[col.key], zIndex: 10 }}>
+                        {v}
+                      </td>
+                    )
+                  })}
+                  {/* Frozen action cell */}
+                  <td className={`${stickyBase} px-1 py-1.5 text-center border-r border-slate-200 border-b border-slate-50 ${
+                    isRowSel ? "bg-indigo-50" : "bg-white group-hover:bg-slate-50"
+                  }`} style={{ left: actionLeft, width: ACTION_W, minWidth: ACTION_W, zIndex: 10 }}>
+                    <div className="flex items-center justify-center gap-0.5">
+                      <button onClick={() => copyRow(idx)} title="คัดลอกแถว"
+                        className={`p-1 rounded transition-colors ${
+                          copied === `row-${idx}` ? "bg-green-100 text-green-600" : "hover:bg-slate-100 text-slate-400 opacity-0 group-hover:opacity-100"
+                        }`}>
+                        {copied === `row-${idx}` ? <ClipboardCheck size={10}/> : <Copy size={10}/>}
+                      </button>
+                      <button onClick={() => onView(r)} className="p-1 hover:bg-indigo-100 rounded text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity"><Eye size={10}/></button>
+                      <button onClick={() => onEdit(r)} className="p-1 hover:bg-amber-100 rounded text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={10}/></button>
+                    </div>
+                  </td>
+                  {/* Scrollable data cells */}
+                  {DATA_C.map(col => {
+                    const v = col.get(r, idx)
+                    const numVal = typeof v === "number" ? v : 0
+                    const zero = numVal === 0
+                    const isSummary = col.group === "summary"
+                    return (
+                      <td key={col.key} className={`px-2 py-1.5 text-right font-mono border-b border-slate-50 ${
+                        isSummary && col.key === "net" ? "font-black text-emerald-700 bg-emerald-50/40" :
+                        isSummary && col.key === "total_ded" ? "font-bold text-rose-600" :
+                        isSummary ? "font-bold text-indigo-700 bg-indigo-50/30" :
+                        col.group === "deduction" && !zero ? "text-rose-600" :
+                        col.group === "income" && !zero ? "text-slate-700" :
+                        "text-slate-300"
+                      } ${selCol === col.key ? "!bg-indigo-50/60" : ""} ${isRowSel ? "!bg-indigo-50/40" : ""}`}>
+                        {zero && !isSummary ? "-" : thb(numVal)}
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
+          </tbody>
+
+          {/* ── Footer ───────────────────────────────────────── */}
+          <tfoot className="sticky bottom-0 z-20">
+            <tr className="border-t-2 border-slate-300 font-black">
+              {/* Frozen footer info */}
+              {INFO_C.map((col, ci) => (
+                <td key={col.key}
+                  className={`${stickyBase} bg-slate-100 px-2 py-2.5 text-slate-700 border-t-2 border-slate-300`}
+                  style={{ left: infoLeft[ci], width: INFO_WIDTHS[col.key], minWidth: INFO_WIDTHS[col.key], zIndex: 30 }}>
+                  {ci === 0 ? `รวม ${records.length} คน` : ""}
+                </td>
+              ))}
+              <td className={`${stickyBase} bg-slate-100 border-r border-slate-300 border-t-2`}
+                style={{ left: actionLeft, width: ACTION_W, minWidth: ACTION_W, zIndex: 30 }}/>
+              {/* Scrollable footer data */}
+              {DATA_C.map(col => (
+                <td key={col.key} className={`px-2 py-2.5 text-right font-mono bg-slate-100 border-t-2 border-slate-300 ${
+                  col.key === "net" ? "text-emerald-700 bg-emerald-100/70" :
+                  col.key === "total_ded" ? "text-rose-600" :
+                  col.group === "deduction" && (totals[col.key]||0) > 0 ? "text-rose-600" :
+                  "text-slate-700"
+                }`}>
+                  {(totals[col.key] || 0) === 0 ? "-" : thb(totals[col.key])}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* Hint */}
+      <p className="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1.5">
+        <Columns3 size={10}/> คอลัมข้อมูลพนักงานถูกตรึงอยู่ — เลื่อนซ้าย-ขวาเพื่อดูรายรับ/รายหัก
+        <span className="mx-1">·</span>
+        <Copy size={10}/> คลิกหัวคอลัมเพื่อคัดลอกคอลัม · hover แถวแล้วกด <Copy size={9} className="inline"/> เพื่อคัดลอกแถว
+      </p>
     </div>
   )
 }
@@ -207,7 +358,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
             <th className="px-3 py-3 text-right font-bold text-slate-500">เงินเดือน</th>
             <th className="px-3 py-3 text-right font-bold text-green-700">เบี้ย+อื่น</th>
             <th className="px-3 py-3 text-left font-bold text-amber-600">OT</th>
-            <th className="px-3 py-3 text-right font-bold text-red-600">หักสาย/ขาด</th>
+            <th className="px-3 py-3 text-right font-bold text-red-600">หักสาย/ออกก่อน/ขาด</th>
             <th className="px-3 py-3 text-right font-bold text-slate-500">SSO</th>
             <th className="px-3 py-3 text-right font-bold text-slate-500">ภาษี</th>
             <th className="px-3 py-3 text-right font-bold text-indigo-700">สุทธิ</th>
@@ -217,7 +368,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
         <tbody className="divide-y divide-slate-50">
           {records.map((r: any) => {
             const totalAllow = n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)
-            const totalDeductWork = n(r.deduct_late)+n(r.deduct_absent)
+            const totalDeductWork = n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)
             return (
               <tr key={r.id} className={`hover:bg-slate-50 transition-colors ${r.is_manual_override ? "bg-amber-50/30" : ""}`}>
                 <td className="px-4 py-3">
@@ -254,7 +405,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
             <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.base_salary),0))}</td>
             <td className="px-3 py-3 text-right font-bold text-green-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing),0))}</td>
             <td className="px-3 py-3 font-bold text-amber-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.ot_amount),0))}</td>
-            <td className="px-3 py-3 text-right font-bold text-red-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.deduct_late)+n(r.deduct_absent),0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-red-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent),0))}</td>
             <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.social_security_amount),0))}</td>
             <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.monthly_tax_withheld),0))}</td>
             <td className="px-3 py-3 text-right font-black text-indigo-700 text-sm">฿{thb(totalNet)}</td>
@@ -872,16 +1023,122 @@ export default function PayrollPage() {
     setLoading(false)
   }, [selected])
 
-  useEffect(() => { loadRecords() }, [loadRecords])
+  // ── Background recalculate: คำนวณเงินเดือนใหม่เบื้องหลัง ────────
+  // ทำงานอัตโนมัติเมื่อเลือกงวด + ทุก 60 วินาที + เมื่อมี attendance เปลี่ยน
+  const bgCalcRef = useRef(false)
+  const bgRecalculate = useCallback(async () => {
+    if (!selected || !companyId || bgCalcRef.current || calculating) return
+    bgCalcRef.current = true
+    try {
+      const { data: emps } = await supabase.from("employees")
+        .select("id").eq("company_id", companyId).eq("is_active", true)
+      if (!emps?.length) return
+
+      // คำนวณเบื้องหลังเป็น batch (10 คนพร้อมกัน ไม่ overload server)
+      const BATCH = 10
+      for (let i = 0; i < emps.length; i += BATCH) {
+        const batch = emps.slice(i, i + BATCH)
+        await Promise.all(
+          batch.map(emp =>
+            fetch("/api/payroll", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ employee_id: emp.id, payroll_period_id: selected.id }),
+            }).catch(() => {})
+          )
+        )
+      }
+      // โหลดข้อมูลใหม่
+      const { data } = await supabase.from("payroll_records")
+        .select(`*, employee:employees!payroll_records_employee_id_fkey(
+          id,employee_code,first_name_th,last_name_th,nickname,avatar_url,brand,
+          position:positions(name),
+          department:departments(id,name),
+          company:companies(id,code,name_th))`)
+        .eq("payroll_period_id", selected.id)
+        .order("created_at")
+      setRecords(data ?? [])
+    } catch {} finally { bgCalcRef.current = false }
+  }, [selected, companyId, calculating])
+
+  // เมื่อเลือกงวด → โหลด records ก่อน → แล้วคำนวณเบื้องหลัง
+  useEffect(() => {
+    loadRecords().then(() => {
+      // หน่วงเล็กน้อยเพื่อให้ UI โหลดก่อน
+      const t = setTimeout(() => bgRecalculate(), 500)
+      return () => clearTimeout(t)
+    })
+  }, [loadRecords])
+
+  // Auto-refresh ทุก 60 วินาที (real-time update)
+  useEffect(() => {
+    if (!selected) return
+    const interval = setInterval(() => bgRecalculate(), 60_000)
+    return () => clearInterval(interval)
+  }, [selected, bgRecalculate])
+
+  // Supabase Realtime: subscribe attendance_records → trigger recalculate
+  useEffect(() => {
+    if (!selected || !companyId) return
+    const channel = supabase
+      .channel(`payroll-att-${selected.id}`)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "attendance_records",
+      }, () => {
+        // เมื่อมี attendance เปลี่ยน → recalculate เบื้องหลัง (หน่วง 2 วิ)
+        setTimeout(() => bgRecalculate(), 2000)
+      })
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "transport_claims",
+      }, () => {
+        // เมื่อมี transport_claims เปลี่ยน → recalculate
+        setTimeout(() => bgRecalculate(), 2000)
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [selected, companyId, bgRecalculate])
+
+  // ── helper: หาเดือนงวดถัดไปที่ยังไม่มี ─────────────────────────────
+  const getNextPeriodMonth = useCallback((): { y: number; m: number } => {
+    // ถ้ามี periods อยู่แล้ว → หาเดือนถัดจากงวดล่าสุด
+    if (periods.length > 0) {
+      const latest = periods[0] // sorted desc by year,month
+      let ny = latest.year, nm = latest.month + 1
+      if (nm > 12) { nm = 1; ny++ }
+      return { y: ny, m: nm }
+    }
+    // ถ้ายังไม่มีงวดเลย → ใช้เดือนปัจจุบัน (+ period detection)
+    let y = now.getFullYear(), m = now.getMonth() + 1
+    if (now.getDate() > 21) { m++; if (m > 12) { m = 1; y++ } }
+    return { y, m }
+  }, [periods, now])
+
+  // ── label แสดงชื่อเดือนงวดถัดไป ─────────────────────────────────────
+  const nextPeriodLabel = useMemo(() => {
+    const { y, m } = getNextPeriodMonth()
+    return format(new Date(y, m - 1), "MMMM yyyy", { locale: th })
+  }, [getNextPeriodMonth])
 
   const createPeriod = async () => {
     if (!companyId) return
-    const y = now.getFullYear(), m = now.getMonth() + 1
+
+    const { y, m } = getNextPeriodMonth()
+
+    // ตรวจสอบซ้ำก่อนสร้าง
+    const { data: existing } = await supabase.from("payroll_periods")
+      .select("id").eq("company_id", companyId).eq("year", y).eq("month", m).maybeSingle()
+    if (existing) {
+      toast.error(`งวด ${format(new Date(y, m - 1), "MMMM yyyy", { locale: th })} มีอยู่แล้ว`)
+      return
+    }
 
     // งวด: 22 เดือนก่อน → 21 เดือนนี้
-    const startDate = new Date(y, m - 2, 22) // 22 ของเดือนก่อน
-    const endDate   = new Date(y, m - 1, 21) // 21 ของเดือนนี้
-    const payDate   = new Date(y, m - 1, 25) // จ่ายวันที่ 25 ของเดือนนี้
+    const startDate = new Date(y, m - 2, 22)
+    const endDate   = new Date(y, m - 1, 21)
+    const payDate   = new Date(y, m - 1, 25)
 
     const { data, error } = await supabase.from("payroll_periods").insert({
       company_id:  companyId, year: y, month: m,
@@ -891,29 +1148,93 @@ export default function PayrollPage() {
       pay_date:    format(payDate,   "yyyy-MM-dd"),
       status: "draft", created_by: user?.employee?.id ?? null,
     }).select().single()
-    if (error) return toast.error("มีงวดนี้แล้วหรือเกิดข้อผิดพลาด")
-    toast.success("✓ สร้างงวดเงินเดือนแล้ว")
+    if (error) return toast.error("เกิดข้อผิดพลาดในการสร้างงวด")
+    toast.success(`✓ สร้างงวด ${data.period_name} แล้ว กำลังคำนวณ...`)
     setSelected(data)
     setPeriods(p => [data, ...p])
+
+    // ── คำนวณเงินเดือนทุกพนักงาน (full calc) ─────────────────────
+    setCalculating(true)
+    const { data: emps } = await supabase.from("employees")
+      .select("id, employee_code, first_name_th, last_name_th").eq("company_id", companyId).eq("is_active", true)
+    if (!emps || emps.length === 0) { setCalculating(false); return }
+    setCalcProgress({ done: 0, total: emps.length })
+    let done = 0, success = 0, failed = 0
+    const errs: string[] = []
+    const BATCH = 10
+    for (let i = 0; i < emps.length; i += BATCH) {
+      const batch = emps.slice(i, i + BATCH)
+      const results = await Promise.allSettled(batch.map(emp =>
+        fetch("/api/payroll", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ employee_id: emp.id, payroll_period_id: data.id }),
+        }).then(async r => ({ emp, res: r, json: await r.json() }))
+      ))
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          const { emp, res, json } = r.value
+          if (!res.ok || json.error) {
+            failed++
+            if (errs.length < 5) errs.push(`${emp.employee_code || ""} ${emp.first_name_th || ""}: ${json.error || res.statusText}`)
+          } else { success++ }
+        } else { failed++ }
+        done++
+        setCalcProgress({ done, total: emps.length })
+      }
+    }
+    if (success > 0) toast.success(`✓ คำนวณเงินเดือน ${success} คน สำเร็จ`)
+    if (failed > 0) {
+      toast.error(`✗ ล้มเหลว ${failed} คน`, { duration: 6000 })
+      console.error("Payroll errors:", errs)
+      if (errs.length > 0) toast.error(errs.slice(0, 3).join("\n"), { duration: 8000 })
+    }
+    setCalculating(false)
+    loadRecords()
   }
 
   const calculateAll = async () => {
     if (!selected || !companyId) return
     setCalculating(true)
     const { data: emps } = await supabase.from("employees")
-      .select("id").eq("company_id", companyId).eq("is_active", true)
-    if (!emps) { setCalculating(false); return }
+      .select("id, employee_code, first_name_th, last_name_th").eq("company_id", companyId).eq("is_active", true)
+    if (!emps || emps.length === 0) {
+      toast.error("ไม่พบพนักงานในบริษัทนี้")
+      setCalculating(false)
+      return
+    }
     setCalcProgress({ done: 0, total: emps.length })
-    let done = 0
+    let done = 0, success = 0, failed = 0
+    const errors: string[] = []
     for (const emp of emps) {
-      await fetch("/api/payroll", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_id: emp.id, payroll_period_id: selected.id }),
-      })
+      try {
+        const res = await fetch("/api/payroll", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ employee_id: emp.id, payroll_period_id: selected.id }),
+        })
+        const json = await res.json()
+        if (!res.ok || json.error) {
+          failed++
+          const name = `${emp.employee_code || ""} ${emp.first_name_th || ""}`.trim()
+          if (errors.length < 5) errors.push(`${name}: ${json.error || res.statusText}`)
+        } else {
+          success++
+        }
+      } catch (e: any) {
+        failed++
+        if (errors.length < 5) errors.push(`${emp.employee_code}: ${e.message}`)
+      }
       done++
       setCalcProgress({ done, total: emps.length })
     }
-    toast.success(`✓ คำนวณ ${emps.length} คน สำเร็จ`)
+    if (success > 0) toast.success(`✓ คำนวณสำเร็จ ${success} คน`)
+    if (failed > 0) {
+      toast.error(`✗ ล้มเหลว ${failed} คน`)
+      console.error("Payroll calculation errors:", errors)
+      if (errors.length > 0) {
+        toast.error(errors.slice(0, 3).join("\n"), { duration: 8000 })
+      }
+    }
+    if (success === 0 && failed === 0) toast.error("ไม่มีพนักงานที่คำนวณได้")
     setCalculating(false)
     loadRecords()
   }
@@ -1009,9 +1330,10 @@ export default function PayrollPage() {
             </span>
           )}
           {/* actions */}
-          <button onClick={createPeriod}
-            className="flex items-center gap-2 px-3 py-2.5 border border-slate-200 bg-white rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors">
-            <Plus size={12}/> งวดใหม่
+          <button onClick={createPeriod} disabled={calculating}
+            className="flex items-center gap-2 px-3 py-2.5 border border-indigo-200 bg-indigo-50 rounded-xl text-xs font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+            title={`สร้างงวด ${nextPeriodLabel}`}>
+            <Plus size={12}/> + {nextPeriodLabel}
           </button>
         </div>
       </div>

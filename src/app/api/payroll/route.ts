@@ -40,11 +40,180 @@ function todayTH(): string {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
 }
 
-// ── Core: คำนวณและ upsert payroll_records ───────────────────────────
+// ── Init: สร้าง payroll_records ตั้งต้นด้วยฐานเงินเดือน (ยังไม่คำนวณ attendance) ──
 
 type CalcResult =
   | { error: string }
   | { success: true; record: Record<string, unknown>; debug: Record<string, unknown>; history: any[] }
+
+/**
+ * สร้าง record ตั้งต้น: base_salary + allowances → gross → SSO + tax → net
+ * ยังไม่หัก late/absent/early_out (= 0 ทั้งหมด)
+ * ใช้ตอน createPeriod เพื่อให้พนักงานเห็นเงินเดือนตั้งต้นทันที
+ */
+async function initRecord(
+  supa:              any,
+  employee_id:       string,
+  payroll_period_id: string,
+): Promise<CalcResult> {
+  const [pRes, eRes, sRes] = await Promise.all([
+    supa.from("payroll_periods")
+      .select("id, year, month, start_date, end_date")
+      .eq("id", payroll_period_id)
+      .single(),
+    supa.from("employees")
+      .select("id, company_id, hire_date")
+      .eq("id", employee_id)
+      .single(),
+    supa.from("salary_structures")
+      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct")
+      .eq("employee_id", employee_id)
+      .is("effective_to", null)
+      .order("effective_from", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  if (pRes.error || !pRes.data) return { error: "ไม่พบงวดเงินเดือน" }
+  if (eRes.error || !eRes.data) return { error: "ไม่พบข้อมูลพนักงาน" }
+
+  const period = pRes.data as any
+  const emp    = eRes.data as any
+  const sal    = sRes.data ?? {
+    base_salary: 0, allowance_position: 0, allowance_transport: 0,
+    allowance_food: 0, allowance_phone: 0, allowance_housing: 0,
+    tax_withholding_pct: null,
+  }
+
+  const baseSalary = Number(sal.base_salary) || 0
+  // ไม่รวม allowance_transport จาก salary_structures (ค่าเริ่มต้น = 0, ใช้ transport_claims แทน)
+  const allAllowances =
+    (Number(sal.allowance_position)  || 0) +
+    (Number(sal.allowance_food)      || 0) +
+    (Number(sal.allowance_phone)     || 0) +
+    (Number(sal.allowance_housing)   || 0)
+
+  const taxWithholdingPct: number | null =
+    sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
+
+  // เงินกู้ที่ active
+  const { data: loanData } = await supa
+    .from("employee_loans")
+    .select("monthly_deduction")
+    .eq("employee_id", employee_id)
+    .eq("status", "active")
+
+  const loanDeduction = (loanData ?? []).reduce(
+    (s: number, l: any) => s + (Number(l.monthly_deduction) || 0), 0
+  )
+
+  // ── ค่าเดินทางที่อนุมัติแล้วในงวดนี้ ────────────────────────────
+  const { data: transportData } = await supa
+    .from("transport_claims")
+    .select("amount")
+    .eq("employee_id", employee_id)
+    .eq("payroll_period_id", payroll_period_id)
+    .eq("status", "approved")
+
+  const transportClaimTotal = (transportData ?? []).reduce(
+    (s: number, t: any) => s + (Number(t.amount) || 0), 0
+  )
+
+  // คำนวณแบบ init: ไม่มี attendance deductions, ไม่มี OT
+  // รวมค่าเดินทางที่อนุมัติแล้วเข้า allowances
+  const result = calculatePayrollSummary({
+    baseSalary,
+    allowances:      allAllowances + transportClaimTotal,
+    otBreakdown:     { weekday_minutes: 0, holiday_regular_minutes: 0, holiday_ot_minutes: 0 },
+    bonus:           0,
+    absentDays:      0,
+    lateMinutes:     0,
+    earlyOutMinutes: 0,
+    loanDeduction,
+    taxWithholdingPct,
+  })
+
+  const payload: Record<string, unknown> = {
+    payroll_period_id,
+    employee_id,
+    company_id:             emp.company_id,
+    year:                   Number(period.year),
+    month:                  Number(period.month),
+    base_salary:            baseSalary,
+    allowance_position:     Number(sal.allowance_position)  || 0,
+    allowance_transport:    transportClaimTotal,  // ค่าเดินทาง = เฉพาะที่อนุมัติจาก transport_claims
+    allowance_food:         Number(sal.allowance_food)      || 0,
+    allowance_phone:        Number(sal.allowance_phone)     || 0,
+    allowance_housing:      Number(sal.allowance_housing)   || 0,
+    allowance_other:        0,
+    ot_amount:              0,
+    ot_hours:               0,
+    ot_weekday_minutes:     0,
+    ot_holiday_reg_minutes: 0,
+    ot_holiday_ot_minutes:  0,
+    bonus:                  0,
+    commission:             0,
+    other_income:           0,
+    gross_income:           result.gross,
+    deduct_absent:          0,
+    deduct_late:            0,
+    deduct_early_out:       0,
+    deduct_loan:            loanDeduction,
+    deduct_other:           0,
+    social_security_base:   baseSalary,
+    social_security_rate:   0.05,
+    social_security_amount: result.sso,
+    taxable_income:         result.gross - result.sso,
+    monthly_tax_withheld:   result.tax,
+    ytd_tax_withheld:       result.tax,
+    total_deductions:       result.totalDeduct,
+    net_salary:             result.net,
+    working_days:           0,
+    present_days:           0,
+    absent_days:            0,
+    late_count:             0,
+    leave_paid_days:        0,
+    leave_unpaid_days:      0,
+    status:                 "draft",
+    updated_at:             new Date().toISOString(),
+  }
+
+  const { error: upsertErr } = await supa
+    .from("payroll_records")
+    .upsert(payload, { onConflict: "payroll_period_id,employee_id" })
+
+  if (upsertErr) return { error: upsertErr.message }
+
+  const { data: histData } = await supa
+    .from("payroll_records")
+    .select("year, month, net_salary, gross_income, total_deductions")
+    .eq("employee_id", employee_id)
+    .order("year",  { ascending: false })
+    .order("month", { ascending: false })
+    .limit(6)
+
+  const history = ((histData ?? []) as any[]).reverse()
+
+  return {
+    success: true,
+    record: payload,
+    debug: {
+      mode: "init",
+      base_salary: baseSalary,
+      allowances: allAllowances,
+      transport_claims: transportClaimTotal,
+      gross: result.gross,
+      sso: result.sso,
+      tax: result.tax,
+      loan: loanDeduction,
+      net: result.net,
+      note: "ตั้งต้นด้วยฐานเงินเดือน ยังไม่มีการหักจาก attendance",
+    },
+    history,
+  }
+}
+
+// ── Core: คำนวณและ upsert payroll_records (full calc รวม attendance) ──
 
 async function calcAndSave(
   supa:              any,
@@ -73,11 +242,15 @@ async function calcAndSave(
 
   if (pRes.error || !pRes.data) return { error: "ไม่พบงวดเงินเดือน" }
   if (eRes.error || !eRes.data) return { error: "ไม่พบข้อมูลพนักงาน" }
-  if (sRes.error || !sRes.data) return { error: "ยังไม่มีโครงสร้างเงินเดือน กรุณาบันทึกเงินเดือนพนักงานก่อน" }
 
   const period = pRes.data as any
   const emp    = eRes.data as any
-  const sal    = sRes.data as any
+  // ถ้ายังไม่มี salary_structures → ใช้ค่า default (เงินเดือน 0) เพื่อให้สร้าง record ได้
+  const sal    = sRes.data ?? {
+    base_salary: 0, allowance_position: 0, allowance_transport: 0,
+    allowance_food: 0, allowance_phone: 0, allowance_housing: 0,
+    tax_withholding_pct: null,
+  }
 
   const periodStart: string = period.start_date
   const periodEnd:   string = period.end_date
@@ -110,8 +283,8 @@ async function calcAndSave(
   const todayStr       = todayTH()
 
   const allWorkDays = workDaysBetween(effectiveStart, periodEnd, holidaySet)
-  // ✅ ใช้ < (strict) เพื่อไม่นับวันนี้เป็นขาดงาน (อาจยังไม่ถึงเวลาเช็คอิน)
-  const pastWorkDays = allWorkDays.filter(d => cmp(d, todayStr) < 0)
+  // ✅ รวมวันนี้ด้วย (<=) เพื่อนับสาย/ขาดของวันนี้ real-time
+  const pastWorkDays = allWorkDays.filter(d => cmp(d, todayStr) <= 0)
 
   // ── วันลาที่อนุมัติแล้ว (overlap กับ period) ─────────────────
   // overlap condition: leave.start_date <= periodEnd AND leave.end_date >= periodStart
@@ -155,9 +328,22 @@ async function calcAndSave(
   for (const d of pastWorkDays) {
     if (leaveDaySet.has(d)) continue   // ลาอนุมัติแล้ว ไม่นับขาด
     const rec = recordMap.get(d)
-    if (!rec || rec.status === "absent") {
-      absentDays++
-      absentDates.push(d)
+    const isToday = d === todayStr
+
+    if (isToday) {
+      // วันนี้: นับขาดเฉพาะถ้ามี record ระบุ absent ชัดเจน
+      // ถ้ายังไม่มี record (ยังไม่เช็คอิน) = ไม่นับขาด
+      // แต่ถ้ามี record ที่เป็น late → นาทีสายจะถูกนับที่ lateMinutes อยู่แล้ว
+      if (rec && rec.status === "absent") {
+        absentDays++
+        absentDates.push(d)
+      }
+    } else {
+      // วันก่อนหน้า: ไม่มี record = ขาดงาน
+      if (!rec || rec.status === "absent") {
+        absentDays++
+        absentDates.push(d)
+      }
     }
     // หมายเหตุ: status = present/late/early_out/wfh/leave/holiday ไม่ถือว่าขาด
   }
@@ -202,13 +388,25 @@ async function calcAndSave(
     (s: number, l: any) => s + (Number(l.monthly_deduction) || 0), 0
   )
 
-  // ── Allowances รวม ─────────────────────────────────────────────
+  // ── Allowances รวม (ไม่รวมค่าเดินทาง — ใช้จาก transport_claims แทน) ─
   const allAllowances =
     (Number(sal.allowance_position)  || 0) +
-    (Number(sal.allowance_transport) || 0) +
     (Number(sal.allowance_food)      || 0) +
     (Number(sal.allowance_phone)     || 0) +
     (Number(sal.allowance_housing)   || 0)
+
+  // ── ค่าเดินทาง: ใช้จาก transport_claims ที่อนุมัติแล้วเท่านั้น ──
+  // (allowance_transport ใน salary_structures ไม่ใช้ → ค่าเริ่มต้น = 0)
+  const { data: transportData } = await supa
+    .from("transport_claims")
+    .select("amount")
+    .eq("employee_id", employee_id)
+    .eq("payroll_period_id", payroll_period_id)
+    .eq("status", "approved")
+
+  const transportClaimTotal = (transportData ?? []).reduce(
+    (s: number, t: any) => s + (Number(t.amount) || 0), 0
+  )
 
   // ── ภาษีหัก ณ ที่จ่าย (% ตั้งค่าเอง หรือ auto) ───────────────
   const taxWithholdingPct: number | null =
@@ -217,7 +415,7 @@ async function calcAndSave(
   // ── คำนวณ ─────────────────────────────────────────────────────
   const result = calculatePayrollSummary({
     baseSalary:      Number(sal.base_salary),
-    allowances:      allAllowances,
+    allowances:      allAllowances + transportClaimTotal,
     otBreakdown,
     bonus:           0,
     absentDays,
@@ -237,7 +435,7 @@ async function calcAndSave(
     // รายได้
     base_salary:            Number(sal.base_salary),
     allowance_position:     Number(sal.allowance_position)  || 0,
-    allowance_transport:    Number(sal.allowance_transport) || 0,
+    allowance_transport:    transportClaimTotal,  // ค่าเดินทาง = เฉพาะที่อนุมัติจาก transport_claims
     allowance_food:         Number(sal.allowance_food)      || 0,
     allowance_phone:        Number(sal.allowance_phone)     || 0,
     allowance_housing:      Number(sal.allowance_housing)   || 0,
@@ -332,12 +530,15 @@ async function calcAndSave(
   return { success: true, record: payload, debug, history }
 }
 
-// ── POST /api/payroll — force recalculate (เรียกจาก admin หรือ salary page) ─
+// ── POST /api/payroll ─────────────────────────────────────────────────
+// mode: "init" → สร้าง record ตั้งต้น (ฐานเงินเดือน, ยังไม่หัก attendance)
+// mode: "calc" (default) → คำนวณเต็ม (รวม attendance, OT, leave, loan)
 export async function POST(req: Request) {
   const body = await req.json()
-  const { employee_id, payroll_period_id } = body as {
+  const { employee_id, payroll_period_id, mode } = body as {
     employee_id:       string
     payroll_period_id: string
+    mode?:             "init" | "calc"
   }
 
   if (!employee_id || !payroll_period_id) {
@@ -351,8 +552,12 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const supa   = createServiceClient()
-  const result = await calcAndSave(supa, employee_id, payroll_period_id)
+  const supa = createServiceClient()
+
+  // เลือก mode: init = ตั้งต้นฐานเงินเดือน, calc = คำนวณเต็ม
+  const result = mode === "init"
+    ? await initRecord(supa, employee_id, payroll_period_id)
+    : await calcAndSave(supa, employee_id, payroll_period_id)
 
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 })
   return NextResponse.json(result)
@@ -361,10 +566,27 @@ export async function POST(req: Request) {
 // ── GET /api/payroll?year=X&month=Y — คำนวณใหม่เสมอ ──────────────────
 // salary page เรียก endpoint นี้ทุกครั้งที่โหลดหน้า
 // ใช้ service role → ไม่มีปัญหา RLS
+//
+// ⚡ งวดเงินเดือน: 22 เดือนก่อน → 21 เดือนนี้
+//    ถ้าวันนี้ > 21 → ปัจจุบันอยู่ในงวดเดือนถัดไปแล้ว
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
-  const year  = Number(searchParams.get("year")  || new Date().getFullYear())
-  const month = Number(searchParams.get("month") || new Date().getMonth() + 1)
+
+  // ── ตรวจจับงวดที่ถูกต้องจากวันที่จริง ─────────────────────
+  const now = new Date()
+  const todayDay = now.getDate()
+  let defaultYear  = now.getFullYear()
+  let defaultMonth = now.getMonth() + 1  // 1-based
+
+  // ถ้าวันที่ > 21 → อยู่ในงวดเดือนถัดไปแล้ว
+  // เช่น วันที่ 23 มี.ค. → อยู่ในงวดเมษายน (22 มี.ค. → 21 เม.ย.)
+  if (todayDay > 21) {
+    defaultMonth++
+    if (defaultMonth > 12) { defaultMonth = 1; defaultYear++ }
+  }
+
+  const year  = Number(searchParams.get("year")  || defaultYear)
+  const month = Number(searchParams.get("month") || defaultMonth)
 
   if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
     return NextResponse.json({ error: "year / month ไม่ถูกต้อง" }, { status: 400 })
