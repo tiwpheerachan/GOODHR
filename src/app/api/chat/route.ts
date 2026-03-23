@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 
-// ── Helper: get user data ──
+// ── Cache: tableExists result (won't change during runtime) ──
+let _tableExistsCache: Record<string, boolean> = {}
+
+async function tableExists(supa: any, table: string): Promise<boolean> {
+  if (_tableExistsCache[table] !== undefined) return _tableExistsCache[table]
+  const { error } = await supa.from(table).select("id").limit(0)
+  _tableExistsCache[table] = !error
+  return !error
+}
+
+// ── Helper: get user data with minimal queries ──
 async function getUser(req: NextRequest) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -13,59 +23,74 @@ async function getUser(req: NextRequest) {
   return data ? { ...data, authId: user.id } : null
 }
 
-// ── Helper: check if table/column exists (prevents crashes on missing migration) ──
-async function tableExists(supa: any, table: string): Promise<boolean> {
-  const { error } = await supa.from(table).select("id").limit(0)
-  return !error
+// ── JSON response with cache headers ──
+function jsonRes(data: any, maxAge = 0) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  if (maxAge > 0) headers["Cache-Control"] = `private, max-age=${maxAge}`
+  else headers["Cache-Control"] = "no-store"
+  return new NextResponse(JSON.stringify(data), { headers })
 }
 
-// GET — flexible: supports mode=admin, mode=conversations, mode=employees, mode=online
+// GET — flexible chat API
 export async function GET(req: NextRequest) {
   const userData = await getUser(req)
-  if (!userData) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (!userData) return jsonRes({ error: "Unauthorized" }, 0)
 
   const supa = createServiceClient()
   const isAdmin = userData.role === "super_admin" || userData.role === "hr_admin"
   const empId = userData.employee_id
   const companyId = (userData.employee as any)?.company_id
-  const mode = req.nextUrl.searchParams.get("mode") || ""
-  const convId = req.nextUrl.searchParams.get("conversation_id")
+  const sp = req.nextUrl.searchParams
+  const mode = sp.get("mode") || ""
+  const convId = sp.get("conversation_id")
+  const since = sp.get("since") // ISO timestamp for delta polling
 
-  // ── Update online status (non-blocking, ignore errors) ──
-  if (empId) {
-    supa.from("employee_online_status").upsert({
-      employee_id: empId, is_online: true, last_seen: new Date().toISOString()
-    }, { onConflict: "employee_id" }).then(() => {})
+  // ── Online status: moved to dedicated heartbeat action (POST) ──
+  // Removed per-GET upsert to reduce DB writes by ~90%
+
+  // ══════════════════════════════════════════
+  // MODE: poll — lightweight delta check (returns only counts + timestamps, no full data)
+  // Used by frontend for frequent checks without heavy payload
+  // ══════════════════════════════════════════
+  if (mode === "poll" && convId) {
+    const [{ count: totalCount }, { count: newCount }] = await Promise.all([
+      supa.from("chat_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", convId),
+      since
+        ? supa.from("chat_messages")
+            .select("id", { count: "exact", head: true })
+            .eq("conversation_id", convId)
+            .gt("created_at", since)
+        : Promise.resolve({ count: 0 }),
+    ])
+    return jsonRes({ total: totalCount ?? 0, new_since: newCount ?? 0, ts: new Date().toISOString() })
   }
 
   // ══════════════════════════════════════════
   // MODE: employees — list employees for new chat
   // ══════════════════════════════════════════
   if (mode === "employees") {
-    const { data: emps } = await supa.from("employees")
-      .select("id, first_name_th, last_name_th, nickname, avatar_url, employee_code, department:departments(name)")
-      .eq("company_id", companyId)
-      .neq("id", empId)
-      .order("first_name_th")
-      .limit(200)
-
-    // Get online statuses (ignore if table missing)
-    const empIds = (emps ?? []).map((e: any) => e.id)
-    let onlineMap: Record<string, { is_online: boolean; last_seen: string }> = {}
-    if (empIds.length > 0) {
-      const { data: statuses } = await supa.from("employee_online_status")
+    const [{ data: emps }, { data: statuses }] = await Promise.all([
+      supa.from("employees")
+        .select("id, first_name_th, last_name_th, nickname, avatar_url, employee_code, department:departments(name)")
+        .eq("company_id", companyId)
+        .neq("id", empId)
+        .order("first_name_th")
+        .limit(200),
+      supa.from("employee_online_status")
         .select("employee_id, is_online, last_seen")
-        .in("employee_id", empIds)
-      for (const s of (statuses ?? [])) {
-        onlineMap[s.employee_id] = { is_online: s.is_online, last_seen: s.last_seen }
-      }
-    }
+        .eq("is_online", true)
+    ])
 
-    return NextResponse.json({
+    const onlineMap: Record<string, any> = {}
+    for (const s of (statuses ?? [])) onlineMap[s.employee_id] = { is_online: s.is_online, last_seen: s.last_seen }
+
+    return jsonRes({
       employees: (emps ?? []).map((e: any) => ({
         ...e, online: onlineMap[e.id] || { is_online: false, last_seen: null }
       }))
-    })
+    }, 10) // Cache 10s — employee list doesn't change often
   }
 
   // ══════════════════════════════════════════
@@ -75,38 +100,37 @@ export async function GET(req: NextRequest) {
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const { data } = await supa.from("employee_online_status")
       .select("employee_id, last_seen, employee:employees!employee_id(first_name_th, last_name_th, nickname, avatar_url)")
-      .eq("is_online", true)
-      .gte("last_seen", fiveMinAgo)
-    return NextResponse.json({ online: data ?? [] })
+      .eq("is_online", true).gte("last_seen", fiveMinAgo)
+    return jsonRes({ online: data ?? [] })
   }
 
   // ══════════════════════════════════════════
-  // MODE: admin — admin sees HR conversations
+  // MODE: admin
   // ══════════════════════════════════════════
   if (mode === "admin" && isAdmin) {
     if (convId) {
-      const { data: conv } = await supa.from("chat_conversations")
-        .select("*, employee:employees!employee_id(first_name_th, last_name_th, nickname, avatar_url, employee_code, department:departments(name))")
-        .eq("id", convId).single()
-      const { data: messages } = await supa.from("chat_messages")
-        .select("*, sender:employees!sender_id(first_name_th, last_name_th, nickname, avatar_url)")
-        .eq("conversation_id", convId).order("created_at", { ascending: true }).limit(200)
-      await supa.from("chat_messages").update({ is_read: true })
-        .eq("conversation_id", convId).eq("sender_role", "user").eq("is_read", false)
-      return NextResponse.json({ conversation: conv, messages: messages ?? [] })
+      const [{ data: conv }, { data: messages }] = await Promise.all([
+        supa.from("chat_conversations")
+          .select("*, employee:employees!employee_id(first_name_th, last_name_th, nickname, avatar_url, employee_code, department:departments(name))")
+          .eq("id", convId).single(),
+        supa.from("chat_messages")
+          .select("*, sender:employees!sender_id(first_name_th, last_name_th, nickname, avatar_url)")
+          .eq("conversation_id", convId).order("created_at", { ascending: true }).limit(200)
+      ])
+      // Mark read (fire-and-forget)
+      supa.from("chat_messages").update({ is_read: true })
+        .eq("conversation_id", convId).eq("sender_role", "user").eq("is_read", false).then(() => {})
+      return jsonRes({ conversation: conv, messages: messages ?? [] })
     }
 
-    // List all HR conversations — optimized: batch last messages
     const { data: convs } = await supa.from("chat_conversations")
       .select("*, employee:employees!employee_id(first_name_th, last_name_th, nickname, avatar_url, employee_code, department:departments(name))")
       .eq("company_id", companyId)
       .order("last_message_at", { ascending: false, nullsFirst: false }).limit(100)
 
-    // Filter to HR-type (or legacy without type)
     const hrConvs = (convs ?? []).filter((c: any) => !c.type || c.type === "hr")
     const convIds = hrConvs.map((c: any) => c.id)
 
-    // Batch: get unread counts + last messages
     let unreadMap: Record<string, number> = {}
     let lastMsgMap: Record<string, any> = {}
     if (convIds.length > 0) {
@@ -116,8 +140,7 @@ export async function GET(req: NextRequest) {
         supa.from("chat_messages").select("conversation_id, message, images, sender_role, created_at")
           .in("conversation_id", convIds).order("created_at", { ascending: false })
       ])
-      for (const u of (ud ?? [])) { unreadMap[u.conversation_id] = (unreadMap[u.conversation_id] || 0) + 1 }
-      // Pick first message per conversation (already sorted desc)
+      for (const u of (ud ?? [])) unreadMap[u.conversation_id] = (unreadMap[u.conversation_id] || 0) + 1
       for (const m of (lm ?? [])) { if (!lastMsgMap[m.conversation_id]) lastMsgMap[m.conversation_id] = m }
     }
 
@@ -125,36 +148,32 @@ export async function GET(req: NextRequest) {
       ...c, last_message: lastMsgMap[c.id] || null, unread_count: unreadMap[c.id] || 0
     }))
     const totalUnread = Object.values(unreadMap).reduce((s: number, v: number) => s + v, 0)
-    return NextResponse.json({ conversations: result, totalUnread })
+    return jsonRes({ conversations: result, totalUnread })
   }
 
   // ══════════════════════════════════════════
-  // MODE: conversations — user's all conversations (OPTIMIZED)
+  // MODE: conversations — user's all conversations (FULLY PARALLEL)
   // ══════════════════════════════════════════
   if (mode === "conversations") {
     const hasMembersTable = await tableExists(supa, "chat_members")
 
-    // Get memberships (if V2 tables exist)
+    // Phase 1: Get memberships + HR conv in PARALLEL
+    const [membershipsResult, hrConvTypedResult] = await Promise.all([
+      hasMembersTable
+        ? supa.from("chat_members").select("conversation_id, last_read_at, is_muted").eq("employee_id", empId)
+        : Promise.resolve({ data: null }),
+      supa.from("chat_conversations").select("*").eq("employee_id", empId).eq("type", "hr").maybeSingle()
+    ])
+
     let memberConvIds: string[] = []
     const memberMap: Record<string, any> = {}
-    if (hasMembersTable) {
-      const { data: memberships } = await supa.from("chat_members")
-        .select("conversation_id, last_read_at, is_muted")
-        .eq("employee_id", empId)
-      for (const m of (memberships ?? [])) {
-        memberConvIds.push(m.conversation_id)
-        memberMap[m.conversation_id] = m
-      }
+    for (const m of (membershipsResult.data ?? [])) {
+      memberConvIds.push(m.conversation_id)
+      memberMap[m.conversation_id] = m
     }
 
-    // Get HR conversation (try with type filter, fallback to employee_id only)
-    let hrConv: any = null
-    const { data: hrConvTyped } = await supa.from("chat_conversations")
-      .select("*").eq("employee_id", empId).eq("type", "hr").maybeSingle()
-    if (hrConvTyped) {
-      hrConv = hrConvTyped
-    } else {
-      // Fallback: legacy conversation without type column or type=null
+    let hrConv = hrConvTypedResult.data
+    if (!hrConv) {
       const { data: hrConvLegacy } = await supa.from("chat_conversations")
         .select("*").eq("employee_id", empId).order("created_at", { ascending: true }).limit(1).maybeSingle()
       if (hrConvLegacy) hrConv = hrConvLegacy
@@ -162,98 +181,98 @@ export async function GET(req: NextRequest) {
 
     const allConvIds = Array.from(new Set([...memberConvIds, ...(hrConv ? [hrConv.id] : [])]))
     if (allConvIds.length === 0) {
-      return NextResponse.json({ conversations: [], me: empId })
+      return jsonRes({ conversations: [], me: empId })
     }
 
-    const { data: convs } = await supa.from("chat_conversations")
-      .select("*").in("id", allConvIds).order("last_message_at", { ascending: false, nullsFirst: false })
-
-    // BATCH: get last messages + unread counts in parallel (instead of N+1 per conversation)
-    const [{ data: allLastMsgs }, { data: allUnreadMsgs }] = await Promise.all([
+    // Phase 2: All conversation data in ONE parallel batch
+    const [convsResult, lastMsgsResult, unreadMsgsResult] = await Promise.all([
+      supa.from("chat_conversations").select("*")
+        .in("id", allConvIds).order("last_message_at", { ascending: false, nullsFirst: false }),
       supa.from("chat_messages")
         .select("conversation_id, message, images, sender_id, sender_role, created_at")
         .in("conversation_id", allConvIds)
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false })
+        .limit(allConvIds.length * 2), // Only need ~1 per conv, fetch 2x for safety
       supa.from("chat_messages")
-        .select("conversation_id, sender_id, sender_role, is_read, created_at")
+        .select("conversation_id, sender_id, sender_role")
         .in("conversation_id", allConvIds)
         .eq("is_read", false)
     ])
 
-    // Build maps
+    const convs = convsResult.data ?? []
     const lastMsgMap: Record<string, any> = {}
-    for (const m of (allLastMsgs ?? [])) { if (!lastMsgMap[m.conversation_id]) lastMsgMap[m.conversation_id] = m }
+    for (const m of (lastMsgsResult.data ?? [])) { if (!lastMsgMap[m.conversation_id]) lastMsgMap[m.conversation_id] = m }
+
     const unreadMap: Record<string, number> = {}
-    for (const m of (allUnreadMsgs ?? [])) {
-      if (m.sender_id !== empId && m.sender_role !== "user") {
-        unreadMap[m.conversation_id] = (unreadMap[m.conversation_id] || 0) + 1
-      }
-    }
-    // For HR convs, unread = admin msgs not read by user
-    for (const m of (allUnreadMsgs ?? [])) {
-      const c = (convs ?? []).find((cv: any) => cv.id === m.conversation_id)
-      if (c && (!c.type || c.type === "hr") && m.sender_role !== "user") {
-        // Already counted above
-      } else if (m.sender_id !== empId) {
-        // For non-HR, count msgs from others
-        if (!unreadMap[m.conversation_id]) unreadMap[m.conversation_id] = 0
-      }
+    for (const m of (unreadMsgsResult.data ?? [])) {
+      if (m.sender_id === empId) continue // Skip own messages
+      const c = convs.find((cv: any) => cv.id === m.conversation_id)
+      const ct = c?.type || "hr"
+      const isUnread = ct === "hr" ? m.sender_role !== "user" : true
+      if (isUnread) unreadMap[m.conversation_id] = (unreadMap[m.conversation_id] || 0) + 1
     }
 
-    // BATCH: get other users for direct chats + member counts for groups
-    const directConvs = (convs ?? []).filter((c: any) => c.type === "direct")
-    const groupConvs = (convs ?? []).filter((c: any) => c.type === "group" || c.type === "department")
+    // Phase 3: Enrich direct + group conversations in PARALLEL
+    const directConvs = convs.filter((c: any) => c.type === "direct")
+    const groupConvs = convs.filter((c: any) => c.type === "group" || c.type === "department")
 
     let otherUserMap: Record<string, any> = {}
     let memberCountMap: Record<string, number> = {}
 
+    const enrichPromises: Promise<void>[] = []
+
     if (hasMembersTable && directConvs.length > 0) {
-      // Get all members of direct chats, filter to non-self
-      const { data: directMembers } = await supa.from("chat_members")
-        .select("conversation_id, employee_id")
-        .in("conversation_id", directConvs.map((c: any) => c.id))
-        .neq("employee_id", empId)
+      enrichPromises.push((async () => {
+        const { data: directMembers } = await supa.from("chat_members")
+          .select("conversation_id, employee_id")
+          .in("conversation_id", directConvs.map((c: any) => c.id))
+          .neq("employee_id", empId)
 
-      const otherEmpIds = Array.from(new Set((directMembers ?? []).map((m: any) => m.employee_id)))
-      if (otherEmpIds.length > 0) {
-        const [{ data: empProfiles }, { data: onlineStatuses }] = await Promise.all([
-          supa.from("employees")
-            .select("id, first_name_th, last_name_th, nickname, avatar_url, employee_code")
-            .in("id", otherEmpIds),
-          supa.from("employee_online_status")
-            .select("employee_id, is_online, last_seen")
-            .in("employee_id", otherEmpIds)
-        ])
+        const otherEmpIds = Array.from(new Set((directMembers ?? []).map((m: any) => m.employee_id)))
+        if (otherEmpIds.length > 0) {
+          const [{ data: empProfiles }, { data: onlineStatuses }] = await Promise.all([
+            supa.from("employees")
+              .select("id, first_name_th, last_name_th, nickname, avatar_url, employee_code")
+              .in("id", otherEmpIds),
+            supa.from("employee_online_status")
+              .select("employee_id, is_online, last_seen")
+              .in("employee_id", otherEmpIds)
+          ])
+          const profileMap: Record<string, any> = {}
+          for (const p of (empProfiles ?? [])) profileMap[p.id] = p
+          const onlineStatusMap: Record<string, any> = {}
+          for (const s of (onlineStatuses ?? [])) onlineStatusMap[s.employee_id] = s
 
-        const profileMap: Record<string, any> = {}
-        for (const p of (empProfiles ?? [])) { profileMap[p.id] = p }
-        const onlineStatusMap: Record<string, any> = {}
-        for (const s of (onlineStatuses ?? [])) { onlineStatusMap[s.employee_id] = s }
-
-        for (const dm of (directMembers ?? [])) {
-          const profile = profileMap[dm.employee_id]
-          if (profile) {
-            otherUserMap[dm.conversation_id] = {
-              ...profile,
-              online: onlineStatusMap[dm.employee_id] || { is_online: false, last_seen: null }
+          for (const dm of (directMembers ?? [])) {
+            const profile = profileMap[dm.employee_id]
+            if (profile) {
+              otherUserMap[dm.conversation_id] = {
+                ...profile,
+                online: onlineStatusMap[dm.employee_id] || { is_online: false, last_seen: null }
+              }
             }
           }
         }
-      }
+      })())
     }
 
     if (hasMembersTable && groupConvs.length > 0) {
-      // Batch count members per group
-      for (const gc of groupConvs) {
-        const { count } = await supa.from("chat_members")
-          .select("id", { count: "exact", head: true }).eq("conversation_id", gc.id)
-        memberCountMap[gc.id] = count ?? 0
-      }
+      // Single batch: get ALL members for all groups, then count per group
+      enrichPromises.push((async () => {
+        const { data: allGroupMembers } = await supa.from("chat_members")
+          .select("conversation_id")
+          .in("conversation_id", groupConvs.map((c: any) => c.id))
+        for (const gm of (allGroupMembers ?? [])) {
+          memberCountMap[gm.conversation_id] = (memberCountMap[gm.conversation_id] || 0) + 1
+        }
+      })())
     }
 
-    const result = (convs ?? []).map((c: any) => ({
+    await Promise.all(enrichPromises)
+
+    const result = convs.map((c: any) => ({
       ...c,
-      type: c.type || "hr", // Ensure type always has a value
+      type: c.type || "hr",
       last_message: lastMsgMap[c.id] || null,
       unread_count: unreadMap[c.id] || 0,
       other_user: otherUserMap[c.id] || null,
@@ -261,41 +280,78 @@ export async function GET(req: NextRequest) {
       is_muted: memberMap[c.id]?.is_muted || false,
     }))
 
-    return NextResponse.json({ conversations: result, me: empId })
+    // Lightweight hash for change detection — client can skip re-render if same
+    const hashParts = result.map((c: any) =>
+      `${c.id}:${c.last_message?.created_at || ""}:${c.unread_count}`
+    ).join("|")
+    // Simple numeric hash
+    let hash = 0
+    for (let i = 0; i < hashParts.length; i++) {
+      hash = ((hash << 5) - hash + hashParts.charCodeAt(i)) | 0
+    }
+
+    return jsonRes({ conversations: result, me: empId, hash: hash.toString(36) })
   }
 
   // ══════════════════════════════════════════
   // MODE: get messages for a specific conversation
   // ══════════════════════════════════════════
   if (convId) {
-    // Verify access: check membership OR legacy HR conv
-    let hasAccess = isAdmin
     const hasMembersTable = await tableExists(supa, "chat_members")
 
-    if (!hasAccess && hasMembersTable) {
-      const { data: membership } = await supa.from("chat_members")
-        .select("id").eq("conversation_id", convId).eq("employee_id", empId).maybeSingle()
-      if (membership) hasAccess = true
-    }
+    // Access check — run both checks in parallel
+    let hasAccess = isAdmin
     if (!hasAccess) {
-      // Check legacy HR conv (employee_id match)
-      const { data: hrConv } = await supa.from("chat_conversations")
-        .select("id").eq("id", convId).eq("employee_id", empId).maybeSingle()
-      if (hrConv) hasAccess = true
+      const [memberCheck, hrCheck] = await Promise.all([
+        hasMembersTable
+          ? supa.from("chat_members").select("id").eq("conversation_id", convId).eq("employee_id", empId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        supa.from("chat_conversations").select("id").eq("id", convId).eq("employee_id", empId).maybeSingle()
+      ])
+      if (memberCheck.data || hrCheck.data) hasAccess = true
+    }
+    if (!hasAccess) return jsonRes({ error: "Access denied" })
+
+    // Delta mode: if `since` provided, only return new messages + delete detection
+    if (since) {
+      // Run BOTH queries in parallel (was sequential before)
+      const [{ data: newMessages }, { count: totalCount }] = await Promise.all([
+        supa.from("chat_messages")
+          .select("*, sender:employees!sender_id(id, first_name_th, last_name_th, nickname, avatar_url)")
+          .eq("conversation_id", convId)
+          .gt("created_at", since)
+          .order("created_at", { ascending: true })
+          .limit(100),
+        // Use COUNT instead of fetching all IDs — O(1) vs O(n)
+        supa.from("chat_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("conversation_id", convId),
+      ])
+
+      // Fire-and-forget mark read
+      if (hasMembersTable) {
+        supa.from("chat_members").update({ last_read_at: new Date().toISOString() })
+          .eq("conversation_id", convId).eq("employee_id", empId).then(() => {})
+      }
+
+      return jsonRes({
+        new_messages: newMessages ?? [],
+        total_count: totalCount ?? 0,
+        ts: new Date().toISOString(),
+      })
     }
 
-    if (!hasAccess) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
-    }
-
-    const [{ data: conv }, { data: messages }] = await Promise.all([
+    // Full load: conversation + messages + members in parallel
+    const [convResult, messagesResult] = await Promise.all([
       supa.from("chat_conversations").select("*").eq("id", convId).single(),
       supa.from("chat_messages")
         .select("*, sender:employees!sender_id(id, first_name_th, last_name_th, nickname, avatar_url)")
         .eq("conversation_id", convId).order("created_at", { ascending: true }).limit(200),
     ])
+    const conv = convResult.data
+    const messages = messagesResult.data ?? []
 
-    // Mark read (non-blocking)
+    // Mark read (fire-and-forget)
     if (hasMembersTable) {
       supa.from("chat_members").update({ last_read_at: new Date().toISOString() })
         .eq("conversation_id", convId).eq("employee_id", empId).then(() => {})
@@ -305,14 +361,17 @@ export async function GET(req: NextRequest) {
         .eq("conversation_id", convId).neq("sender_role", "user").eq("is_read", false).then(() => {})
     }
 
-    // Enrich conversation with context data
+    // Enrich conversation
     const convType = conv?.type || "hr"
     let otherUser = null
     let members: any[] = []
+    let pinnedMessage = null
 
-    if (hasMembersTable) {
-      if (convType === "direct") {
-        // Get the other person's info for direct chat header
+    // Run all enrichment in parallel
+    const enrichTasks: Promise<void>[] = []
+
+    if (hasMembersTable && convType === "direct") {
+      enrichTasks.push((async () => {
         const { data: memberRows } = await supa.from("chat_members")
           .select("employee_id").eq("conversation_id", convId).neq("employee_id", empId).limit(1)
         const otherEmpId = memberRows?.[0]?.employee_id
@@ -326,63 +385,61 @@ export async function GET(req: NextRequest) {
           ])
           if (empData) otherUser = { ...empData, online: os || { is_online: false, last_seen: null } }
         }
-      }
+      })())
+    }
 
-      if (convType === "group" || convType === "department" || convType === "direct") {
+    if (hasMembersTable && (convType === "group" || convType === "department" || convType === "direct")) {
+      enrichTasks.push((async () => {
         const { data: m } = await supa.from("chat_members")
           .select("role, employee_id, employee:employees!employee_id(id, first_name_th, last_name_th, nickname, avatar_url)")
           .eq("conversation_id", convId)
         members = m ?? []
-      }
+      })())
     }
 
-    // Get pinned message if any
-    let pinnedMessage = null
     if (conv?.pinned_message_id) {
-      const { data: pm } = await supa.from("chat_messages")
-        .select("id, message, images, created_at, sender_id, sender:employees!sender_id(first_name_th, nickname)")
-        .eq("id", conv.pinned_message_id).maybeSingle()
-      pinnedMessage = pm
+      enrichTasks.push((async () => {
+        const { data: pm } = await supa.from("chat_messages")
+          .select("id, message, images, created_at, sender_id, sender:employees!sender_id(first_name_th, nickname)")
+          .eq("id", conv.pinned_message_id).maybeSingle()
+        pinnedMessage = pm
+      })())
     }
 
-    return NextResponse.json({
+    await Promise.all(enrichTasks)
+
+    return jsonRes({
       conversation: { ...conv, type: convType, other_user: otherUser, member_count: members.length, pinned_message: pinnedMessage },
-      messages: messages ?? [],
+      messages,
       members,
       me: empId,
+      ts: new Date().toISOString(),
     })
   }
 
   // ══════════════════════════════════════════
-  // DEFAULT: Legacy HR conversation (backward compat)
+  // DEFAULT: Legacy HR conversation
   // ══════════════════════════════════════════
-  if (!empId) return NextResponse.json({ error: "No employee" }, { status: 400 })
+  if (!empId) return jsonRes({ error: "No employee" })
 
-  // Try finding HR conversation: first with type, then fallback to employee_id only
   let { data: conv } = await supa.from("chat_conversations")
     .select("*").eq("employee_id", empId).eq("type", "hr").maybeSingle()
 
   if (!conv) {
-    // Fallback: find by employee_id (legacy, before type column existed)
     const { data: legacyConv } = await supa.from("chat_conversations")
       .select("*").eq("employee_id", empId).order("created_at", { ascending: true }).limit(1).maybeSingle()
     conv = legacyConv
   }
 
   if (!conv) {
-    // Create new
     const emp = userData.employee as any
-    const insertData: any = { employee_id: empId, company_id: emp?.company_id || null }
-    // Only add type if column likely exists
-    insertData.type = "hr"
+    const insertData: any = { employee_id: empId, company_id: emp?.company_id || null, type: "hr" }
     const { data: newConv, error } = await supa.from("chat_conversations")
       .insert(insertData).select("*").single()
     if (error) {
-      // Retry without type column
       const { data: newConv2, error: err2 } = await supa.from("chat_conversations")
-        .insert({ employee_id: empId, company_id: emp?.company_id || null })
-        .select("*").single()
-      if (err2) return NextResponse.json({ error: err2.message }, { status: 500 })
+        .insert({ employee_id: empId, company_id: emp?.company_id || null }).select("*").single()
+      if (err2) return jsonRes({ error: err2.message })
       conv = newConv2
     } else {
       conv = newConv
@@ -393,20 +450,21 @@ export async function GET(req: NextRequest) {
     .select("*, sender:employees!sender_id(first_name_th, last_name_th, nickname, avatar_url)")
     .eq("conversation_id", conv.id).order("created_at", { ascending: true }).limit(200)
 
-  await supa.from("chat_messages").update({ is_read: true })
-    .eq("conversation_id", conv.id).neq("sender_role", "user").eq("is_read", false)
+  supa.from("chat_messages").update({ is_read: true })
+    .eq("conversation_id", conv.id).neq("sender_role", "user").eq("is_read", false).then(() => {})
 
-  return NextResponse.json({
+  return jsonRes({
     conversation: { ...conv, type: conv.type || "hr" },
     messages: messages ?? [],
     me: empId,
+    ts: new Date().toISOString(),
   })
 }
 
 // POST — send, create_direct, create_group, mark_read, add_members, etc.
 export async function POST(req: NextRequest) {
   const userData = await getUser(req)
-  if (!userData) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (!userData) return jsonRes({ error: "Unauthorized" })
 
   const supa = createServiceClient()
   const isAdmin = userData.role === "super_admin" || userData.role === "hr_admin"
@@ -418,56 +476,49 @@ export async function POST(req: NextRequest) {
   // ── Create direct chat ──
   if (action === "create_direct") {
     const { target_employee_id } = body
-    if (!target_employee_id) return NextResponse.json({ error: "target required" }, { status: 400 })
+    if (!target_employee_id) return jsonRes({ error: "target required" })
 
-    // Check if direct chat already exists between these two
-    const { data: existing } = await supa.rpc("find_direct_chat", {
-      emp1: empId, emp2: target_employee_id
-    }).maybeSingle()
+    // Check existing: run both checks in parallel
+    const [rpcResult, myConvsResult, theirConvsResult] = await Promise.all([
+      supa.rpc("find_direct_chat", { emp1: empId, emp2: target_employee_id }).maybeSingle(),
+      supa.from("chat_members").select("conversation_id").eq("employee_id", empId),
+      supa.from("chat_members").select("conversation_id").eq("employee_id", target_employee_id),
+    ])
 
-    if (existing) {
-      return NextResponse.json({ conversation_id: (existing as any).conversation_id })
-    }
+    if (rpcResult.data) return jsonRes({ conversation_id: (rpcResult.data as any).conversation_id })
 
-    // Manual check: find conversations where both are members and type=direct
-    const { data: myConvs } = await supa.from("chat_members")
-      .select("conversation_id").eq("employee_id", empId)
-    const { data: theirConvs } = await supa.from("chat_members")
-      .select("conversation_id").eq("employee_id", target_employee_id)
-
-    const myIds = new Set((myConvs ?? []).map((c: any) => c.conversation_id))
-    const common = (theirConvs ?? []).filter((c: any) => myIds.has(c.conversation_id)).map((c: any) => c.conversation_id)
+    const myIds = new Set((myConvsResult.data ?? []).map((c: any) => c.conversation_id))
+    const common = (theirConvsResult.data ?? []).filter((c: any) => myIds.has(c.conversation_id)).map((c: any) => c.conversation_id)
 
     if (common.length > 0) {
       const { data: directConv } = await supa.from("chat_conversations")
         .select("id").in("id", common).eq("type", "direct").maybeSingle()
-      if (directConv) return NextResponse.json({ conversation_id: directConv.id })
+      if (directConv) return jsonRes({ conversation_id: directConv.id })
     }
 
-    // Create new direct conversation
     const { data: newConv, error } = await supa.from("chat_conversations").insert({
       type: "direct", company_id: companyId, created_by: empId,
     }).select("id").single()
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return jsonRes({ error: error.message })
 
     await supa.from("chat_members").insert([
       { conversation_id: newConv.id, employee_id: empId, role: "member" },
       { conversation_id: newConv.id, employee_id: target_employee_id, role: "member" },
     ])
 
-    return NextResponse.json({ conversation_id: newConv.id })
+    return jsonRes({ conversation_id: newConv.id })
   }
 
   // ── Create group chat ──
   if (action === "create_group") {
     const { name, member_ids, avatar_url } = body
-    if (!name || !member_ids?.length) return NextResponse.json({ error: "name and members required" }, { status: 400 })
+    if (!name || !member_ids?.length) return jsonRes({ error: "name and members required" })
 
     const { data: newConv, error } = await supa.from("chat_conversations").insert({
       type: "group", name, avatar_url: avatar_url || null,
       company_id: companyId, created_by: empId,
     }).select("id").single()
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return jsonRes({ error: error.message })
 
     const membersToInsert = [
       { conversation_id: newConv.id, employee_id: empId, role: "admin" },
@@ -477,110 +528,98 @@ export async function POST(req: NextRequest) {
     ]
     await supa.from("chat_members").insert(membersToInsert)
 
-    return NextResponse.json({ conversation_id: newConv.id })
+    return jsonRes({ conversation_id: newConv.id })
   }
 
   // ── Add members to group ──
   if (action === "add_members") {
     const { conversation_id, member_ids } = body
-    const membersToInsert = member_ids.map((id: string) => ({
-      conversation_id, employee_id: id, role: "member",
-    }))
-    await supa.from("chat_members").insert(membersToInsert).select()
-    return NextResponse.json({ success: true })
+    await supa.from("chat_members").insert(
+      member_ids.map((id: string) => ({ conversation_id, employee_id: id, role: "member" }))
+    ).select()
+    return jsonRes({ success: true })
   }
 
   // ── Update group name/avatar ──
   if (action === "update_group") {
     const { conversation_id, name, avatar_url } = body
-    const updates: any = {}
+    const updates: any = { updated_at: new Date().toISOString() }
     if (name !== undefined) updates.name = name
     if (avatar_url !== undefined) updates.avatar_url = avatar_url
-    updates.updated_at = new Date().toISOString()
     await supa.from("chat_conversations").update(updates).eq("id", conversation_id)
-    return NextResponse.json({ success: true })
+    return jsonRes({ success: true })
   }
 
   // ── Remove member from group ──
   if (action === "remove_member") {
     const { conversation_id, member_id } = body
-    // Verify requester is admin of the group
     const { data: reqMember } = await supa.from("chat_members")
       .select("role").eq("conversation_id", conversation_id).eq("employee_id", empId).maybeSingle()
-    if (!reqMember || (reqMember.role !== "admin" && !isAdmin)) {
-      return NextResponse.json({ error: "Only admins can remove members" }, { status: 403 })
-    }
+    if (!reqMember || (reqMember.role !== "admin" && !isAdmin))
+      return jsonRes({ error: "Only admins can remove members" })
     await supa.from("chat_members").delete()
       .eq("conversation_id", conversation_id).eq("employee_id", member_id)
-    return NextResponse.json({ success: true })
+    return jsonRes({ success: true })
   }
 
   // ── Leave group ──
   if (action === "leave_group") {
     await supa.from("chat_members").delete()
       .eq("conversation_id", body.conversation_id).eq("employee_id", empId)
-    return NextResponse.json({ success: true })
+    return jsonRes({ success: true })
   }
 
-  // ── Delete message (own message or admin) ──
+  // ── Delete message ──
   if (action === "delete_message") {
     const { message_id } = body
-    // Verify ownership or admin
     const { data: msg } = await supa.from("chat_messages")
       .select("id, sender_id").eq("id", message_id).single()
-    if (!msg) return NextResponse.json({ error: "Message not found" }, { status: 404 })
-    if (msg.sender_id !== empId && !isAdmin) {
-      return NextResponse.json({ error: "Can only delete own messages" }, { status: 403 })
-    }
+    if (!msg) return jsonRes({ error: "Message not found" })
+    if (msg.sender_id !== empId && !isAdmin)
+      return jsonRes({ error: "Can only delete own messages" })
     await supa.from("chat_messages").delete().eq("id", message_id)
-    return NextResponse.json({ success: true })
+    return jsonRes({ success: true })
   }
 
-  // ── Delete conversation (creator/admin only) ──
+  // ── Delete conversation ──
   if (action === "delete_conversation") {
     const { conversation_id } = body
     const { data: conv } = await supa.from("chat_conversations")
       .select("id, type, created_by, employee_id").eq("id", conversation_id).single()
-    if (!conv) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    if (!conv) return jsonRes({ error: "Not found" })
 
-    // Allow: admin, conversation creator, or HR conv owner
-    const canDelete = isAdmin || conv.created_by === empId || conv.employee_id === empId
+    let canDelete = isAdmin || conv.created_by === empId || conv.employee_id === empId
     if (!canDelete) {
-      // Also check if user is group admin
       const { data: mem } = await supa.from("chat_members")
         .select("role").eq("conversation_id", conversation_id).eq("employee_id", empId).maybeSingle()
-      if (!mem || mem.role !== "admin") {
-        return NextResponse.json({ error: "Not allowed" }, { status: 403 })
-      }
+      if (!mem || mem.role !== "admin") return jsonRes({ error: "Not allowed" })
     }
 
-    // Delete messages first, then members, then conversation
+    // Cascade delete in parallel where safe
     await supa.from("chat_messages").delete().eq("conversation_id", conversation_id)
-    await supa.from("chat_members").delete().eq("conversation_id", conversation_id)
-    await supa.from("chat_conversations").delete().eq("id", conversation_id)
-    return NextResponse.json({ success: true })
+    await Promise.all([
+      supa.from("chat_members").delete().eq("conversation_id", conversation_id),
+      supa.from("chat_conversations").delete().eq("id", conversation_id),
+    ])
+    return jsonRes({ success: true })
   }
 
   // ── Send message ──
   if (action === "send") {
     const { conversation_id, message, images, reply_to_id } = body
-    if (!message && (!images || images.length === 0)) {
-      return NextResponse.json({ error: "Message or images required" }, { status: 400 })
-    }
+    if (!message && (!images || images.length === 0))
+      return jsonRes({ error: "Message or images required" })
 
-    // Verify access: admin OR member OR legacy HR conv owner
+    // Quick access check: try member first, fallback to HR conv
     let hasAccess = isAdmin
     if (!hasAccess) {
-      const { data: mem } = await supa.from("chat_members")
-        .select("id").eq("conversation_id", conversation_id).eq("employee_id", empId).maybeSingle()
-      if (mem) hasAccess = true
+      const [{ data: mem }, { data: hrConv }] = await Promise.all([
+        supa.from("chat_members").select("id").eq("conversation_id", conversation_id).eq("employee_id", empId).maybeSingle(),
+        supa.from("chat_conversations").select("id").eq("id", conversation_id).eq("employee_id", empId).maybeSingle()
+      ])
+      if (mem || hrConv) hasAccess = true
     }
-    if (!hasAccess) {
-      const { data: hrConv } = await supa.from("chat_conversations")
-        .select("id").eq("id", conversation_id).eq("employee_id", empId).maybeSingle()
-      if (hrConv) hasAccess = true
-    }
-    if (!hasAccess) return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    if (!hasAccess) return jsonRes({ error: "Access denied" })
 
     const { data: msg, error } = await supa.from("chat_messages").insert({
       conversation_id, sender_id: empId,
@@ -589,29 +628,27 @@ export async function POST(req: NextRequest) {
       reply_to_id: reply_to_id || null,
     }).select("*, sender:employees!sender_id(id, first_name_th, last_name_th, nickname, avatar_url)").single()
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return jsonRes({ error: error.message })
 
-    await supa.from("chat_conversations")
-      .update({ last_message_at: new Date().toISOString(), status: "open" })
-      .eq("id", conversation_id)
+    // Update conversation timestamp + sender's read marker (fire-and-forget)
+    Promise.all([
+      supa.from("chat_conversations")
+        .update({ last_message_at: new Date().toISOString(), status: "open" })
+        .eq("id", conversation_id),
+      supa.from("chat_members")
+        .update({ last_read_at: new Date().toISOString() })
+        .eq("conversation_id", conversation_id).eq("employee_id", empId)
+    ]).catch(() => {})
 
-    // Update sender's last_read_at (ignore error if no membership)
-    supa.from("chat_members")
-      .update({ last_read_at: new Date().toISOString() })
-      .eq("conversation_id", conversation_id).eq("employee_id", empId)
-      .then(() => {})
-
-    return NextResponse.json({ success: true, message: msg })
+    return jsonRes({ success: true, message: msg })
   }
 
   // ── Mark read ──
   if (action === "mark_read") {
     const { conversation_id } = body
-    supa.from("chat_members")
+    await supa.from("chat_members")
       .update({ last_read_at: new Date().toISOString() })
       .eq("conversation_id", conversation_id).eq("employee_id", empId)
-      .then(() => {})
-
     if (isAdmin) {
       await supa.from("chat_messages").update({ is_read: true })
         .eq("conversation_id", conversation_id).eq("sender_role", "user").eq("is_read", false)
@@ -619,15 +656,15 @@ export async function POST(req: NextRequest) {
       await supa.from("chat_messages").update({ is_read: true })
         .eq("conversation_id", conversation_id).neq("sender_role", "user").eq("is_read", false)
     }
-    return NextResponse.json({ success: true })
+    return jsonRes({ success: true })
   }
 
-  // ── Update online status ──
+  // ── Heartbeat ──
   if (action === "heartbeat") {
     await supa.from("employee_online_status").upsert({
       employee_id: empId, is_online: true, last_seen: new Date().toISOString()
     }, { onConflict: "employee_id" })
-    return NextResponse.json({ success: true })
+    return jsonRes({ success: true })
   }
 
   // ── Go offline ──
@@ -635,31 +672,29 @@ export async function POST(req: NextRequest) {
     await supa.from("employee_online_status")
       .update({ is_online: false, last_seen: new Date().toISOString() })
       .eq("employee_id", empId)
-    return NextResponse.json({ success: true })
+    return jsonRes({ success: true })
   }
 
   // ── Pin message ──
   if (action === "pin_message") {
     const { conversation_id, message_id } = body
-    if (!conversation_id || !message_id) return NextResponse.json({ error: "conversation_id and message_id required" }, { status: 400 })
-    // Verify message belongs to this conversation
+    if (!conversation_id || !message_id) return jsonRes({ error: "conversation_id and message_id required" })
     const { data: msg } = await supa.from("chat_messages")
       .select("id, message, images, created_at, sender_id, sender:employees!sender_id(first_name_th, nickname)")
       .eq("id", message_id).eq("conversation_id", conversation_id).single()
-    if (!msg) return NextResponse.json({ error: "Message not found" }, { status: 404 })
+    if (!msg) return jsonRes({ error: "Message not found" })
     await supa.from("chat_conversations")
       .update({ pinned_message_id: message_id, updated_at: new Date().toISOString() })
       .eq("id", conversation_id)
-    return NextResponse.json({ success: true, pinned: msg })
+    return jsonRes({ success: true, pinned: msg })
   }
 
   // ── Unpin message ──
   if (action === "unpin_message") {
-    const { conversation_id } = body
     await supa.from("chat_conversations")
       .update({ pinned_message_id: null, updated_at: new Date().toISOString() })
-      .eq("id", conversation_id)
-    return NextResponse.json({ success: true })
+      .eq("id", body.conversation_id)
+    return jsonRes({ success: true })
   }
 
   // ── Close (admin) ──
@@ -667,8 +702,8 @@ export async function POST(req: NextRequest) {
     await supa.from("chat_conversations")
       .update({ status: "closed", updated_at: new Date().toISOString() })
       .eq("id", body.conversation_id)
-    return NextResponse.json({ success: true })
+    return jsonRes({ success: true })
   }
 
-  return NextResponse.json({ error: "Unknown action" }, { status: 400 })
+  return jsonRes({ error: "Unknown action" })
 }

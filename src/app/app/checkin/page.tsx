@@ -722,12 +722,15 @@ export default function CheckInPage() {
 
   const mapRef = useRef<HTMLDivElement>(null)
   const mapObj = useRef<any>(null)
+  const mapReadyRef = useRef(false)
   const userPin = useRef<any>(null)
   const drawables = useRef<any[]>([])
+  const watchIdRef = useRef<number | null>(null)
 
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null)
   const [gpsLoading, setGpsL] = useState(false)
   const [sdkReady, setSdkReady] = useState(false)
+  const [sdkLoadAttempt, setSdkLoadAttempt] = useState(0)
   const [mapInited, setMapInited] = useState(false)
   const [branches, setBranches] = useState<Branch[]>([])
   const [nearest, setNearest] = useState<Branch | null>(null)
@@ -837,7 +840,7 @@ export default function CheckInPage() {
   useEffect(() => { if (!mapInited || !pos || branches.length === 0) return; redraw(pos.lat, pos.lng, branches) }, [mapInited, pos, branches, redraw])
 
   const initMap = useCallback((lat: number, lng: number) => {
-    if (!mapRef.current || !window.google || mapObj.current) return
+    if (!mapRef.current || !window.google) return
     const map = new window.google.maps.Map(mapRef.current, {
       center: { lat, lng }, zoom: 17,
       mapTypeControl: false, streetViewControl: false, fullscreenControl: false, zoomControl: false,
@@ -874,30 +877,48 @@ export default function CheckInPage() {
     )
   }, [sdkReady, initMap])
 
+  // SDK callback — only mark ready, don't init map yet
   useEffect(() => {
-    window.initCheckinMap = () => { setSdkReady(true); setTimeout(() => initMap(13.7563, 100.5018), 0) }
-    return () => { try { delete (window as any).initCheckinMap } catch { } }
-  }, [initMap])
+    window.initCheckinMap = () => { setSdkReady(true) }
+    return () => { try { delete (window as any).initCheckinMap } catch {} }
+  }, [])
 
   const handleScriptLoad = useCallback(() => {
-    if (!sdkReady) { setSdkReady(true); setTimeout(() => initMap(13.7563, 100.5018), 0) }
-    setTimeout(() => initMap(13.7563, 100.5018), 0)
-  }, [initMap, sdkReady])
+    setSdkReady(true)
+  }, [])
 
+  // When SDK ready, init map (with default or cached pos) then start watchPosition
   useEffect(() => {
-    if (!sdkReady) return
+    if (!sdkReady || mapReadyRef.current) return
+    mapReadyRef.current = true
+
+    // Init map with last known or default position
+    const defaultLat = pos?.lat ?? 13.7563
+    const defaultLng = pos?.lng ?? 100.5018
+    initMap(defaultLat, defaultLng)
+
+    // Start continuous GPS tracking
+    if (!navigator.geolocation) return
     setGpsL(true)
+
+    // Quick coarse position first
     navigator.geolocation.getCurrentPosition(
-      ({ coords: { latitude: lat, longitude: lng } }) => panToUser(lat, lng),
-      () => { setGpsL(false); toast.error("ไม่สามารถดึงตำแหน่งได้") },
+      ({ coords }) => panToUser(coords.latitude, coords.longitude),
+      () => {},
       { enableHighAccuracy: false, timeout: 5000, maximumAge: 30000 }
     )
-    navigator.geolocation.getCurrentPosition(
-      ({ coords: { latitude: lat, longitude: lng } }) => panToUser(lat, lng),
-      () => { },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+
+    // Then continuous high-accuracy watch
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      ({ coords }) => panToUser(coords.latitude, coords.longitude),
+      (err) => { if (err.code === err.PERMISSION_DENIED) { toast.error("กรุณาเปิด GPS"); setGpsL(false) } },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
     )
-  }, [sdkReady, panToUser])
+
+    return () => {
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current)
+    }
+  }, [sdkReady, initMap, panToUser])
 
   // ── Derived ──
   const inRadius = nearest !== null && distance !== null && distance <= (nearest.geo_radius_m || 200)
@@ -961,7 +982,7 @@ export default function CheckInPage() {
         {/* ═══════════════════════════════════════════════════════════════
             MAP HERO — full width, tall, with floating check-in overlay
            ═══════════════════════════════════════════════════════════════ */}
-        <div className="relative" style={{ height: "52vh", minHeight: 340, maxHeight: 480 }}>
+        <div className="relative" style={{ height: "42vh", minHeight: 280, maxHeight: 400 }}>
           {/* Map container */}
           <div ref={mapRef} className="absolute inset-0 bg-gray-100" />
 
@@ -1004,253 +1025,267 @@ export default function CheckInPage() {
 
         </div>
 
-        {/* ═══════ Content section — pulled up to overlap map ═══════ */}
-        <div className="relative z-20" style={{ marginTop: -160 }}>
-          {/* Floating circle — sits between map and white content */}
-          <div className="relative z-30 flex flex-col items-center mb-[-90px]" style={{ animation: "float-up .5s ease .2s both" }}>
-            {!hasClockedIn ? (
-              /* ── Before Check-in: Large glowing circle button ── */
-              <div className="relative">
-                {/* Outer glow ring */}
-                {inRadius && (
-                  <div className="absolute inset-0 rounded-full"
-                    style={{
-                      background: "radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%)",
-                      transform: "scale(1.3)",
-                    }} />
-                )}
-                {/* Dotted background container */}
-                <div className="w-[180px] h-[180px] rounded-full flex items-center justify-center relative bg-white shadow-2xl shadow-gray-300/50 border border-gray-100"
-                  style={{ boxShadow: inRadius ? "0 8px 40px rgba(99,102,241,0.2), 0 0 0 1px rgba(99,102,241,0.1)" : "0 8px 30px rgba(0,0,0,0.08)" }}>
-                  {/* dot pattern overlay */}
-                  <div className="absolute inset-3 rounded-full overflow-hidden opacity-[0.08]">
-                    <div style={{
-                      width: "100%", height: "100%",
-                      backgroundImage: "radial-gradient(circle, #94a3b8 1px, transparent 1px)",
-                      backgroundSize: "10px 10px",
-                    }} />
-                  </div>
+        {/* ═══════ Content section — overlapping map ═══════ */}
+        <div className="relative z-20" style={{ marginTop: -100 }}>
 
-                  <button onClick={handleClockIn}
-                    disabled={loading || !inRadius || branches.length === 0}
-                    className={`relative z-10 w-[148px] h-[148px] rounded-full font-bold text-lg flex flex-col items-center justify-center gap-1.5 transition-all duration-200 active:scale-[.93] overflow-hidden ${
-                      inRadius
-                        ? "text-white"
-                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
+          {/* White gradient fading up into the map */}
+          <div className="h-32 pointer-events-none" style={{ background: "linear-gradient(to top, #ffffff 0%, rgba(255,255,255,0.95) 20%, rgba(255,255,255,0.6) 50%, rgba(255,255,255,0) 100%)" }} />
+
+          {/* ═══════ Check-In Card — overlaps gradient ═══════ */}
+          <div className="bg-white px-5" style={{ marginTop: -40 }}>
+
+            {/* ── Dual Space Circle Buttons ── */}
+            <div className="flex items-center justify-center gap-4 mb-4" style={{ animation: "float-up .5s ease .15s both" }}>
+
+              {/* CHECK-IN Circle */}
+              <div className="flex flex-col items-center gap-2">
+                <div className="relative">
+                  {/* Cosmic glow — always show when not checked in */}
+                  {!hasClockedIn && <>
+                    <div className="absolute -inset-3 rounded-full" style={{ background: "radial-gradient(circle, rgba(139,92,246,0.18) 0%, rgba(99,102,241,0.06) 50%, transparent 70%)" }} />
+                    <div className="absolute -inset-1.5 rounded-full" style={{ border: "1.5px solid rgba(139,92,246,0.12)", animation: "pulse-ring 2.5s ease-out infinite" }} />
+                  </>}
+                  <button
+                    onClick={hasClockedIn ? undefined : handleClockIn}
+                    disabled={hasClockedIn || loading || (!inRadius && branches.length > 0)}
+                    className={`relative w-[110px] h-[110px] rounded-full font-bold flex flex-col items-center justify-center gap-1.5 transition-all duration-300 overflow-hidden ${
+                      hasClockedIn
+                        ? "text-emerald-400 cursor-default"
+                        : "text-white active:scale-[.90]"
                     }`}
-                    style={inRadius ? {
-                      background: "linear-gradient(135deg, #1e3a5f 0%, #1a2744 40%, #0f172a 100%)",
-                      boxShadow: "0 8px 32px rgba(15,23,42,.4), 0 2px 8px rgba(15,23,42,.2)"
-                    } : undefined}>
-                    {/* Stars */}
-                    {inRadius && <>
-                      <span className="ck-star" style={{ width:3, height:3, top:"15%", left:"18%", animation:"twinkle1 3s ease-in-out infinite" }}/>
-                      <span className="ck-star" style={{ width:2, height:2, top:"28%", left:"72%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
-                      <span className="ck-star" style={{ width:2.5, height:2.5, top:"60%", left:"25%", animation:"twinkle3 3.5s ease-in-out infinite 1s" }}/>
-                      <span className="ck-star" style={{ width:2, height:2, top:"70%", left:"68%", animation:"twinkle1 4.5s ease-in-out infinite 1.5s" }}/>
-                      <span className="ck-star" style={{ width:3, height:3, top:"42%", left:"85%", animation:"twinkle2 3s ease-in-out infinite 2s" }}/>
-                      <span className="ck-star" style={{ width:1.5, height:1.5, top:"20%", left:"45%", animation:"twinkle3 5s ease-in-out infinite .8s" }}/>
-                      <span className="ck-star" style={{ width:2, height:2, top:"82%", left:"48%", animation:"twinkle1 3.8s ease-in-out infinite 1.2s" }}/>
-                      <span className="ck-star-glow" style={{ width:35, height:35, top:"-5%", right:"10%", opacity:.12 }}/>
-                      <span className="ck-star-glow" style={{ width:25, height:25, bottom:"10%", left:"15%", opacity:.08 }}/>
-                      <span style={{ position:"absolute", top:"30%", right:"22%", fontSize:7, animation:"driftUp 4s ease-in-out infinite", opacity:.35, color:"#fff" }}>✦</span>
-                      <span style={{ position:"absolute", top:"55%", left:"30%", fontSize:5, animation:"driftUp 5s ease-in-out infinite 1.5s", opacity:.25, color:"#fff" }}>✧</span>
-                      {/* Shine swipe */}
-                      <span style={{ position:"absolute", top:"-50%", left:"-50%", width:"60%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent)", animation:"shineSwipe 6s ease-in-out infinite", pointerEvents:"none" }}/>
-                    </>}
-                    {loading ? (
-                      <Loader2 size={28} className="animate-spin relative z-10" />
+                    style={hasClockedIn ? {
+                      background: "radial-gradient(circle at 30% 30%, #064e3b 0%, #022c22 100%)",
+                      boxShadow: "0 6px 24px rgba(16,185,129,0.2), inset 0 1px 0 rgba(255,255,255,0.05)"
+                    } : {
+                      background: "radial-gradient(ellipse at 30% 20%, #1a1a2e 0%, #0d0d1a 35%, #050510 70%, #000000 100%)",
+                      boxShadow: "0 10px 40px rgba(0,0,0,0.45), 0 0 24px rgba(139,92,246,0.08), inset 0 1px 0 rgba(255,255,255,0.06)"
+                    }}
+                  >
+                    {hasClockedIn ? (
+                      <>
+                        <CheckCircle2 size={24} strokeWidth={2.2} />
+                        <span className="text-[10px] font-bold">เช็คอินแล้ว</span>
+                      </>
+                    ) : loading ? (
+                      <Loader2 size={26} className="animate-spin" />
                     ) : (
-                      <div className="relative z-10 flex flex-col items-center gap-1.5">
-                        <LogIn size={24} strokeWidth={2.2} />
-                        <span className="text-[15px] font-bold tracking-wide">Check-In</span>
-                      </div>
+                      <>
+                        {/* Space stars — always visible */}
+                        <span className="ck-star" style={{ width:2, height:2, top:"8%", left:"18%", animation:"twinkle1 2.5s ease-in-out infinite" }}/>
+                        <span className="ck-star" style={{ width:1.5, height:1.5, top:"16%", left:"68%", animation:"twinkle2 3.5s ease-in-out infinite .3s" }}/>
+                        <span className="ck-star" style={{ width:2.5, height:2.5, top:"32%", left:"82%", animation:"twinkle3 4s ease-in-out infinite .8s" }}/>
+                        <span className="ck-star" style={{ width:1.5, height:1.5, top:"52%", left:"12%", animation:"twinkle2 3s ease-in-out infinite 1.2s" }}/>
+                        <span className="ck-star" style={{ width:2, height:2, top:"68%", left:"75%", animation:"twinkle1 3.8s ease-in-out infinite 1.8s" }}/>
+                        <span className="ck-star" style={{ width:1, height:1, top:"80%", left:"42%", animation:"twinkle3 2.8s ease-in-out infinite 0.5s" }}/>
+                        <span className="ck-star" style={{ width:2, height:2, top:"22%", left:"44%", animation:"twinkle1 4.2s ease-in-out infinite 2.1s" }}/>
+                        <span className="ck-star" style={{ width:1.5, height:1.5, top:"45%", left:"58%", animation:"twinkle2 3.2s ease-in-out infinite 1.5s" }}/>
+                        <span className="ck-star" style={{ width:1, height:1, top:"62%", left:"28%", animation:"twinkle3 4.5s ease-in-out infinite 0.2s" }}/>
+                        <span className="ck-star" style={{ width:1.5, height:1.5, top:"88%", left:"60%", animation:"twinkle1 3.5s ease-in-out infinite 0.8s" }}/>
+                        {/* Nebula */}
+                        <span className="ck-star-glow" style={{ width:45, height:45, top:"-10%", right:"-8%", opacity:.07, background:"radial-gradient(circle,rgba(139,92,246,.6) 0%,transparent 70%)" }}/>
+                        <span className="ck-star-glow" style={{ width:35, height:35, bottom:"0%", left:"2%", opacity:.05, background:"radial-gradient(circle,rgba(59,130,246,.5) 0%,transparent 70%)" }}/>
+                        {/* Sparkles */}
+                        <span style={{ position:"absolute", top:"18%", right:"22%", fontSize:8, animation:"driftUp 3.5s ease-in-out infinite", opacity:.45, color:"#c4b5fd" }}>✦</span>
+                        <span style={{ position:"absolute", top:"58%", left:"25%", fontSize:5, animation:"driftUp 4.5s ease-in-out infinite 1.5s", opacity:.3, color:"#93c5fd" }}>✧</span>
+                        {/* Aurora sweep */}
+                        <span style={{ position:"absolute", top:"-50%", left:"-60%", width:"70%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(139,92,246,.05),rgba(59,130,246,.04),transparent)", animation:"shineSwipe 4s ease-in-out infinite", pointerEvents:"none" }}/>
+                        <LogIn size={28} strokeWidth={2} className="relative z-10" />
+                        <span className="relative z-10 text-[11px] font-bold tracking-wide">Check-In</span>
+                      </>
                     )}
                   </button>
                 </div>
+                {/* Time label */}
+                <div className="text-center min-h-[32px]">
+                  <p className={`text-[17px] font-black tabular-nums leading-none ${hasClockedIn ? (isLate ? "text-orange-500" : "text-gray-800") : "text-gray-300"}`}>
+                    {hasClockedIn ? formatTime(todayRecord?.clock_in) : "--:--"}
+                  </p>
+                  {isLate && <p className="text-[9px] text-orange-400 font-semibold mt-0.5">สาย {lateMin} น.</p>}
+                  {!hasClockedIn && <p className="text-[9px] text-gray-400 font-medium mt-0.5">เข้างาน</p>}
+                </div>
               </div>
-            ) : (
-              /* ── After Check-in: Duration ring ── */
-              <div className="relative">
-                <div className="w-[180px] h-[180px] rounded-full flex items-center justify-center bg-white shadow-2xl shadow-gray-300/50 border border-gray-100"
-                  style={{ boxShadow: "0 8px 40px rgba(99,102,241,0.15), 0 0 0 1px rgba(99,102,241,0.05)" }}>
-                  <ProgressRing progress={workProgress} size={160} stroke={7}>
-                    <p className="text-[9px] text-gray-400 font-semibold tracking-wider uppercase mb-0.5">ชั่วโมงทำงาน</p>
-                    <p className="text-[28px] font-black tabular-nums text-gray-800 tracking-tight leading-none"
-                      style={{ fontVariantNumeric: "tabular-nums" }}>
-                      {pad(workH)}:{pad(workM)}
+
+              {/* CENTER — Work Duration Ring */}
+              <div className="flex flex-col items-center justify-center">
+                <div className="relative w-[78px] h-[78px] flex items-center justify-center mb-1.5 bg-gray-50 rounded-full">
+                  <svg width={74} height={74} className="absolute inset-0.5 -rotate-90">
+                    <circle cx={37} cy={37} r={31} fill="none" stroke="#e5e7eb" strokeWidth={3.5} />
+                    <circle cx={37} cy={37} r={31} fill="none"
+                      stroke={workProgress >= 100 ? "#10b981" : "#6366f1"}
+                      strokeWidth={3.5} strokeLinecap="round"
+                      strokeDasharray={2 * Math.PI * 31}
+                      strokeDashoffset={2 * Math.PI * 31 - (workProgress / 100) * 2 * Math.PI * 31}
+                      className="transition-all duration-1000 ease-out" />
+                  </svg>
+                  <div className="relative z-10 flex flex-col items-center">
+                    <p className="text-[15px] font-black tabular-nums text-gray-800 leading-none">
+                      {hasClockedIn ? `${pad(workH)}:${pad(workM)}` : "0:00"}
                     </p>
-                    <p className="text-[11px] text-gray-300 font-mono tabular-nums mt-0.5">:{pad(workS)}</p>
-                    {!hasClockedOut && remainSec > 0 && (
-                      <p className="text-[9px] text-indigo-400 font-semibold mt-1">เหลือ {remainH}h {remainM}m</p>
+                    {hasClockedIn && (
+                      <p className="text-[8px] text-gray-400 font-mono mt-0.5">:{pad(workS)}</p>
                     )}
-                    {hasClockedOut && (
-                      <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-500">
-                        <CheckCircle2 size={10} /> เสร็จสิ้น
-                      </div>
+                  </div>
+                </div>
+                <p className="text-[8px] text-gray-400 font-bold uppercase tracking-[.12em]">ชั่วโมง</p>
+                {hasClockedIn && !hasClockedOut && remainSec > 0 && (
+                  <p className="text-[9px] text-indigo-500 font-semibold mt-0.5">เหลือ {remainH}h {remainM}m</p>
+                )}
+                {hasClockedOut && (
+                  <div className="mt-0.5 flex items-center gap-1 text-[9px] font-bold text-emerald-500">
+                    <CheckCircle2 size={9} /> เสร็จสิ้น
+                  </div>
+                )}
+              </div>
+
+              {/* CHECK-OUT Circle */}
+              <div className="flex flex-col items-center gap-2">
+                <div className="relative">
+                  {/* Cosmic glow — when available */}
+                  {hasClockedIn && !hasClockedOut && <>
+                    <div className="absolute -inset-3 rounded-full" style={{ background: "radial-gradient(circle, rgba(249,115,22,0.15) 0%, rgba(239,68,68,0.05) 50%, transparent 70%)" }} />
+                    <div className="absolute -inset-1.5 rounded-full" style={{ border: "1.5px solid rgba(249,115,22,0.1)", animation: "pulse-ring 2.5s ease-out infinite" }} />
+                  </>}
+                  <button
+                    onClick={!hasClockedIn || hasClockedOut ? undefined : handleClockOut}
+                    disabled={!hasClockedIn || hasClockedOut || loading || (!inRadius && branches.length > 0)}
+                    className={`relative w-[110px] h-[110px] rounded-full font-bold flex flex-col items-center justify-center gap-1.5 transition-all duration-300 overflow-hidden ${
+                      hasClockedOut
+                        ? "text-emerald-400 cursor-default"
+                        : hasClockedIn
+                          ? "text-white active:scale-[.90]"
+                          : "text-gray-400 cursor-not-allowed"
+                    }`}
+                    style={hasClockedOut ? {
+                      background: "radial-gradient(circle at 30% 30%, #064e3b 0%, #022c22 100%)",
+                      boxShadow: "0 6px 24px rgba(16,185,129,0.2), inset 0 1px 0 rgba(255,255,255,0.05)"
+                    } : hasClockedIn ? {
+                      background: "radial-gradient(ellipse at 30% 20%, #1a1a2e 0%, #0d0d1a 35%, #050510 70%, #000000 100%)",
+                      boxShadow: "0 10px 40px rgba(0,0,0,0.45), 0 0 24px rgba(249,115,22,0.06), inset 0 1px 0 rgba(255,255,255,0.06)"
+                    } : {
+                      background: "radial-gradient(ellipse at 30% 20%, #2a2a3e 0%, #1a1a28 35%, #111118 70%, #0a0a0f 100%)",
+                      boxShadow: "0 6px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.03)"
+                    }}
+                  >
+                    {hasClockedOut ? (
+                      <>
+                        <CheckCircle2 size={24} strokeWidth={2.2} />
+                        <span className="text-[10px] font-bold">เช็คเอ้าท์แล้ว</span>
+                      </>
+                    ) : loading ? (
+                      <Loader2 size={26} className="animate-spin" />
+                    ) : (
+                      <>
+                        {/* Stars — dimmer when disabled, brighter when active */}
+                        <span className="ck-star" style={{ width:2, height:2, top:"10%", left:"20%", animation:"twinkle1 2.8s ease-in-out infinite", opacity: hasClockedIn ? 1 : 0.3 }}/>
+                        <span className="ck-star" style={{ width:1.5, height:1.5, top:"20%", left:"72%", animation:"twinkle2 3.2s ease-in-out infinite .4s", opacity: hasClockedIn ? 1 : 0.3 }}/>
+                        <span className="ck-star" style={{ width:2.5, height:2.5, top:"38%", left:"84%", animation:"twinkle3 3.8s ease-in-out infinite .9s", opacity: hasClockedIn ? 1 : 0.3 }}/>
+                        <span className="ck-star" style={{ width:1.5, height:1.5, top:"55%", left:"15%", animation:"twinkle1 3.5s ease-in-out infinite 1.3s", opacity: hasClockedIn ? 1 : 0.3 }}/>
+                        <span className="ck-star" style={{ width:2, height:2, top:"72%", left:"68%", animation:"twinkle2 4s ease-in-out infinite 1.7s", opacity: hasClockedIn ? 1 : 0.3 }}/>
+                        <span className="ck-star" style={{ width:1, height:1, top:"82%", left:"40%", animation:"twinkle3 2.5s ease-in-out infinite 0.6s", opacity: hasClockedIn ? 1 : 0.3 }}/>
+                        <span className="ck-star" style={{ width:1.5, height:1.5, top:"28%", left:"48%", animation:"twinkle1 4s ease-in-out infinite 2s", opacity: hasClockedIn ? 1 : 0.3 }}/>
+                        <span className="ck-star" style={{ width:2, height:2, top:"48%", left:"55%", animation:"twinkle2 3s ease-in-out infinite 1s", opacity: hasClockedIn ? 1 : 0.3 }}/>
+                        <span className="ck-star" style={{ width:1, height:1, top:"65%", left:"30%", animation:"twinkle3 4.2s ease-in-out infinite 0.3s", opacity: hasClockedIn ? 1 : 0.3 }}/>
+                        <span className="ck-star" style={{ width:1.5, height:1.5, top:"86%", left:"58%", animation:"twinkle1 3.5s ease-in-out infinite 0.8s", opacity: hasClockedIn ? 1 : 0.3 }}/>
+                        {hasClockedIn && <>
+                          {/* Nebula — warm tones */}
+                          <span className="ck-star-glow" style={{ width:45, height:45, top:"-10%", left:"2%", opacity:.07, background:"radial-gradient(circle,rgba(249,115,22,.6) 0%,transparent 70%)" }}/>
+                          <span className="ck-star-glow" style={{ width:30, height:30, bottom:"5%", right:"2%", opacity:.05, background:"radial-gradient(circle,rgba(239,68,68,.5) 0%,transparent 70%)" }}/>
+                          {/* Sparkles */}
+                          <span style={{ position:"absolute", top:"16%", left:"28%", fontSize:7, animation:"driftUp 3.8s ease-in-out infinite", opacity:.4, color:"#fdba74" }}>✦</span>
+                          <span style={{ position:"absolute", top:"52%", right:"20%", fontSize:5, animation:"driftUp 4.2s ease-in-out infinite 1.2s", opacity:.3, color:"#fca5a5" }}>✧</span>
+                          {/* Aurora sweep */}
+                          <span style={{ position:"absolute", top:"-50%", left:"-60%", width:"70%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(249,115,22,.04),rgba(239,68,68,.03),transparent)", animation:"shineSwipe 4.5s ease-in-out infinite", pointerEvents:"none" }}/>
+                        </>}
+                        <LogOut size={28} strokeWidth={2} className={`relative z-10 ${hasClockedIn ? "" : "opacity-50"}`} />
+                        <span className={`relative z-10 text-[11px] font-bold tracking-wide ${hasClockedIn ? "" : "opacity-50"}`}>Check-Out</span>
+                      </>
                     )}
-                  </ProgressRing>
+                  </button>
+                </div>
+                {/* Time label */}
+                <div className="text-center min-h-[32px]">
+                  <p className={`text-[17px] font-black tabular-nums leading-none ${hasClockedOut ? "text-gray-800" : "text-gray-300"}`}>
+                    {hasClockedOut ? formatTime(todayRecord?.clock_out) : "--:--"}
+                  </p>
+                  {isEarlyOut && hasClockedOut && <p className="text-[9px] text-orange-400 font-semibold mt-0.5">ก่อน {earlyOutMin} น.</p>}
+                  {!hasClockedOut && <p className="text-[9px] text-gray-400 font-medium mt-0.5">ออกงาน</p>}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Off-site button — space themed ── */}
+            {(!hasClockedIn || (hasClockedIn && !hasClockedOut)) && (
+              <div className="mb-3" style={{ animation: "float-up .5s ease .25s both" }}>
+                {!hasClockedIn && (
+                  <button onClick={() => setShowOffsite("clock_in")}
+                    className="w-full relative py-3.5 rounded-2xl font-bold text-[12px] text-white flex items-center justify-center gap-2 active:scale-[.97] transition-all overflow-hidden"
+                    style={{
+                      background: "linear-gradient(135deg, #0f0f1a 0%, #0a0a14 50%, #000000 100%)",
+                      boxShadow: "0 6px 24px rgba(0,0,0,0.3)"
+                    }}>
+                    <span className="ck-star" style={{ width:2, height:2, top:"20%", left:"8%", animation:"twinkle1 3s ease-in-out infinite" }}/>
+                    <span className="ck-star" style={{ width:1.5, height:1.5, top:"30%", left:"22%", animation:"twinkle2 3.5s ease-in-out infinite .5s" }}/>
+                    <span className="ck-star" style={{ width:2, height:2, top:"55%", left:"15%", animation:"twinkle3 4s ease-in-out infinite 1s" }}/>
+                    <span className="ck-star" style={{ width:1.5, height:1.5, top:"25%", left:"75%", animation:"twinkle1 3.8s ease-in-out infinite 1.5s" }}/>
+                    <span className="ck-star" style={{ width:2, height:2, top:"60%", left:"82%", animation:"twinkle2 3.2s ease-in-out infinite .8s" }}/>
+                    <span className="ck-star" style={{ width:1, height:1, top:"40%", left:"90%", animation:"twinkle3 4.5s ease-in-out infinite 2s" }}/>
+                    <span style={{ position:"absolute", top:"25%", right:"18%", fontSize:6, animation:"driftUp 4s ease-in-out infinite", opacity:.3, color:"#c4b5fd" }}>✦</span>
+                    <span style={{ position:"absolute", top:"-50%", left:"-50%", width:"60%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(255,255,255,.04),transparent)", animation:"shineSwipe 5s ease-in-out infinite", pointerEvents:"none" }}/>
+                    <Camera size={14} className="relative z-10" />
+                    <span className="relative z-10">เช็คอินนอกสถานที่</span>
+                  </button>
+                )}
+                {hasClockedIn && !hasClockedOut && (
+                  <button onClick={() => setShowOffsite("clock_out")}
+                    className="w-full relative py-3.5 rounded-2xl font-bold text-[12px] text-white flex items-center justify-center gap-2 active:scale-[.97] transition-all overflow-hidden"
+                    style={{
+                      background: "linear-gradient(135deg, #0f0f1a 0%, #0a0a14 50%, #000000 100%)",
+                      boxShadow: "0 6px 24px rgba(0,0,0,0.3)"
+                    }}>
+                    <span className="ck-star" style={{ width:2, height:2, top:"20%", left:"8%", animation:"twinkle1 3s ease-in-out infinite" }}/>
+                    <span className="ck-star" style={{ width:1.5, height:1.5, top:"30%", left:"22%", animation:"twinkle2 3.5s ease-in-out infinite .5s" }}/>
+                    <span className="ck-star" style={{ width:2, height:2, top:"55%", left:"15%", animation:"twinkle3 4s ease-in-out infinite 1s" }}/>
+                    <span className="ck-star" style={{ width:1.5, height:1.5, top:"25%", left:"75%", animation:"twinkle1 3.8s ease-in-out infinite 1.5s" }}/>
+                    <span className="ck-star" style={{ width:2, height:2, top:"60%", left:"82%", animation:"twinkle2 3.2s ease-in-out infinite .8s" }}/>
+                    <span className="ck-star" style={{ width:1, height:1, top:"40%", left:"90%", animation:"twinkle3 4.5s ease-in-out infinite 2s" }}/>
+                    <span style={{ position:"absolute", top:"25%", right:"18%", fontSize:6, animation:"driftUp 4s ease-in-out infinite", opacity:.3, color:"#fdba74" }}>✦</span>
+                    <span style={{ position:"absolute", top:"-50%", left:"-50%", width:"60%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(255,255,255,.04),transparent)", animation:"shineSwipe 5s ease-in-out infinite", pointerEvents:"none" }}/>
+                    <Camera size={14} className="relative z-10" />
+                    <span className="relative z-10">เช็คเอ้าท์นอกสถานที่</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Not in radius warning */}
+            {!inRadius && branches.length > 0 && !hasClockedIn && (
+              <p className="text-center text-[10px] text-gray-400 mb-3">
+                <AlertCircle size={10} className="inline mr-1 text-orange-400" />
+                อยู่นอกรัศมีสาขา — ใช้เช็คอินนอกสถานที่
+              </p>
+            )}
+
+            {/* No branch warning */}
+            {branches.length === 0 && user?.employee_id && !gpsLoading && (
+              <div className="flex items-center gap-2 mb-3 px-3 py-2.5 bg-orange-50 rounded-xl">
+                <AlertCircle size={13} className="text-orange-400 shrink-0" />
+                <div>
+                  <p className="text-[11px] font-bold text-gray-700">ยังไม่ได้รับสิทธิ์เช็คอิน</p>
+                  <p className="text-[9px] text-gray-400">กรุณาติดต่อ HR เพื่อกำหนดสาขา</p>
                 </div>
               </div>
             )}
-          </div>
 
-          {/* Gradient fade from transparent to white — starts at circle midpoint */}
-          <div className="h-28 bg-gradient-to-b from-transparent via-white/60 to-white" />
-          <div className="bg-white">
-
-        {/* ═══════ Not in radius warning ═══════ */}
-        {!hasClockedIn && !inRadius && branches.length > 0 && (
-          <div className="px-5 mb-2 fi1">
-            <p className="text-center text-[12px] text-gray-400">
-              <AlertCircle size={12} className="inline mr-1 text-orange-400" />
-              อยู่นอกรัศมีสาขา
-            </p>
-          </div>
-        )}
-
-        {/* ═══════ Off-site check-in button (always visible when not clocked in) ═══════ */}
-        {!hasClockedIn && (
-          <div className="px-5 mb-4 fi1">
-            <button onClick={() => setShowOffsite("clock_in")}
-              className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2.5 relative overflow-hidden"
-              style={{
-                background: "linear-gradient(135deg, #1e3a5f 0%, #1a2744 40%, #0f172a 100%)",
-                boxShadow: "0 4px 20px rgba(15,23,42,.3)"
-              }}>
-              <span className="ck-star" style={{ width:2.5, height:2.5, top:"18%", left:"10%", animation:"twinkle1 3s ease-in-out infinite" }}/>
-              <span className="ck-star" style={{ width:2, height:2, top:"55%", left:"25%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
-              <span className="ck-star" style={{ width:2, height:2, top:"22%", left:"65%", animation:"twinkle3 3.5s ease-in-out infinite 1s" }}/>
-              <span className="ck-star" style={{ width:1.5, height:1.5, top:"65%", left:"82%", animation:"twinkle1 4.5s ease-in-out infinite 1.5s" }}/>
-              <span className="ck-star-glow" style={{ width:30, height:30, top:"-5%", right:"18%", opacity:.12 }}/>
-              <span style={{ position:"absolute", top:"30%", right:"22%", fontSize:7, animation:"driftUp 4s ease-in-out infinite", opacity:.35, color:"#fff" }}>✦</span>
-              <span style={{ position:"absolute", top:"50%", left:"40%", fontSize:5, animation:"driftUp 5s ease-in-out infinite 1.5s", opacity:.25, color:"#fff" }}>✧</span>
-              <span style={{ position:"absolute", top:"-50%", left:"-50%", width:"60%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent)", animation:"shineSwipe 6s ease-in-out infinite", pointerEvents:"none" }}/>
-              <span className="relative z-10 flex items-center gap-2">
-                <Camera size={15} />
-                เช็คอินนอกสถานที่
-              </span>
-            </button>
-          </div>
-        )}
-
-        {/* ═══════ No branch assigned warning ═══════ */}
-        {branches.length === 0 && user?.employee_id && !gpsLoading && (
-          <div className="px-5 mb-4 fi1">
-            <div className="flex items-center gap-3 px-4 py-3 bg-orange-50 rounded-xl">
-              <AlertCircle size={16} className="text-orange-400" />
-              <div>
-                <p className="text-[13px] font-bold text-gray-700">ยังไม่ได้รับสิทธิ์เช็คอิน</p>
-                <p className="text-[10px] text-gray-400">กรุณาติดต่อ HR เพื่อกำหนดสาขา</p>
+            {/* Completed badge */}
+            {hasClockedIn && hasClockedOut && (
+              <div className="mb-3 flex items-center justify-center gap-2 py-2.5 bg-emerald-50 rounded-2xl">
+                <CheckCircle2 size={13} className="text-emerald-500" />
+                <span className="text-[11px] font-bold text-emerald-600">บันทึกเวลาวันนี้เรียบร้อย</span>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ═══════ Check-Out Button (after clock in, before clock out) ═══════ */}
-        {hasClockedIn && !hasClockedOut && (
-          <div className="px-5 mb-4 fi2 space-y-2.5">
-            {/* Normal check-out (only when in radius) */}
-            {inRadius ? (
-              <button onClick={handleClockOut} disabled={loading}
-                className="w-full py-4 rounded-2xl font-bold text-[15px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2 relative overflow-hidden"
-                style={{
-                  background: "linear-gradient(135deg, #1e3a5f 0%, #1a2744 40%, #0f172a 100%)",
-                  boxShadow: "0 4px 24px rgba(15,23,42,.35)"
-                }}>
-                {/* Stars */}
-                <span className="ck-star" style={{ width:3, height:3, top:"18%", left:"12%", animation:"twinkle1 3s ease-in-out infinite" }}/>
-                <span className="ck-star" style={{ width:2, height:2, top:"30%", left:"28%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
-                <span className="ck-star" style={{ width:2.5, height:2.5, top:"15%", left:"52%", animation:"twinkle3 3.5s ease-in-out infinite 1s" }}/>
-                <span className="ck-star" style={{ width:2, height:2, top:"65%", left:"40%", animation:"twinkle1 4.5s ease-in-out infinite 1.5s" }}/>
-                <span className="ck-star" style={{ width:3, height:3, top:"55%", left:"70%", animation:"twinkle2 3s ease-in-out infinite 2s" }}/>
-                <span className="ck-star" style={{ width:1.5, height:1.5, top:"25%", left:"82%", animation:"twinkle3 5s ease-in-out infinite .8s" }}/>
-                <span className="ck-star" style={{ width:2, height:2, top:"72%", left:"88%", animation:"twinkle1 3.8s ease-in-out infinite 1.2s" }}/>
-                <span className="ck-star-glow" style={{ width:40, height:40, top:"-5%", right:"15%", opacity:.15 }}/>
-                <span className="ck-star-glow" style={{ width:30, height:30, bottom:"10%", left:"25%", opacity:.1 }}/>
-                <span style={{ position:"absolute", top:"35%", right:"30%", fontSize:8, animation:"driftUp 4s ease-in-out infinite", opacity:.4, color:"#fff" }}>✦</span>
-                <span style={{ position:"absolute", top:"50%", right:"50%", fontSize:6, animation:"driftUp 5s ease-in-out infinite 1.5s", opacity:.3, color:"#fff" }}>✧</span>
-                {/* Shine swipe */}
-                <span style={{ position:"absolute", top:"-50%", left:"-50%", width:"60%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent)", animation:"shineSwipe 6s ease-in-out infinite", pointerEvents:"none" }}/>
-                <span className="relative z-10 flex items-center gap-2">
-                  {loading ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
-                  Check-Out
-                </span>
-              </button>
-            ) : (
-              <>
-                <div className="w-full py-4 rounded-2xl font-bold text-[15px] text-gray-400 bg-gray-100 flex items-center justify-center gap-2">
-                  <LogOut size={18} /> Check-Out
-                </div>
-                <p className="text-[11px] text-gray-400 text-center">อยู่นอกรัศมีสาขา</p>
-              </>
             )}
-
-            {/* Off-site check-out button (always visible) */}
-            <button onClick={() => setShowOffsite("clock_out")}
-              className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white active:scale-[.98] transition-all flex items-center justify-center gap-2.5 relative overflow-hidden"
-              style={{
-                background: "linear-gradient(135deg, #1e3a5f 0%, #1a2744 40%, #0f172a 100%)",
-                boxShadow: "0 4px 20px rgba(15,23,42,.3)"
-              }}>
-              <span className="ck-star" style={{ width:2.5, height:2.5, top:"18%", left:"10%", animation:"twinkle1 3s ease-in-out infinite" }}/>
-              <span className="ck-star" style={{ width:2, height:2, top:"55%", left:"25%", animation:"twinkle2 4s ease-in-out infinite .5s" }}/>
-              <span className="ck-star" style={{ width:2, height:2, top:"22%", left:"65%", animation:"twinkle3 3.5s ease-in-out infinite 1s" }}/>
-              <span className="ck-star" style={{ width:1.5, height:1.5, top:"65%", left:"82%", animation:"twinkle1 4.5s ease-in-out infinite 1.5s" }}/>
-              <span className="ck-star-glow" style={{ width:30, height:30, top:"-5%", right:"18%", opacity:.12 }}/>
-              <span style={{ position:"absolute", top:"30%", right:"22%", fontSize:7, animation:"driftUp 4s ease-in-out infinite", opacity:.35, color:"#fff" }}>✦</span>
-              <span style={{ position:"absolute", top:"50%", left:"40%", fontSize:5, animation:"driftUp 5s ease-in-out infinite 1.5s", opacity:.25, color:"#fff" }}>✧</span>
-              <span style={{ position:"absolute", top:"-50%", left:"-50%", width:"60%", height:"200%", background:"linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent)", animation:"shineSwipe 6s ease-in-out infinite", pointerEvents:"none" }}/>
-              <span className="relative z-10 flex items-center gap-2">
-                <Camera size={15} />
-                เช็คเอ้าท์นอกสถานที่
-              </span>
-            </button>
-          </div>
-        )}
-
-        {/* ═══════ 3 Column Stats ═══════ */}
-        <div className="px-5 mb-4 fi2">
-          <div className="grid grid-cols-3 gap-2.5">
-            {/* Check-In */}
-            <div className="bg-gray-50 rounded-2xl py-3.5 px-2 text-center">
-              <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center mx-auto mb-2">
-                <LogIn size={14} className="text-indigo-500" />
-              </div>
-              <p className={`text-[17px] font-black tabular-nums ${hasClockedIn ? (isLate ? "text-orange-500" : "text-gray-800") : "text-gray-300"}`}>
-                {hasClockedIn ? formatTime(todayRecord?.clock_in) : "—:—"}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">เข้างาน</p>
-              {isLate && <p className="text-[9px] text-orange-400 font-semibold mt-0.5">สาย {lateMin} น.</p>}
-            </div>
-
-            {/* Check-Out */}
-            <div className="bg-gray-50 rounded-2xl py-3.5 px-2 text-center">
-              <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center mx-auto mb-2">
-                <LogOut size={14} className="text-rose-400" />
-              </div>
-              <p className={`text-[17px] font-black tabular-nums ${hasClockedOut ? "text-gray-800" : "text-gray-300"}`}>
-                {hasClockedOut ? formatTime(todayRecord?.clock_out) : "—:—"}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">ออกงาน</p>
-              {isEarlyOut && hasClockedOut && <p className="text-[9px] text-orange-400 font-semibold mt-0.5">ก่อน {earlyOutMin} น.</p>}
-            </div>
-
-            {/* Total Hours */}
-            <div className="bg-gray-50 rounded-2xl py-3.5 px-2 text-center">
-              <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center mx-auto mb-2">
-                <Clock size={14} className="text-emerald-500" />
-              </div>
-              <p className={`text-[17px] font-black tabular-nums ${hasClockedIn ? "text-gray-800" : "text-gray-300"}`}>
-                {hasClockedIn ? `${workH}:${pad(workM)}` : "—:—"}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">รวม</p>
-            </div>
-          </div>
-        </div>
 
         {/* ═══════ Week Calendar ═══════ */}
-        <div className="px-5 mb-4 fi2">
+        <div className="mb-4 fi2">
           <WeekStrip
             weekOffset={weekOffset}
             onChangeWeek={setWeekOffset}
@@ -1428,7 +1463,7 @@ export default function CheckInPage() {
           </div>
         )}
 
-          </div>{/* end rounded white card */}
+          </div>{/* end white bg section */}
         </div>{/* end content section overlap */}
 
       </div>

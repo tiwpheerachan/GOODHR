@@ -133,21 +133,57 @@ export default function UserChatPage() {
   const cameraRef = useRef<HTMLInputElement>(null)
   const groupAvatarRef = useRef<HTMLInputElement>(null)
   const msgsRef = useRef<any[]>([])
-  const pollRef = useRef<number>(0) // Track poll generation to cancel stale polls
+  const pollRef = useRef<number>(0)
   const galleryTouchStart = useRef<{ x: number; y: number } | null>(null)
+  const abortRef = useRef<AbortController | null>(null) // Cancel in-flight requests
+  const lastTsRef = useRef<string>("") // Last server timestamp for delta polling
+  const pollIntervalRef = useRef<number>(3000) // Adaptive: starts fast, slows down
+  const noChangeCount = useRef<number>(0) // Consecutive polls with no changes
+
+  // ── In-memory conversation cache (LINE-style instant open) ──
+  // Keeps last N conversations in memory; evicts oldest when full
+  const cacheRef = useRef<Record<string, {
+    msgs: any[]; conv: any; members: any[]; pinned: any; ts: string; at: number
+  }>>({})
+  const MAX_CACHED_CONVS = 20
+  const updateCache = useCallback((convId: string, data: { msgs: any[]; conv: any; members: any[]; pinned: any; ts: string }) => {
+    cacheRef.current[convId] = { ...data, at: Date.now() }
+    // Evict oldest if over limit
+    const keys = Object.keys(cacheRef.current)
+    if (keys.length > MAX_CACHED_CONVS) {
+      let oldestKey = keys[0], oldestAt = cacheRef.current[keys[0]].at
+      for (const k of keys) {
+        if (cacheRef.current[k].at < oldestAt) { oldestKey = k; oldestAt = cacheRef.current[k].at }
+      }
+      delete cacheRef.current[oldestKey]
+    }
+  }, [])
 
   const scrollToBottom = useCallback((smooth = true) => {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "instant" }), 50)
   }, [])
 
+  // ── Abort helper ──
+  const cancelPending = useCallback(() => {
+    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null }
+  }, [])
+
   // ═══════════════════════════════════════
-  // LOAD CONVERSATION LIST (with cache)
+  // LOAD CONVERSATION LIST (with hash-based skip)
   // ═══════════════════════════════════════
+  const convHashRef = useRef<string>("")
   const loadConversations = useCallback(async () => {
     try {
-      const r = await fetch("/api/chat?mode=conversations")
+      const ctrl = new AbortController()
+      const r = await fetch("/api/chat?mode=conversations", { signal: ctrl.signal })
       const d = await r.json()
       if (d.me) setMyEmpId(d.me)
+      // Skip re-render if hash unchanged (nothing changed on server)
+      if (d.hash && d.hash === convHashRef.current) {
+        setLoadingList(false)
+        return
+      }
+      if (d.hash) convHashRef.current = d.hash
       if (d.conversations) {
         setConversations(d.conversations)
         if (d.conversations.length === 1 && (!d.conversations[0].type || d.conversations[0].type === "hr")) {
@@ -155,97 +191,290 @@ export default function UserChatPage() {
           return
         }
       }
-    } catch {}
+    } catch (e: any) { if (e.name === "AbortError") return }
     setLoadingList(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => { loadConversations() }, [loadConversations])
 
+  // ── Heartbeat: online status every 30s (replaces per-GET upsert) ──
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      if (document.visibilityState !== "visible") return
+      fetch("/api/chat", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "heartbeat" }),
+      }).catch(() => {})
+    }
+    sendHeartbeat() // Immediate on mount
+    const hb = setInterval(sendHeartbeat, 30000)
+    // Go offline on tab close
+    const onBeforeUnload = () => {
+      navigator.sendBeacon?.("/api/chat", new Blob([JSON.stringify({ action: "offline" })], { type: "application/json" }))
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") sendHeartbeat()
+    }
+    window.addEventListener("beforeunload", onBeforeUnload)
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      clearInterval(hb)
+      window.removeEventListener("beforeunload", onBeforeUnload)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [])
+
+  // Adaptive list polling: 8s active, skip when tab hidden
   useEffect(() => {
     if (view !== "list") return
-    const iv = setInterval(() => {
+    const poll = () => {
       if (document.visibilityState === "visible") loadConversations()
-    }, 8000)
-    return () => clearInterval(iv)
+    }
+    const iv = setInterval(poll, 8000)
+    // Also poll on tab re-focus
+    const onFocus = () => loadConversations()
+    document.addEventListener("visibilitychange", onFocus)
+    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onFocus) }
   }, [view, loadConversations])
 
   // ═══════════════════════════════════════
-  // OPEN CHAT
+  // OPEN CHAT (full load)
   // ═══════════════════════════════════════
   const openChat = useCallback(async (convId: string, convType?: string) => {
     setView("chat")
-    setLoadingChat(true)
-    setMsgs([])
-    setMembers([])
     setText("")
     setImages([])
     setAttachments([])
     setShowEmoji(false)
     setShowAttach(false)
-    setPinnedMessage(null)
     setShowPinBanner(true)
+    cancelPending()
     pollRef.current += 1
+    noChangeCount.current = 0
+    pollIntervalRef.current = 3000
 
+    // ── Cache-first: show cached data instantly (no loading spinner) ──
+    const cached = cacheRef.current[convId]
+    if (cached) {
+      msgsRef.current = cached.msgs
+      setMsgs(cached.msgs)
+      setMembers(cached.members)
+      setActiveConv(cached.conv)
+      setPinnedMessage(cached.pinned)
+      lastTsRef.current = cached.ts
+      setLoadingChat(false)
+      setTimeout(() => scrollToBottom(false), 50)
+    } else {
+      // No cache — show loading
+      setLoadingChat(true)
+      setMsgs([])
+      setMembers([])
+      setPinnedMessage(null)
+      lastTsRef.current = ""
+    }
+
+    // ── Background fetch (always, even with cache) ──
     try {
-      const url = `/api/chat?conversation_id=${convId}`
-      const r = await fetch(url)
+      const ctrl = new AbortController()
+      abortRef.current = ctrl
+      // If we have cache, use delta polling from last known timestamp
+      const sinceParam = cached?.ts ? `&since=${encodeURIComponent(cached.ts)}` : ""
+      const r = await fetch(`/api/chat?conversation_id=${convId}${sinceParam}`, { signal: ctrl.signal })
       const d = await r.json()
-      if (d.conversation) {
-        setActiveConv({ ...d.conversation, type: d.conversation.type || convType || "hr" })
-        if (d.conversation.pinned_message) setPinnedMessage(d.conversation.pinned_message)
-      }
-      if (d.messages) { msgsRef.current = d.messages; setMsgs(d.messages) }
-      if (d.members) setMembers(d.members)
-      if (d.me) setMyEmpId(d.me)
-      setTimeout(() => scrollToBottom(false), 100)
-    } catch {}
-    setLoadingChat(false)
-    setLoadingList(false)
-  }, [scrollToBottom])
 
-  // Smart polling: only fetch delta, skip if tab not visible
-  useEffect(() => {
-    if (view !== "chat" || !activeConv?.id) return
-    const gen = pollRef.current
-    const poll = async () => {
-      if (gen !== pollRef.current) return // Stale poll
-      try {
-        const url = `/api/chat?conversation_id=${activeConv.id}`
-        const r = await fetch(url)
-        const d = await r.json()
-        if (gen !== pollRef.current) return
-        const newMsgs = d.messages ?? []
+      let convObj = cached?.conv
+      let membersObj = cached?.members ?? []
+      let pinnedObj = cached?.pinned ?? null
+
+      if (cached && sinceParam && d.new_messages !== undefined) {
+        // Delta response on cached conversation — uses total_count
+        const newMsgs = d.new_messages ?? []
         const existingIds = new Set(msgsRef.current.map((m: any) => m.id))
         const added = newMsgs.filter((m: any) => !existingIds.has(m.id))
 
-        // Check for deleted messages
-        const newIds = new Set(newMsgs.map((m: any) => m.id))
-        const deleted = msgsRef.current.filter((m: any) => !newIds.has(m.id))
+        // Check for deletions via count mismatch
+        const localReal = msgsRef.current.filter((m: any) => !m._sending).length
+        const serverTotal = d.total_count ?? localReal
+        const needsFullRefresh = serverTotal < localReal
 
-        let changed = false
-        const updated = msgsRef.current
-          .filter((m: any) => newIds.has(m.id)) // Remove deleted
-          .map((m: any) => {
-            const fresh = newMsgs.find((n: any) => n.id === m.id)
-            if (fresh && fresh.is_read !== m.is_read) { changed = true; return { ...m, is_read: fresh.is_read } }
-            return m
-          })
-        if (added.length > 0 || changed || deleted.length > 0) {
-          const merged = [...updated, ...added]
+        if (needsFullRefresh) {
+          // Deletions happened while away — do a full load
+          lastTsRef.current = ""
+          const r2 = await fetch(`/api/chat?conversation_id=${convId}`, { signal: ctrl.signal })
+          const d2 = await r2.json()
+          if (d2.messages) { msgsRef.current = d2.messages; setMsgs(d2.messages) }
+          if (d2.members) { membersObj = d2.members; setMembers(d2.members) }
+          if (d2.conversation) {
+            convObj = { ...d2.conversation, type: d2.conversation.type || convType || "hr" }
+            setActiveConv(convObj)
+            pinnedObj = d2.conversation.pinned_message || null
+            setPinnedMessage(pinnedObj)
+          }
+          if (d2.ts) lastTsRef.current = d2.ts
+        } else if (added.length > 0) {
+          const merged = [...msgsRef.current, ...added]
           msgsRef.current = merged
           setMsgs(merged)
-          if (added.length > 0) scrollToBottom(true)
+          scrollToBottom(true)
         }
-        // Update pinned message
-        if (d.conversation?.pinned_message) setPinnedMessage(d.conversation.pinned_message)
-        else if (!d.conversation?.pinned_message_id) setPinnedMessage(null)
-      } catch {}
+        if (d.ts && !needsFullRefresh) lastTsRef.current = d.ts
+      } else {
+        // Full response
+        if (d.conversation) {
+          convObj = { ...d.conversation, type: d.conversation.type || convType || "hr" }
+          setActiveConv(convObj)
+          pinnedObj = d.conversation.pinned_message || null
+          if (d.conversation.pinned_message) setPinnedMessage(d.conversation.pinned_message)
+          else setPinnedMessage(null)
+        }
+        if (d.messages) { msgsRef.current = d.messages; setMsgs(d.messages) }
+        if (d.members) { membersObj = d.members; setMembers(d.members) }
+        if (d.me) setMyEmpId(d.me)
+        if (d.ts) lastTsRef.current = d.ts
+        setTimeout(() => scrollToBottom(false), 100)
+      }
+
+      // ── Update cache using local variables (avoids stale closure) ──
+      updateCache(convId, {
+        msgs: msgsRef.current.filter((m: any) => !m._sending),
+        conv: convObj ?? d.conversation,
+        members: membersObj,
+        pinned: pinnedObj,
+        ts: lastTsRef.current,
+      })
+    } catch (e: any) { if (e.name === "AbortError") return }
+    setLoadingChat(false)
+    setLoadingList(false)
+  }, [scrollToBottom, cancelPending, updateCache])
+
+  // ═══════════════════════════════════════
+  // DELTA POLLING — only fetch new messages since last timestamp
+  // Adaptive interval: 3s → 5s → 8s → 12s when idle, resets on activity
+  // ═══════════════════════════════════════
+  useEffect(() => {
+    if (view !== "chat" || !activeConv?.id) return
+    const gen = pollRef.current
+    let timer: ReturnType<typeof setTimeout>
+
+    const poll = async () => {
+      if (gen !== pollRef.current || document.visibilityState !== "visible") {
+        timer = setTimeout(poll, pollIntervalRef.current)
+        return
+      }
+
+      try {
+        const ctrl = new AbortController()
+        const sinceParam = lastTsRef.current ? `&since=${encodeURIComponent(lastTsRef.current)}` : ""
+        const url = `/api/chat?conversation_id=${activeConv.id}${sinceParam}`
+        const r = await fetch(url, { signal: ctrl.signal })
+        if (gen !== pollRef.current) return
+        const d = await r.json()
+
+        if (lastTsRef.current && d.new_messages !== undefined) {
+          // Delta response — uses total_count for delete detection (O(1) vs O(n))
+          const newMsgs = d.new_messages ?? []
+          const serverTotal = d.total_count ?? 0
+
+          // Count non-temp local messages
+          const localReal = msgsRef.current.filter((m: any) => !m._sending)
+          const expectedAfterAdd = localReal.length + newMsgs.filter((m: any) =>
+            !localReal.some((l: any) => l.id === m.id)
+          ).length
+
+          // If server total < expected, some messages were deleted — need full refresh
+          let existing = msgsRef.current
+          if (serverTotal < expectedAfterAdd - newMsgs.length) {
+            // Deletions detected — do a full refresh next poll by clearing since
+            lastTsRef.current = ""
+            noChangeCount.current = 0
+            pollIntervalRef.current = 2000
+            if (d.ts) lastTsRef.current = "" // Force full reload
+            timer = setTimeout(poll, 500)
+            return
+          }
+
+          // Add new messages
+          const existingIds = new Set(existing.map((m: any) => m.id))
+          const added = newMsgs.filter((m: any) => !existingIds.has(m.id))
+
+          if (added.length > 0) {
+            const merged = [...existing, ...added]
+            msgsRef.current = merged
+            setMsgs(merged)
+            scrollToBottom(true)
+            noChangeCount.current = 0
+            pollIntervalRef.current = 3000 // Reset to fast
+          } else {
+            // No changes — slow down polling
+            noChangeCount.current++
+            if (noChangeCount.current > 5) pollIntervalRef.current = Math.min(12000, pollIntervalRef.current + 1000)
+          }
+
+          if (d.ts) lastTsRef.current = d.ts
+        } else if (d.messages) {
+          // Full response (first load or no since param)
+          const newMsgs = d.messages ?? []
+          const existingIds = new Set(msgsRef.current.map((m: any) => m.id))
+          const added = newMsgs.filter((m: any) => !existingIds.has(m.id))
+          const newIds = new Set(newMsgs.map((m: any) => m.id))
+
+          let changed = false
+          const updated = msgsRef.current
+            .filter((m: any) => m._sending || newIds.has(m.id))
+            .map((m: any) => {
+              if (m._sending) return m
+              const fresh = newMsgs.find((n: any) => n.id === m.id)
+              if (fresh && fresh.is_read !== m.is_read) { changed = true; return { ...m, is_read: fresh.is_read } }
+              return m
+            })
+
+          if (added.length > 0 || changed || updated.length !== msgsRef.current.length) {
+            const merged = [...updated, ...added]
+            msgsRef.current = merged
+            setMsgs(merged)
+            if (added.length > 0) scrollToBottom(true)
+            noChangeCount.current = 0
+            pollIntervalRef.current = 3000
+          } else {
+            noChangeCount.current++
+            if (noChangeCount.current > 5) pollIntervalRef.current = Math.min(12000, pollIntervalRef.current + 1000)
+          }
+
+          if (d.conversation?.pinned_message) setPinnedMessage(d.conversation.pinned_message)
+          else if (d.conversation && !d.conversation.pinned_message_id) setPinnedMessage(null)
+          if (d.ts) lastTsRef.current = d.ts
+        }
+
+        // Update cache after each successful poll
+        if (activeConv?.id && msgsRef.current.length > 0) {
+          updateCache(activeConv.id, {
+            msgs: msgsRef.current.filter((m: any) => !m._sending),
+            conv: activeConv,
+            members,
+            pinned: pinnedMessage,
+            ts: lastTsRef.current,
+          })
+        }
+      } catch (e: any) { if (e.name === "AbortError") return }
+
+      if (gen === pollRef.current) {
+        timer = setTimeout(poll, pollIntervalRef.current)
+      }
     }
-    const iv = setInterval(() => {
-      if (document.visibilityState === "visible") poll()
-    }, 4000)
-    return () => clearInterval(iv)
+
+    timer = setTimeout(poll, pollIntervalRef.current)
+
+    // Reset to fast polling on tab re-focus
+    const onFocus = () => {
+      if (document.visibilityState === "visible") {
+        noChangeCount.current = 0
+        pollIntervalRef.current = 3000
+      }
+    }
+    document.addEventListener("visibilitychange", onFocus)
+
+    return () => { clearTimeout(timer); document.removeEventListener("visibilitychange", onFocus) }
   }, [view, activeConv?.id, scrollToBottom])
 
   // ═══════════════════════════════════════
@@ -518,6 +747,10 @@ export default function UserChatPage() {
     if (!activeConv) return
     setSending(true); setShowEmoji(false); setShowAttach(false)
 
+    // Reset polling to fast mode (expect response soon)
+    noChangeCount.current = 0
+    pollIntervalRef.current = 2000
+
     // Optimistic: add temp message
     const tempId = `temp_${Date.now()}`
     const tempMsg = {
@@ -564,8 +797,20 @@ export default function UserChatPage() {
   }
 
   const goBack = () => {
+    // Save current conversation to cache before leaving
+    if (activeConv?.id && msgsRef.current.length > 0) {
+      updateCache(activeConv.id, {
+        msgs: msgsRef.current.filter((m: any) => !m._sending),
+        conv: activeConv,
+        members,
+        pinned: pinnedMessage,
+        ts: lastTsRef.current,
+      })
+    }
+    cancelPending()
     setView("list"); setActiveConv(null); setMsgs([]); msgsRef.current = []
     setPinnedMessage(null); pollRef.current += 1
+    lastTsRef.current = ""
     loadConversations()
   }
 
@@ -755,9 +1000,17 @@ export default function UserChatPage() {
         {/* Conversation list */}
         <div className="flex-1 overflow-y-auto">
           {loadingList ? (
-            <div className="flex flex-col items-center justify-center py-16">
-              <div className="w-8 h-8 animate-spin rounded-full border-3 border-gray-200 border-t-blue-500" />
-              <p className="text-xs text-gray-400 mt-2">กำลังโหลด...</p>
+            <div className="divide-y divide-gray-50">
+              {[1,2,3,4,5].map(i => (
+                <div key={i} className="flex items-center gap-3 px-4 py-3 animate-pulse">
+                  <div className="w-[52px] h-[52px] rounded-full bg-gray-200 flex-shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3.5 bg-gray-200 rounded-full w-24" />
+                    <div className="h-3 bg-gray-100 rounded-full w-40" />
+                  </div>
+                  <div className="h-2.5 bg-gray-100 rounded-full w-10" />
+                </div>
+              ))}
             </div>
           ) : filteredConvs.length === 0 ? (
             <div className="text-center py-16 px-4">
@@ -1268,7 +1521,7 @@ export default function UserChatPage() {
                                 <div className={`grid gap-1 mb-0.5 ${imgUrls.length === 1 ? "grid-cols-1" : "grid-cols-2"}`} style={{ maxWidth: 230 }}>
                                   {imgUrls.map((url: string, ii: number) => (
                                     <div key={ii} className="relative group">
-                                      <img src={url} alt="" onClick={() => openGallery(url)}
+                                      <img src={url} alt="" loading="lazy" onClick={() => openGallery(url)}
                                         className={`rounded-2xl object-cover cursor-pointer shadow ${imgUrls.length === 1 ? "max-h-[200px] w-full" : "h-[100px] w-full"}`} />
                                       {/* Image count badge for multiple images */}
                                       {imgUrls.length > 1 && ii === 0 && (
