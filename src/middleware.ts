@@ -5,6 +5,20 @@ import type { ResponseCookie } from "next/dist/compiled/@edge-runtime/cookies"
 type CookieToSet = { name: string; value: string; options?: Partial<ResponseCookie> }
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // ── Skip public routes FIRST (ไม่ต้องเรียก getUser) ──
+  if (
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api") ||
+    pathname === "/favicon.ico"
+  ) {
+    return NextResponse.next({ request })
+  }
+
   let res = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -29,17 +43,6 @@ export async function middleware(request: NextRequest) {
   )
 
   const { data: { user } } = await supabase.auth.getUser()
-  const { pathname } = request.nextUrl
-
-  if (
-    pathname.startsWith("/auth") ||
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/api") ||
-    pathname === "/favicon.ico"
-  ) {
-    return res
-  }
 
   if (!user && pathname !== "/") {
     return NextResponse.redirect(new URL("/login", request.url))

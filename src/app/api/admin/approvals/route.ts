@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
+import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
 
 // GET — ดึงคำร้องทุกประเภทรวม
 export async function GET(req: NextRequest) {
@@ -106,7 +107,141 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ requests: results, counts })
 }
 
-// POST — อนุมัติ/ปฏิเสธ/ยกเลิก
+// ── Helper: อนุมัติ time adjustment (inline จาก correction route เพื่อหลีกเลี่ยง internal fetch deadlock) ──
+async function approveAdjustment(supa: any, requestId: string, reviewerId: string | null, reviewNote: string | null) {
+  const { data: adjReq } = await supa
+    .from("time_adjustment_requests").select("*").eq("id", requestId)
+    .in("status", ["pending", "approved"]).single()
+  if (!adjReq) return { success: false, error: "ไม่พบคำขอ" }
+
+  // ดึง attendance_record + shift
+  let { data: rec } = await supa
+    .from("attendance_records").select("*, shift:shift_templates(*)")
+    .eq("employee_id", adjReq.employee_id).eq("work_date", adjReq.work_date).maybeSingle()
+
+  if (!rec) {
+    const { data: empInfo } = await supa.from("employees")
+      .select("company_id, shift_template_id").eq("id", adjReq.employee_id).single()
+    const { data: newRec, error: createErr } = await supa.from("attendance_records")
+      .insert({
+        employee_id: adjReq.employee_id,
+        company_id: empInfo?.company_id ?? adjReq.company_id,
+        work_date: adjReq.work_date,
+        shift_template_id: empInfo?.shift_template_id ?? null,
+        status: "absent", is_manual: true,
+      }).select("*, shift:shift_templates(*)").single()
+    if (createErr || !newRec) return { success: false, error: `สร้างข้อมูลเข้างานไม่สำเร็จ: ${createErr?.message}` }
+    rec = newRec
+  }
+
+  const newClockIn  = adjReq.requested_clock_in  ? new Date(adjReq.requested_clock_in)  : (rec.clock_in  ? new Date(rec.clock_in)  : null)
+  const newClockOut = adjReq.requested_clock_out ? new Date(adjReq.requested_clock_out) : (rec.clock_out ? new Date(rec.clock_out) : null)
+  const shift = rec.shift as any
+
+  let newLateMin = 0, newStatus = rec.status as string
+  if (newClockIn && shift?.work_start) {
+    const expectedStart = new Date(adjReq.work_date + "T" + shift.work_start + "+07:00")
+    newLateMin = calcLateMinutes(newClockIn, expectedStart)
+  }
+  if (newLateMin > 5) { newStatus = "late" } else { newStatus = "present"; newLateMin = 0 }
+
+  let newWorkMin = rec.work_minutes ?? 0
+  if (newClockIn && newClockOut) newWorkMin = calcWorkMinutes(newClockIn, newClockOut, shift?.break_minutes ?? 60)
+
+  const attUpdates: Record<string, any> = { late_minutes: newLateMin, status: newStatus, work_minutes: newWorkMin, is_manual: true }
+  if (adjReq.requested_clock_in)  attUpdates.clock_in  = adjReq.requested_clock_in
+  if (adjReq.requested_clock_out) attUpdates.clock_out = adjReq.requested_clock_out
+
+  const { error: recErr } = await supa.from("attendance_records").update(attUpdates).eq("id", rec.id)
+  if (recErr) return { success: false, error: recErr.message }
+
+  // อัปเดต payroll ถ้ามี
+  const workDate = new Date(adjReq.work_date)
+  const { data: payrollRec } = await supa.from("payroll_records")
+    .select("id, deduct_late, late_count, base_salary")
+    .eq("employee_id", adjReq.employee_id)
+    .eq("year", workDate.getFullYear()).eq("month", workDate.getMonth() + 1).maybeSingle()
+
+  if (payrollRec) {
+    const monthStart = `${workDate.getFullYear()}-${String(workDate.getMonth() + 1).padStart(2, "0")}-01`
+    const monthEnd = new Date(workDate.getFullYear(), workDate.getMonth() + 1, 0).toISOString().split("T")[0]
+    const { data: attRows } = await supa.from("attendance_records")
+      .select("status, late_minutes").eq("employee_id", adjReq.employee_id)
+      .gte("work_date", monthStart).lte("work_date", monthEnd)
+    const rows = attRows ?? []
+    const lateCount = rows.filter((r: any) => r.status === "late").length
+    const absentCount = rows.filter((r: any) => r.status === "absent").length
+    const totalLateMin = rows.reduce((s: number, r: any) => s + (r.late_minutes || 0), 0)
+    const dailyRate = (payrollRec.base_salary ?? 0) / 26
+    const minuteRate = dailyRate / 8 / 60
+    await supa.from("payroll_records").update({
+      deduct_late: Math.round(totalLateMin * minuteRate * 100) / 100,
+      deduct_absent: Math.round(absentCount * dailyRate * 100) / 100,
+      late_count: lateCount, absent_days: absentCount,
+    }).eq("id", payrollRec.id)
+  }
+
+  await supa.from("time_adjustment_requests").update({
+    status: "approved", reviewed_by: reviewerId, reviewed_at: new Date().toISOString(), review_note: reviewNote ?? null,
+  }).eq("id", requestId)
+
+  return { success: true, updated: { late_minutes: newLateMin, status: newStatus, work_minutes: newWorkMin } }
+}
+
+// ── Helper: ยกเลิกคำร้อง (inline จาก cancel route) ──
+async function handleCancelAction(supa: any, action: string, requestId: string, requestType: string, reason: string | null) {
+  const CANCEL_TABLES: Record<string, string> = { leave: "leave_requests", adjustment: "time_adjustment_requests", overtime: "overtime_requests" }
+  const table = CANCEL_TABLES[requestType]
+  if (!table) return { error: "Invalid request_type" }
+
+  if (action === "approve_cancel") {
+    const { data: reqData } = await supa.from(table).select("*").eq("id", requestId).single()
+    if (!reqData) return { error: "ไม่พบคำขอ" }
+    const { error } = await supa.from(table).update({
+      status: "cancelled", reviewed_at: new Date().toISOString(),
+      review_note: `HR อนุมัติยกเลิก${reason ? `: ${reason}` : ""}`,
+    }).eq("id", requestId)
+    if (error) return { error: error.message }
+    // Restore leave balance
+    if (requestType === "leave" && reqData.leave_type_id && reqData.total_days && reqData.status === "approved") {
+      try {
+        const { data: bal } = await supa.from("leave_balances").select("id, used_days")
+          .eq("employee_id", reqData.employee_id).eq("leave_type_id", reqData.leave_type_id).single()
+        if (bal) await supa.from("leave_balances").update({ used_days: Math.max(0, (bal.used_days || 0) - reqData.total_days) }).eq("id", bal.id)
+      } catch {}
+    }
+    return { success: true, message: "ยกเลิกคำขอแล้ว" }
+  }
+
+  if (action === "reject_cancel") {
+    const { error } = await supa.from(table).update({
+      review_note: `HR ปฏิเสธการยกเลิก${reason ? `: ${reason}` : ""}`,
+    }).eq("id", requestId)
+    if (error) return { error: error.message }
+    return { success: true, message: "ปฏิเสธการยกเลิก — คงอนุมัติ" }
+  }
+
+  if (action === "force_cancel") {
+    const { data: reqData } = await supa.from(table).select("*").eq("id", requestId).single()
+    const { error } = await supa.from(table).update({
+      status: "cancelled", reviewed_at: new Date().toISOString(),
+      review_note: `HR ยกเลิกโดยตรง${reason ? `: ${reason}` : ""}`,
+    }).eq("id", requestId)
+    if (error) return { error: error.message }
+    if (requestType === "leave" && reqData?.leave_type_id && reqData?.total_days && reqData?.status === "approved") {
+      try {
+        const { data: bal } = await supa.from("leave_balances").select("id, used_days")
+          .eq("employee_id", reqData.employee_id).eq("leave_type_id", reqData.leave_type_id).single()
+        if (bal) await supa.from("leave_balances").update({ used_days: Math.max(0, (bal.used_days || 0) - reqData.total_days) }).eq("id", bal.id)
+      } catch {}
+    }
+    return { success: true, message: "ยกเลิกคำขอแล้ว" }
+  }
+
+  return { error: "Unknown cancel action" }
+}
+
+// POST — อนุมัติ/ปฏิเสธ/ยกเลิก (ไม่ใช้ internal fetch เพื่อป้องกัน deadlock บน Render)
 export async function POST(req: NextRequest) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -129,14 +264,10 @@ export async function POST(req: NextRequest) {
     .select("employee_id").eq("id", user.id).single()
 
   if (action === "approve") {
-    // Special handling for time_adjustment via correction API
+    // Time adjustment → inline logic (ไม่ fetch /api/correction)
     if (request_type === "adjustment") {
-      const res = await fetch(new URL("/api/correction", req.url).toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Cookie: req.headers.get("Cookie") || "" },
-        body: JSON.stringify({ action: "approve", request_id, review_note: note }),
-      })
-      return NextResponse.json(await res.json())
+      const result = await approveAdjustment(supa, request_id, userData?.employee_id || null, note)
+      return NextResponse.json(result, { status: result.success ? 200 : 400 })
     }
 
     const { error } = await supa.from(table).update({
@@ -168,13 +299,16 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "reject") {
+    // Time adjustment → inline logic (ไม่ fetch /api/correction)
     if (request_type === "adjustment") {
-      const res = await fetch(new URL("/api/correction", req.url).toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Cookie: req.headers.get("Cookie") || "" },
-        body: JSON.stringify({ action: "reject", request_id, review_note: note }),
-      })
-      return NextResponse.json(await res.json())
+      const { error } = await supa.from("time_adjustment_requests").update({
+        status: "rejected",
+        reviewed_by: userData?.employee_id || null,
+        reviewed_at: new Date().toISOString(),
+        review_note: note ?? null,
+      }).eq("id", request_id).eq("status", "pending")
+      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+      return NextResponse.json({ success: true })
     }
 
     const { error } = await supa.from(table).update({
@@ -188,14 +322,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true })
   }
 
-  // Cancel actions — delegate to cancel API
+  // Cancel actions — inline logic (ไม่ fetch /api/requests/cancel)
   if (action === "approve_cancel" || action === "reject_cancel" || action === "force_cancel") {
-    const res = await fetch(new URL("/api/requests/cancel", req.url).toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Cookie: req.headers.get("Cookie") || "" },
-      body: JSON.stringify({ action, request_id, request_type, reason: note }),
-    })
-    return NextResponse.json(await res.json())
+    const result = await handleCancelAction(supa, action, request_id, request_type, note)
+    return NextResponse.json(result, { status: result.success ? 200 : 400 })
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 })

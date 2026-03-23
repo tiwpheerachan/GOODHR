@@ -71,72 +71,78 @@ export default function ApprovalsPage() {
     if (!companyId) return
     setLoading(true)
 
-    const isAdminRole = ["super_admin", "hr_admin"].includes(role)
-    let teamIds: string[] = []
-    if (!isAdminRole && empId) {
-      const { data: teamRows } = await supabase
-        .from("employee_manager_history").select("employee_id")
-        .eq("manager_id", empId).is("effective_to", null)
-      teamIds = (teamRows ?? []).map((r: any) => String(r.employee_id))
-    }
+    try {
+      const isAdminRole = ["super_admin", "hr_admin"].includes(role)
+      let teamIds: string[] = []
+      if (!isAdminRole && empId) {
+        const { data: teamRows } = await supabase
+          .from("employee_manager_history").select("employee_id")
+          .eq("manager_id", empId).is("effective_to", null)
+        teamIds = (teamRows ?? []).map((r: any) => String(r.employee_id))
+      }
 
-    async function fetchPending(table: string, selectStr: string) {
-      if (isAdminRole || teamIds.length === 0) {
+      const fetchPending = async (table: string, selectStr: string) => {
+        if (isAdminRole || teamIds.length === 0) {
+          return supabase.from(table).select(selectStr)
+            .eq("company_id", companyId).eq("status", "pending")
+            .order("created_at", { ascending: true })
+        }
         return supabase.from(table).select(selectStr)
-          .eq("company_id", companyId).eq("status", "pending")
+          .in("employee_id", teamIds).eq("status", "pending")
           .order("created_at", { ascending: true })
       }
-      return supabase.from(table).select(selectStr)
-        .in("employee_id", teamIds).eq("status", "pending")
-        .order("created_at", { ascending: true })
+
+      if (tab === "leave") {
+        const { data, error } = await fetchPending(
+          "leave_requests",
+          "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name)), leave_type:leave_types(*)"
+        )
+        if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
+        setItems(data ?? [])
+
+      } else if (tab === "overtime") {
+        const { data, error } = await fetchPending(
+          "overtime_requests",
+          "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name))"
+        )
+        if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
+        setItems(data ?? [])
+
+      } else if (tab === "adjustment") {
+        const { data, error } = await fetchPending(
+          "time_adjustment_requests",
+          "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name),department:departments(name))"
+        )
+        if (error) { toast.error("โหลดข้อมูลผิดพลาด: " + error.message); setItems([]); return }
+        if (!data || data.length === 0) { setItems([]); return }
+        const enriched = await Promise.all(data.map(async (item: any) => {
+          const { data: rec } = await supabase.from("attendance_records")
+            .select("clock_in, clock_out, late_minutes, status")
+            .eq("employee_id", item.employee_id).eq("work_date", item.work_date).maybeSingle()
+          return { ...item, actual_record: rec }
+        }))
+        setItems(enriched)
+
+      } else if (tab === "resignation") {
+        let q = supabase.from("resignation_requests")
+          .select(`*, employee:employees!resignation_requests_employee_id_fkey(
+            id,first_name_th,last_name_th,employee_code,avatar_url,hire_date,
+            position:positions(name),department:departments(name))`)
+          .eq("status", "pending_manager").order("created_at", { ascending: true })
+        if (!isAdminRole && teamIds.length > 0) q = (q as any).in("employee_id", teamIds)
+        else if (!isAdminRole) { setItems([]); return }
+        else q = (q as any).eq("company_id", companyId)
+        const { data, error } = await q
+        if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
+        setItems(data ?? [])
+      }
+    } catch (e: any) {
+      console.error("Load approvals error:", e)
+      toast.error("โหลดข้อมูลไม่สำเร็จ กรุณาลองใหม่")
+      setItems([])
+    } finally {
+      setLoading(false)
     }
-
-    if (tab === "leave") {
-      const { data, error } = await fetchPending(
-        "leave_requests",
-        "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name)), leave_type:leave_types(*)"
-      )
-      if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
-      setItems(data ?? [])
-
-    } else if (tab === "overtime") {
-      const { data, error } = await fetchPending(
-        "overtime_requests",
-        "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name))"
-      )
-      if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
-      setItems(data ?? [])
-
-    } else if (tab === "adjustment") {
-      const { data, error } = await fetchPending(
-        "time_adjustment_requests",
-        "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name),department:departments(name))"
-      )
-      if (error) { toast.error("โหลดข้อมูลผิดพลาด: " + error.message); setItems([]); setLoading(false); return }
-      if (!data || data.length === 0) { setItems([]); setLoading(false); return }
-      const enriched = await Promise.all(data.map(async (item: any) => {
-        const { data: rec } = await supabase.from("attendance_records")
-          .select("clock_in, clock_out, late_minutes, status")
-          .eq("employee_id", item.employee_id).eq("work_date", item.work_date).maybeSingle()
-        return { ...item, actual_record: rec }
-      }))
-      setItems(enriched)
-
-    } else if (tab === "resignation") {
-      let q = supabase.from("resignation_requests")
-        .select(`*, employee:employees!resignation_requests_employee_id_fkey(
-          id,first_name_th,last_name_th,employee_code,avatar_url,hire_date,
-          position:positions(name),department:departments(name))`)
-        .eq("status", "pending_manager").order("created_at", { ascending: true })
-      if (!isAdminRole && teamIds.length > 0) q = (q as any).in("employee_id", teamIds)
-      else if (!isAdminRole) { setItems([]); setLoading(false); return }
-      else q = (q as any).eq("company_id", companyId)
-      const { data, error } = await q
-      if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
-      setItems(data ?? [])
-    }
-
-    setLoading(false)
   }
 
   // ── load badge counts ─────────────────────────────────────────────────────

@@ -74,14 +74,21 @@ export default function OrgMapPage() {
   const load = useCallback(async () => {
     if (!selectedCo) return
     setLoading(true)
-    const res = await fetch(`/api/org?company_id=${selectedCo}`)
-    const data = await res.json()
-    setEmployees(data.employees ?? [])
-    setDepartments(data.departments ?? [])
-    setAllBranches(data.branches ?? [])
-    setAllPositions(data.positions ?? [])
-    setAllEmpsForSup(data.allEmployees ?? [])
-    setLoading(false)
+    try {
+      const res = await fetch(`/api/org?company_id=${selectedCo}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setEmployees(data.employees ?? [])
+      setDepartments(data.departments ?? [])
+      setAllBranches(data.branches ?? [])
+      setAllPositions(data.positions ?? [])
+      setAllEmpsForSup(data.allEmployees ?? [])
+    } catch (e: any) {
+      console.error("Load org error:", e)
+      toast.error("โหลดข้อมูลไม่สำเร็จ")
+    } finally {
+      setLoading(false)
+    }
   }, [selectedCo])
 
   useEffect(() => { load() }, [load])
@@ -177,14 +184,20 @@ export default function OrgMapPage() {
   const saveEdit = async () => {
     if (!selected) return
     setSaving(true)
-    const res = await fetch("/api/org", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employee_id: selected.id, updates: editForm }),
-    })
-    const data = await res.json()
-    setSaving(false)
-    if (data.success) { toast.success("บันทึกแล้ว"); setEditing(false); load() }
-    else toast.error(data.error)
+    try {
+      const res = await fetch("/api/org", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_id: selected.id, updates: editForm }),
+      })
+      const data = await res.json()
+      if (data.success) { toast.success("บันทึกแล้ว"); setEditing(false); load() }
+      else toast.error(data.error)
+    } catch (e: any) {
+      console.error("Save error:", e)
+      toast.error("บันทึกไม่สำเร็จ")
+    } finally {
+      setSaving(false)
+    }
   }
 
   // ── Mini Card ──
@@ -263,23 +276,26 @@ export default function OrgMapPage() {
 
   const changeSupervisor = async (empId: string, newSupId: string | null) => {
     setSaving(true)
-    const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { supervisor_id: newSupId || null } })
-    setSaving(false)
-    if (r.success) { toast.success("เปลี่ยนหัวหน้าแล้ว"); load() } else toast.error(r.error)
+    try {
+      const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { supervisor_id: newSupId || null } })
+      if (r.success) { toast.success("เปลี่ยนหัวหน้าแล้ว"); load() } else toast.error(r.error)
+    } catch { toast.error("ดำเนินการไม่สำเร็จ") } finally { setSaving(false) }
   }
 
   const changeDepartment = async (empId: string, newDeptId: string | null) => {
     setSaving(true)
-    const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { department_id: newDeptId || null } })
-    setSaving(false)
-    if (r.success) { toast.success("ย้ายแผนกแล้ว"); load() } else toast.error(r.error)
+    try {
+      const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { department_id: newDeptId || null } })
+      if (r.success) { toast.success("ย้ายแผนกแล้ว"); load() } else toast.error(r.error)
+    } catch { toast.error("ดำเนินการไม่สำเร็จ") } finally { setSaving(false) }
   }
 
   const changePosition = async (empId: string, newPosId: string | null) => {
     setSaving(true)
-    const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { position_id: newPosId || null } })
-    setSaving(false)
-    if (r.success) { toast.success("เปลี่ยนตำแหน่งแล้ว"); load() } else toast.error(r.error)
+    try {
+      const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { position_id: newPosId || null } })
+      if (r.success) { toast.success("เปลี่ยนตำแหน่งแล้ว"); load() } else toast.error(r.error)
+    } catch { toast.error("ดำเนินการไม่สำเร็จ") } finally { setSaving(false) }
   }
 
   // Assign multiple subordinates to a manager

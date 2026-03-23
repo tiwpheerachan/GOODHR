@@ -40,12 +40,20 @@ export default function AdminTransportClaimsPage() {
   const loadClaims = useCallback(async () => {
     if (!companyId) return
     setLoading(true)
-    const params = new URLSearchParams({ company_id: companyId })
-    if (filter !== "all") params.set("status", filter)
-    const res = await fetch(`/api/transport-claims?${params}`)
-    const json = await res.json()
-    setClaims(json.data ?? [])
-    setLoading(false)
+    try {
+      const params = new URLSearchParams({ company_id: companyId })
+      if (filter !== "all") params.set("status", filter)
+      const res = await fetch(`/api/transport-claims?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = await res.json()
+      setClaims(json.data ?? [])
+    } catch (e: any) {
+      console.error("Load transport claims error:", e)
+      toast.error("โหลดข้อมูลไม่สำเร็จ")
+      setClaims([])
+    } finally {
+      setLoading(false)
+    }
   }, [companyId, filter])
 
   useEffect(() => { loadClaims() }, [loadClaims])

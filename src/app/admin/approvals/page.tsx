@@ -69,22 +69,31 @@ export default function AdminApprovalsPage() {
   // Load requests
   const load = useCallback(async () => {
     setLoading(true)
-    const params = new URLSearchParams({
-      status: filterStatus,
-      type: filterType,
-      company_id: filterCo,
-    })
-    if (filterStatus !== "pending" && filterStatus !== "cancel_requested") {
-      params.set("date_from", filterFrom)
-      params.set("date_to", filterTo)
-    }
-    if (search) params.set("search", search)
+    try {
+      const params = new URLSearchParams({
+        status: filterStatus,
+        type: filterType,
+        company_id: filterCo,
+      })
+      if (filterStatus !== "pending" && filterStatus !== "cancel_requested") {
+        params.set("date_from", filterFrom)
+        params.set("date_to", filterTo)
+      }
+      if (search) params.set("search", search)
 
-    const res = await fetch(`/api/admin/approvals?${params}`)
-    const data = await res.json()
-    setRequests(data.requests ?? [])
-    setCounts(data.counts ?? {})
-    setLoading(false)
+      const res = await fetch(`/api/admin/approvals?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setRequests(data.requests ?? [])
+      setCounts(data.counts ?? {})
+    } catch (e: any) {
+      console.error("Load approvals error:", e)
+      toast.error("โหลดข้อมูลไม่สำเร็จ กรุณาลองใหม่")
+      setRequests([])
+      setCounts({})
+    } finally {
+      setLoading(false)
+    }
   }, [filterCo, filterStatus, filterType, filterFrom, filterTo, search])
 
   useEffect(() => { load() }, [load])
@@ -92,31 +101,37 @@ export default function AdminApprovalsPage() {
   // Action handler
   const handleAction = async (action: string, item: any, note?: string) => {
     setProcessing(item.id)
-    const res = await fetch("/api/admin/approvals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action,
-        request_id: item.id,
-        request_type: item.request_type,
-        note: note || undefined,
-      }),
-    })
-    const data = await res.json()
-    setProcessing(null)
-    if (data.success || data.status === "approved" || data.status === "rejected") {
-      toast.success(
-        action === "approve" ? "อนุมัติแล้ว" :
-        action === "reject" ? "ปฏิเสธแล้ว" :
-        action === "approve_cancel" ? "อนุมัติยกเลิกแล้ว" :
-        action === "reject_cancel" ? "คงอนุมัติเดิม" :
-        action === "force_cancel" ? "ยกเลิกแล้ว" : "สำเร็จ"
-      )
-      setRejectItem(null)
-      setRejectNote("")
-      load()
-    } else {
-      toast.error(data.error || "เกิดข้อผิดพลาด")
+    try {
+      const res = await fetch("/api/admin/approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          request_id: item.id,
+          request_type: item.request_type,
+          note: note || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (data.success || data.status === "approved" || data.status === "rejected") {
+        toast.success(
+          action === "approve" ? "อนุมัติแล้ว" :
+          action === "reject" ? "ปฏิเสธแล้ว" :
+          action === "approve_cancel" ? "อนุมัติยกเลิกแล้ว" :
+          action === "reject_cancel" ? "คงอนุมัติเดิม" :
+          action === "force_cancel" ? "ยกเลิกแล้ว" : "สำเร็จ"
+        )
+        setRejectItem(null)
+        setRejectNote("")
+        load()
+      } else {
+        toast.error(data.error || "เกิดข้อผิดพลาด")
+      }
+    } catch (e: any) {
+      console.error("Action error:", e)
+      toast.error("ดำเนินการไม่สำเร็จ กรุณาลองใหม่")
+    } finally {
+      setProcessing(null)
     }
   }
 
