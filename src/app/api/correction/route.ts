@@ -38,14 +38,31 @@ export async function POST(request: Request) {
     if (!requested_clock_in && !requested_clock_out)
       return NextResponse.json({ success: false, error: "กรุณาระบุเวลาที่ต้องการแก้ไขอย่างน้อย 1 รายการ" })
 
-    const { data: rec } = await supa
+    let { data: rec } = await supa
       .from("attendance_records")
       .select("id")
       .eq("employee_id", empId)
       .eq("work_date", work_date)
       .maybeSingle()
-    if (!rec)
-      return NextResponse.json({ success: false, error: "ไม่พบข้อมูลการเข้างานของวันที่ระบุ" })
+
+    // ถ้ายังไม่มี attendance record → สร้างให้อัตโนมัติ (status=absent ตั้งต้น)
+    // เพื่อให้ยื่นขอแก้ไขเวลาได้แม้ไม่ได้เช็คอิน
+    if (!rec) {
+      const { data: newRec, error: createErr } = await supa
+        .from("attendance_records")
+        .insert({
+          employee_id: empId,
+          company_id:  emp?.company_id,
+          work_date,
+          status:      "absent",
+          is_manual:   true,
+        })
+        .select("id")
+        .single()
+      if (createErr)
+        return NextResponse.json({ success: false, error: `สร้างข้อมูลเข้างานไม่สำเร็จ: ${createErr.message}` })
+      rec = newRec
+    }
 
     const { data: pending } = await supa
       .from("time_adjustment_requests")
@@ -92,15 +109,38 @@ export async function POST(request: Request) {
     if (!req)
       return NextResponse.json({ success: false, error: "ไม่พบคำขอ" })
 
-    // ดึง attendance_record + shift
-    const { data: rec } = await supa
+    // ดึง attendance_record + shift (ถ้ายังไม่มี → สร้างให้อัตโนมัติ)
+    let { data: rec } = await supa
       .from("attendance_records")
       .select("*, shift:shift_templates(*)")
       .eq("employee_id", req.employee_id)
       .eq("work_date", req.work_date)
-      .single()
-    if (!rec)
-      return NextResponse.json({ success: false, error: "ไม่พบข้อมูลการเข้างาน" })
+      .maybeSingle()
+
+    if (!rec) {
+      // สร้าง attendance record ตั้งต้นให้ (สำหรับกรณีไม่ได้เช็คอิน)
+      const { data: empInfo } = await supa
+        .from("employees")
+        .select("company_id, shift_template_id")
+        .eq("id", req.employee_id)
+        .single()
+
+      const { data: newRec, error: createErr } = await supa
+        .from("attendance_records")
+        .insert({
+          employee_id:      req.employee_id,
+          company_id:       empInfo?.company_id ?? req.company_id,
+          work_date:        req.work_date,
+          shift_template_id: empInfo?.shift_template_id ?? null,
+          status:           "absent",
+          is_manual:        true,
+        })
+        .select("*, shift:shift_templates(*)")
+        .single()
+      if (createErr || !newRec)
+        return NextResponse.json({ success: false, error: `สร้างข้อมูลเข้างานไม่สำเร็จ: ${createErr?.message}` })
+      rec = newRec
+    }
 
     const newClockIn  = req.requested_clock_in  ? new Date(req.requested_clock_in)  : (rec.clock_in  ? new Date(rec.clock_in)  : null)
     const newClockOut = req.requested_clock_out ? new Date(req.requested_clock_out) : (rec.clock_out ? new Date(rec.clock_out) : null)

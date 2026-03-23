@@ -1007,6 +1007,8 @@ function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; e
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [hasAccount, setHasAccount] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [resetResult, setResetResult] = useState<{ password: string; email_sent: boolean } | null>(null)
 
   const ROLES = [
     { value: "employee",    label: "พนักงาน",      desc: "เข้าถึงได้เฉพาะหน้าพนักงาน (เช็คอิน, ดูตาราง, ลา)",                        color: "bg-slate-100 text-slate-700 border-slate-200",    icon: "👤" },
@@ -1141,6 +1143,64 @@ function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; e
           </p>
         </div>
       )}
+
+      {/* ── Reset Password Section ── */}
+      <div className="mt-8 pt-6 border-t border-slate-100">
+        <div className="flex items-center gap-2 mb-3">
+          <AlertTriangle size={16} className="text-amber-500" />
+          <h3 className="font-bold text-slate-800 text-sm">รีเซ็ตรหัสผ่าน</h3>
+        </div>
+        <p className="text-xs text-slate-400 mb-4">
+          สร้างรหัสผ่านใหม่ให้พนักงาน ระบบจะส่งอีเมลแจ้งรหัสผ่านใหม่อัตโนมัติ
+        </p>
+
+        {resetResult ? (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-3">
+            <div className="flex items-center gap-2 mb-2">
+              <CheckCircle2 size={16} className="text-green-500" />
+              <p className="text-sm font-bold text-green-800">รีเซ็ตรหัสผ่านสำเร็จ</p>
+            </div>
+            <div className="bg-white rounded-lg px-3 py-2 border border-green-100 mb-2">
+              <p className="text-xs text-slate-400">รหัสผ่านใหม่</p>
+              <p className="text-lg font-mono font-bold text-slate-800 tracking-wider select-all">{resetResult.password}</p>
+            </div>
+            <p className="text-xs text-green-600">
+              {resetResult.email_sent ? "✅ ส่งอีเมลแจ้งพนักงานแล้ว" : "⚠️ ไม่สามารถส่งอีเมลได้ กรุณาแจ้งรหัสผ่านให้พนักงานด้วยตนเอง"}
+            </p>
+            <button onClick={() => setResetResult(null)}
+              className="mt-2 text-xs text-slate-400 hover:text-slate-600 underline">
+              ซ่อน
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={async () => {
+              if (!confirm(`ต้องการรีเซ็ตรหัสผ่านของ ${employeeName} ?`)) return
+              setResetting(true)
+              try {
+                const res = await fetch("/api/auth/admin-reset", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ employee_id: employeeId }),
+                })
+                const data = await res.json()
+                if (!res.ok) throw new Error(data.error || "รีเซ็ตไม่สำเร็จ")
+                setResetResult({ password: data.password, email_sent: data.email_sent })
+                toast.success(data.message)
+              } catch (e: any) {
+                toast.error(e.message)
+              } finally {
+                setResetting(false)
+              }
+            }}
+            disabled={resetting}
+            className="flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 transition-colors disabled:opacity-50"
+          >
+            {resetting ? <Loader2 size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
+            {resetting ? "กำลังรีเซ็ต..." : "รีเซ็ตรหัสผ่าน"}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

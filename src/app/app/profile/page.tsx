@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   Phone, Mail, Calendar, Building2, LogOut, ChevronRight,
   Camera, Loader2, WalletCards, BriefcaseBusiness, ShieldCheck,
-  Hash, MapPin, Clock, User, Cake, TrendingUp, BadgeCheck, AlertTriangle, CalendarDays, UserX,
+  Hash, MapPin, Clock, User, Cake, TrendingUp, BadgeCheck, AlertTriangle, CalendarDays, UserX, Settings,
 } from "lucide-react"
 import { format, differenceInYears, differenceInMonths, isAfter } from "date-fns"
 import { th } from "date-fns/locale"
@@ -352,6 +352,21 @@ export default function ProfilePage() {
               <ChevronRight size={17} className="text-rose-300 transition-transform duration-200 group-hover:translate-x-0.5"/>
             </Link>
           )}
+
+          {/* settings */}
+          <Link href="/app/settings"
+            className="group flex items-center justify-between rounded-[24px] border border-white/90 bg-white/90 px-5 py-3.5 shadow-[0_12px_28px_rgba(15,23,42,0.05)] backdrop-blur-md transition-all active:bg-slate-50">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-50 to-gray-50 ring-1 ring-slate-100">
+                <Settings size={18} className="text-slate-600"/>
+              </div>
+              <div>
+                <p className="text-[14px] font-semibold text-slate-700">ตั้งค่า</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">เปลี่ยนรหัสผ่าน · จัดการบัญชี</p>
+              </div>
+            </div>
+            <ChevronRight size={17} className="text-slate-400 transition-transform duration-200 group-hover:translate-x-0.5"/>
+          </Link>
 
           {/* sign out */}
           <button onClick={signOut}

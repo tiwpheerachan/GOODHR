@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import toast from "react-hot-toast"
-import { Eye, EyeOff, Mail, Lock, User, ArrowRight } from "lucide-react"
+import { Eye, EyeOff, Mail, Lock, User, ArrowRight, Loader2, KeyRound, CheckCircle2 } from "lucide-react"
 
 export default function LoginPage() {
   const supabase = createClient()
@@ -13,6 +13,10 @@ export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPw, setConfirmPw] = useState("")
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState("")
+  const [forgotSending, setForgotSending] = useState(false)
+  const [forgotSent, setForgotSent] = useState(false)
   const [fullName, setFullName] = useState("")
   const [loading, setLoading] = useState(false)
   const [showPw, setShowPw] = useState(false)
@@ -136,15 +140,10 @@ export default function LoginPage() {
                 {mode === "login" && (
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (!email) {
-                        toast.error("กรุณากรอกอีเมลก่อน")
-                        return
-                      }
-                      await createClient().auth.resetPasswordForEmail(email, {
-                        redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
-                      })
-                      toast.success("ส่งลิงก์รีเซ็ตรหัสผ่านแล้ว")
+                    onClick={() => {
+                      setForgotEmail(email)
+                      setShowForgot(true)
+                      setForgotSent(false)
                     }}
                     className="text-xs text-indigo-500 font-semibold hover:text-indigo-700 transition-colors"
                   >
@@ -271,6 +270,90 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+
+      {/* ── Forgot Password Modal ── */}
+      {showForgot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
+          onClick={() => setShowForgot(false)}>
+          <div className="w-full max-w-[400px] bg-white rounded-2xl shadow-2xl p-6"
+            onClick={e => e.stopPropagation()}>
+            {forgotSent ? (
+              <div className="text-center py-4">
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle2 className="w-8 h-8 text-green-500" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2">ส่งลิงก์เรียบร้อย</h3>
+                <p className="text-sm text-slate-500 mb-4">
+                  หากอีเมล <strong>{forgotEmail}</strong> มีในระบบ จะได้รับลิงก์รีเซ็ตรหัสผ่าน กรุณาตรวจสอบอีเมล
+                </p>
+                <button onClick={() => setShowForgot(false)}
+                  className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors">
+                  กลับไปหน้า Login
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+                    <KeyRound className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800">ลืมรหัสผ่าน?</h3>
+                    <p className="text-xs text-slate-400">กรอกอีเมลเพื่อรับลิงก์รีเซ็ตรหัสผ่าน</p>
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-xs font-bold text-slate-500 mb-1.5">อีเมล</label>
+                  <div className="relative">
+                    <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                      type="email"
+                      value={forgotEmail}
+                      onChange={e => setForgotEmail(e.target.value)}
+                      placeholder="your@email.com"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-slate-800 text-sm placeholder-slate-300 outline-none focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/10 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowForgot(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!forgotEmail) { toast.error("กรุณากรอกอีเมล"); return }
+                      setForgotSending(true)
+                      try {
+                        const res = await fetch("/api/auth/forgot-password", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ email: forgotEmail }),
+                        })
+                        const json = await res.json()
+                        if (!res.ok) throw new Error(json.error || "ส่งอีเมลไม่สำเร็จ")
+                        setForgotSent(true)
+                      } catch (e: any) {
+                        toast.error(e.message)
+                      } finally {
+                        setForgotSending(false)
+                      }
+                    }}
+                    disabled={forgotSending || !forgotEmail}
+                    className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {forgotSending ? <><Loader2 size={14} className="animate-spin" /> กำลังส่ง...</> : "ส่งลิงก์รีเซ็ต"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <style jsx>{`
         @keyframes star-pop {
