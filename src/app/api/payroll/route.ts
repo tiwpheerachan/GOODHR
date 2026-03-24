@@ -1,6 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
-import { calculatePayrollSummary, type OTBreakdown } from "@/lib/utils/payroll"
+import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
 
 // ── Date helpers (pure string — ไม่มี timezone conversion) ───────────
 
@@ -228,7 +228,7 @@ async function calcAndSave(
       .eq("id", payroll_period_id)
       .single(),
     supa.from("employees")
-      .select("id, company_id, hire_date, department:departments(name)")
+      .select("id, company_id, hire_date, department:departments(name), company:companies(code)")
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
@@ -362,8 +362,14 @@ async function calcAndSave(
     r.status === "early_out" || (Number(r.early_out_minutes) || 0) > 0
   ).length
 
+  // ── นาทีสาย: หัก grace period ตามแผนก/บริษัท ──
+  const graceMinutes = getLateThreshold(emp.department?.name, emp.company?.code)
   const totalLateMin = records.reduce(
-    (s: number, r: any) => s + (Number(r.late_minutes)      || 0), 0
+    (s: number, r: any) => {
+      const raw = Number(r.late_minutes) || 0
+      // หักเฉพาะส่วนที่เกิน grace period
+      return s + Math.max(0, raw - graceMinutes)
+    }, 0
   )
   const totalEarlyMin = records.reduce(
     (s: number, r: any) => s + (Number(r.early_out_minutes) || 0), 0
@@ -446,13 +452,32 @@ async function calcAndSave(
     taxWithholdingPct,
   })
 
+  // ── YTD ภาษี: ดึงยอดสะสมจากเดือนก่อนหน้าในปีเดียวกัน ──
+  const currentYear = Number(period.year)
+  const currentMonth = Number(period.month)
+  const { data: prevPayrolls } = await supa
+    .from("payroll_records")
+    .select("monthly_tax_withheld")
+    .eq("employee_id", employee_id)
+    .eq("year", currentYear)
+    .lt("month", currentMonth)
+
+  const previousYtdTax = (prevPayrolls ?? []).reduce(
+    (s: number, r: any) => s + (Number(r.monthly_tax_withheld) || 0), 0
+  )
+
+  // ── หักลาไม่ได้เงิน (unpaid leave) ──
+  const deductUnpaidLeave = leaveUnpaidDays > 0
+    ? Math.round((Number(sal.base_salary) / 30) * leaveUnpaidDays * 100) / 100
+    : 0
+
   // ── upsert ────────────────────────────────────────────────────
   const payload: Record<string, unknown> = {
     payroll_period_id,
     employee_id,
     company_id:             emp.company_id,
-    year:                   Number(period.year),
-    month:                  Number(period.month),
+    year:                   currentYear,
+    month:                  currentMonth,
     // รายได้
     base_salary:            Number(sal.base_salary),
     allowance_position:     Number(sal.allowance_position)  || 0,
@@ -479,7 +504,7 @@ async function calcAndSave(
     deduct_late:            result.deductLate,
     deduct_early_out:       result.deductEarlyOut,
     deduct_loan:            loanDeduction,
-    deduct_other:           0,
+    deduct_other:           deductUnpaidLeave,  // รวมหักลาไม่ได้เงินไว้ใน deduct_other
     // ประกันสังคม
     social_security_base:   Number(sal.base_salary),
     social_security_rate:   0.05,
@@ -487,10 +512,10 @@ async function calcAndSave(
     // ภาษี
     taxable_income:         result.gross - result.sso,
     monthly_tax_withheld:   result.tax,
-    ytd_tax_withheld:       result.tax,
+    ytd_tax_withheld:       previousYtdTax + result.tax,
     // รวม
-    total_deductions:       result.totalDeduct,
-    net_salary:             result.net,
+    total_deductions:       result.totalDeduct + deductUnpaidLeave,
+    net_salary:             Math.max(result.net - deductUnpaidLeave, 0),
     // สถิติ
     working_days:           pastWorkDays.length,
     present_days:           presentDays,

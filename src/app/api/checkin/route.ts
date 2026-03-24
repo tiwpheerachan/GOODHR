@@ -49,14 +49,31 @@ export async function POST(request: Request) {
   const now      = new Date()
   const today    = todayBKK()   // ✅ ใช้เวลาไทย ไม่ใช่ server timezone
 
-  // ── ตรวจสอบสาขาที่มีสิทธิ์เช็คอิน ────────────────────────────
-  const { data: allowedRows } = await supa
-    .from("employee_allowed_locations")
-    .select(
-      "branch_id, custom_name, custom_lat, custom_lng, custom_radius_m, " +
-      "branch:branches(id, name, latitude, longitude, geo_radius_m)"
-    )
-    .eq("employee_id", emp.id)
+  // ── ดึงข้อมูลพร้อมกัน: สาขา + shift + existing record ──────────
+  // ✅ Parallel queries: ลดเวลาจาก ~600ms → ~200ms (3 queries พร้อมกัน)
+  const [locRes, shiftRes, schedRes] = await Promise.all([
+    supa.from("employee_allowed_locations")
+      .select(
+        "branch_id, custom_name, custom_lat, custom_lng, custom_radius_m, " +
+        "branch:branches(id, name, latitude, longitude, geo_radius_m)"
+      )
+      .eq("employee_id", emp.id),
+    supa.from("monthly_shift_assignments")
+      .select("*, shift:shift_templates(*)")
+      .eq("employee_id", emp.id)
+      .eq("work_date", today)
+      .maybeSingle(),
+    supa.from("work_schedules")
+      .select("*, shift:shift_templates(*)")
+      .eq("employee_id", emp.id)
+      .lte("effective_from", today)
+      .order("effective_from", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  const allowedRows = locRes.data
+  const monthlyAssignment = shiftRes.data
 
   // รวม branch + custom GPS เป็น list เดียว
   type BranchLoc = { id: string; name: string; latitude: number; longitude: number; geo_radius_m: number }
@@ -106,36 +123,17 @@ export async function POST(request: Request) {
   }
 
   // ── Shift template ─────────────────────────────────────────────
-  // 1) ดึงจาก monthly_shift_assignments ก่อน (ระบบจัดกะรายเดือน)
-  const { data: monthlyAssignment } = await supa
-    .from("monthly_shift_assignments")
-    .select("*, shift:shift_templates(*)")
-    .eq("employee_id", emp.id)
-    .eq("work_date", today)
-    .maybeSingle()
-
-  // 2) ถ้าไม่มีใน monthly → fallback ไปที่ work_schedules เดิม
   let shift: any = null
   let schedule: any = null
 
   if (monthlyAssignment?.shift) {
     shift = monthlyAssignment.shift
-    // ถ้าวันนี้เป็น dayoff ตามตารางกะ → เตือน
     if (monthlyAssignment.assignment_type === "dayoff") {
-      // ยังให้เช็คอินได้ แต่จะ flag ไว้
       console.log(`[checkin] employee ${emp.id} checking in on dayoff (${today})`)
     }
   } else {
-    const { data: schedData } = await supa
-      .from("work_schedules")
-      .select("*, shift:shift_templates(*)")
-      .eq("employee_id", emp.id)
-      .lte("effective_from", today)
-      .order("effective_from", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    schedule = schedData
-    shift = (schedData as any)?.shift ?? null
+    schedule = schedRes.data
+    shift = (schedule as any)?.shift ?? null
   }
 
   // work_date: overnight shift ให้นับวันก่อนหน้า

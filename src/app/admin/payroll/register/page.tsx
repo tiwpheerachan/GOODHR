@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
   Download, Loader2, Search, Filter, ChevronDown,
-  ArrowLeft, Building2, Users, Banknote, ChevronRight,
+  ArrowLeft, Building2, Users, Banknote, ChevronRight, Copy, Check,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -135,6 +135,7 @@ export default function PayrollRegisterPage() {
   const [search,     setSearch]     = useState("")
   const [filterDept, setFilterDept] = useState("")
   const [filterCo,   setFilterCo]   = useState("")
+  const [copiedIdx,  setCopiedIdx]  = useState<number | null>(null)
   const tableRef = useRef<HTMLDivElement>(null)
 
   // Load periods
@@ -279,6 +280,61 @@ export default function PayrollRegisterPage() {
     toast.success("ดาวน์โหลดสำเร็จ")
   }
 
+  // ── Copy row with headers (button) ──────────────────────
+  const copyRowWithHeaders = useCallback((rec: any, idx: number, rowNumber: number) => {
+    const allCols = COLUMNS.filter(c => c.key !== "_no")
+    const headers = allCols.map(c => c.label)
+    const values  = allCols.map(c => {
+      const v = getCellValue(rec, c)
+      return typeof v === "number" ? (v === 0 ? "0" : v.toFixed(2)) : String(v)
+    })
+    const text = headers.join("\t") + "\n" + values.join("\t")
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedIdx(idx)
+      toast.success("คัดลอกข้อมูลพร้อมหัวคอลัมน์แล้ว")
+      setTimeout(() => setCopiedIdx(null), 2000)
+    }).catch(() => toast.error("คัดลอกไม่สำเร็จ"))
+  }, [])
+
+  // ── Intercept Ctrl+C / Cmd+C on table → prepend headers ─
+  useEffect(() => {
+    const el = tableRef.current
+    if (!el) return
+    const handler = (e: ClipboardEvent) => {
+      const sel = window.getSelection()
+      if (!sel || sel.isCollapsed) return
+
+      // Find which <tr> rows are in the selection
+      const range = sel.getRangeAt(0)
+      const trs = el.querySelectorAll("tbody tr")
+      const selectedRows: number[] = []
+      trs.forEach((tr, i) => {
+        if (range.intersectsNode(tr)) selectedRows.push(i)
+      })
+      if (selectedRows.length === 0) return
+
+      // Build tab-separated text with headers
+      const allCols = COLUMNS.filter(c => c.key !== "_no")
+      const headerLine = allCols.map(c => c.label).join("\t")
+      const dataLines = selectedRows.map(ri => {
+        const rec = filtered[ri]
+        if (!rec) return ""
+        return allCols.map(c => {
+          const v = getCellValue(rec, c)
+          return typeof v === "number" ? (v === 0 ? "0" : v.toFixed(2)) : String(v)
+        }).join("\t")
+      }).filter(Boolean)
+
+      const text = headerLine + "\n" + dataLines.join("\n")
+
+      e.preventDefault()
+      e.clipboardData?.setData("text/plain", text)
+      toast.success(`คัดลอก ${dataLines.length} แถวพร้อมหัวคอลัมน์แล้ว`)
+    }
+    el.addEventListener("copy", handler)
+    return () => el.removeEventListener("copy", handler)
+  }, [filtered])
+
   // ── Period label ──────────────────────────────────────────
   const periodLabel = (p: any) => {
     const m = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
@@ -397,6 +453,7 @@ export default function PayrollRegisterPage() {
               {/* Group headers */}
               <thead>
                 <tr className="border-b border-slate-200">
+                  <th rowSpan={2} className="w-9 min-w-9 px-1 py-2 bg-slate-50 border-r border-slate-200 sticky left-0 z-20"></th>
                   <th colSpan={INFO_COLS.length}
                     className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border-r border-slate-200 sticky left-0 z-10">
                     ข้อมูลพนักงาน
@@ -438,7 +495,17 @@ export default function PayrollRegisterPage() {
 
               <tbody className="divide-y divide-slate-50">
                 {filtered.map((rec, idx) => (
-                  <tr key={rec.id} className="hover:bg-slate-50/50 transition-colors">
+                  <tr key={rec.id} className="hover:bg-slate-50/50 transition-colors group">
+                    <td className="w-9 min-w-9 px-1 py-1 text-center border-r border-slate-100 sticky left-0 z-10 bg-white group-hover:bg-slate-50/50">
+                      <button
+                        onClick={() => copyRowWithHeaders(rec, idx, idx + 1)}
+                        title="คัดลอกแถวนี้พร้อมหัวคอลัมน์"
+                        className="inline-flex items-center justify-center w-6 h-6 rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
+                        {copiedIdx === idx
+                          ? <Check size={12} className="text-emerald-500"/>
+                          : <Copy size={12}/>}
+                      </button>
+                    </td>
                     {INFO_COLS.map((col, i) => {
                       const v = col.key === "_no" ? idx + 1 : getCellValue(rec, col)
                       return (
@@ -480,6 +547,7 @@ export default function PayrollRegisterPage() {
               {/* Totals footer */}
               <tfoot>
                 <tr className="border-t-2 border-slate-300 bg-slate-50 font-black">
+                  <td className="w-9 min-w-9 px-1 py-3 border-r border-slate-200 sticky left-0 z-10 bg-slate-50"></td>
                   {INFO_COLS.map((col, i) => (
                     <td key={col.key}
                       className={`px-2 py-3 ${

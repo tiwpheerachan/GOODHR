@@ -9,7 +9,7 @@ import {
   Camera, Loader2, WalletCards, BriefcaseBusiness, ShieldCheck,
   Hash, MapPin, Clock, User, Cake, TrendingUp, BadgeCheck, AlertTriangle, CalendarDays, UserX, Settings,
 } from "lucide-react"
-import { format, differenceInYears, differenceInMonths, isAfter } from "date-fns"
+import { format, differenceInYears, differenceInMonths, differenceInDays, isAfter } from "date-fns"
 import { th } from "date-fns/locale"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -120,11 +120,18 @@ export default function ProfilePage() {
   const statusCfg    = STATUS_CFG[emp.employment_status] ?? STATUS_CFG.active
   const isProbation  = emp.employment_status === "probation"
   const probationEnd = emp.probation_end_date ? new Date(emp.probation_end_date) : null
-  const probLeft     = probationEnd && isAfter(probationEnd, new Date())
-    ? (() => {
-        const m = differenceInMonths(probationEnd, new Date())
-        return m > 0 ? `เหลืออีก ${m} เดือน` : "สิ้นสุดเร็วๆนี้"
-      })()
+  const probDaysLeft = probationEnd ? differenceInDays(probationEnd, new Date()) : 0
+  const probMonthsLeft = probationEnd ? differenceInMonths(probationEnd, new Date()) : 0
+  const probIsActive = probationEnd && isAfter(probationEnd, new Date())
+  const probTotalDays = emp.hire_date && probationEnd ? differenceInDays(probationEnd, new Date(emp.hire_date)) : 120
+  const probDaysPassed = emp.hire_date ? differenceInDays(new Date(), new Date(emp.hire_date)) : 0
+  const probPercent = probTotalDays > 0 ? Math.min(100, Math.round((probDaysPassed / probTotalDays) * 100)) : 0
+  const probLeft     = probIsActive
+    ? probDaysLeft > 30
+      ? `เหลืออีก ${probMonthsLeft} เดือน ${probDaysLeft % 30} วัน`
+      : probDaysLeft > 0
+        ? `เหลืออีก ${probDaysLeft} วัน`
+        : "สิ้นสุดวันนี้!"
     : null
   const totalLeaveRemain = balances.reduce((s: number, b: any) => s + (b.remaining_days ?? 0), 0)
   const employmentTypeLabel: Record<string, string> = {
@@ -231,14 +238,51 @@ export default function ProfilePage() {
             ))}
           </div>
 
-          {/* ── Probation alert ─────────────────────────────────── */}
-          {isProbation && probLeft && (
-            <div className="flex items-center gap-3 overflow-hidden rounded-[22px] border border-amber-200/80 bg-amber-50/90 px-4 py-3 shadow-sm backdrop-blur-md">
-              <AlertTriangle size={18} className="shrink-0 text-amber-500"/>
+          {/* ── Probation countdown ────────────────────────────── */}
+          {isProbation && probIsActive && (
+            <div className="overflow-hidden rounded-[22px] border border-amber-200/80 bg-gradient-to-br from-amber-50/95 to-orange-50/90 shadow-sm backdrop-blur-md">
+              <div className="px-4 pt-3.5 pb-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 ring-1 ring-amber-200">
+                      <AlertTriangle size={16} className="text-amber-600"/>
+                    </div>
+                    <div>
+                      <p className="text-[13px] font-bold text-amber-800">ทดลองงาน</p>
+                      <p className="text-[10px] text-amber-500">สิ้นสุด {safeFmt(emp.probation_end_date)}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[22px] font-black text-amber-700 leading-none">
+                      {probDaysLeft}
+                    </p>
+                    <p className="text-[10px] text-amber-500 font-medium">วันที่เหลือ</p>
+                  </div>
+                </div>
+              </div>
+              {/* Progress bar */}
+              <div className="px-4 pb-3.5 pt-2">
+                <div className="flex items-center justify-between text-[10px] text-amber-500 mb-1.5">
+                  <span>เริ่มงาน {safeFmt(emp.hire_date, "d MMM yy")}</span>
+                  <span>{probPercent}%</span>
+                </div>
+                <div className="h-2.5 w-full rounded-full bg-amber-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-400 to-orange-400 transition-all duration-1000"
+                    style={{ width: `${probPercent}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-amber-600 mt-1.5 text-center font-medium">{probLeft}</p>
+              </div>
+            </div>
+          )}
+          {isProbation && !probIsActive && probationEnd && (
+            <div className="flex items-center gap-3 overflow-hidden rounded-[22px] border border-emerald-200/80 bg-emerald-50/90 px-4 py-3 shadow-sm backdrop-blur-md">
+              <BadgeCheck size={18} className="shrink-0 text-emerald-500"/>
               <div className="min-w-0">
-                <p className="text-[13px] font-bold text-amber-800">อยู่ระหว่างทดลองงาน</p>
-                <p className="text-[11px] text-amber-600">
-                  สิ้นสุด {safeFmt(emp.probation_end_date)} · {probLeft}
+                <p className="text-[13px] font-bold text-emerald-800">ครบกำหนดทดลองงานแล้ว!</p>
+                <p className="text-[11px] text-emerald-600">
+                  สิ้นสุดเมื่อ {safeFmt(emp.probation_end_date)} · รอ HR ยืนยันสถานะ
                 </p>
               </div>
             </div>

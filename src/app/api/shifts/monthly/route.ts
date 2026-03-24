@@ -73,18 +73,23 @@ export async function GET(request: Request) {
 
   const empIds = filteredEmps.map((e: any) => e.id)
 
-  // ── ดึง assignments ────────────────────────────────────────────
+  // ── ดึง assignments (batch เพื่อเลี่ยง Supabase default 1000-row limit) ──
   let assignments: any[] = []
   if (empIds.length > 0) {
-    const { data, error } = await supa
-      .from("monthly_shift_assignments")
-      .select("*, shift:shift_templates(id, name, shift_type, work_start, work_end)")
-      .in("employee_id", empIds)
-      .gte("work_date", startDate)
-      .lte("work_date", endDate)
+    const BATCH = 30 // 30 employees × 31 days = ~930 rows per batch (< 1000 limit)
+    for (let i = 0; i < empIds.length; i += BATCH) {
+      const batch = empIds.slice(i, i + BATCH)
+      const { data, error } = await supa
+        .from("monthly_shift_assignments")
+        .select("*, shift:shift_templates(id, name, shift_type, work_start, work_end)")
+        .in("employee_id", batch)
+        .gte("work_date", startDate)
+        .lte("work_date", endDate)
+        .limit(1500)
 
-    if (error) return NextResponse.json({ success: false, error: error.message })
-    assignments = data ?? []
+      if (error) return NextResponse.json({ success: false, error: error.message })
+      assignments.push(...(data ?? []))
+    }
   }
 
   // ── ดึง shift_templates (for reference) ──────────────────────

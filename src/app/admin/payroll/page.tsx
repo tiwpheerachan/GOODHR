@@ -1034,18 +1034,17 @@ export default function PayrollPage() {
         .select("id").eq("company_id", companyId).eq("is_active", true)
       if (!emps?.length) return
 
-      // คำนวณเบื้องหลังเป็น batch (10 คนพร้อมกัน ไม่ overload server)
-      const BATCH = 10
+      // ✅ ใช้ bulk API: ส่ง 50 คนต่อ request แทนทีละคน (เร็วขึ้น 5-10x)
+      const BATCH = 50
       for (let i = 0; i < emps.length; i += BATCH) {
         const batch = emps.slice(i, i + BATCH)
-        await Promise.all(
-          batch.map(emp =>
-            fetch("/api/payroll", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ employee_id: emp.id, payroll_period_id: selected.id }),
-            }).catch(() => {})
-          )
-        )
+        await fetch("/api/payroll/bulk", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            employee_ids: batch.map(e => e.id),
+            payroll_period_id: selected.id,
+          }),
+        }).catch(() => {})
       }
       // โหลดข้อมูลใหม่
       const { data } = await supabase.from("payroll_records")
@@ -1069,10 +1068,10 @@ export default function PayrollPage() {
     })
   }, [loadRecords])
 
-  // Auto-refresh ทุก 60 วินาที (real-time update)
+  // Auto-refresh ทุก 5 นาที (ลดภาระ server สำหรับ 500+ คน)
   useEffect(() => {
     if (!selected) return
-    const interval = setInterval(() => bgRecalculate(), 60_000)
+    const interval = setInterval(() => bgRecalculate(), 300_000)
     return () => clearInterval(interval)
   }, [selected, bgRecalculate])
 
@@ -1161,26 +1160,34 @@ export default function PayrollPage() {
     setCalcProgress({ done: 0, total: emps.length })
     let done = 0, success = 0, failed = 0
     const errs: string[] = []
-    const BATCH = 10
+    // ✅ ใช้ bulk API: ส่ง 50 คนต่อ request
+    const BATCH = 50
     for (let i = 0; i < emps.length; i += BATCH) {
       const batch = emps.slice(i, i + BATCH)
-      const results = await Promise.allSettled(batch.map(emp =>
-        fetch("/api/payroll", {
+      try {
+        const res = await fetch("/api/payroll/bulk", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee_id: emp.id, payroll_period_id: data.id }),
-        }).then(async r => ({ emp, res: r, json: await r.json() }))
-      ))
-      for (const r of results) {
-        if (r.status === "fulfilled") {
-          const { emp, res, json } = r.value
-          if (!res.ok || json.error) {
-            failed++
-            if (errs.length < 5) errs.push(`${emp.employee_code || ""} ${emp.first_name_th || ""}: ${json.error || res.statusText}`)
-          } else { success++ }
-        } else { failed++ }
-        done++
-        setCalcProgress({ done, total: emps.length })
+          body: JSON.stringify({
+            employee_ids: batch.map((e: any) => e.id),
+            payroll_period_id: data.id,
+          }),
+        })
+        const json = await res.json()
+        if (json.success != null) {
+          success += json.success
+          failed += json.failed || 0
+          if (json.errors?.length) {
+            for (const e of json.errors) {
+              if (errs.length < 5) errs.push(e.error || "Unknown error")
+            }
+          }
+        }
+      } catch (e: any) {
+        failed += batch.length
+        if (errs.length < 5) errs.push(e.message)
       }
+      done = Math.min(i + BATCH, emps.length)
+      setCalcProgress({ done, total: emps.length })
     }
     if (success > 0) toast.success(`✓ คำนวณเงินเดือน ${success} คน สำเร็จ`)
     if (failed > 0) {
@@ -1203,36 +1210,42 @@ export default function PayrollPage() {
       return
     }
     setCalcProgress({ done: 0, total: emps.length })
-    let done = 0, success = 0, failed = 0
+    let success = 0, failed = 0
     const errors: string[] = []
-    for (const emp of emps) {
+
+    // ✅ ใช้ bulk API: ส่ง 50 คนต่อ request (เร็วขึ้น 10x+ จากเดิมทีละคน)
+    const BATCH = 50
+    for (let i = 0; i < emps.length; i += BATCH) {
+      const batch = emps.slice(i, i + BATCH)
       try {
-        const res = await fetch("/api/payroll", {
+        const res = await fetch("/api/payroll/bulk", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee_id: emp.id, payroll_period_id: selected.id }),
+          body: JSON.stringify({
+            employee_ids: batch.map(e => e.id),
+            payroll_period_id: selected.id,
+          }),
         })
         const json = await res.json()
-        if (!res.ok || json.error) {
-          failed++
-          const name = `${emp.employee_code || ""} ${emp.first_name_th || ""}`.trim()
-          if (errors.length < 5) errors.push(`${name}: ${json.error || res.statusText}`)
-        } else {
-          success++
+        if (json.success != null) {
+          success += json.success
+          failed += json.failed || 0
+          if (json.errors?.length) {
+            for (const e of json.errors) {
+              if (errors.length < 5) errors.push(e.error || "Unknown error")
+            }
+          }
         }
       } catch (e: any) {
-        failed++
-        if (errors.length < 5) errors.push(`${emp.employee_code}: ${e.message}`)
+        failed += batch.length
+        if (errors.length < 5) errors.push(e.message)
       }
-      done++
-      setCalcProgress({ done, total: emps.length })
+      setCalcProgress({ done: Math.min(i + BATCH, emps.length), total: emps.length })
     }
     if (success > 0) toast.success(`✓ คำนวณสำเร็จ ${success} คน`)
     if (failed > 0) {
       toast.error(`✗ ล้มเหลว ${failed} คน`)
       console.error("Payroll calculation errors:", errors)
-      if (errors.length > 0) {
-        toast.error(errors.slice(0, 3).join("\n"), { duration: 8000 })
-      }
+      if (errors.length > 0) toast.error(errors.slice(0, 3).join("\n"), { duration: 8000 })
     }
     if (success === 0 && failed === 0) toast.error("ไม่มีพนักงานที่คำนวณได้")
     setCalculating(false)

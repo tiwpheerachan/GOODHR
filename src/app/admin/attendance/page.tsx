@@ -297,14 +297,17 @@ export default function AdminAttendancePage() {
     if(!activeCid) return
     try {
       const addCo = (q: any) => activeCid !== "all" ? q.eq("company_id", activeCid) : q
-      const [r0,r1,r2,r3,osRes] = await Promise.all([
-        addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","present")),
-        addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","late")),
-        addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","absent")),
-        addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","leave")),
+      // ✅ ดึง status ทั้งหมดใน 1 query แทน 4 queries แยก (ลด DB load 75%)
+      const [attRes, osRes] = await Promise.all([
+        addCo(supabase.from("attendance_records").select("status").eq("work_date",today)),
         addCo(supabase.from("offsite_checkin_requests").select("id",{count:"exact",head:true}).eq("status","pending")),
       ])
-      setKpi({present:r0.count??0,late:r1.count??0,absent:r2.count??0,leave:r3.count??0})
+      const statusCounts = { present: 0, late: 0, absent: 0, leave: 0 }
+      for (const r of (attRes.data ?? [])) {
+        const s = r.status as keyof typeof statusCounts
+        if (s in statusCounts) statusCounts[s]++
+      }
+      setKpi(statusCounts)
       setOffsitePending(osRes.count??0)
     } catch(e) { console.error("Load KPI error:", e) }
   },[activeCid,today])

@@ -1,29 +1,33 @@
 "use client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/lib/hooks/useAuth"
-import { ArrowLeft, Save, Loader2, User, Briefcase, Banknote, ChevronRight } from "lucide-react"
+import {
+  ArrowLeft, Save, Loader2, User, Briefcase, Banknote, ChevronRight,
+  Key, Copy, Check, Eye, EyeOff, RefreshCw, Sparkles,
+} from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
 
 const STEPS = [
-  { icon: User,     label: "ข้อมูลส่วนตัว" },
-  { icon: Briefcase,label: "การจ้างงาน"   },
-  { icon: Banknote, label: "เงินเดือน"    },
+  { icon: User,      label: "ข้อมูลส่วนตัว" },
+  { icon: Briefcase, label: "การจ้างงาน"   },
+  { icon: Banknote,  label: "เงินเดือน"    },
 ]
 
-const Field = ({ label, required, children }: any) => (
+const Field = ({ label, required, hint, children }: any) => (
   <div>
     <label className="block text-sm font-semibold text-slate-600 mb-1.5">
       {label}{required && <span className="text-red-500 ml-0.5">*</span>}
     </label>
     {children}
+    {hint && <p className="text-[11px] text-slate-400 mt-1">{hint}</p>}
   </div>
 )
 
 const Input = ({ ...props }) => (
-  <input {...props} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all placeholder-slate-300" />
+  <input {...props} className={`w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all placeholder-slate-300 ${props.className || ""}`} />
 )
 
 const Select = ({ children, ...props }: any) => (
@@ -31,6 +35,24 @@ const Select = ({ children, ...props }: any) => (
     {children}
   </select>
 )
+
+// ── Password generator ──────────────────────────────────────────
+function generatePassword(): string {
+  const upper  = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+  const lower  = "abcdefghjkmnpqrstuvwxyz"
+  const digits = "23456789"
+  const special = "!@#$"
+  const all    = upper + lower + digits + special
+  let pw = ""
+  // ensure at least 1 of each type
+  pw += upper[Math.floor(Math.random() * upper.length)]
+  pw += lower[Math.floor(Math.random() * lower.length)]
+  pw += digits[Math.floor(Math.random() * digits.length)]
+  pw += special[Math.floor(Math.random() * special.length)]
+  for (let i = 0; i < 6; i++) pw += all[Math.floor(Math.random() * all.length)]
+  // shuffle
+  return pw.split("").sort(() => Math.random() - 0.5).join("")
+}
 
 export default function NewEmployeePage() {
   const router = useRouter()
@@ -41,12 +63,15 @@ export default function NewEmployeePage() {
   const [departments, setDepartments] = useState<any[]>([])
   const [positions, setPositions]     = useState<any[]>([])
   const [branches, setBranches]       = useState<any[]>([])
+  const [showPw, setShowPw]           = useState(false)
+  const [copied, setCopied]           = useState<string | null>(null)
+  const [created, setCreated]         = useState<{ email: string; password: string; name: string } | null>(null)
 
   const [f, setF] = useState<any>({
     // personal
     first_name_th: "", last_name_th: "", first_name_en: "", last_name_en: "",
     nickname: "", email: "", phone: "", gender: "", birth_date: "",
-    national_id: "", address: "", bank_account: "", bank_name: "", tax_id: "", social_security_no: "",
+    national_id: "", address: "", bank_account: "", bank_name: "", social_security_no: "",
     // employment
     employee_code: "", hire_date: "", probation_end_date: "",
     employment_type: "full_time", employment_status: "probation", role: "employee",
@@ -54,6 +79,8 @@ export default function NewEmployeePage() {
     // salary
     base_salary: "", allowance_position: "0", allowance_transport: "0",
     allowance_food: "0", allowance_phone: "0", allowance_housing: "0",
+    // auth
+    password: generatePassword(),
   })
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }))
 
@@ -70,16 +97,27 @@ export default function NewEmployeePage() {
       setPositions(p.data ?? [])
       setBranches(b.data ?? [])
     })
-  }, [companyId])
+  }, [companyId]) // eslint-disable-line
+
+  // Auto-calculate probation end (119 days = ~4 months from hire)
+  const autoCalcProbation = useCallback(() => {
+    if (f.hire_date && !f.probation_end_date) {
+      const d = new Date(f.hire_date)
+      d.setDate(d.getDate() + 119)
+      set("probation_end_date", d.toISOString().split("T")[0])
+    }
+  }, [f.hire_date]) // eslint-disable-line
 
   const validateStep = () => {
     if (step === 0) {
       if (!f.first_name_th) return "กรุณากรอกชื่อ"
       if (!f.last_name_th)  return "กรุณากรอกนามสกุล"
-      if (!f.email)         return "กรุณากรอกอีเมล"
+      if (!f.national_id)   return "กรุณากรอกเลขบัตรประชาชน"
+      if (f.national_id.length !== 13) return "เลขบัตรประชาชนต้องมี 13 หลัก"
     }
     if (step === 1) {
       if (!f.employee_code) return "กรุณากรอกรหัสพนักงาน"
+      if (!f.email)         return "กรุณากรอกอีเมล"
       if (!f.hire_date)     return "กรุณาเลือกวันเริ่มงาน"
     }
     return null
@@ -100,16 +138,121 @@ export default function NewEmployeePage() {
       const res = await fetch("/api/employees/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...f, company_id: companyId }),
+        body: JSON.stringify({
+          ...f,
+          company_id: companyId,
+          tax_id: f.national_id, // ใช้เลขบัตรประชาชนเป็นเลขผู้เสียภาษีด้วย
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
+      // แสดง credentials ให้ admin ส่งให้พนักงาน
+      setCreated({
+        email: f.email,
+        password: f.password,
+        name: `${f.first_name_th} ${f.last_name_th}`,
+      })
       toast.success("เพิ่มพนักงานสำเร็จ!")
-      router.push(`/admin/employees/${data.employee_id}`)
     } catch (e: any) {
       toast.error(e.message || "เกิดข้อผิดพลาด")
     }
     setLoading(false)
+  }
+
+  const copyText = (text: string, label: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(label)
+      toast.success(`คัดลอก${label}แล้ว`)
+      setTimeout(() => setCopied(null), 2000)
+    })
+  }
+
+  const copyAllCredentials = () => {
+    if (!created) return
+    const text = `ข้อมูลเข้าสู่ระบบ GOODHR\n──────────────────\nชื่อ: ${created.name}\nอีเมล: ${created.email}\nรหัสผ่าน: ${created.password}\n──────────────────\nเว็บไซต์: ${window.location.origin}\nกรุณาเปลี่ยนรหัสผ่านหลังเข้าสู่ระบบครั้งแรก`
+    navigator.clipboard.writeText(text).then(() => {
+      toast.success("คัดลอกข้อมูลเข้าสู่ระบบทั้งหมดแล้ว")
+    })
+  }
+
+  // ── Credentials created modal ────────────────────────────────
+  if (created) {
+    return (
+      <div className="max-w-lg mx-auto space-y-6 pt-6">
+        <div className="text-center space-y-3">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-emerald-100 flex items-center justify-center">
+            <Check size={32} className="text-emerald-600" />
+          </div>
+          <h2 className="text-xl font-black text-slate-800">เพิ่มพนักงานสำเร็จ!</h2>
+          <p className="text-sm text-slate-500">ส่งข้อมูลด้านล่างให้พนักงานใหม่เพื่อเข้าสู่ระบบ</p>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-3">
+            <p className="text-white font-bold text-sm flex items-center gap-2">
+              <Key size={14}/> ข้อมูลเข้าสู่ระบบ
+            </p>
+          </div>
+          <div className="p-5 space-y-4">
+            {/* Name */}
+            <div>
+              <p className="text-[11px] text-slate-400 font-medium mb-1">ชื่อพนักงาน</p>
+              <p className="text-sm font-bold text-slate-800">{created.name}</p>
+            </div>
+
+            {/* Email */}
+            <div>
+              <p className="text-[11px] text-slate-400 font-medium mb-1">อีเมล (ใช้เป็น Username)</p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 bg-slate-50 rounded-xl px-3.5 py-2.5 text-sm font-mono text-indigo-700 border border-slate-200">
+                  {created.email}
+                </div>
+                <button onClick={() => copyText(created.email, "อีเมล")}
+                  className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 transition-colors">
+                  {copied === "อีเมล" ? <Check size={14} className="text-emerald-500"/> : <Copy size={14} className="text-slate-400"/>}
+                </button>
+              </div>
+            </div>
+
+            {/* Password */}
+            <div>
+              <p className="text-[11px] text-slate-400 font-medium mb-1">รหัสผ่าน (ใช้ครั้งแรก)</p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 bg-slate-50 rounded-xl px-3.5 py-2.5 text-sm font-mono text-rose-700 border border-slate-200">
+                  {showPw ? created.password : "••••••••••"}
+                </div>
+                <button onClick={() => setShowPw(!showPw)}
+                  className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  {showPw ? <EyeOff size={14} className="text-slate-400"/> : <Eye size={14} className="text-slate-400"/>}
+                </button>
+                <button onClick={() => copyText(created.password, "รหัสผ่าน")}
+                  className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 transition-colors">
+                  {copied === "รหัสผ่าน" ? <Check size={14} className="text-emerald-500"/> : <Copy size={14} className="text-slate-400"/>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="space-y-2.5">
+          <button onClick={copyAllCredentials}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-colors">
+            <Copy size={14}/> คัดลอกข้อมูลทั้งหมด (ส่งให้พนักงาน)
+          </button>
+          <div className="flex gap-2.5">
+            <button onClick={() => { setCreated(null); setStep(0); setF((p: any) => ({ ...p, first_name_th: "", last_name_th: "", first_name_en: "", last_name_en: "", nickname: "", email: "", phone: "", national_id: "", password: generatePassword() })) }}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors">
+              <Sparkles size={14}/> เพิ่มพนักงานอีกคน
+            </button>
+            <Link href="/admin/employees"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 rounded-xl text-slate-700 text-sm font-semibold hover:bg-slate-200 transition-colors">
+              กลับรายชื่อพนักงาน
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -157,8 +300,8 @@ export default function NewEmployeePage() {
             <div className="grid grid-cols-2 gap-4">
               <Field label="ชื่อ (ไทย)" required><Input value={f.first_name_th} onChange={(e:any) => set("first_name_th", e.target.value)} placeholder="ชื่อจริง" /></Field>
               <Field label="นามสกุล (ไทย)" required><Input value={f.last_name_th} onChange={(e:any) => set("last_name_th", e.target.value)} placeholder="นามสกุล" /></Field>
-              <Field label="ชื่อ (EN)"><Input value={f.first_name_en} onChange={(e:any) => set("first_name_en", e.target.value)} placeholder="First name" /></Field>
-              <Field label="นามสกุล (EN)"><Input value={f.last_name_en} onChange={(e:any) => set("last_name_en", e.target.value)} placeholder="Last name" /></Field>
+              <Field label="ชื่อ (EN)" hint="ใช้สร้างอีเมลอัตโนมัติ"><Input value={f.first_name_en} onChange={(e:any) => set("first_name_en", e.target.value)} placeholder="First name" /></Field>
+              <Field label="นามสกุล (EN)" hint="ใช้สร้างอีเมลอัตโนมัติ"><Input value={f.last_name_en} onChange={(e:any) => set("last_name_en", e.target.value)} placeholder="Last name" /></Field>
               <Field label="ชื่อเล่น"><Input value={f.nickname} onChange={(e:any) => set("nickname", e.target.value)} placeholder="ชื่อเล่น" /></Field>
               <Field label="เพศ">
                 <Select value={f.gender} onChange={(e:any) => set("gender", e.target.value)}>
@@ -168,14 +311,36 @@ export default function NewEmployeePage() {
                   <option value="other">อื่นๆ</option>
                 </Select>
               </Field>
-              <Field label="อีเมล" required><Input type="email" value={f.email} onChange={(e:any) => set("email", e.target.value)} placeholder="email@example.com" /></Field>
+            </div>
+
+            {/* National ID - prominent */}
+            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+              <Field label="หมายเลขบัตรประชาชน" required hint="13 หลัก (ใช้เป็นเลขผู้เสียภาษีด้วย)">
+                <Input
+                  value={f.national_id}
+                  onChange={(e:any) => {
+                    const v = e.target.value.replace(/\D/g, "").slice(0, 13)
+                    set("national_id", v)
+                  }}
+                  placeholder="X-XXXX-XXXXX-XX-X"
+                  maxLength={13}
+                  className="!bg-white font-mono text-base tracking-wider"
+                />
+                {f.national_id && f.national_id.length === 13 && (
+                  <p className="text-emerald-600 text-[11px] mt-1 flex items-center gap-1"><Check size={10}/> ครบ 13 หลัก</p>
+                )}
+                {f.national_id && f.national_id.length > 0 && f.national_id.length < 13 && (
+                  <p className="text-amber-600 text-[11px] mt-1">{f.national_id.length}/13 หลัก</p>
+                )}
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <Field label="เบอร์โทร"><Input value={f.phone} onChange={(e:any) => set("phone", e.target.value)} placeholder="08x-xxx-xxxx" /></Field>
               <Field label="วันเกิด"><Input type="date" value={f.birth_date} onChange={(e:any) => set("birth_date", e.target.value)} /></Field>
-              <Field label="บัตรประชาชน"><Input value={f.national_id} onChange={(e:any) => set("national_id", e.target.value)} placeholder="13 หลัก" /></Field>
               <Field label="เลขบัญชีธนาคาร"><Input value={f.bank_account} onChange={(e:any) => set("bank_account", e.target.value)} placeholder="xxx-x-xxxxx-x" /></Field>
               <Field label="ธนาคาร"><Input value={f.bank_name} onChange={(e:any) => set("bank_name", e.target.value)} placeholder="ชื่อธนาคาร" /></Field>
               <Field label="เลขประกันสังคม"><Input value={f.social_security_no} onChange={(e:any) => set("social_security_no", e.target.value)} /></Field>
-              <Field label="เลขประจำตัวผู้เสียภาษี"><Input value={f.tax_id} onChange={(e:any) => set("tax_id", e.target.value)} /></Field>
             </div>
             <Field label="ที่อยู่">
               <textarea value={f.address} onChange={(e:any) => set("address", e.target.value)}
@@ -184,12 +349,12 @@ export default function NewEmployeePage() {
           </div>
         )}
 
-        {/* Step 1 — การจ้างงาน */}
+        {/* Step 1 — การจ้างงาน + Login Credentials */}
         {step === 1 && (
           <div className="space-y-5">
             <h3 className="font-black text-slate-800 text-base">ข้อมูลการจ้างงาน</h3>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="รหัสพนักงาน" required><Input value={f.employee_code} onChange={(e:any) => set("employee_code", e.target.value)} placeholder="EMP001" /></Field>
+              <Field label="รหัสพนักงาน" required><Input value={f.employee_code} onChange={(e:any) => set("employee_code", e.target.value)} placeholder="67000XXX" /></Field>
               <Field label="สิทธิ์การเข้าถึง">
                 <Select value={f.role} onChange={(e:any) => set("role", e.target.value)}>
                   <option value="employee">พนักงาน</option>
@@ -230,8 +395,51 @@ export default function NewEmployeePage() {
                   <option value="active">ปกติ</option>
                 </Select>
               </Field>
-              <Field label="วันเริ่มงาน" required><Input type="date" value={f.hire_date} onChange={(e:any) => set("hire_date", e.target.value)} /></Field>
-              <Field label="สิ้นสุดทดลองงาน"><Input type="date" value={f.probation_end_date} onChange={(e:any) => set("probation_end_date", e.target.value)} /></Field>
+              <Field label="วันเริ่มงาน" required>
+                <Input type="date" value={f.hire_date} onChange={(e:any) => { set("hire_date", e.target.value) }} onBlur={autoCalcProbation} />
+              </Field>
+              <Field label="สิ้นสุดทดลองงาน" hint="คำนวณอัตโนมัติ 120 วัน (แก้ไขได้)">
+                <Input type="date" value={f.probation_end_date} onChange={(e:any) => set("probation_end_date", e.target.value)} />
+              </Field>
+            </div>
+
+            {/* ── Email & Password ─────────────────────────────── */}
+            <div className="border-2 border-indigo-200 bg-indigo-50/50 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Key size={16} className="text-indigo-600"/>
+                <h4 className="font-bold text-indigo-800 text-sm">ข้อมูลเข้าสู่ระบบ</h4>
+              </div>
+
+              {/* Email — admin กรอกเอง */}
+              <Field label="อีเมล (ใช้เป็น Username)" required>
+                <Input value={f.email} onChange={(e:any) => set("email", e.target.value)} placeholder="email@company.com" className="!bg-white" />
+              </Field>
+
+              {/* Password — สุ่มให้อัตโนมัติ */}
+              <Field label="รหัสผ่าน (ใช้เข้าสู่ระบบครั้งแรก)" hint="สุ่มให้อัตโนมัติ กดสุ่มใหม่ได้ หรือพิมพ์เอง">
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <Input
+                      type={showPw ? "text" : "password"}
+                      value={f.password}
+                      onChange={(e:any) => set("password", e.target.value)}
+                      className="!bg-white font-mono pr-10"
+                    />
+                    <button type="button" onClick={() => setShowPw(!showPw)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      {showPw ? <EyeOff size={14}/> : <Eye size={14}/>}
+                    </button>
+                  </div>
+                  <button type="button" onClick={() => set("password", generatePassword())}
+                    className="flex items-center gap-1.5 px-3 py-2 border border-indigo-300 text-indigo-700 bg-white rounded-xl text-xs font-bold hover:bg-indigo-50 transition-colors whitespace-nowrap">
+                    <RefreshCw size={12}/> สุ่มใหม่
+                  </button>
+                </div>
+              </Field>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[11px] text-amber-700">
+                <strong>หมายเหตุ:</strong> หลังบันทึก ระบบจะแสดงข้อมูลเข้าสู่ระบบให้คัดลอกส่งพนักงาน
+              </div>
             </div>
           </div>
         )}
@@ -251,7 +459,6 @@ export default function NewEmployeePage() {
               <Field label="ค่าโทรศัพท์"><Input type="number" value={f.allowance_phone} onChange={(e:any) => set("allowance_phone", e.target.value)} placeholder="0" /></Field>
               <Field label="ค่าที่พัก"><Input type="number" value={f.allowance_housing} onChange={(e:any) => set("allowance_housing", e.target.value)} placeholder="0" /></Field>
             </div>
-            {/* Summary */}
             <div className="bg-slate-50 rounded-xl p-4 space-y-2">
               <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเดือนฐาน</span><span className="font-bold text-slate-800">฿{(+f.base_salary||0).toLocaleString()}</span></div>
               <div className="flex justify-between text-sm"><span className="text-slate-500">รวมเบี้ยเลี้ยง</span><span className="font-bold text-slate-800">฿{((+f.allowance_position||0)+(+f.allowance_transport||0)+(+f.allowance_food||0)+(+f.allowance_phone||0)+(+f.allowance_housing||0)).toLocaleString()}</span></div>

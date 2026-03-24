@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, Save, Loader2, Plus, MapPin, Check, X, Building2, Trash2,
   Clock, Calendar, DollarSign, BarChart2, User2, ChevronRight, CalendarClock,
-  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2
+  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -42,6 +42,13 @@ export default function EmployeeDetailPage() {
   const [sf,         setSf]         = useState<any>({})
   const [newMgr,     setNewMgr]     = useState("")
   const [newMgrDate, setNewMgrDate] = useState(format(new Date(),"yyyy-MM-dd"))
+  // resign modal
+  const [showResignModal, setShowResignModal] = useState(false)
+  const [resignDate, setResignDate] = useState(format(new Date(),"yyyy-MM-dd"))
+  const [resignReason, setResignReason] = useState("")
+  const [resignLoading, setResignLoading] = useState(false)
+  const [resignHistory, setResignHistory] = useState<any[]>([])
+  const [showReinstateModal, setShowReinstateModal] = useState(false)
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }))
 
@@ -56,6 +63,9 @@ export default function EmployeeDetailPage() {
       if (s.data) { setSalary(s.data); setSf(s.data) }
       setMgrHistory(h.data ?? [])
     })
+    // ดึงประวัติการลาออก/ดึงกลับ
+    supabase.from("resignation_history").select("*").eq("employee_id",id as string).order("created_at",{ascending:false})
+      .then(({ data }) => setResignHistory(data ?? []))
     if (user?.employee?.company_id) {
       supabase.from("employees").select("id,first_name_th,last_name_th,employee_code").eq("company_id",user.employee.company_id).neq("id",id as string)
         .then(({ data }) => setAllEmps(data ?? []))
@@ -92,6 +102,41 @@ export default function EmployeeDetailPage() {
     if (error) toast.error(error.message); else { toast.success("อัปเดตหัวหน้าสำเร็จ"); window.location.reload() }
   }
 
+  const handleResign = async () => {
+    setResignLoading(true)
+    try {
+      const res = await fetch("/api/employees/resign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resign", employee_id: id, resign_date: resignDate, resign_reason: resignReason }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || "เกิดข้อผิดพลาด"); return }
+      toast.success(data.message || "บันทึกลาออกเรียบร้อย")
+      setShowResignModal(false)
+      setResignReason("")
+      // reload
+      window.location.reload()
+    } catch { toast.error("เกิดข้อผิดพลาด") }
+    finally { setResignLoading(false) }
+  }
+
+  const handleReinstate = async () => {
+    setResignLoading(true)
+    try {
+      const res = await fetch("/api/employees/resign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reinstate", employee_id: id, previous_status: "active", resign_reason: resignReason }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || "เกิดข้อผิดพลาด"); return }
+      toast.success(data.message || "ดึงกลับเรียบร้อย")
+      setShowReinstateModal(false)
+      setResignReason("")
+      window.location.reload()
+    } catch { toast.error("เกิดข้อผิดพลาด") }
+    finally { setResignLoading(false) }
+  }
+
   if (!emp) return <div className="flex items-center justify-center py-24 gap-2 text-slate-400"><Loader2 size={18} className="animate-spin"/>กำลังโหลด...</div>
 
   const empStatusMap: Record<string,string> = { active:"ปกติ", probation:"ทดลองงาน", resigned:"ลาออก", terminated:"เลิกจ้าง", on_leave:"ลา", suspended:"พักงาน" }
@@ -104,7 +149,9 @@ export default function EmployeeDetailPage() {
       <div className="flex items-center gap-4">
         <Link href="/admin/employees" className="p-2 hover:bg-slate-100 rounded-xl"><ArrowLeft size={18}/></Link>
         <div className="flex items-center gap-3 flex-1">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-lg shadow-sm">
+          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-lg shadow-sm ${
+            emp.employment_status === "resigned" ? "bg-gradient-to-br from-slate-400 to-slate-500" : "bg-gradient-to-br from-blue-500 to-indigo-600"
+          }`}>
             {emp.first_name_th?.[0]}
           </div>
           <div>
@@ -121,7 +168,41 @@ export default function EmployeeDetailPage() {
             </div>
           </div>
         </div>
+        {/* ── Resign / Reinstate button ── */}
+        {emp.employment_status === "resigned" || emp.employment_status === "terminated" ? (
+          <button onClick={() => { setResignReason(""); setShowReinstateModal(true) }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm">
+            <UserCheck size={14}/>ดึงกลับ
+          </button>
+        ) : (
+          <button onClick={() => { setResignReason(""); setResignDate(format(new Date(),"yyyy-MM-dd")); setShowResignModal(true) }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-all">
+            <UserX size={14}/>แจ้งลาออก
+          </button>
+        )}
       </div>
+
+      {/* ── Resigned banner ── */}
+      {(emp.employment_status === "resigned" || emp.employment_status === "terminated") && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-2xl px-5 py-4 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+            <UserX size={18} className="text-red-500"/>
+          </div>
+          <div className="flex-1">
+            <p className="font-bold text-red-800">
+              {emp.employment_status === "resigned" ? "พนักงานลาออกแล้ว" : "เลิกจ้างแล้ว"}
+            </p>
+            <p className="text-sm text-red-600 mt-0.5">
+              {emp.resign_date ? `วันที่มีผล: ${format(new Date(emp.resign_date + "T00:00:00"),"d MMMM yyyy",{locale:th})}` : "ไม่ระบุวันที่"}
+              {" · "}ข้อมูลยังคงอยู่ในระบบ · ไม่รวมในเงินเดือน
+            </p>
+          </div>
+          <button onClick={() => { setResignReason(""); setShowReinstateModal(true) }}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50 transition-all">
+            <UserCheck size={13}/>ดึงกลับเข้ามา
+          </button>
+        </div>
+      )}
 
       {/* ── Tabs ── */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
@@ -248,6 +329,134 @@ export default function EmployeeDetailPage() {
         {tab === 7 && <RoleManagementTab employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`}/>}
 
       </div>
+
+      {/* ── ประวัติการลาออก / ดึงกลับ ── */}
+      {resignHistory.length > 0 && (
+        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <History size={15} className="text-slate-400"/>
+            <h3 className="font-bold text-slate-800 text-sm">ประวัติการลาออก / ดึงกลับ</h3>
+          </div>
+          <div className="space-y-2">
+            {resignHistory.map((h: any) => (
+              <div key={h.id} className={`flex items-center gap-3 p-3 rounded-xl border ${
+                h.action === "resign" ? "border-red-100 bg-red-50/50" : "border-emerald-100 bg-emerald-50/50"
+              }`}>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  h.action === "resign" ? "bg-red-100" : "bg-emerald-100"
+                }`}>
+                  {h.action === "resign" ? <UserX size={13} className="text-red-500"/> : <UserCheck size={13} className="text-emerald-500"/>}
+                </div>
+                <div className="flex-1">
+                  <p className={`text-sm font-bold ${h.action === "resign" ? "text-red-700" : "text-emerald-700"}`}>
+                    {h.action === "resign" ? "ลาออก" : "ดึงกลับ"}
+                    {h.resign_date && <span className="font-normal text-slate-500 ml-2">วันที่มีผล: {format(new Date(h.resign_date + "T00:00:00"),"d MMM yyyy",{locale:th})}</span>}
+                  </p>
+                  {h.reason && <p className="text-xs text-slate-500 mt-0.5">เหตุผล: {h.reason}</p>}
+                </div>
+                <p className="text-[10px] text-slate-400 flex-shrink-0">{format(new Date(h.created_at),"d MMM yyyy HH:mm",{locale:th})}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ Resign Modal ═══════════ */}
+      {showResignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 mx-4">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-11 h-11 rounded-2xl bg-red-100 flex items-center justify-center">
+                <UserX size={20} className="text-red-600"/>
+              </div>
+              <div>
+                <h3 className="font-black text-slate-800 text-lg">แจ้งลาออก</h3>
+                <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">วันที่ลาออกมีผล *</label>
+                <input type="date" value={resignDate} onChange={e => setResignDate(e.target.value)} className={inp}/>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">เหตุผล (ถ้ามี)</label>
+                <textarea value={resignReason} onChange={e => setResignReason(e.target.value)}
+                  className={inp + " h-20 resize-none"} placeholder="เช่น ลาออกเอง, ไม่มาทำงาน, สิ้นสุดสัญญา..."/>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <p className="text-xs font-bold text-amber-800 mb-1">สิ่งที่จะเกิดขึ้น:</p>
+                <ul className="text-xs text-amber-700 space-y-1 ml-3">
+                  <li>• สถานะเปลี่ยนเป็น &quot;ลาออก&quot;</li>
+                  <li>• ไม่คำนวณเงินเดือนอีกต่อไป</li>
+                  <li>• ปิดการเข้าสู่ระบบ</li>
+                  <li>• ข้อมูลทั้งหมดยังคงอยู่ — สามารถดึงกลับได้</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowResignModal(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
+                ยกเลิก
+              </button>
+              <button onClick={handleResign} disabled={resignLoading || !resignDate}
+                className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                {resignLoading ? <Loader2 size={14} className="animate-spin"/> : <UserX size={14}/>}
+                ยืนยันลาออก
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ Reinstate Modal ═══════════ */}
+      {showReinstateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 mx-4">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-100 flex items-center justify-center">
+                <UserCheck size={20} className="text-emerald-600"/>
+              </div>
+              <div>
+                <h3 className="font-black text-slate-800 text-lg">ดึงกลับเข้ามา</h3>
+                <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">หมายเหตุ (ถ้ามี)</label>
+                <textarea value={resignReason} onChange={e => setResignReason(e.target.value)}
+                  className={inp + " h-20 resize-none"} placeholder="เช่น กลับมาทำงาน, ต่อสัญญาใหม่..."/>
+              </div>
+
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                <p className="text-xs font-bold text-emerald-800 mb-1">สิ่งที่จะเกิดขึ้น:</p>
+                <ul className="text-xs text-emerald-700 space-y-1 ml-3">
+                  <li>• สถานะเปลี่ยนกลับเป็น &quot;ปกติ&quot;</li>
+                  <li>• กลับเข้าสู่ระบบเงินเดือนได้</li>
+                  <li>• เปิดการเข้าสู่ระบบ</li>
+                  <li>• ข้อมูลเดิมทั้งหมดยังอยู่</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowReinstateModal(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
+                ยกเลิก
+              </button>
+              <button onClick={handleReinstate} disabled={resignLoading}
+                className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                {resignLoading ? <Loader2 size={14} className="animate-spin"/> : <UserCheck size={14}/>}
+                ยืนยันดึงกลับ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
@@ -541,7 +750,7 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
       const { data: newShift, error: shiftErr } = await supabase.from("shift_templates").insert({
         company_id:           companyId,
         name,
-        shift_type:           "regular",
+        shift_type:           "normal",
         work_start:           workStart + ":00",
         work_end:             workEnd + ":00",
         break_minutes:        Number(breakMin) || 60,

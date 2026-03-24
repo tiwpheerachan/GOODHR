@@ -251,14 +251,14 @@ function ShiftsTab({ companyId }: { companyId: string }) {
 
   useEffect(() => { load() }, [load])
 
-  const openAdd  = () => { setForm({ break_minutes: 60, ot_start_after_minutes: 30, shift_type: "regular" }); setModal("add") }
+  const openAdd  = () => { setForm({ break_minutes: 60, ot_start_after_minutes: 30, shift_type: "normal" }); setModal("add") }
   const openEdit = (s: any) => { setForm({ ...s }); setModal("edit") }
 
   const save = async () => {
     if (!form.name || !form.work_start || !form.work_end) return toast.error("กรุณากรอกข้อมูลให้ครบ")
     setSaving(true)
     const payload = {
-      company_id: companyId, name: form.name, shift_type: form.shift_type || "regular",
+      company_id: companyId, name: form.name, shift_type: form.shift_type || "normal",
       work_start: form.work_start, work_end: form.work_end,
       is_overnight: form.is_overnight || false,
       break_minutes: Number(form.break_minutes) || 60,

@@ -19,7 +19,7 @@ export function calcRatePerHour(base: number): number {
  */
 export function calcLateDeduction(base: number, lateMinutes: number): number {
   if (lateMinutes <= 0) return 0
-  return Math.round(calcRatePerMinute(base) * lateMinutes)
+  return Math.round(calcRatePerMinute(base) * lateMinutes * 100) / 100
 }
 
 /** หักขาดงาน = เงินเดือน / 30 * จำนวนวัน */

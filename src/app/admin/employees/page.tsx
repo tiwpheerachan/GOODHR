@@ -40,6 +40,7 @@ export default function EmployeesPage() {
   const [page,             setPage]             = useState(0)
   const [search,           setSearch]           = useState("")
   const [status,           setStatus]           = useState("active")
+  const [showInactive,     setShowInactive]     = useState(false)
   const [dept,             setDept]             = useState("")
   const [selectedCompany,  setSelectedCompany]  = useState<string>("")
   const PER = 25
@@ -93,9 +94,15 @@ export default function EmployeesPage() {
            company:companies(id, name_th, code)`,
           { count: "exact" }
         )
-        .eq("is_active", true)
         .order("first_name_th")
         .range(page * PER, (page + 1) * PER - 1)
+
+      // ถ้าเลือกดูลาออก/เลิกจ้าง ให้แสดง is_active=false ด้วย
+      if (status === "resigned" || status === "terminated" || showInactive) {
+        // ไม่ filter is_active เพื่อให้เห็นคนที่ลาออกแล้ว
+      } else {
+        q = q.eq("is_active", true)
+      }
 
       if (activeCompanyId)       q = q.eq("company_id", activeCompanyId)
       else if (!isSuperAdmin)    q = q.eq("company_id", myCompanyId!)
@@ -110,7 +117,7 @@ export default function EmployeesPage() {
     } finally {
       setLoading(false)
     }
-  }, [isSuperAdmin, myCompanyId, activeCompanyId, search, status, dept, page])
+  }, [isSuperAdmin, myCompanyId, activeCompanyId, search, status, dept, page, showInactive])
 
   useEffect(() => { load() }, [load])
   const setF = (fn: () => void) => { fn(); setPage(0) }
@@ -221,6 +228,10 @@ export default function EmployeesPage() {
             {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         )}
+        <label className="flex items-center gap-2 cursor-pointer ml-1">
+          <input type="checkbox" checked={showInactive} onChange={e => setF(() => setShowInactive(e.target.checked))} className="rounded border-slate-300"/>
+          <span className="text-xs text-slate-500 font-medium whitespace-nowrap">รวมพนักงานลาออก</span>
+        </label>
       </div>
 
       {/* Table */}

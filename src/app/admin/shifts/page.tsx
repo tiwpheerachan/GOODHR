@@ -4,8 +4,10 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
   ChevronLeft, ChevronRight, Calendar, Wand2, Copy, Save, Filter,
-  Clock, Sun, Moon, Coffee, Users, CheckCircle2, AlertCircle, Building2
+  Clock, Sun, Moon, Coffee, Users, CheckCircle2, AlertCircle, Building2,
+  Upload, UserCheck, X
 } from "lucide-react"
+import Link from "next/link"
 import toast from "react-hot-toast"
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -21,16 +23,16 @@ interface EmpRow {
   days: Array<{ date: string; assignment: Assignment | null }>
 }
 
-// ── Shift Color Map ───────────────────────────────────────────────
+// ── Shift Color Map (สีเข้มเห็นชัดเจน แต่ละกะต่างกัน) ─────────
 const SHIFT_COLORS: Record<string, { bg: string; text: string; short: string }> = {
-  "09:00": { bg: "bg-blue-100", text: "text-blue-700", short: "9" },
-  "10:00": { bg: "bg-cyan-100", text: "text-cyan-700", short: "10" },
-  "10:30": { bg: "bg-teal-100", text: "text-teal-700", short: "10½" },
-  "11:00": { bg: "bg-violet-100", text: "text-violet-700", short: "11" },
-  "12:00": { bg: "bg-amber-100", text: "text-amber-700", short: "12" },
-  "12:30": { bg: "bg-orange-100", text: "text-orange-700", short: "12½" },
-  "13:00": { bg: "bg-rose-100", text: "text-rose-700", short: "13" },
-  "15:30": { bg: "bg-indigo-100", text: "text-indigo-700", short: "15½" },
+  "09:00": { bg: "bg-blue-200", text: "text-blue-800", short: "9" },
+  "10:00": { bg: "bg-cyan-200", text: "text-cyan-800", short: "10" },
+  "10:30": { bg: "bg-teal-200", text: "text-teal-800", short: "10½" },
+  "11:00": { bg: "bg-purple-200", text: "text-purple-800", short: "11" },
+  "12:00": { bg: "bg-amber-200", text: "text-amber-800", short: "12" },
+  "12:30": { bg: "bg-orange-200", text: "text-orange-800", short: "12½" },
+  "13:00": { bg: "bg-rose-200", text: "text-rose-800", short: "13" },
+  "15:30": { bg: "bg-indigo-200", text: "text-indigo-800", short: "15½" },
 }
 
 function shiftStyle(startTime: string | null | undefined) {
@@ -70,6 +72,12 @@ export default function ShiftSchedulingPage() {
 
   // ── Shift picker ───────────────────────────────────────────────
   const [picker, setPicker] = useState<{ empId: string; date: string; x: number; y: number } | null>(null)
+
+  // ── Copy-from-employee modal ─────────────────────────────────
+  const [showCopyModal, setShowCopyModal] = useState(false)
+  const [copySource, setCopySource] = useState("")
+  const [copyTargets, setCopyTargets] = useState<Set<string>>(new Set())
+  const [copySearch, setCopySearch] = useState("")
 
   const monthStr = `${year}-${String(month).padStart(2, "0")}`
 
@@ -249,6 +257,48 @@ export default function ShiftSchedulingPage() {
     }
   }
 
+  // ── Copy schedule from one employee to others ─────────────────
+  const handleCopyFromEmployee = () => {
+    if (!copySource || copyTargets.size === 0) return
+    const sourceRow = grid.find(r => r.employee.id === copySource)
+    if (!sourceRow) return
+
+    // Apply source assignments to all targets
+    const newMods = new Map(modifications)
+    const targetArr = Array.from(copyTargets)
+    for (const targetId of targetArr) {
+      for (const { date, assignment } of sourceRow.days) {
+        const key = `${targetId}_${date}`
+        newMods.set(key, {
+          employee_id: targetId,
+          work_date: date,
+          shift_id: assignment?.shift_id ?? null,
+          assignment_type: assignment?.assignment_type ?? "dayoff",
+        })
+      }
+    }
+    setModifications(newMods)
+
+    // Update grid visually
+    setGrid(prev => prev.map(row => {
+      if (!copyTargets.has(row.employee.id)) return row
+      return {
+        ...row,
+        days: row.days.map((d, i) => ({
+          date: d.date,
+          assignment: sourceRow.days[i]?.assignment
+            ? { ...sourceRow.days[i].assignment!, employee_id: row.employee.id, work_date: d.date }
+            : null,
+        })),
+      }
+    }))
+
+    toast.success(`คัดลอกตาราง ${sourceRow.employee.first_name_th} → ${copyTargets.size} คน (กดบันทึกเพื่อยืนยัน)`)
+    setShowCopyModal(false)
+    setCopySource("")
+    setCopyTargets(new Set())
+  }
+
   // ── Filter grid by search ──────────────────────────────────────
   const filtered = grid.filter(row => {
     if (!searchText) return true
@@ -360,6 +410,18 @@ export default function ShiftSchedulingPage() {
           >
             <Copy size={14} /> คัดลอกเดือนก่อน
           </button>
+          <button
+            onClick={() => { setCopySource(""); setCopyTargets(new Set()); setCopySearch(""); setShowCopyModal(true) }}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
+          >
+            <UserCheck size={14} /> คัดลอกจากพนักงาน
+          </button>
+          <Link
+            href="/admin/shifts/import"
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
+          >
+            <Upload size={14} /> นำเข้า Excel
+          </Link>
           {modifications.size > 0 && (
             <button
               onClick={handleSave}
@@ -465,12 +527,16 @@ export default function ShiftSchedulingPage() {
                           cellBg = "bg-sky-50"
                           cellContent = <span className="text-[9px] font-bold text-sky-500">ลา</span>
                         } else if (aType === "holiday") {
-                          cellBg = "bg-red-50"
-                          cellContent = <span className="text-[9px] font-bold text-red-400">หยุด</span>
+                          cellBg = "bg-red-200"
+                          cellContent = <span className="text-[9px] font-black text-red-600">หยุด</span>
                         } else if (aType === "work" && shiftStart) {
                           const s = shiftStyle(shiftStart)
                           cellBg = s.bg
                           cellContent = <span className={`text-[10px] font-black ${s.text}`}>{s.short}</span>
+                        } else if (aType === "work" && !shiftStart) {
+                          // มี assignment แต่ไม่มีกะ → แสดง ? สีเหลืองให้เห็นว่าต้องเลือกกะ
+                          cellBg = "bg-amber-50"
+                          cellContent = <span className="text-[10px] font-bold text-amber-400">?</span>
                         } else {
                           cellContent = <span className="text-slate-200">·</span>
                         }
@@ -513,8 +579,10 @@ export default function ShiftSchedulingPage() {
             {short} = {time}
           </span>
         ))}
-        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-500 font-bold">OFF = วันหยุด</span>
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-500 font-bold">OFF = วันหยุดประจำสัปดาห์</span>
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-200 text-red-600 font-bold">หยุด = นักขัตฤกษ์</span>
         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-50 text-sky-500 font-bold">ลา</span>
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 text-amber-500 font-bold">? = ยังไม่เลือกกะ</span>
       </div>
 
       {/* ── Shift Picker Popup ─────────────────────────────────── */}
@@ -556,6 +624,114 @@ export default function ShiftSchedulingPage() {
             })}
           </div>
         </>
+      )}
+
+      {/* ═══ Copy From Employee Modal ═══════════════════════════════ */}
+      {showCopyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-6 mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
+                  <UserCheck size={18} className="text-indigo-600"/>
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-800">คัดลอกตารางจากพนักงาน</h3>
+                  <p className="text-xs text-slate-400">เลือกต้นแบบแล้วคัดลอกให้คนอื่น (เดือน {TH_MONTHS[month]})</p>
+                </div>
+              </div>
+              <button onClick={() => setShowCopyModal(false)} className="p-2 hover:bg-slate-100 rounded-xl"><X size={16}/></button>
+            </div>
+
+            {/* Step 1: Select source */}
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">1. เลือกต้นแบบ (คัดลอกจากใคร)</label>
+              <select
+                value={copySource}
+                onChange={e => setCopySource(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-indigo-400"
+              >
+                <option value="">เลือกพนักงาน...</option>
+                {grid.map(r => (
+                  <option key={r.employee.id} value={r.employee.id}>
+                    {r.employee.employee_code} — {r.employee.first_name_th} {r.employee.last_name_th} ({r.employee.department})
+                  </option>
+                ))}
+              </select>
+              {copySource && (() => {
+                const src = grid.find(r => r.employee.id === copySource)
+                if (!src) return null
+                const workDays = src.days.filter(d => d.assignment?.assignment_type === "work").length
+                const offDays = src.days.filter(d => d.assignment?.assignment_type === "dayoff").length
+                return (
+                  <div className="mt-2 bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-xs">
+                    <span className="font-bold text-indigo-700">{src.employee.first_name_th}</span>
+                    <span className="text-indigo-500 ml-2">ทำงาน {workDays} วัน · หยุด {offDays} วัน · ว่าง {days.length - workDays - offDays} วัน</span>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Step 2: Select targets */}
+            <div className="flex-1 min-h-0 flex flex-col">
+              <div className="flex items-center gap-2 mb-2">
+                <label className="text-xs font-bold text-slate-600">2. เลือกพนักงานที่จะวางตาราง</label>
+                <span className="text-[10px] text-indigo-600 font-bold">{copyTargets.size} คน</span>
+              </div>
+              <input
+                value={copySearch}
+                onChange={e => setCopySearch(e.target.value)}
+                placeholder="ค้นหาชื่อ / รหัส..."
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-indigo-400 mb-2"
+              />
+              <div className="flex-1 overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-50">
+                {grid
+                  .filter(r => r.employee.id !== copySource)
+                  .filter(r => {
+                    if (!copySearch) return true
+                    const s = copySearch.toLowerCase()
+                    return r.employee.first_name_th?.toLowerCase().includes(s) ||
+                           r.employee.employee_code?.toLowerCase().includes(s) ||
+                           r.employee.department?.toLowerCase().includes(s)
+                  })
+                  .map(r => (
+                    <label key={r.employee.id} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={copyTargets.has(r.employee.id)}
+                        onChange={e => {
+                          const next = new Set(copyTargets)
+                          if (e.target.checked) next.add(r.employee.id); else next.delete(r.employee.id)
+                          setCopyTargets(next)
+                        }}
+                        className="rounded border-slate-300"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-slate-700 truncate">
+                          {r.employee.first_name_th} {r.employee.last_name_th}
+                        </p>
+                        <p className="text-[10px] text-slate-400">{r.employee.employee_code} · {r.employee.department}</p>
+                      </div>
+                    </label>
+                  ))}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 mt-4 pt-3 border-t border-slate-100">
+              <button onClick={() => setShowCopyModal(false)} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleCopyFromEmployee}
+                disabled={!copySource || copyTargets.size === 0}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <Copy size={14}/> คัดลอก ({copyTargets.size} คน)
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
