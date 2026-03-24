@@ -1,5 +1,5 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { resend, passwordChangedNotifyEmail } from "@/lib/resend"
+import { getResend, passwordChangedNotifyEmail } from "@/lib/resend"
 import { NextResponse } from "next/server"
 
 // ── POST: เปลี่ยนรหัสผ่าน (user ต้องกรอกรหัสเก่า) ──────────────
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     const name = emp ? `${emp.first_name_th} ${emp.last_name_th}` : user.email!
     const email = passwordChangedNotifyEmail(name)
 
-    await resend.emails.send({
+    await getResend().emails.send({
       from: "GOODHR <noreply@shd-technology.co.th>",
       to: user.email!,
       subject: email.subject,

@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
   if (mode === "employees") {
     const [{ data: emps }, { data: statuses }] = await Promise.all([
       supa.from("employees")
-        .select("id, first_name_th, last_name_th, nickname, avatar_url, employee_code, department:departments(name)")
+        .select("id, first_name_th, last_name_th, nickname, avatar_url, employee_code, department_id, department:departments(id, name)")
         .eq("company_id", companyId)
         .neq("id", empId)
         .order("first_name_th")
@@ -86,10 +86,23 @@ export async function GET(req: NextRequest) {
     const onlineMap: Record<string, any> = {}
     for (const s of (statuses ?? [])) onlineMap[s.employee_id] = { is_online: s.is_online, last_seen: s.last_seen }
 
+    // สร้าง departments list จาก employees
+    const deptMap: Record<string, { id: string; name: string; count: number }> = {}
+    for (const e of (emps ?? [])) {
+      const dept = (e as any).department
+      const deptId = (e as any).department_id
+      if (deptId && dept?.name) {
+        if (!deptMap[deptId]) deptMap[deptId] = { id: deptId, name: dept.name, count: 0 }
+        deptMap[deptId].count++
+      }
+    }
+    const departments = Object.values(deptMap).sort((a, b) => a.name.localeCompare(b.name, "th"))
+
     return jsonRes({
       employees: (emps ?? []).map((e: any) => ({
         ...e, online: onlineMap[e.id] || { is_online: false, last_seen: null }
-      }))
+      })),
+      departments,
     }, 10) // Cache 10s — employee list doesn't change often
   }
 
@@ -529,6 +542,81 @@ export async function POST(req: NextRequest) {
     await supa.from("chat_members").insert(membersToInsert)
 
     return jsonRes({ conversation_id: newConv.id })
+  }
+
+  // ── Create HR chat (admin เริ่มแชทหาพนักงาน) ──
+  if (action === "create_hr_chat") {
+    if (!isAdmin) return jsonRes({ error: "Admin only" })
+    const { target_employee_id } = body
+    if (!target_employee_id) return jsonRes({ error: "target required" })
+
+    // เช็คว่ามี HR conversation อยู่แล้วหรือไม่
+    const { data: existingConv } = await supa.from("chat_conversations")
+      .select("id").eq("employee_id", target_employee_id).eq("type", "hr").maybeSingle()
+
+    if (existingConv) return jsonRes({ conversation_id: existingConv.id })
+
+    // สร้าง HR conversation ใหม่
+    const { data: targetEmp } = await supa.from("employees")
+      .select("company_id").eq("id", target_employee_id).single()
+
+    const { data: newConv, error } = await supa.from("chat_conversations").insert({
+      type: "hr", employee_id: target_employee_id,
+      company_id: targetEmp?.company_id || companyId, created_by: empId,
+      status: "open",
+    }).select("id").single()
+    if (error) return jsonRes({ error: error.message })
+
+    return jsonRes({ success: true, conversation_id: newConv.id })
+  }
+
+  // ── Broadcast (ส่งข้อความหาพนักงานหลายคนพร้อมกัน) ──
+  if (action === "broadcast") {
+    if (!isAdmin) return jsonRes({ error: "Admin only" })
+    const { target_employee_ids, message, images } = body
+    if (!target_employee_ids?.length) return jsonRes({ error: "ต้องระบุพนักงานอย่างน้อย 1 คน" })
+    if (!message && (!images || images.length === 0)) return jsonRes({ error: "ต้องมีข้อความหรือรูปภาพ" })
+
+    const results: { employee_id: string; conversation_id: string; success: boolean }[] = []
+
+    for (const targetId of target_employee_ids) {
+      try {
+        // หา HR conversation ที่มีอยู่ หรือสร้างใหม่
+        let convId: string
+        const { data: existingConv } = await supa.from("chat_conversations")
+          .select("id").eq("employee_id", targetId).eq("type", "hr").maybeSingle()
+
+        if (existingConv) {
+          convId = existingConv.id
+        } else {
+          const { data: targetEmp } = await supa.from("employees")
+            .select("company_id").eq("id", targetId).single()
+          const { data: newConv, error: createErr } = await supa.from("chat_conversations").insert({
+            type: "hr", employee_id: targetId,
+            company_id: targetEmp?.company_id || companyId, created_by: empId, status: "open",
+          }).select("id").single()
+          if (createErr || !newConv) { results.push({ employee_id: targetId, conversation_id: "", success: false }); continue }
+          convId = newConv.id
+        }
+
+        // ส่งข้อความ
+        await supa.from("chat_messages").insert({
+          conversation_id: convId, sender_id: empId,
+          sender_role: userData.role, message: message || null, images: images || [],
+        })
+
+        // อัปเดต last_message_at
+        await supa.from("chat_conversations")
+          .update({ last_message_at: new Date().toISOString(), status: "open" })
+          .eq("id", convId)
+
+        results.push({ employee_id: targetId, conversation_id: convId, success: true })
+      } catch {
+        results.push({ employee_id: targetId, conversation_id: "", success: false })
+      }
+    }
+
+    return jsonRes({ success: true, sent: results.filter(r => r.success).length, total: target_employee_ids.length, results })
   }
 
   // ── Add members to group ──

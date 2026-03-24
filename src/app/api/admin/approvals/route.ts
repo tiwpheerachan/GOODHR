@@ -295,6 +295,48 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── อนุมัติ OT → อัปเดต attendance_records.ot_minutes ──
+    if (request_type === "overtime") {
+      const { data: otReq } = await supa.from("overtime_requests")
+        .select("employee_id, company_id, work_date, ot_start, ot_end, ot_rate")
+        .eq("id", request_id).single()
+
+      if (otReq && otReq.ot_start && otReq.ot_end) {
+        // คำนวณ OT minutes จาก ot_start → ot_end
+        const startMs = new Date(otReq.ot_start).getTime()
+        const endMs = new Date(otReq.ot_end).getTime()
+        const otMinutes = Math.max(0, Math.round((endMs - startMs) / 60000))
+
+        // หา attendance record ของวันนั้น
+        const { data: attRec } = await supa.from("attendance_records")
+          .select("id, ot_minutes")
+          .eq("employee_id", otReq.employee_id)
+          .eq("work_date", otReq.work_date)
+          .maybeSingle()
+
+        if (attRec) {
+          // มี record อยู่แล้ว → อัปเดต ot_minutes (บวกเพิ่มกรณีมีหลาย OT request ในวันเดียวกัน)
+          await supa.from("attendance_records").update({
+            ot_minutes: (attRec.ot_minutes || 0) + otMinutes,
+          }).eq("id", attRec.id)
+        } else {
+          // ไม่มี attendance record (เช่น OT วันหยุด) → สร้างใหม่
+          await supa.from("attendance_records").insert({
+            employee_id: otReq.employee_id,
+            company_id: otReq.company_id,
+            work_date: otReq.work_date,
+            status: "present",
+            ot_minutes: otMinutes,
+            late_minutes: 0,
+            early_out_minutes: 0,
+            work_minutes: 0,
+            is_manual: true,
+            note: `OT อนุมัติ ${otMinutes} นาที`,
+          }).select("id").maybeSingle()
+        }
+      }
+    }
+
     return NextResponse.json({ success: true })
   }
 

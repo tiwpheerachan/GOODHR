@@ -1,5 +1,5 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { resend, adminResetNotifyEmail } from "@/lib/resend"
+import { getResend, adminResetNotifyEmail } from "@/lib/resend"
 import { NextResponse } from "next/server"
 
 // ── POST: Admin รีเซ็ตรหัสผ่านให้พนักงาน ───────────────────────
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
   if (send_email !== false && empEmail) {
     try {
       const emailContent = adminResetNotifyEmail(empName, password)
-      await resend.emails.send({
+      await getResend().emails.send({
         from: "GOODHR <noreply@shd-technology.co.th>",
         to: empEmail,
         subject: emailContent.subject,

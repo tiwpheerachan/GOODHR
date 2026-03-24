@@ -1,5 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server"
-import { resend, passwordResetEmail } from "@/lib/resend"
+import { getResend, passwordResetEmail } from "@/lib/resend"
 import { NextResponse } from "next/server"
 import { headers } from "next/headers"
 
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
 
   // ── ส่ง email ผ่าน Resend ──
   const emailContent = passwordResetEmail(resetUrl, name)
-  const { error: sendErr } = await resend.emails.send({
+  const { error: sendErr } = await getResend().emails.send({
     from: "GOODHR <noreply@shd-technology.co.th>",
     to: email,
     subject: emailContent.subject,

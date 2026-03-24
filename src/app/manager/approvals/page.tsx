@@ -204,22 +204,33 @@ export default function ApprovalsPage() {
   // ── approve/reject leave & overtime ──────────────────────────────────────
   const handleLeaveOT = async (id: string, action: "approved" | "rejected") => {
     setActing(id)
-    const supabase = createClient()
-    const tbl = tab === "leave" ? "leave_requests" : "overtime_requests"
-    const empId = (user as any)?.employee_id ?? (user as any)?.employee?.id
-    const { error } = await supabase.from(tbl)
-      .update({ status: action, reviewed_by: empId, reviewed_at: new Date().toISOString(), review_note: notes[id] || null })
-      .eq("id", id)
-    if (error) { toast.error(error.message); setActing(null); return }
-    const item = items.find(i => i.id === id)
-    if (item) {
-      await supabase.from("notifications").insert({
-        employee_id: item.employee_id, type: "leave",
-        title: action === "approved" ? "คำร้องได้รับการอนุมัติ" : "คำร้องถูกปฏิเสธ",
-        body: notes[id] || "", ref_table: tbl, ref_id: id,
+    try {
+      // ใช้ API route เพื่อให้ service_role อัปเดต attendance_records ได้ (โดยเฉพาะ OT)
+      const res = await fetch("/api/admin/approvals", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: action === "approved" ? "approve" : "reject",
+          request_id: id,
+          request_type: tab === "leave" ? "leave" : "overtime",
+          note: notes[id] || null,
+        }),
       })
-    }
-    toast.success(action === "approved" ? "✅ อนุมัติแล้ว" : "ปฏิเสธแล้ว")
+      const json = await res.json()
+      if (!res.ok || json.error) { toast.error(json.error ?? "เกิดข้อผิดพลาด"); setActing(null); return }
+
+      // ส่ง notification
+      const supabase = createClient()
+      const tbl = tab === "leave" ? "leave_requests" : "overtime_requests"
+      const item = items.find(i => i.id === id)
+      if (item) {
+        await supabase.from("notifications").insert({
+          employee_id: item.employee_id, type: "leave",
+          title: action === "approved" ? "คำร้องได้รับการอนุมัติ" : "คำร้องถูกปฏิเสธ",
+          body: notes[id] || "", ref_table: tbl, ref_id: id,
+        })
+      }
+      toast.success(action === "approved" ? "✅ อนุมัติแล้ว" : "ปฏิเสธแล้ว")
+    } catch (err: any) { toast.error(err.message || "ดำเนินการไม่สำเร็จ") }
     setActing(null); loadItems(); loadCounts()
   }
 

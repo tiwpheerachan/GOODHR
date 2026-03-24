@@ -370,9 +370,30 @@ async function calcAndSave(
   )
 
   // ── OT แยกประเภท ──────────────────────────────────────────────
-  // ot_type column ไม่มีใน schema → นับ ot_minutes ทั้งหมดเป็น weekday OT
+  // ดึง ot_minutes จาก attendance_records ก่อน
+  let otFromAttendance = records.reduce((s: number, r: any) => s + (Number(r.ot_minutes) || 0), 0)
+
+  // ถ้า attendance ไม่มี OT → ดึงจาก overtime_requests ที่อนุมัติแล้วเป็น fallback
+  // (สำหรับ OT ที่อนุมัติก่อนแก้บั๊ก ที่ยังไม่ได้เขียนลง attendance_records)
+  if (otFromAttendance === 0) {
+    const { data: approvedOT } = await supa.from("overtime_requests")
+      .select("ot_start, ot_end")
+      .eq("employee_id", employee_id)
+      .eq("status", "approved")
+      .gte("work_date", periodStart)
+      .lte("work_date", periodEnd)
+
+    for (const ot of (approvedOT ?? [])) {
+      if (ot.ot_start && ot.ot_end) {
+        const startMs = new Date(ot.ot_start).getTime()
+        const endMs = new Date(ot.ot_end).getTime()
+        otFromAttendance += Math.max(0, Math.round((endMs - startMs) / 60000))
+      }
+    }
+  }
+
   const otBreakdown: OTBreakdown = {
-    weekday_minutes:         records.reduce((s: number, r: any) => s + (Number(r.ot_minutes) || 0), 0),
+    weekday_minutes:         otFromAttendance,
     holiday_regular_minutes: 0,
     holiday_ot_minutes:      0,
   }

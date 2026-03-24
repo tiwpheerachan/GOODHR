@@ -13,6 +13,7 @@ import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns"
 import { th } from "date-fns/locale"
 import { statusToTH } from "@/lib/utils/attendance"
 import toast from "react-hot-toast"
+import * as XLSX from "xlsx"
 
 const PER = 30
 type ViewMode = "department" | "branch" | "company"
@@ -45,68 +46,197 @@ function StatusBadge({status}:{status:string}) {
   )
 }
 
-// ── Excel export (รายการ) ─────────────────────────────────────────
-function exportRecordsXLS(records:any[], dateFrom:string, dateTo:string) {
-  const esc = (s:any) => String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-  const th_ = (s:string) => `<td style="background:#2A505A;color:#fff;font-weight:bold;border:1px solid #ccc;padding:6px 10px;white-space:nowrap">${esc(s)}</td>`
-  const td_ = (s:any,center=false,color="#1e293b") => `<td style="border:1px solid #e2e8f0;padding:5px 9px;${center?"text-align:center;":""}color:${color}">${esc(s)}</td>`
-  const rows = records.map(r=>`<tr>
-    ${td_(safeFmt(r.work_date+"T00:00:00","d MMM yyyy"))}
-    ${td_(r.employee?.employee_code)}
-    ${td_(r.employee?.first_name_th+" "+r.employee?.last_name_th,false,"#0f172a")}
-    ${td_(r.employee?.department?.name||"-")}
-    ${td_(r.employee?.position?.name||"-")}
-    ${td_(safeFmt(r.clock_in,"HH:mm"),true)}
-    ${td_(safeFmt(r.clock_out,"HH:mm"),true)}
-    ${td_(r.late_minutes>0?r.late_minutes+"น.":"-",true,r.late_minutes>0?"#d97706":"#94a3b8")}
-    ${td_(r.ot_minutes>0?r.ot_minutes+"น.":"-",true,r.ot_minutes>0?"#2563eb":"#94a3b8")}
-    ${td_(statusToTH(r.status),true)}
-  </tr>`).join("")
-  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office"><head><meta charset="UTF-8"/>
-  <style>body{font-family:Tahoma,sans-serif;font-size:11px}table{border-collapse:collapse;width:100%}</style></head><body>
-  <p style="font-size:14px;font-weight:bold;color:#2A505A">รายงานการเข้างาน</p>
-  <p style="color:#64748b;margin-bottom:12px">ช่วงเวลา: ${safeFmt(dateFrom+"T00:00:00","d MMM yyyy")} – ${safeFmt(dateTo+"T00:00:00","d MMM yyyy")}</p>
-  <table><thead><tr>${th_("วันที่")}${th_("รหัส")}${th_("ชื่อ-สกุล")}${th_("แผนก")}${th_("ตำแหน่ง")}${th_("เข้างาน")}${th_("ออกงาน")}${th_("สาย")}${th_("OT")}${th_("สถานะ")}</tr></thead>
-  <tbody>${rows}</tbody></table></body></html>`
-  const blob=new Blob(["\uFEFF"+html],{type:"application/vnd.ms-excel;charset=utf-8"})
-  const url=URL.createObjectURL(blob)
-  const a=document.createElement("a"); a.href=url; a.download=`attendance_${dateFrom}_${dateTo}.xls`; a.click()
+// ── Excel export helpers ──────────────────────────────────────────
+function applyHeaderStyle(ws: XLSX.WorkSheet, range: string) {
+  // xlsx community edition ไม่รองรับ style โดยตรง
+  // แต่เราจัดข้อมูลให้เป็นระเบียบ + ตั้ง column width ให้เหมาะสม
+}
+
+function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
+  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a"); a.href = url; a.download = filename; a.click()
   URL.revokeObjectURL(url)
 }
 
+// ── Excel export (รายการ) ─────────────────────────────────────────
+function exportRecordsXLSX(records: any[], dateFrom: string, dateTo: string) {
+  const wb = XLSX.utils.book_new()
+
+  // ── Header info rows ──
+  const infoRows = [
+    ["รายงานการเข้างาน"],
+    [`ช่วงเวลา: ${safeFmt(dateFrom+"T00:00:00","d MMM yyyy")} – ${safeFmt(dateTo+"T00:00:00","d MMM yyyy")}`],
+    [`ออกรายงาน: ${format(new Date(),"d MMMM yyyy HH:mm",{locale:th})}`],
+    [], // blank row
+  ]
+
+  // ── Column headers ──
+  const headers = ["วันที่","รหัสพนักงาน","ชื่อ-สกุล","แผนก","ตำแหน่ง","เข้างาน","ออกงาน","สาย (นาที)","OT (นาที)","ชั่วโมงทำงาน","สถานะ"]
+
+  // ── Data rows ──
+  const dataRows = records.map(r => {
+    const clockIn = r.clock_in ? new Date(r.clock_in) : null
+    const clockOut = r.clock_out ? new Date(r.clock_out) : null
+    let workHours = ""
+    if (clockIn && clockOut) {
+      const diffMs = clockOut.getTime() - clockIn.getTime()
+      const hrs = Math.floor(diffMs / 3600000)
+      const mins = Math.floor((diffMs % 3600000) / 60000)
+      workHours = `${hrs}:${String(mins).padStart(2,"0")}`
+    }
+    return [
+      safeFmt(r.work_date+"T00:00:00","yyyy-MM-dd"),
+      r.employee?.employee_code || "",
+      `${r.employee?.first_name_th || ""} ${r.employee?.last_name_th || ""}`.trim(),
+      r.employee?.department?.name || "-",
+      r.employee?.position?.name || "-",
+      clockIn ? safeFmt(r.clock_in,"HH:mm") : "-",
+      clockOut ? safeFmt(r.clock_out,"HH:mm") : "-",
+      r.late_minutes > 0 ? r.late_minutes : 0,
+      r.ot_minutes > 0 ? r.ot_minutes : 0,
+      workHours || "-",
+      statusToTH(r.status),
+    ]
+  })
+
+  const wsData = [...infoRows, headers, ...dataRows]
+  const ws = XLSX.utils.aoa_to_sheet(wsData)
+
+  // ── Column widths ──
+  ws["!cols"] = [
+    { wch: 12 },  // วันที่
+    { wch: 14 },  // รหัสพนักงาน
+    { wch: 24 },  // ชื่อ-สกุล
+    { wch: 18 },  // แผนก
+    { wch: 22 },  // ตำแหน่ง
+    { wch: 10 },  // เข้างาน
+    { wch: 10 },  // ออกงาน
+    { wch: 12 },  // สาย
+    { wch: 12 },  // OT
+    { wch: 12 },  // ชั่วโมงทำงาน
+    { wch: 12 },  // สถานะ
+  ]
+
+  // ── Auto-filter on header row (row index 4 = 5th row) ──
+  const headerRowIdx = infoRows.length // 0-indexed
+  ws["!autofilter"] = { ref: XLSX.utils.encode_range({
+    s: { r: headerRowIdx, c: 0 },
+    e: { r: headerRowIdx + dataRows.length, c: headers.length - 1 }
+  })}
+
+  XLSX.utils.book_append_sheet(wb, ws, "รายงานเข้างาน")
+
+  // ── สรุปตามแผนก (pivot) ──
+  const deptMap: Record<string, { dept: string; present: number; late: number; absent: number; leave: number; total: number; lateMin: number; otMin: number }> = {}
+  records.forEach(r => {
+    const dept = r.employee?.department?.name || "ไม่ระบุแผนก"
+    if (!deptMap[dept]) deptMap[dept] = { dept, present: 0, late: 0, absent: 0, leave: 0, total: 0, lateMin: 0, otMin: 0 }
+    const d = deptMap[dept]
+    d.total++
+    if (r.status === "present" || r.status === "wfh") d.present++
+    else if (r.status === "late") { d.late++; d.present++ }
+    else if (r.status === "absent") d.absent++
+    else if (r.status === "leave") d.leave++
+    d.lateMin += r.late_minutes || 0
+    d.otMin += r.ot_minutes || 0
+  })
+  const deptRows = Object.values(deptMap).sort((a, b) => b.total - a.total)
+  const pivotInfo = [
+    ["สรุปตามแผนก"],
+    [`ช่วงเวลา: ${safeFmt(dateFrom+"T00:00:00","d MMM yyyy")} – ${safeFmt(dateTo+"T00:00:00","d MMM yyyy")}`],
+    [],
+  ]
+  const pivotHeaders = ["แผนก","รวมรายการ","มาทำงาน","มาสาย","ขาดงาน","ลา","รวมนาทีสาย","รวมนาที OT","อัตราเข้างาน (%)"]
+  const pivotData = deptRows.map(d => [
+    d.dept, d.total, d.present, d.late, d.absent, d.leave, d.lateMin, d.otMin,
+    d.total > 0 ? Math.round((d.present / d.total) * 100) : 0,
+  ])
+
+  const ws2Data = [...pivotInfo, pivotHeaders, ...pivotData]
+  const ws2 = XLSX.utils.aoa_to_sheet(ws2Data)
+  ws2["!cols"] = [
+    { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
+  ]
+  const pivotHeaderRow = pivotInfo.length
+  ws2["!autofilter"] = { ref: XLSX.utils.encode_range({
+    s: { r: pivotHeaderRow, c: 0 },
+    e: { r: pivotHeaderRow + pivotData.length, c: pivotHeaders.length - 1 }
+  })}
+  XLSX.utils.book_append_sheet(wb, ws2, "สรุปตามแผนก")
+
+  downloadWorkbook(wb, `attendance_${dateFrom}_${dateTo}.xlsx`)
+}
+
 // ── Excel export (สรุป) ───────────────────────────────────────────
-function exportSummaryXLS(title:string, summary:GroupRow[], detail:SummaryEmpRow[], period:string) {
-  const esc=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-  const th_=(s:string,bg="#2A505A")=>`<td style="background:${bg};color:#fff;font-weight:bold;border:1px solid #ccc;padding:6px 10px;white-space:nowrap">${esc(s)}</td>`
-  const td_=(s:any,center=false,bold=false,color="#1e293b")=>`<td style="border:1px solid #e2e8f0;padding:5px 9px;${center?"text-align:center;":""}${bold?"font-weight:bold;":""}color:${color}">${esc(s)}</td>`
-  const sRows=summary.map(r=>`<tr>
-    ${td_(r.label,false,true)} ${td_(r.employees,true,true,"#0f172a")}
-    ${td_(r.present,true,false,"#16a34a")} ${td_(r.late,true,false,"#d97706")}
-    ${td_(r.absent,true,false,"#dc2626")} ${td_(r.leave,true,false,"#7c3aed")}
-    ${td_(r.totalDays>0?Math.round((r.present+r.late)/r.totalDays*100)+"%":"-",true,true)}
-  </tr>`).join("")
-  const dRows=detail.map(r=>`<tr>
-    ${td_(r.employee_code)} ${td_(r.name,false,true)} ${td_(r.dept)} ${td_(r.branch)}
-    ${td_(r.present,true,false,"#16a34a")} ${td_(r.late,true,false,"#d97706")}
-    ${td_(r.absent,true,false,"#dc2626")} ${td_(r.leave,true,false,"#7c3aed")}
-    ${td_(r.lateMinutes>0?r.lateMinutes+"น.":"-",true)}
-  </tr>`).join("")
-  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-  <head><meta charset="UTF-8"/><style>body{font-family:Tahoma,sans-serif;font-size:11px}table{border-collapse:collapse;margin-bottom:20px;width:100%}
-  .sh{font-size:12px;font-weight:bold;background:#f8fafc;padding:6px;margin-top:16px;color:#2A505A;border-left:3px solid #2A505A}</style></head><body>
-  <p style="font-size:14px;font-weight:bold;color:#2A505A">${esc(title)}</p>
-  <p style="color:#64748b;margin-bottom:12px">ช่วงเวลา: ${esc(period)} · ออกรายงาน: ${format(new Date(),"d MMMM yyyy HH:mm",{locale:th})}</p>
-  <p class="sh">📊 สรุปตามกลุ่ม</p>
-  <table><thead><tr>${th_("กลุ่ม")}${th_("พนักงาน","#334155")}${th_("มาทำงาน","#16a34a")}${th_("มาสาย","#d97706")}${th_("ขาดงาน","#dc2626")}${th_("ลา","#7c3aed")}${th_("อัตราเข้างาน","#0891b2")}</tr></thead>
-  <tbody>${sRows}</tbody></table>
-  <p class="sh">👤 รายละเอียดรายบุคคล</p>
-  <table><thead><tr>${th_("รหัส")}${th_("ชื่อ-สกุล")}${th_("แผนก")}${th_("สาขา")}${th_("มาทำงาน","#16a34a")}${th_("มาสาย","#d97706")}${th_("ขาดงาน","#dc2626")}${th_("ลา","#7c3aed")}${th_("รวมนาทีสาย","#ea580c")}</tr></thead>
-  <tbody>${dRows}</tbody></table></body></html>`
-  const blob=new Blob(["\uFEFF"+html],{type:"application/vnd.ms-excel;charset=utf-8"})
-  const url=URL.createObjectURL(blob)
-  const a=document.createElement("a"); a.href=url
-  a.download=`attendance_summary_${format(new Date(),"yyyyMMdd_HHmm")}.xls`; a.click()
-  URL.revokeObjectURL(url)
+function exportSummaryXLSX(title: string, summary: GroupRow[], detail: SummaryEmpRow[], period: string) {
+  const wb = XLSX.utils.book_new()
+
+  // ── Sheet 1: สรุปตามกลุ่ม ──
+  const sumInfo = [
+    [title],
+    [`ช่วงเวลา: ${period}`],
+    [`ออกรายงาน: ${format(new Date(),"d MMMM yyyy HH:mm",{locale:th})}`],
+    [],
+  ]
+  const sumHeaders = ["กลุ่ม","จำนวนพนักงาน","มาทำงาน","มาสาย","ขาดงาน","ลา","อัตราเข้างาน (%)"]
+  const sumData = summary.map(r => [
+    r.label, r.employees, r.present, r.late, r.absent, r.leave,
+    r.totalDays > 0 ? Math.round((r.present + r.late) / r.totalDays * 100) : 0,
+  ])
+  // ── Total row ──
+  const totals = summary.reduce((t, r) => ({
+    emp: t.emp + r.employees, present: t.present + r.present, late: t.late + r.late,
+    absent: t.absent + r.absent, leave: t.leave + r.leave, days: t.days + r.totalDays,
+  }), { emp: 0, present: 0, late: 0, absent: 0, leave: 0, days: 0 })
+  sumData.push([
+    "รวมทั้งหมด", totals.emp, totals.present, totals.late, totals.absent, totals.leave,
+    totals.days > 0 ? Math.round((totals.present + totals.late) / totals.days * 100) : 0,
+  ])
+
+  const ws1Data = [...sumInfo, sumHeaders, ...sumData]
+  const ws1 = XLSX.utils.aoa_to_sheet(ws1Data)
+  ws1["!cols"] = [
+    { wch: 24 }, { wch: 16 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 18 },
+  ]
+  const sumHeaderRow = sumInfo.length
+  ws1["!autofilter"] = { ref: XLSX.utils.encode_range({
+    s: { r: sumHeaderRow, c: 0 },
+    e: { r: sumHeaderRow + sumData.length, c: sumHeaders.length - 1 }
+  })}
+  XLSX.utils.book_append_sheet(wb, ws1, "สรุปตามกลุ่ม")
+
+  // ── Sheet 2: รายละเอียดรายบุคคล ──
+  const detInfo = [
+    ["รายละเอียดรายบุคคล"],
+    [`ช่วงเวลา: ${period}`],
+    [],
+  ]
+  const detHeaders = ["รหัสพนักงาน","ชื่อ-สกุล","แผนก","สาขา","มาทำงาน","มาสาย","ขาดงาน","ลา","รวมนาทีสาย","อัตราเข้างาน (%)"]
+  const detData = detail.map(r => {
+    const totalWork = r.present + r.late + r.absent
+    return [
+      r.employee_code, r.name, r.dept, r.branch,
+      r.present, r.late, r.absent, r.leave, r.lateMinutes,
+      totalWork > 0 ? Math.round((r.present + r.late) / totalWork * 100) : 0,
+    ]
+  })
+
+  const ws2Data = [...detInfo, detHeaders, ...detData]
+  const ws2 = XLSX.utils.aoa_to_sheet(ws2Data)
+  ws2["!cols"] = [
+    { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 18 },
+    { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 18 },
+  ]
+  const detHeaderRow = detInfo.length
+  ws2["!autofilter"] = { ref: XLSX.utils.encode_range({
+    s: { r: detHeaderRow, c: 0 },
+    e: { r: detHeaderRow + detData.length, c: detHeaders.length - 1 }
+  })}
+  XLSX.utils.book_append_sheet(wb, ws2, "รายบุคคล")
+
+  downloadWorkbook(wb, `attendance_summary_${format(new Date(),"yyyyMMdd_HHmm")}.xlsx`)
 }
 
 // ── Page ──────────────────────────────────────────────────────────
@@ -165,53 +295,64 @@ export default function AdminAttendancePage() {
   // ── LIST: load kpi today ──────────────────────────────────────
   const loadKpi = useCallback(async()=>{
     if(!activeCid) return
-    const addCo = (q: any) => activeCid !== "all" ? q.eq("company_id", activeCid) : q
-    const [r0,r1,r2,r3,osRes] = await Promise.all([
-      addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","present")),
-      addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","late")),
-      addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","absent")),
-      addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","leave")),
-      addCo(supabase.from("offsite_checkin_requests").select("id",{count:"exact",head:true}).eq("status","pending")),
-    ])
-    setKpi({present:r0.count??0,late:r1.count??0,absent:r2.count??0,leave:r3.count??0})
-    setOffsitePending(osRes.count??0)
+    try {
+      const addCo = (q: any) => activeCid !== "all" ? q.eq("company_id", activeCid) : q
+      const [r0,r1,r2,r3,osRes] = await Promise.all([
+        addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","present")),
+        addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","late")),
+        addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","absent")),
+        addCo(supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("work_date",today).eq("status","leave")),
+        addCo(supabase.from("offsite_checkin_requests").select("id",{count:"exact",head:true}).eq("status","pending")),
+      ])
+      setKpi({present:r0.count??0,late:r1.count??0,absent:r2.count??0,leave:r3.count??0})
+      setOffsitePending(osRes.count??0)
+    } catch(e) { console.error("Load KPI error:", e) }
   },[activeCid,today])
 
   // ── LIST: load records ────────────────────────────────────────
   const loadList = useCallback(async()=>{
     if(!activeCid) return
     setLoadingList(true); setErrList(null)
-    let q = supabase.from("attendance_records")
-      .select(`*,employee:employees!attendance_records_employee_id_fkey(
-        id,first_name_th,last_name_th,employee_code,
-        department:departments(id,name),position:positions(name),company:companies(code))`,{count:"exact"})
-      .gte("work_date",listFilters.start).lte("work_date",listFilters.end)
-    if (activeCid !== "all") q = q.eq("company_id",activeCid)
-      .order("work_date",{ascending:false}).order("clock_in",{ascending:false})
-      .range(page*PER,(page+1)*PER-1) as any
-    if(listFilters.status) q=q.eq("status",listFilters.status)
-    const {data,count,error}=await q as any
-    if(error){setErrList(error.message)}
-    else{
-      let rows=data??[]
-      if(listFilters.search){
-        const s=listFilters.search.toLowerCase()
-        rows=rows.filter((r:any)=>r.employee?.first_name_th?.toLowerCase().includes(s)||r.employee?.last_name_th?.toLowerCase().includes(s)||r.employee?.employee_code?.toLowerCase().includes(s))
+    try {
+      let q = supabase.from("attendance_records")
+        .select(`*,employee:employees!attendance_records_employee_id_fkey(
+          id,first_name_th,last_name_th,employee_code,
+          department:departments(id,name),position:positions(name),company:companies(code))`,{count:"exact"})
+        .gte("work_date",listFilters.start).lte("work_date",listFilters.end)
+      if (activeCid !== "all") q = q.eq("company_id",activeCid)
+      if(listFilters.status) q=q.eq("status",listFilters.status)
+      // ── order + range ต้องอยู่นอก if เพื่อให้ทำงานทุกกรณี ──
+      q = q.order("work_date",{ascending:false}).order("clock_in",{ascending:false})
+        .range(page*PER,(page+1)*PER-1) as any
+      const {data,count,error}=await q as any
+      if(error){setErrList(error.message)}
+      else{
+        let rows=data??[]
+        if(listFilters.search){
+          const s=listFilters.search.toLowerCase()
+          rows=rows.filter((r:any)=>r.employee?.first_name_th?.toLowerCase().includes(s)||r.employee?.last_name_th?.toLowerCase().includes(s)||r.employee?.employee_code?.toLowerCase().includes(s))
+        }
+        if(listFilters.dept) rows=rows.filter((r:any)=>r.employee?.department?.id===listFilters.dept)
+        setRecords(rows); setTotal(count??0)
       }
-      if(listFilters.dept) rows=rows.filter((r:any)=>r.employee?.department?.id===listFilters.dept)
-      setRecords(rows); setTotal(count??0)
+    } catch(e: any) {
+      console.error("Load attendance error:", e)
+      setErrList("โหลดข้อมูลไม่สำเร็จ กรุณาลองใหม่")
+    } finally {
+      setLoadingList(false)
     }
-    setLoadingList(false)
   },[activeCid,listFilters,page])
 
   const loadAdj = useCallback(async()=>{
     if(!activeCid) return
-    let aq = supabase.from("time_adjustment_requests")
-      .select(`*,employee:employees!time_adjustment_requests_employee_id_fkey(id,first_name_th,last_name_th,department:departments(name))`)
-      .eq("status","pending").order("created_at",{ascending:true})
-    if (activeCid !== "all") aq = aq.eq("company_id", activeCid) as any
-    const {data}=await (aq as any)
-    setAdjReqs(data??[])
+    try {
+      let aq = supabase.from("time_adjustment_requests")
+        .select(`*,employee:employees!time_adjustment_requests_employee_id_fkey(id,first_name_th,last_name_th,department:departments(name))`)
+        .eq("status","pending").order("created_at",{ascending:true})
+      if (activeCid !== "all") aq = aq.eq("company_id", activeCid) as any
+      const {data}=await (aq as any)
+      setAdjReqs(data??[])
+    } catch(e) { console.error("Load adjustments error:", e) }
   },[activeCid])
 
   // ── SUMMARY: fetch ────────────────────────────────────────────
@@ -271,22 +412,27 @@ export default function AdminAttendancePage() {
   useEffect(()=>{if(!authLoading&&activeCid&&activeTab==="summary") loadSummary()},[authLoading,activeCid,activeTab,loadSummary])
 
   const approveAdj=async(req:any,action:"approved"|"rejected")=>{
-    const res=await fetch("/api/attendance/approve-adjustment",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({request_id:req.id,action})})
-    const json=await res.json()
-    if(!res.ok||json.error){toast.error(json.error??"เกิดข้อผิดพลาด");return}
-    toast.success(action==="approved"?"อนุมัติแล้ว":"ปฏิเสธแล้ว")
-    setAdjReqs(r=>r.filter(x=>x.id!==req.id)); loadList()
+    try {
+      const res=await fetch("/api/attendance/approve-adjustment",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({request_id:req.id,action})})
+      const json=await res.json()
+      if(!res.ok||json.error){toast.error(json.error??"เกิดข้อผิดพลาด");return}
+      toast.success(action==="approved"?"อนุมัติแล้ว":"ปฏิเสธแล้ว")
+      setAdjReqs(r=>r.filter(x=>x.id!==req.id)); loadList()
+    } catch(e) { toast.error("ดำเนินการไม่สำเร็จ กรุณาลองใหม่") }
   }
 
   const handleExportList=async()=>{
     if(!activeCid) return; setExporting(true)
-    let eq = supabase.from("attendance_records")
-      .select(`work_date,clock_in,clock_out,status,late_minutes,ot_minutes,
-        employee:employees!attendance_records_employee_id_fkey(employee_code,first_name_th,last_name_th,department:departments(name),position:positions(name))`)
-      .gte("work_date",listFilters.start).lte("work_date",listFilters.end).order("work_date",{ascending:false})
-    if (activeCid !== "all") eq = eq.eq("company_id",activeCid) as any
-    const {data}=await (eq as any)
-    exportRecordsXLS(data??[],listFilters.start,listFilters.end); setExporting(false)
+    try {
+      let eq = supabase.from("attendance_records")
+        .select(`work_date,clock_in,clock_out,status,late_minutes,ot_minutes,
+          employee:employees!attendance_records_employee_id_fkey(employee_code,first_name_th,last_name_th,department:departments(name),position:positions(name))`)
+        .gte("work_date",listFilters.start).lte("work_date",listFilters.end).order("work_date",{ascending:false})
+      if (activeCid !== "all") eq = eq.eq("company_id",activeCid) as any
+      const {data}=await (eq as any)
+      exportRecordsXLSX(data??[],listFilters.start,listFilters.end)
+    } catch(e) { toast.error("ส่งออกข้อมูลไม่สำเร็จ") }
+    finally { setExporting(false) }
   }
 
   const setLF=(k:string,v:string)=>{setPage(0);setListFilters(f=>({...f,[k]:v}))}
@@ -319,7 +465,7 @@ export default function AdminAttendancePage() {
             className="flex items-center gap-2 px-3 py-2.5 border border-slate-200 bg-white rounded-xl text-sm text-slate-500 hover:bg-slate-50 transition-colors">
             <RefreshCw size={13} className={loadingList?"animate-spin":""}/>
           </button>
-          <button onClick={activeTab==="list"?handleExportList:()=>exportSummaryXLS(`รายงานการเข้างาน – ${viewMode==="department"?"ตามแผนก":viewMode==="branch"?"ตามสาขา":"ภาพรวม"}`,summaryRows,filteredEmps,periodLabel)}
+          <button onClick={activeTab==="list"?handleExportList:()=>exportSummaryXLSX(`รายงานการเข้างาน – ${viewMode==="department"?"ตามแผนก":viewMode==="branch"?"ตามสาขา":"ภาพรวม"}`,summaryRows,filteredEmps,periodLabel)}
             disabled={exporting}
             className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl shadow-sm shadow-emerald-200 transition-colors">
             <Download size={14}/>{exporting?"กำลัง Export…":"Export Excel"}

@@ -1,6 +1,15 @@
 import { Resend } from "resend"
 
-export const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy initialization — ป้องกัน build error เมื่อ RESEND_API_KEY ไม่มีใน build environment
+let _resend: Resend | null = null
+export function getResend() {
+  if (!_resend) {
+    _resend = new Resend(process.env.RESEND_API_KEY)
+  }
+  return _resend
+}
+/** @deprecated ใช้ getResend() แทน */
+export const resend = null as unknown as Resend // keep backward compat type
 
 // ── Email templates ──────────────────────────────────────────────
 
