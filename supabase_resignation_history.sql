@@ -21,6 +21,7 @@ CREATE INDEX IF NOT EXISTS idx_resign_history_emp ON resignation_history(employe
 -- RLS
 ALTER TABLE resignation_history ENABLE ROW LEVEL SECURITY;
 
--- Admin/HR สามารถอ่านและเขียนได้
+-- Admin/HR สามารถอ่านและเขียนได้ (drop ก่อนเพื่อกัน duplicate)
+DROP POLICY IF EXISTS "Service role full access" ON resignation_history;
 CREATE POLICY "Service role full access" ON resignation_history
   FOR ALL USING (true) WITH CHECK (true);

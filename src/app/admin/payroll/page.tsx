@@ -48,7 +48,8 @@ const REG_COLS: RCol[] = [
   { key:"brand", label:"แบรนด์",         group:"info", get:r=>r.employee?.brand||"" },
   // income
   { key:"base",        label:"เงินเดือน",            group:"income", get:r=>n(r.base_salary) },
-  { key:"bonus",       label:"โบนัส",                group:"income", get:r=>n(r.bonus) },
+  { key:"bonus",       label:"KPI Bonus",             group:"income", get:r=>n(r.bonus) },
+  { key:"kpi_grade",   label:"เกรด KPI",              group:"income", get:r=>r.kpi_grade === "pending" ? "รอประเมิน" : r.kpi_grade||"-" },
   { key:"ot15",        label:"OT ×1.5",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5) },
   { key:"ot10",        label:"OT ×1.0",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0) },
   { key:"ot30",        label:"OT ×3.0",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0) },
@@ -685,7 +686,7 @@ function EditModal({
               </p>
               <div className="bg-slate-50 rounded-xl px-3 py-1.5">
                 <NumRow label="เงินเดือน"       k="base_salary"         green/>
-                <NumRow label="โบนัส"           k="bonus"               green/>
+                <NumRow label={`KPI Bonus${record.kpi_grade ? ` (${record.kpi_grade})` : ""}`} k="bonus" green/>
                 <NumRow label="OT (฿ รวม)"      k="ot_amount"           green/>
                 <NumRow label="ค่าตำแหน่ง"      k="allowance_position"  green/>
                 <NumRow label="คอมมิชชั่น"       k="commission"          green/>
@@ -911,7 +912,37 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
                 </div>
               </div>
             )}
-            {record.bonus      > 0 && <Row l="โบนัส"      v={record.bonus}/>}
+            {record.bonus > 0 && record.kpi_grade && record.kpi_grade !== "pending" && (
+              <div className="px-4 py-2 border-b border-slate-50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-slate-600">KPI Bonus</p>
+                    <span className={`text-[9px] font-bold rounded-full px-2 py-0.5 ${
+                      record.kpi_grade === "A" ? "bg-yellow-100 text-yellow-700" :
+                      record.kpi_grade === "B" ? "bg-green-100 text-green-700" :
+                      record.kpi_grade === "C" ? "bg-orange-100 text-orange-700" :
+                      "bg-red-100 text-red-700"
+                    }`}>เกรด {record.kpi_grade}</span>
+                  </div>
+                  <p className="text-sm font-semibold text-green-600">+฿{thb(record.bonus)}</p>
+                </div>
+                {record.kpi_standard_amount > 0 && (
+                  <p className="text-[10px] text-slate-400 mt-0.5">ฐาน KPI: ฿{thb(record.kpi_standard_amount)}</p>
+                )}
+              </div>
+            )}
+            {record.kpi_grade === "pending" && record.kpi_standard_amount > 0 && (
+              <div className="px-4 py-2 border-b border-slate-50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-slate-600">KPI Bonus</p>
+                    <span className="text-[9px] font-bold rounded-full px-2 py-0.5 bg-slate-100 text-slate-500">รอประเมิน</span>
+                  </div>
+                  <p className="text-sm font-semibold text-slate-400">฿{thb(record.kpi_standard_amount)}</p>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">รอหัวหน้าประเมิน KPI เดือนนี้</p>
+              </div>
+            )}
             {record.commission > 0 && <Row l="คอมมิชชั่น" v={record.commission}/>}
             <div className="flex items-center justify-between px-4 py-2 bg-green-50">
               <p className="text-sm font-black">รวมรายรับ</p>
@@ -1264,13 +1295,13 @@ export default function PayrollPage() {
   }
 
   const exportCSV = () => {
-    const hdr = ["รหัส","ชื่อ","นามสกุล","ตำแหน่ง","แผนก","เงินเดือนฐาน","เบี้ยตำแหน่ง","ค่าเดินทาง","ค่าอาหาร","OT฿","OT1.5x(น.)","OT1.0x(น.)","OT3.0x(น.)","โบนัส","คอมมิชชั่น","รวมรายรับ","หักขาด","หักสาย","หักกู้","SSO","ภาษี","หักรวม","สุทธิ","วันมา","วันขาด","สาย","ลาจ่าย","ลาไม่จ่าย","แก้ไขโดยHR"]
+    const hdr = ["รหัส","ชื่อ","นามสกุล","ตำแหน่ง","แผนก","เงินเดือนฐาน","เบี้ยตำแหน่ง","ค่าเดินทาง","ค่าอาหาร","OT฿","OT1.5x(น.)","OT1.0x(น.)","OT3.0x(น.)","KPI Bonus","เกรด KPI","ฐาน KPI","คอมมิชชั่น","รวมรายรับ","หักขาด","หักสาย","หักกู้","SSO","ภาษี","หักรวม","สุทธิ","วันมา","วันขาด","สาย","ลาจ่าย","ลาไม่จ่าย","แก้ไขโดยHR"]
     const rows = records.map((r: any) => [
       r.employee?.employee_code, r.employee?.first_name_th, r.employee?.last_name_th,
       r.employee?.position?.name, r.employee?.department?.name,
       r.base_salary||0, r.allowance_position||0, r.allowance_transport||0, r.allowance_food||0,
       r.ot_amount||0, r.ot_weekday_minutes||0, r.ot_holiday_reg_minutes||0, r.ot_holiday_ot_minutes||0,
-      r.bonus||0, r.commission||0, r.gross_income||0,
+      r.bonus||0, r.kpi_grade||"", r.kpi_standard_amount||0, r.commission||0, r.gross_income||0,
       r.deduct_absent||0, r.deduct_late||0, r.deduct_loan||0,
       r.social_security_amount||0, r.monthly_tax_withheld||0, r.total_deductions||0, r.net_salary||0,
       r.present_days||0, r.absent_days||0, r.late_count||0, r.leave_paid_days||0, r.leave_unpaid_days||0,
@@ -1297,6 +1328,7 @@ export default function PayrollPage() {
   const totalOT    = filtered.reduce((s: number, r: any) => s + (r.ot_amount||0), 0)
   const totalSSO   = filtered.reduce((s: number, r: any) => s + (r.social_security_amount||0), 0)
   const totalTax   = filtered.reduce((s: number, r: any) => s + (r.monthly_tax_withheld||0), 0)
+  const totalKPI   = filtered.reduce((s: number, r: any) => s + (r.bonus||0), 0)
   const overrideCount = records.filter((r: any) => r.is_manual_override).length
 
   const statusCfg  = STATUS_CFG[selected?.status ?? "draft"] ?? STATUS_CFG.draft
@@ -1405,20 +1437,22 @@ export default function PayrollPage() {
 
           {/* ── KPIs ───────────────────────────────────────────── */}
           {records.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
               {[
                 { l:"พนักงาน",     v:`${records.length} คน`, ic:Users,     c:"indigo" },
                 { l:"รวมรายรับ",   v:`฿${thb(totalGross)}`,  ic:TrendingUp,c:"green"  },
+                { l:"KPI Bonus",   v:`฿${thb(totalKPI)}`,    ic:TrendingUp,c:"emerald"},
                 { l:"รวม OT",      v:`฿${thb(totalOT)}`,     ic:Clock,     c:"amber"  },
                 { l:"SSO + ภาษี",  v:`฿${thb(totalSSO+totalTax)}`, ic:AlertCircle, c:"orange"},
                 { l:"รับสุทธิรวม",v:`฿${thb(totalNet)}`,    ic:Banknote,  c:"blue"   },
               ].map(s => {
                 const cc: Record<string, string> = {
-                  indigo:"bg-indigo-50 border-indigo-100 text-indigo-700",
-                  green: "bg-green-50 border-green-100 text-green-700",
-                  amber: "bg-amber-50 border-amber-100 text-amber-700",
-                  orange:"bg-orange-50 border-orange-100 text-orange-700",
-                  blue:  "bg-blue-50 border-blue-100 text-blue-700",
+                  indigo: "bg-indigo-50 border-indigo-100 text-indigo-700",
+                  green:  "bg-green-50 border-green-100 text-green-700",
+                  emerald:"bg-emerald-50 border-emerald-100 text-emerald-700",
+                  amber:  "bg-amber-50 border-amber-100 text-amber-700",
+                  orange: "bg-orange-50 border-orange-100 text-orange-700",
+                  blue:   "bg-blue-50 border-blue-100 text-blue-700",
                 }
                 return (
                   <div key={s.l} className={`rounded-2xl border p-3.5 ${cc[s.c]}`}>

@@ -1,5 +1,5 @@
 "use client"
-import { useState, useMemo } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useAttendance } from "@/lib/hooks/useAttendance"
 import { formatTime } from "@/lib/utils/attendance"
@@ -15,6 +15,15 @@ import {
   startOfMonth, getDay, eachDayOfInterval, endOfMonth,
 } from "date-fns"
 import { th } from "date-fns/locale"
+
+// ถ้าวันที่ > 21 → อยู่ในงวดเดือนถัดไปแล้ว
+function getCurrentPeriodDate(): Date {
+  const now = new Date()
+  if (now.getDate() > 21) {
+    return new Date(now.getFullYear(), now.getMonth() + 1, 1)
+  }
+  return new Date(now.getFullYear(), now.getMonth(), 1)
+}
 
 const STATUS_TH: Record<string, string> = {
   present: "มาทำงาน", late: "มาสาย", absent: "ขาดงาน",
@@ -65,9 +74,15 @@ function buildDisplayList(records: any[], month: Date, todayStr: string, holiday
 
 export default function AttendancePage() {
   const { user } = useAuth()
-  const [month, setMonth] = useState(new Date())
+  const [month, setMonth] = useState(() => new Date(2026, 0, 1)) // fixed date, sync ใน useEffect
+  const [hydrated, setHydrated] = useState(false)
   const empId = (user as any)?.employee_id ?? (user as any)?.employee?.id
   const { records, periodRecords, period, holidayMap, loading } = useAttendance(empId, month)
+
+  useEffect(() => {
+    setMonth(getCurrentPeriodDate())
+    setHydrated(true)
+  }, [])
 
   const today = format(new Date(), "yyyy-MM-dd")
   const monthPfx = format(month, "yyyy-MM")
@@ -158,7 +173,7 @@ export default function AttendancePage() {
 
   return (
     <>
-      <style>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
         @keyframes barGrow { from{width:0%} to{width:var(--bar-w)} }
         .att-bg { background: linear-gradient(160deg,#eef2ff 0%,#f5f3ff 40%,#fdf4ff 100%); min-height:100vh; }
@@ -176,7 +191,7 @@ export default function AttendancePage() {
         .record-card { background:rgba(255,255,255,0.92); border:1px solid rgba(255,255,255,0.95); box-shadow:0 2px 16px rgba(0,0,0,0.05); }
         .absent-card { background:rgba(255,241,242,0.95); border:1px solid rgba(254,205,211,0.8); box-shadow:0 2px 16px rgba(239,68,68,0.06); }
         .deduct-bar { background:linear-gradient(90deg,rgba(251,191,36,0.07),rgba(249,115,22,0.05)); border-top:1px dashed rgba(251,191,36,0.2); }
-      `}</style>
+      ` }} />
 
       <div className="att-bg pb-12">
 
@@ -205,7 +220,7 @@ export default function AttendancePage() {
               {format(month, "MMMM yyyy", { locale: th })}
             </span>
             <button onClick={() => setMonth(m => addMonths(m, 1))}
-              disabled={format(addMonths(month, 1), "yyyy-MM") > format(new Date(), "yyyy-MM")}
+              disabled={format(addMonths(month, 1), "yyyy-MM") > format(getCurrentPeriodDate(), "yyyy-MM")}
               className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-indigo-50 active:scale-90 transition-all disabled:opacity-25">
               <ChevronRight size={18} className="text-slate-500" />
             </button>

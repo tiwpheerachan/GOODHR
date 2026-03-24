@@ -18,6 +18,21 @@ function isImageUrl(url: string): boolean {
   return ["jpg","jpeg","png","gif","webp","svg","bmp","ico"].includes(ext)
 }
 function getFileIcon(url: string): string {
+  // Try name param first for accurate extension
+  try {
+    const paramName = new URL(url, "https://x").searchParams.get("name")
+    if (paramName) {
+      const ext = paramName.split(".").pop()?.toLowerCase() || ""
+      if (["pdf"].includes(ext)) return "📕"
+      if (["doc","docx"].includes(ext)) return "📘"
+      if (["xls","xlsx","csv"].includes(ext)) return "📗"
+      if (["ppt","pptx"].includes(ext)) return "📙"
+      if (["zip","rar","7z","tar","gz"].includes(ext)) return "📦"
+      if (["mp3","wav","ogg","m4a"].includes(ext)) return "🎵"
+      if (["mp4","mov","avi","mkv"].includes(ext)) return "🎬"
+      if (["txt","rtf"].includes(ext)) return "📝"
+    }
+  } catch {}
   const ext = url.split("?")[0].split(".").pop()?.toLowerCase() || ""
   if (["pdf"].includes(ext)) return "📕"
   if (["doc","docx"].includes(ext)) return "📘"
@@ -31,10 +46,22 @@ function getFileIcon(url: string): string {
 }
 function getFileName(url: string): string {
   try {
+    // Try to get original name from query param first
+    const urlObj = new URL(url, "https://x")
+    const paramName = urlObj.searchParams.get("name")
+    if (paramName) return paramName
+    // Fallback: extract from path
     const parts = url.split("?")[0].split("/")
-    const name = parts[parts.length - 1] || "file"
-    return decodeURIComponent(name.replace(/^\d+_[a-z0-9]+_/, ""))
-  } catch { return "file" }
+    const raw = parts[parts.length - 1] || "file"
+    const name = decodeURIComponent(raw.replace(/^\d+_[a-z0-9]+_/, ""))
+    // If name is mostly underscores (Thai chars were stripped), show extension instead
+    const cleaned = name.replace(/_/g, "").replace(/\.[^.]+$/, "")
+    if (!cleaned) {
+      const ext = name.split(".").pop()?.toUpperCase() || "FILE"
+      return `ไฟล์ ${ext}`
+    }
+    return name
+  } catch { return "ไฟล์แนบ" }
 }
 
 export default function AdminChatPage() {
@@ -378,31 +405,29 @@ export default function AdminChatPage() {
     return colors[idx % colors.length]
   }
 
-  // ── File Card ──
-  const FileCard = ({ url, isMe }: { url: string; isMe: boolean }) => (
-    <a href={url} target="_blank" rel="noopener noreferrer"
-      className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all hover:shadow-md ${
-        isMe
-          ? "bg-white/20 backdrop-blur-sm border border-white/20"
-          : "bg-white border border-slate-200 shadow-sm"
-      }`}
-      style={{ minWidth: 200, maxWidth: 300 }}>
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-        isMe ? "bg-white/20" : "bg-slate-100"
-      }`}>
-        <span className="text-xl">{getFileIcon(url)}</span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className={`text-[13px] font-bold truncate ${isMe ? "text-white" : "text-slate-700"}`}>
-          {getFileName(url)}
-        </p>
-        <p className={`text-[11px] mt-0.5 ${isMe ? "text-white/60" : "text-slate-400"}`}>
-          แตะเพื่อดาวน์โหลด
-        </p>
-      </div>
-      <Download size={16} className={`flex-shrink-0 ${isMe ? "text-white/50" : "text-slate-300"}`} />
-    </a>
-  )
+  // ── File Card ── (ใช้พื้นขาว + ตัวหนังสือเข้มเสมอ ไม่ว่าใครส่ง)
+  const FileCard = ({ url }: { url: string; isMe?: boolean }) => {
+    const fileName = getFileName(url)
+    const ext = fileName.split(".").pop()?.toUpperCase() || url.split("?")[0].split(".").pop()?.toUpperCase() || "FILE"
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer"
+        className="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all hover:shadow-md bg-white border border-slate-200 shadow-sm"
+        style={{ minWidth: 200, maxWidth: 300 }}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-slate-100">
+          <span className="text-xl">{getFileIcon(url)}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-bold truncate text-slate-700">
+            {fileName}
+          </p>
+          <p className="text-[11px] mt-0.5 text-slate-400">
+            {ext} · แตะเพื่อดาวน์โหลด
+          </p>
+        </div>
+        <Download size={16} className="flex-shrink-0 text-slate-300" />
+      </a>
+    )
+  }
 
   // ── Employee Card Component ──
   const EmpCard = ({ e, mode, checked }: { e: any; mode: "pick" | "broadcast"; checked?: boolean }) => (

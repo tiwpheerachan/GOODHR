@@ -43,6 +43,8 @@ export default function EmployeeDetailPage() {
   const [newMgr,     setNewMgr]     = useState("")
   const [newMgrDate, setNewMgrDate] = useState(format(new Date(),"yyyy-MM-dd"))
   // resign modal
+  const [kpiSetting, setKpiSetting] = useState<any>(null)
+  const [kpiAmount,  setKpiAmount]  = useState<string>("")
   const [showResignModal, setShowResignModal] = useState(false)
   const [resignDate, setResignDate] = useState(format(new Date(),"yyyy-MM-dd"))
   const [resignReason, setResignReason] = useState("")
@@ -63,6 +65,9 @@ export default function EmployeeDetailPage() {
       if (s.data) { setSalary(s.data); setSf(s.data) }
       setMgrHistory(h.data ?? [])
     })
+    // ดึง KPI bonus settings
+    supabase.from("kpi_bonus_settings").select("*").eq("employee_id",id as string).eq("is_active",true).maybeSingle()
+      .then(({ data }) => { setKpiSetting(data); setKpiAmount(data?.standard_amount?.toString() || "") })
     // ดึงประวัติการลาออก/ดึงกลับ
     supabase.from("resignation_history").select("*").eq("employee_id",id as string).order("created_at",{ascending:false})
       .then(({ data }) => setResignHistory(data ?? []))
@@ -74,8 +79,37 @@ export default function EmployeeDetailPage() {
 
   const saveEmployee = async () => {
     setLoading(true)
+    const emailChanged = form.email && form.email !== (emp?.email || "")
+    const oldEmail = emp?.email || ""
+
+    // ── ถ้าอีเมลเปลี่ยน → เรียก API เปลี่ยน auth ก่อน (ต้องทำก่อน update employees!) ──
+    if (emailChanged) {
+      try {
+        const res = await fetch("/api/auth/change-email", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ employee_id: id, new_email: form.email, old_email: oldEmail }),
+        })
+        const d = await res.json()
+        if (!res.ok) {
+          toast.error(`อีเมล: ${d.error}`)
+          setLoading(false)
+          return
+        }
+        toast.success(`เปลี่ยนอีเมลล็อกอินเป็น ${form.email} สำเร็จ`)
+      } catch {
+        toast.error("ไม่สามารถ sync อีเมลกับระบบล็อกอินได้")
+        setLoading(false)
+        return
+      }
+    }
+
+    // ── บันทึกข้อมูลส่วนตัว (รวมอีเมลใหม่) ──
     const { error } = await supabase.from("employees").update({ first_name_th:form.first_name_th, last_name_th:form.last_name_th, first_name_en:form.first_name_en, last_name_en:form.last_name_en, phone:form.phone, email:form.email, address:form.address, national_id:form.national_id, bank_account:form.bank_account, bank_name:form.bank_name, nickname:form.nickname }).eq("id",id as string)
-    if (error) toast.error("เกิดข้อผิดพลาด"); else toast.success("บันทึกสำเร็จ")
+    if (error) toast.error("เกิดข้อผิดพลาดในการบันทึก")
+    else if (!emailChanged) toast.success("บันทึกสำเร็จ")
+
+    // อัพเดท emp state ให้ตรงกับข้อมูลใหม่
+    setEmp((prev: any) => ({ ...prev, ...form }))
     setLoading(false)
   }
 
@@ -92,6 +126,21 @@ export default function EmployeeDetailPage() {
     if (salary?.id) await supabase.from("salary_structures").update({ effective_to:sf.effective_from }).eq("id",salary.id)
     const { error } = await supabase.from("salary_structures").insert({ employee_id:id, base_salary:+sf.base_salary, allowance_position:+(sf.allowance_position||0), allowance_transport:+(sf.allowance_transport||0), allowance_food:+(sf.allowance_food||0), allowance_phone:+(sf.allowance_phone||0), allowance_housing:+(sf.allowance_housing||0), ot_rate_normal:+(sf.ot_rate_normal||1.5), ot_rate_holiday:+(sf.ot_rate_holiday||3), tax_withholding_pct: sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? +sf.tax_withholding_pct : null, effective_from:sf.effective_from||format(new Date(),"yyyy-MM-dd"), change_reason:sf.change_reason, created_by:user?.employee_id })
     if (error) toast.error("เกิดข้อผิดพลาด"); else toast.success("บันทึกเงินเดือนสำเร็จ")
+    setLoading(false)
+  }
+
+  const saveKpi = async () => {
+    setLoading(true)
+    const amt = parseFloat(kpiAmount) || 0
+    if (kpiSetting?.id) {
+      // update existing
+      const { error } = await supabase.from("kpi_bonus_settings").update({ standard_amount: amt }).eq("id", kpiSetting.id)
+      if (error) toast.error("เกิดข้อผิดพลาด"); else { toast.success("บันทึก KPI สำเร็จ"); setKpiSetting({ ...kpiSetting, standard_amount: amt }) }
+    } else {
+      // insert new
+      const { data, error } = await supabase.from("kpi_bonus_settings").insert({ employee_id: id, standard_amount: amt, is_active: true }).select().single()
+      if (error) toast.error("เกิดข้อผิดพลาด"); else { toast.success("บันทึก KPI สำเร็จ"); setKpiSetting(data) }
+    }
     setLoading(false)
   }
 
@@ -219,7 +268,7 @@ export default function EmployeeDetailPage() {
       <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
 
         {/* ── Tab 0: สรุปข้อมูล ── */}
-        {tab === 0 && <SummaryTab employeeId={id as string} emp={emp} salary={salary}/>}
+        {tab === 0 && <SummaryTab employeeId={id as string} emp={emp} salary={salary} kpiSetting={kpiSetting}/>}
 
         {/* ── Tab 1: ข้อมูลส่วนตัว ── */}
         {tab === 1 && <>
@@ -292,6 +341,38 @@ export default function EmployeeDetailPage() {
                 <p className="text-slate-400">ประกันสังคม: 5% สูงสุด 875 บาท/เดือน</p>
               </div>
             </div>
+          </div>
+
+          {/* ── KPI Bonus ── */}
+          <div className="mt-6 p-4 rounded-2xl border-2 border-emerald-100 bg-emerald-50/50">
+            <h4 className="font-bold text-slate-800 text-sm mb-1">KPI Bonus (ฐานโบนัส KPI)</h4>
+            <p className="text-xs text-slate-400 mb-3">จำนวนเงินฐาน KPI มาตรฐาน (เกรด B) — เกรด A ได้ +20%, เกรด C ได้ -20%, เกรด D ได้ 0</p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 max-w-[250px]">
+                <input
+                  type="number"
+                  step="100"
+                  min="0"
+                  value={kpiAmount}
+                  onChange={e => setKpiAmount(e.target.value)}
+                  className={inp}
+                  placeholder="0"
+                />
+              </div>
+              <div className="text-xs text-slate-500 space-y-0.5">
+                {parseFloat(kpiAmount) > 0 ? (
+                  <>
+                    <p className="text-emerald-600 font-bold">A = ฿{(parseFloat(kpiAmount) * 1.2).toLocaleString()} · B = ฿{parseFloat(kpiAmount).toLocaleString()} · C = ฿{(parseFloat(kpiAmount) * 0.8).toLocaleString()}</p>
+                    <p className="text-slate-400">D (0-70 คะแนน) = ฿0</p>
+                  </>
+                ) : (
+                  <p className="text-slate-400">ยังไม่ได้ตั้งค่า KPI Bonus</p>
+                )}
+              </div>
+            </div>
+            <button onClick={saveKpi} disabled={loading} className="mt-3 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 disabled:opacity-60 transition-colors flex items-center gap-2">
+              {loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/> บันทึก KPI
+            </button>
           </div>
 
           <button onClick={saveSalary} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึกเงินเดือน</button>
@@ -462,7 +543,7 @@ export default function EmployeeDetailPage() {
 }
 
 // ─── SummaryTab ───────────────────────────────────────────────────────────────
-function SummaryTab({ employeeId, emp, salary }: { employeeId: string; emp: any; salary: any }) {
+function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: string; emp: any; salary: any; kpiSetting?: any }) {
   const supabase = createClient()
   const [stats,     setStats]     = useState<any>(null)
   const [schedule,  setSchedule]  = useState<any>(null)
@@ -603,6 +684,15 @@ function SummaryTab({ employeeId, emp, salary }: { employeeId: string; emp: any;
               </div>
             ))}
           </div>
+          {kpiSetting?.standard_amount > 0 && (
+            <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between bg-emerald-50/50">
+              <div>
+                <p className="text-[10px] text-emerald-600 font-bold">KPI Bonus (ฐาน)</p>
+                <p className="text-[9px] text-slate-400">A=฿{fmt(Math.round(kpiSetting.standard_amount*1.2))} · B=฿{fmt(kpiSetting.standard_amount)} · C=฿{fmt(Math.round(kpiSetting.standard_amount*0.8))}</p>
+              </div>
+              <p className="font-bold text-emerald-700 text-sm tabular-nums">฿{fmt(kpiSetting.standard_amount)}</p>
+            </div>
+          )}
         </div>
       )}
 

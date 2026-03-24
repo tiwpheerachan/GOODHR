@@ -18,14 +18,14 @@ interface EmpRow {
 }
 
 const SHIFT_COLORS: Record<string, { bg: string; text: string; short: string }> = {
-  "09:00": { bg: "bg-blue-100", text: "text-blue-700", short: "9" },
-  "10:00": { bg: "bg-cyan-100", text: "text-cyan-700", short: "10" },
-  "10:30": { bg: "bg-teal-100", text: "text-teal-700", short: "10½" },
-  "11:00": { bg: "bg-violet-100", text: "text-violet-700", short: "11" },
-  "12:00": { bg: "bg-amber-100", text: "text-amber-700", short: "12" },
-  "12:30": { bg: "bg-orange-100", text: "text-orange-700", short: "12½" },
-  "13:00": { bg: "bg-rose-100", text: "text-rose-700", short: "13" },
-  "15:30": { bg: "bg-indigo-100", text: "text-indigo-700", short: "15½" },
+  "09:00": { bg: "bg-blue-200", text: "text-blue-800", short: "9" },
+  "10:00": { bg: "bg-cyan-200", text: "text-cyan-800", short: "10" },
+  "10:30": { bg: "bg-teal-200", text: "text-teal-800", short: "10½" },
+  "11:00": { bg: "bg-purple-200", text: "text-purple-800", short: "11" },
+  "12:00": { bg: "bg-amber-200", text: "text-amber-800", short: "12" },
+  "12:30": { bg: "bg-orange-200", text: "text-orange-800", short: "12½" },
+  "13:00": { bg: "bg-rose-200", text: "text-rose-800", short: "13" },
+  "15:30": { bg: "bg-indigo-200", text: "text-indigo-800", short: "15½" },
 }
 
 function shiftStyle(startTime: string | null | undefined) {
@@ -49,12 +49,14 @@ export default function ManagerShiftsPage() {
   const [modifications, setModifications] = useState<Map<string, any>>(new Map())
   const [picker, setPicker] = useState<{ empId: string; date: string; x: number; y: number } | null>(null)
   const [selectedEmp, setSelectedEmp] = useState<string | null>(null)
+  const [filterType, setFilterType] = useState<"all" | "variable" | "fixed">("all")
+  const [searchText, setSearchText] = useState("")
 
   const monthStr = `${year}-${String(month).padStart(2, "0")}`
 
   const load = useCallback(async () => {
     setLoading(true)
-    const res = await fetch(`/api/shifts/monthly?month=${monthStr}&schedule_type=variable`)
+    const res = await fetch(`/api/shifts/monthly?month=${monthStr}&schedule_type=${filterType}`)
     const data = await res.json()
     if (data.success) {
       setGrid(data.grid)
@@ -63,7 +65,7 @@ export default function ManagerShiftsPage() {
     }
     setLoading(false)
     setModifications(new Map())
-  }, [monthStr])
+  }, [monthStr, filterType])
 
   useEffect(() => { load() }, [load])
 
@@ -103,6 +105,18 @@ export default function ManagerShiftsPage() {
     else toast.error(data.error)
   }
 
+  // Filter + search
+  const filtered = grid.filter(row => {
+    if (!searchText) return true
+    const s = searchText.toLowerCase()
+    return (
+      row.employee.first_name_th?.toLowerCase().includes(s) ||
+      row.employee.last_name_th?.toLowerCase().includes(s) ||
+      row.employee.employee_code?.toLowerCase().includes(s) ||
+      row.employee.department?.toLowerCase().includes(s)
+    )
+  })
+
   // Mobile: show employee list first, then individual schedule
   const selectedRow = grid.find(r => r.employee.id === selectedEmp)
 
@@ -115,12 +129,39 @@ export default function ManagerShiftsPage() {
         </button>
         <div className="text-center">
           <p className="text-base font-black text-slate-800">{TH_MONTHS[month]} {year + 543}</p>
-          <p className="text-[10px] text-slate-400">{grid.length} คน (กะไม่แน่นอน)</p>
+          <p className="text-[10px] text-slate-400">{filtered.length} คน</p>
         </div>
         <button onClick={nextMonth} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200">
           <ChevronRight size={18} />
         </button>
       </div>
+
+      {/* Filter tabs */}
+      <div className="flex items-center gap-2">
+        <div className="flex flex-1 rounded-xl border border-slate-200 bg-white p-0.5">
+          {([
+            { key: "all", label: "ทั้งหมด" },
+            { key: "fixed", label: "แน่นอน" },
+            { key: "variable", label: "ไม่แน่นอน" },
+          ] as const).map(t => (
+            <button
+              key={t.key}
+              onClick={() => setFilterType(t.key)}
+              className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${filterType === t.key ? "bg-indigo-600 text-white" : "text-slate-500"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Search */}
+      <input
+        value={searchText}
+        onChange={e => setSearchText(e.target.value)}
+        placeholder="ค้นหาชื่อ / รหัส..."
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400"
+      />
 
       {/* Actions */}
       <div className="flex items-center gap-2">
@@ -141,8 +182,8 @@ export default function ManagerShiftsPage() {
       ) : !selectedEmp ? (
         /* ── Employee List ──────────────────────────────────────── */
         <div className="space-y-2">
-          {grid.map(row => {
-            const workCount = row.days.filter(d => d.assignment?.assignment_type === "work").length
+          {filtered.map(row => {
+            const isVariable = row.profile?.schedule_type === "variable"
             const assigned = row.days.filter(d => d.assignment).length
             const total = row.days.length
             return (
@@ -151,11 +192,14 @@ export default function ManagerShiftsPage() {
                 onClick={() => setSelectedEmp(row.employee.id)}
                 className="w-full flex items-center gap-3 rounded-2xl bg-white border border-slate-100 p-4 shadow-sm hover:border-indigo-200 hover:shadow-md transition-all text-left"
               >
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-400 to-violet-500 flex items-center justify-center text-white font-black text-sm flex-shrink-0">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-sm flex-shrink-0 ${isVariable ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-indigo-400 to-violet-500"}`}>
                   {row.employee.first_name_th?.[0]}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-800 truncate">{row.employee.first_name_th} {row.employee.last_name_th}</p>
+                  <p className="text-sm font-bold text-slate-800 truncate">
+                    {row.employee.first_name_th} {row.employee.last_name_th}
+                    {isVariable && <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 font-black">ไม่แน่นอน</span>}
+                  </p>
                   <p className="text-[10px] text-slate-400">{row.employee.employee_code} · {row.employee.department}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
@@ -165,10 +209,10 @@ export default function ManagerShiftsPage() {
               </button>
             )
           })}
-          {grid.length === 0 && (
+          {filtered.length === 0 && (
             <div className="py-12 text-center text-slate-400">
               <Users size={36} className="mx-auto mb-2 opacity-30" />
-              <p className="font-medium text-sm">ไม่มีพนักงานกะไม่แน่นอน</p>
+              <p className="font-medium text-sm">ไม่พบพนักงาน</p>
             </div>
           )}
         </div>

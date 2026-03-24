@@ -168,12 +168,26 @@ export async function POST(request: Request) {
       newWorkMin = calcWorkMinutes(newClockIn, newClockOut, shift?.break_minutes ?? 60)
     }
 
+    // ── คำนวณ early_out_minutes ใหม่ ────────────────────────────
+    let newEarlyMin = 0
+    if (newClockOut && shift?.work_end) {
+      const expectedEnd = new Date(req.work_date + "T" + shift.work_end + "+07:00")
+      const diffMin = Math.round((expectedEnd.getTime() - newClockOut.getTime()) / 60000)
+      newEarlyMin = diffMin > 0 ? diffMin : 0
+    }
+
+    // ถ้าแก้ clock_out ให้ถูก → status ต้องไม่เป็น early_out อีก
+    if (newEarlyMin <= 0 && newStatus === "early_out") {
+      newStatus = newLateMin > 5 ? "late" : "present"
+    }
+
     // ── 1. อัปเดต attendance_records ────────────────────────────
     const attUpdates: Record<string, any> = {
-      late_minutes: newLateMin,
-      status:       newStatus,
-      work_minutes: newWorkMin,
-      is_manual:    true,
+      late_minutes:      newLateMin,
+      early_out_minutes: newEarlyMin,
+      status:            newStatus,
+      work_minutes:      newWorkMin,
+      is_manual:         true,
     }
     if (req.requested_clock_in)  attUpdates.clock_in  = req.requested_clock_in
     if (req.requested_clock_out) attUpdates.clock_out = req.requested_clock_out
@@ -205,7 +219,7 @@ export async function POST(request: Request) {
 
       const { data: attRows } = await supa
         .from("attendance_records")
-        .select("status, late_minutes")
+        .select("status, late_minutes, early_out_minutes")
         .eq("employee_id", req.employee_id)
         .gte("work_date", monthStart)
         .lte("work_date", monthEnd)
@@ -213,19 +227,22 @@ export async function POST(request: Request) {
       const rows          = attRows ?? []
       const lateCount     = rows.filter((r: any) => r.status === "late").length
       const absentCount   = rows.filter((r: any) => r.status === "absent").length
-      const totalLateMin  = rows.reduce((s: number, r: any) => s + (r.late_minutes || 0), 0)
-      const dailyRate     = (payrollRec.base_salary ?? 0) / 26
+      const totalLateMin  = rows.reduce((s: number, r: any) => s + (Number(r.late_minutes) || 0), 0)
+      const totalEarlyMin = rows.reduce((s: number, r: any) => s + (Number(r.early_out_minutes) || 0), 0)
+      const dailyRate     = (payrollRec.base_salary ?? 0) / 30
       const minuteRate    = dailyRate / 8 / 60
-      const newDeductLate   = Math.round(totalLateMin * minuteRate * 100) / 100
-      const newDeductAbsent = Math.round(absentCount  * dailyRate  * 100) / 100
+      const newDeductLate     = Math.round(totalLateMin  * minuteRate * 100) / 100
+      const newDeductEarly    = Math.round(totalEarlyMin * minuteRate * 100) / 100
+      const newDeductAbsent   = Math.round(absentCount   * dailyRate  * 100) / 100
 
       await supa
         .from("payroll_records")
         .update({
-          deduct_late:   newDeductLate,
-          deduct_absent: newDeductAbsent,
-          late_count:    lateCount,
-          absent_days:   absentCount,
+          deduct_late:      newDeductLate,
+          deduct_early_out: newDeductEarly,
+          deduct_absent:    newDeductAbsent,
+          late_count:       lateCount,
+          absent_days:      absentCount,
         })
         .eq("id", payrollRec.id)
     }

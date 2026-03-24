@@ -24,15 +24,18 @@ export async function POST(req: NextRequest) {
     const { error: upErr } = await supa.storage.from("chat-images")
       .upload(path, buffer, { contentType: file.type, upsert: true })
 
+    // Encode original filename as query param so client can display it
+    const nameParam = `?name=${encodeURIComponent(file.name)}`
+
     if (upErr) {
       const { error: upErr2 } = await supa.storage.from("employee-avatars")
         .upload(path, buffer, { contentType: file.type, upsert: true })
       if (upErr2) return NextResponse.json({ error: `Upload failed: ${upErr2.message}` }, { status: 500 })
       const { data: { publicUrl } } = supa.storage.from("employee-avatars").getPublicUrl(path)
-      results.push({ url: publicUrl, name: file.name, size: file.size, type: file.type })
+      results.push({ url: publicUrl + nameParam, name: file.name, size: file.size, type: file.type })
     } else {
       const { data: { publicUrl } } = supa.storage.from("chat-images").getPublicUrl(path)
-      results.push({ url: publicUrl, name: file.name, size: file.size, type: file.type })
+      results.push({ url: publicUrl + nameParam, name: file.name, size: file.size, type: file.type })
     }
   }
 

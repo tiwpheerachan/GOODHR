@@ -40,6 +40,46 @@ function todayTH(): string {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
 }
 
+// ── KPI Bonus Calculator ──────────────────────────────────────────
+// ดึงฐาน KPI จาก kpi_bonus_settings + เกรดจาก kpi_forms
+// คำนวณโบนัส: A=standard*1.2, B=standard, C=standard*0.8, D=0
+async function getKpiBonus(
+  supa: any, employeeId: string, year: number, month: number
+): Promise<{ amount: number; grade: string | null; standardAmount: number }> {
+  // ดึงฐาน KPI ที่ active
+  const { data: kpiSetting } = await supa
+    .from("kpi_bonus_settings")
+    .select("standard_amount")
+    .eq("employee_id", employeeId)
+    .eq("is_active", true)
+    .maybeSingle()
+
+  if (!kpiSetting || !kpiSetting.standard_amount) {
+    return { amount: 0, grade: null, standardAmount: 0 }
+  }
+
+  const std = Number(kpiSetting.standard_amount)
+
+  // ดึงเกรด KPI เดือนนี้ (ต้อง submitted หรือ acknowledged)
+  const { data: kpiForm } = await supa
+    .from("kpi_forms")
+    .select("grade, total_score")
+    .eq("employee_id", employeeId)
+    .eq("year", year)
+    .eq("month", month)
+    .in("status", ["submitted", "acknowledged"])
+    .maybeSingle()
+
+  if (!kpiForm?.grade) {
+    // ยังไม่ประเมิน → ยังไม่ให้โบนัส, รอหัวหน้าประเมินก่อน
+    return { amount: 0, grade: "pending", standardAmount: std }
+  }
+
+  const grade = kpiForm.grade as string
+  const multiplier = grade === "A" ? 1.2 : grade === "B" ? 1.0 : grade === "C" ? 0.8 : 0
+  return { amount: Math.round(std * multiplier), grade, standardAmount: std }
+}
+
 // ── Init: สร้าง payroll_records ตั้งต้นด้วยฐานเงินเดือน (ยังไม่คำนวณ attendance) ──
 
 type CalcResult =
@@ -119,13 +159,16 @@ async function initRecord(
     (s: number, t: any) => s + (Number(t.amount) || 0), 0
   )
 
+  // ── KPI Bonus: ดึงฐาน KPI + เกรดเดือนนี้ → คำนวณโบนัส ──
+  const kpiBonus = await getKpiBonus(supa, employee_id, Number(period.year), Number(period.month))
+
   // คำนวณแบบ init: ไม่มี attendance deductions, ไม่มี OT
   // รวมค่าเดินทางที่อนุมัติแล้วเข้า allowances
   const result = calculatePayrollSummary({
     baseSalary,
     allowances:      allAllowances + transportClaimTotal,
     otBreakdown:     { weekday_minutes: 0, holiday_regular_minutes: 0, holiday_ot_minutes: 0 },
-    bonus:           0,
+    bonus:           kpiBonus.amount,
     absentDays:      0,
     lateMinutes:     0,
     earlyOutMinutes: 0,
@@ -151,7 +194,9 @@ async function initRecord(
     ot_weekday_minutes:     0,
     ot_holiday_reg_minutes: 0,
     ot_holiday_ot_minutes:  0,
-    bonus:                  0,
+    bonus:                  kpiBonus.amount,
+    kpi_grade:              kpiBonus.grade,
+    kpi_standard_amount:    kpiBonus.standardAmount,
     commission:             0,
     other_income:           0,
     gross_income:           result.gross,
@@ -439,12 +484,15 @@ async function calcAndSave(
   const taxWithholdingPct: number | null =
     sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
 
+  // ── KPI Bonus: ดึงฐาน KPI + เกรดเดือนนี้ → คำนวณโบนัส ──
+  const kpiBonus = await getKpiBonus(supa, employee_id, Number(period.year), Number(period.month))
+
   // ── คำนวณ ─────────────────────────────────────────────────────
   const result = calculatePayrollSummary({
     baseSalary:      Number(sal.base_salary),
     allowances:      allAllowances + transportClaimTotal,
     otBreakdown,
-    bonus:           0,
+    bonus:           kpiBonus.amount,
     absentDays,
     lateMinutes:     totalLateMin,
     earlyOutMinutes: totalEarlyMin,
@@ -495,7 +543,9 @@ async function calcAndSave(
     ot_weekday_minutes:     otBreakdown.weekday_minutes,
     ot_holiday_reg_minutes: otBreakdown.holiday_regular_minutes,
     ot_holiday_ot_minutes:  otBreakdown.holiday_ot_minutes,
-    bonus:                  0,
+    bonus:                  kpiBonus.amount,
+    kpi_grade:              kpiBonus.grade,
+    kpi_standard_amount:    kpiBonus.standardAmount,
     commission:             0,
     other_income:           0,
     gross_income:           result.gross,
@@ -566,6 +616,9 @@ async function calcAndSave(
     absent_dates:       absentDates,
     deduct_absent:      result.deductAbsent,
     total_deduct:       result.totalDeduct,
+    kpi_grade:          kpiBonus.grade,
+    kpi_standard:       kpiBonus.standardAmount,
+    kpi_bonus:          kpiBonus.amount,
     net:                result.net,
     work_days_expected: pastWorkDays.length,
     work_days_present:  presentDays,

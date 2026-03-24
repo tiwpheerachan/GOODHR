@@ -30,6 +30,21 @@ function isImageUrl(url: string): boolean {
   return ["jpg","jpeg","png","gif","webp","svg","bmp","ico"].includes(ext)
 }
 function getFileIcon(url: string): string {
+  // Try name param first for accurate extension
+  try {
+    const paramName = new URL(url, "https://x").searchParams.get("name")
+    if (paramName) {
+      const ext = paramName.split(".").pop()?.toLowerCase() || ""
+      if (["pdf"].includes(ext)) return "📕"
+      if (["doc","docx"].includes(ext)) return "📘"
+      if (["xls","xlsx","csv"].includes(ext)) return "📗"
+      if (["ppt","pptx"].includes(ext)) return "📙"
+      if (["zip","rar","7z","tar","gz"].includes(ext)) return "📦"
+      if (["mp3","wav","ogg","m4a"].includes(ext)) return "🎵"
+      if (["mp4","mov","avi","mkv"].includes(ext)) return "🎬"
+      if (["txt","rtf"].includes(ext)) return "📝"
+    }
+  } catch {}
   const ext = url.split("?")[0].split(".").pop()?.toLowerCase() || ""
   if (["pdf"].includes(ext)) return "📕"
   if (["doc","docx"].includes(ext)) return "📘"
@@ -40,10 +55,22 @@ function getFileIcon(url: string): string {
 }
 function getFileName(url: string): string {
   try {
+    // Try to get original name from query param first
+    const urlObj = new URL(url, "https://x")
+    const paramName = urlObj.searchParams.get("name")
+    if (paramName) return paramName
+    // Fallback: extract from path
     const parts = url.split("?")[0].split("/")
-    const name = parts[parts.length - 1] || "file"
-    return decodeURIComponent(name.replace(/^\d+_[a-z0-9]+_/, ""))
-  } catch { return "file" }
+    const raw = parts[parts.length - 1] || "file"
+    const name = decodeURIComponent(raw.replace(/^\d+_[a-z0-9]+_/, ""))
+    // If name is mostly underscores (Thai chars were stripped), show extension instead
+    const cleaned = name.replace(/_/g, "").replace(/\.[^.]+$/, "")
+    if (!cleaned) {
+      const ext = name.split(".").pop()?.toUpperCase() || "FILE"
+      return `ไฟล์ ${ext}`
+    }
+    return name
+  } catch { return "ไฟล์แนบ" }
 }
 function timeAgo(d: string) {
   try {
@@ -902,20 +929,25 @@ export default function UserChatPage() {
     return me?.role || "member"
   }, [members, myEmpId])
 
-  // ── Components ──
-  const FileCard = ({ url, isMe }: { url: string; isMe: boolean }) => (
-    <a href={url} target="_blank" rel="noopener noreferrer"
-      className={`flex items-center gap-2 px-3 py-2 rounded-2xl transition-all hover:opacity-80 ${
-        isMe ? "bg-white/25" : "bg-gray-50 border border-gray-100"
-      }`} style={{ maxWidth: 220 }}>
-      <span className="text-xl flex-shrink-0">{getFileIcon(url)}</span>
-      <div className="flex-1 min-w-0">
-        <p className={`text-[11px] font-bold truncate ${isMe ? "text-white" : "text-gray-700"}`}>{getFileName(url)}</p>
-        <p className={`text-[9px] ${isMe ? "text-white/60" : "text-gray-400"}`}>แตะเพื่อเปิด</p>
-      </div>
-      <Download size={12} className={isMe ? "text-white/50" : "text-gray-300"} />
-    </a>
-  )
+  // ── Components ── (ใช้พื้นขาว + ตัวหนังสือเข้มเสมอ ไม่ว่าใครส่ง)
+  const FileCard = ({ url }: { url: string; isMe?: boolean }) => {
+    const fileName = getFileName(url)
+    const ext = fileName.split(".").pop()?.toUpperCase() || url.split("?")[0].split(".").pop()?.toUpperCase() || "FILE"
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer"
+        className="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all hover:shadow-md bg-white border border-gray-200 shadow-sm"
+        style={{ minWidth: 200, maxWidth: 260 }}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-100">
+          <span className="text-xl">{getFileIcon(url)}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-bold truncate text-gray-700">{fileName}</p>
+          <p className="text-[10px] mt-0.5 text-gray-400">{ext} · แตะเพื่อเปิด</p>
+        </div>
+        <Download size={14} className="flex-shrink-0 text-gray-300" />
+      </a>
+    )
+  }
 
   const OnlineDot = ({ size = 10, className = "" }: { size?: number; className?: string }) => (
     <span className={`absolute bg-green-500 border-2 border-white rounded-full ${className}`}

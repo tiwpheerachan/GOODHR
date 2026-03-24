@@ -34,7 +34,12 @@ function getCurrentPeriodDate(): Date {
 
 export default function SalaryPage() {
   const { user } = useAuth()
-  const [month,   setMonth]   = useState(getCurrentPeriodDate())
+  const [month,   setMonth]   = useState(() => {
+    // ใช้ fixed date เพื่อไม่ให้ hydration error (server/client ตรงกัน)
+    // แล้ว useEffect จะ sync เป็นงวดปัจจุบัน
+    return new Date(2026, 0, 1)
+  })
+  const [ready, setReady] = useState(false)
   const [record,  setRecord]  = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,10 +74,16 @@ export default function SalaryPage() {
     }
   }, [empId, fetchPayroll])
 
+  // ── sync เดือนเริ่มต้นเป็นงวดปัจจุบัน (client-side เท่านั้น) ──
   useEffect(() => {
+    if (!ready) {
+      setMonth(getCurrentPeriodDate())
+      setReady(true)
+      return
+    }
     if (!empId) return
     loadAll(month.getFullYear(), month.getMonth() + 1)
-  }, [empId, month.getFullYear(), month.getMonth()]) // eslint-disable-line
+  }, [empId, ready, month.getFullYear(), month.getMonth()]) // eslint-disable-line
 
   // Auto-refresh ทุก 60 วินาที → อัพเดทเงินเดือน real-time
   useEffect(() => {
@@ -117,13 +128,13 @@ export default function SalaryPage() {
   const dLoan    = Number(r?.deduct_loan)            || 0
   const totalDed = Number(r?.total_deductions)       || 0
   const maxNet   = Math.max(...history.map(h => Number(h.net_salary)||0), net, 1)
-  const canNext  = format(addMonths(month,1),"yyyy-MM") <= format(new Date(),"yyyy-MM")
+  const canNext  = format(addMonths(month,1),"yyyy-MM") <= format(getCurrentPeriodDate(),"yyyy-MM")
 
   const empName = `${(user as any)?.employee?.first_name_th ?? ""} ${(user as any)?.employee?.last_name_th ?? ""}`.trim()
 
   return (
     <>
-      <style>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes cardGlow {
           0%,100% { box-shadow: 0 25px 60px rgba(16,185,129,0.28), inset 0 1px 0 rgba(255,255,255,0.2); }
           50%      { box-shadow: 0 30px 70px rgba(14,165,164,0.38), inset 0 1px 0 rgba(255,255,255,0.2); }
@@ -173,7 +184,7 @@ export default function SalaryPage() {
           border:1px solid rgba(255,255,255,0.9);
           box-shadow:0 4px 24px rgba(0,0,0,0.06);
         }
-      `}</style>
+      ` }} />
 
       <div className="flex flex-col min-h-screen pb-12" style={{ background:"linear-gradient(160deg,#f0fdf9 0%,#e0f2fe 50%,#f0fdf4 100%)" }}>
 
@@ -315,6 +326,21 @@ export default function SalaryPage() {
                       OT {Number(r.ot_hours).toFixed(1)} ชม.
                     </span>
                   )}
+                  {r.kpi_grade && r.kpi_grade !== "pending" && (
+                    <span className={`text-[9px] font-bold rounded-full px-2.5 py-0.5 ${
+                      r.kpi_grade === "A" ? "text-yellow-200 bg-yellow-500/30" :
+                      r.kpi_grade === "B" ? "text-green-200 bg-green-500/30" :
+                      r.kpi_grade === "C" ? "text-orange-200 bg-orange-500/30" :
+                      "text-red-200 bg-red-500/30"
+                    }`}>
+                      KPI {r.kpi_grade}
+                    </span>
+                  )}
+                  {r.kpi_grade === "pending" && (
+                    <span className="text-[9px] font-bold rounded-full px-2.5 py-0.5 text-slate-300 bg-slate-500/30">
+                      KPI รอประเมิน
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -351,7 +377,13 @@ export default function SalaryPage() {
                     {(r.allowance_phone    ??0)>0 && <IncomeRow label="ค่าโทรศัพท์"      value={r.allowance_phone}/>}
                     {(r.allowance_housing  ??0)>0 && <IncomeRow label="ค่าที่อยู่อาศัย"  value={r.allowance_housing}/>}
                     {(r.ot_amount          ??0)>0 && <IncomeRow label="ค่าล่วงเวลา (OT)" value={r.ot_amount} accent="emerald"/>}
-                    {(r.bonus              ??0)>0 && <IncomeRow label="โบนัส"            value={r.bonus} accent="sky"/>}
+                    {(r.bonus              ??0)>0 && r.kpi_grade !== "pending" && <IncomeRow label={`KPI Bonus (เกรด ${r.kpi_grade})`} value={r.bonus} accent="sky"/>}
+                    {r.kpi_grade === "pending" && r.kpi_standard_amount > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-400">KPI Bonus</span>
+                        <span className="text-xs text-slate-400 italic">รอหัวหน้าประเมิน</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
