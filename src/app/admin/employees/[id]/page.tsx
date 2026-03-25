@@ -1073,14 +1073,23 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
   const [customForm,    setCustomForm]    = useState({ name:"", lat:"", lng:"", radius:"200" })
   const [savingCustom,  setSavingCustom]  = useState(false)
 
+  const ICS_MALL_ID = "24e5ed9a-de98-438c-8104-217c4052229f"
+
   const load = useCallback(async () => {
-    const [{ data: branches }, { data: allowed }] = await Promise.all([
+    const [{ data: companyBranches }, { data: icsBranch }, { data: allowed }] = await Promise.all([
       supabase.from("branches").select("id,name,address,latitude,longitude,geo_radius_m").eq("company_id", companyId).eq("is_active", true).order("name"),
+      // โหลด ICS Mall แยก (กรณีไม่อยู่ใน company เดียวกัน) — ให้ทุกบริษัทเช็คอินได้
+      supabase.from("branches").select("id,name,address,latitude,longitude,geo_radius_m").eq("id", ICS_MALL_ID).single(),
       supabase.from("employee_allowed_locations")
         .select("id,branch_id,custom_name,custom_lat,custom_lng,custom_radius_m,branch:branches(id,name,geo_radius_m)")
         .eq("employee_id", employeeId),
     ])
-    setAllBranches(branches ?? [])
+    // รวม ICS Mall เข้าไปถ้ายังไม่อยู่ในรายการ
+    const merged = [...(companyBranches ?? [])]
+    if (icsBranch && !merged.some(b => b.id === ICS_MALL_ID)) {
+      merged.push(icsBranch)
+    }
+    setAllBranches(merged)
     setAllowedRows(allowed ?? [])
   }, [employeeId, companyId])
 

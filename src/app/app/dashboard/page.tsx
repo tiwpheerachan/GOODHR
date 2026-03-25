@@ -457,7 +457,9 @@ export default function DashboardPage() {
                   {(() => {
                     const dashGrace = getLateThreshold((user as any)?.employee?.department?.name, (user as any)?.employee?.company?.code)
                     const dashLateMin = todayRecord.late_minutes || 0
-                    const dashWithinGrace = dashLateMin > 0 && dashLateMin <= dashGrace
+                    const dashExempt = !!(user as any)?.employee?.is_attendance_exempt
+                    // exempt → ถือว่าอยู่ใน grace เสมอ
+                    const dashWithinGrace = dashLateMin > 0 && (dashLateMin <= dashGrace || dashExempt)
                     const isOnTime = dashLateMin === 0
 
                     return (

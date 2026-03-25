@@ -110,14 +110,16 @@ export default function AttendancePage() {
   }
   // ── Grace period: คำนวณนาทีสายหลังหัก grace ──
   const emp = (user as any)?.employee
+  const isExempt = !!emp?.is_attendance_exempt
   const graceMinutes = getLateThreshold(emp?.department?.name, emp?.company?.code)
   const graceAdjustedLateMin = periodRecords.reduce(
     (s: number, r: any) => s + Math.max(0, (Number(r.late_minutes) || 0) - graceMinutes), 0
   )
-  // ถ้า graceAdjustedLateMin === 0 แปลว่าสายทั้งหมดอยู่ในเกณฑ์ให้อภัย
-  const lateWithinGrace = periodStats.late > 0 && graceAdjustedLateMin === 0
+  // ถ้า graceAdjustedLateMin === 0 หรือ exempt → ไม่หัก
+  const lateWithinGrace = periodStats.late > 0 && (graceAdjustedLateMin === 0 || isExempt)
 
-  const hasIssues = periodStats.late > 0 || periodStats.absent > 0 || periodStats.earlyOut > 0
+  // exempt → ไม่แสดง deduction alert เลย
+  const hasIssues = !isExempt && (periodStats.late > 0 || periodStats.absent > 0 || periodStats.earlyOut > 0)
 
   const periodLabel = (() => {
     try {

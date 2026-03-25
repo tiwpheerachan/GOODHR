@@ -259,7 +259,7 @@ async function calcAndSave(
       .eq("id", payroll_period_id)
       .single(),
     supa.from("employees")
-      .select("id, company_id, hire_date, department:departments(name), company:companies(code)")
+      .select("id, company_id, hire_date, is_attendance_exempt, department:departments(name), company:companies(code)")
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
@@ -460,15 +460,18 @@ async function calcAndSave(
   // ── KPI Bonus: ดึงฐาน KPI + เกรดเดือนนี้ → คำนวณโบนัส ──
   const kpiBonus = await getKpiBonus(supa, employee_id, Number(period.year), Number(period.month))
 
+  // ── ถ้า exempt → ไม่หักมาสาย/ขาดงาน/ออกก่อน ────────────────
+  const isExempt = !!emp.is_attendance_exempt
+
   // ── คำนวณ ─────────────────────────────────────────────────────
   const result = calculatePayrollSummary({
     baseSalary:      Number(sal.base_salary),
     allowances:      allAllowances,
     otBreakdown,
     bonus:           kpiBonus.amount,
-    absentDays,
-    lateMinutes:     totalLateMin,
-    earlyOutMinutes: totalEarlyMin,
+    absentDays:      isExempt ? 0 : absentDays,
+    lateMinutes:     isExempt ? 0 : totalLateMin,
+    earlyOutMinutes: isExempt ? 0 : totalEarlyMin,
     loanDeduction,
     taxWithholdingPct,
   })

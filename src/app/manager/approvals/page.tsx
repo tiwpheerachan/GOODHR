@@ -1,8 +1,8 @@
 "use client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
-import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp } from "lucide-react"
+import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp, Bell } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -25,6 +25,10 @@ export default function ApprovalsPage() {
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
   const [counts, setCounts] = useState({ leave: 0, overtime: 0, adjustment: 0, resignation: 0 })
+  // ── ป้องกัน double-click: เก็บ ID ที่ดำเนินการแล้ว ──
+  const processedRef = useRef(new Set<string>())
+  // ── realtime: แสดง badge "คำร้องใหม่" ──
+  const [newRequestAlert, setNewRequestAlert] = useState(false)
 
   // ── helpers ──────────────────────────────────────────────────────────────
   const fmtTime = (iso?: string | null) => {
@@ -197,15 +201,55 @@ export default function ApprovalsPage() {
     setCounts({ leave: lv.count ?? 0, overtime: ot.count ?? 0, adjustment: adj.count ?? 0, resignation: resCount })
   }
 
+  // ── เปลี่ยน tab → reset state + โหลดใหม่ ──
   useEffect(() => {
-    if (user) { loadItems(); loadCounts() }
+    if (!user) return
+    setActing(null)
+    processedRef.current.clear()
+    setNewRequestAlert(false)
+    loadItems()
+    loadCounts()
   }, [tab, user?.role, (user as any)?.employee_id, (user as any)?.employee?.id])
+
+  // ── Realtime: ลูกน้องส่งคำร้องใหม่ → แสดง alert + auto reload ──
+  useEffect(() => {
+    if (!user) return
+    const supabase = createClient()
+    const tables = ["leave_requests", "overtime_requests", "time_adjustment_requests", "resignation_requests"]
+    const channel = supabase.channel("manager-approvals-realtime")
+
+    for (const table of tables) {
+      channel.on("postgres_changes", { event: "INSERT", schema: "public", table }, () => {
+        setNewRequestAlert(true)
+        loadCounts()
+        // Auto-refresh ถ้า tab ตรง
+        const tabMap: Record<string, Tab> = {
+          leave_requests: "leave", overtime_requests: "overtime",
+          time_adjustment_requests: "adjustment", resignation_requests: "resignation",
+        }
+        if (tabMap[table] === tab) {
+          setTimeout(() => loadItems(), 500)
+        }
+      })
+    }
+    channel.subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [user, tab])
+
+  // ── helper: optimistic remove + ป้องกัน double-click ─────────────────────
+  const optimisticRemove = (id: string) => {
+    processedRef.current.add(id)
+    setItems(prev => prev.filter(i => i.id !== id))
+    setCounts(prev => ({ ...prev, [tab]: Math.max(0, prev[tab] - 1) }))
+  }
 
   // ── approve/reject leave & overtime ──────────────────────────────────────
   const handleLeaveOT = async (id: string, action: "approved" | "rejected") => {
+    if (processedRef.current.has(id)) return  // ป้องกัน double-click
     setActing(id)
+    const item = items.find(i => i.id === id)
     try {
-      // ใช้ API route เพื่อให้ service_role อัปเดต attendance_records ได้ (โดยเฉพาะ OT)
       const res = await fetch("/api/admin/approvals", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -218,10 +262,12 @@ export default function ApprovalsPage() {
       const json = await res.json()
       if (!res.ok || json.error) { toast.error(json.error ?? "เกิดข้อผิดพลาด"); setActing(null); return }
 
+      // ✅ Optimistic: ลบออกจากลิสต์ทันที
+      optimisticRemove(id)
+
       // ส่ง notification
       const supabase = createClient()
       const tbl = tab === "leave" ? "leave_requests" : "overtime_requests"
-      const item = items.find(i => i.id === id)
       if (item) {
         await supabase.from("notifications").insert({
           employee_id: item.employee_id, type: "leave",
@@ -231,13 +277,15 @@ export default function ApprovalsPage() {
       }
       toast.success(action === "approved" ? "✅ อนุมัติแล้ว" : "ปฏิเสธแล้ว")
     } catch (err: any) { toast.error(err.message || "ดำเนินการไม่สำเร็จ") }
-    setActing(null); loadItems(); loadCounts()
+    setActing(null)
   }
 
   // ── approve/reject adjustment ─────────────────────────────────────────────
   const handleAdjustment = async (id: string, action: "approve" | "reject") => {
+    if (processedRef.current.has(id)) return  // ป้องกัน double-click
     setActing(id)
     const supabase = createClient()
+    const item = items.find(i => i.id === id)
     try {
       const res = await fetch("/api/correction", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -245,6 +293,10 @@ export default function ApprovalsPage() {
       })
       const json = await res.json()
       if (!json.success) throw new Error(json.error || "เกิดข้อผิดพลาด")
+
+      // ✅ Optimistic: ลบออกจากลิสต์ทันที
+      optimisticRemove(id)
+
       if (action === "approve" && json.updated) {
         const { late_minutes, status } = json.updated
         toast.success(status === "present"
@@ -253,7 +305,6 @@ export default function ApprovalsPage() {
       } else {
         toast.success(action === "approve" ? "✅ อนุมัติแล้ว" : "ปฏิเสธแล้ว")
       }
-      const item = items.find(i => i.id === id)
       if (item) {
         await supabase.from("notifications").insert({
           employee_id: item.employee_id, type: "leave",
@@ -262,11 +313,12 @@ export default function ApprovalsPage() {
         })
       }
     } catch (err: any) { toast.error(err.message) }
-    setActing(null); loadItems(); loadCounts()
+    setActing(null)
   }
 
   // ── approve/reject resignation ────────────────────────────────────────────
   const handleResignation = async (id: string, action: "approved" | "rejected") => {
+    if (processedRef.current.has(id)) return  // ป้องกัน double-click
     setActing(id)
     const supabase = createClient()
     const empId = (user as any)?.employee_id ?? (user as any)?.employee?.id
@@ -276,6 +328,10 @@ export default function ApprovalsPage() {
       manager_approved_at: new Date().toISOString(), manager_note: notes[id] || null,
     }).eq("id", id)
     if (error) { toast.error(error.message); setActing(null); return }
+
+    // ✅ Optimistic: ลบออกจากลิสต์ทันที
+    optimisticRemove(id)
+
     const item = items.find(i => i.id === id)
     if (item) {
       await supabase.from("notifications").insert({
@@ -296,7 +352,7 @@ export default function ApprovalsPage() {
       }
     }
     toast.success(action === "approved" ? "✅ ส่งต่อ HR แล้ว" : "ปฏิเสธใบลาออกแล้ว")
-    setActing(null); loadItems(); loadCounts()
+    setActing(null)
   }
 
   // ── shared components ─────────────────────────────────────────────────────
@@ -304,20 +360,35 @@ export default function ApprovalsPage() {
 
   const ActionButtons = ({ id, onReject, onApprove, approveLabel = "อนุมัติ" }: {
     id: string; onReject: () => void; onApprove: () => void; approveLabel?: string
-  }) => (
-    <div className="flex gap-2 mt-3">
-      <button onClick={onReject} disabled={acting === id}
-        className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl border border-gray-200 bg-white text-gray-500 text-sm font-semibold hover:bg-gray-50 active:scale-[0.98] transition-all disabled:opacity-50">
-        {acting === id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
-        ปฏิเสธ
-      </button>
-      <button onClick={onApprove} disabled={acting === id}
-        className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:scale-[0.98] transition-all shadow-sm shadow-blue-200 disabled:opacity-50">
-        {acting === id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-        {approveLabel}
-      </button>
-    </div>
-  )
+  }) => {
+    const isActing = acting === id
+    const isProcessed = processedRef.current.has(id)
+    const disabled = isActing || isProcessed
+
+    if (isProcessed) {
+      return (
+        <div className="flex items-center justify-center gap-2 mt-3 py-3 rounded-xl bg-green-50 border border-green-200">
+          <Check size={14} className="text-green-600" />
+          <span className="text-sm font-semibold text-green-700">ดำเนินการแล้ว</span>
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex gap-2 mt-3">
+        <button onClick={onReject} disabled={disabled}
+          className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl border border-gray-200 bg-white text-gray-500 text-sm font-semibold hover:bg-gray-50 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none">
+          {isActing ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+          ปฏิเสธ
+        </button>
+        <button onClick={onApprove} disabled={disabled}
+          className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:scale-[0.98] transition-all shadow-sm shadow-blue-200 disabled:opacity-50 disabled:pointer-events-none">
+          {isActing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+          {approveLabel}
+        </button>
+      </div>
+    )
+  }
 
   const TABS: { key: Tab; label: string; color: string }[] = [
     { key: "leave",       label: "ใบลา",    color: "bg-sky-500" },
@@ -331,10 +402,20 @@ export default function ApprovalsPage() {
 
       {/* ── Header ── */}
       <div className="bg-white px-4 pt-5 pb-4 border-b border-gray-100">
-        <h1 className="text-[17px] font-bold text-gray-900 tracking-tight">คำร้องรออนุมัติ</h1>
-        <p className="text-xs text-gray-400 mt-0.5">
-          {!loading && (items.length > 0 ? `${items.length} รายการรออนุมัติ` : "ไม่มีคำร้องค้างอยู่")}
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-[17px] font-bold text-gray-900 tracking-tight">คำร้องรออนุมัติ</h1>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {!loading && (items.length > 0 ? `${items.length} รายการรออนุมัติ` : "ไม่มีคำร้องค้างอยู่")}
+            </p>
+          </div>
+          {newRequestAlert && (
+            <button onClick={() => { setNewRequestAlert(false); loadItems(); loadCounts() }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-xs font-bold text-blue-600 animate-pulse hover:bg-blue-100 transition-colors">
+              <Bell size={12} /> คำร้องใหม่เข้ามา!
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Tabs ── */}

@@ -934,7 +934,9 @@ export default function CheckInPage() {
   // Grace period: ถ้าสายไม่เกิน grace → ไม่หัก
   const checkinGrace = getLateThreshold((user as any)?.employee?.department?.name, (user as any)?.employee?.company?.code)
   const lateAfterGrace = Math.max(0, lateMin - checkinGrace)
-  const isLateWithinGrace = isLate && lateAfterGrace === 0
+  const isAttendanceExempt = !!(user as any)?.employee?.is_attendance_exempt
+  // exempt → ถือว่าอยู่ใน grace เสมอ (ไม่หัก)
+  const isLateWithinGrace = isLate && (lateAfterGrace === 0 || isAttendanceExempt)
 
   const handleClockIn = async () => {
     if (!pos) return toast.error("กรุณาเปิด GPS ก่อน")

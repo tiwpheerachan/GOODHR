@@ -106,7 +106,7 @@ export async function POST(req: Request) {
   // ── Pre-fetch employees + salary structures (1 query each) ──────
   const { data: empData } = await supa
     .from("employees")
-    .select("id, company_id, hire_date, department:departments(name), company:companies(code)")
+    .select("id, company_id, hire_date, is_attendance_exempt, department:departments(name), company:companies(code)")
     .in("id", employee_ids)
 
   const { data: salData } = await supa
@@ -234,10 +234,16 @@ export async function POST(req: Request) {
           const loanDeduction = loanByEmp.get(eid) || 0
           const taxPct = sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
 
+          // ถ้า exempt → ไม่หักมาสาย/ขาดงาน/ออกก่อน
+          const isExempt = !!emp.is_attendance_exempt
+
           const result = calculatePayrollSummary({
             baseSalary, allowances: allAllowances,
-            otBreakdown, bonus: 0, absentDays, lateMinutes: totalLateMin,
-            earlyOutMinutes: totalEarlyMin, loanDeduction, taxWithholdingPct: taxPct,
+            otBreakdown, bonus: 0,
+            absentDays:      isExempt ? 0 : absentDays,
+            lateMinutes:     isExempt ? 0 : totalLateMin,
+            earlyOutMinutes: isExempt ? 0 : totalEarlyMin,
+            loanDeduction, taxWithholdingPct: taxPct,
           })
 
           const previousYtdTax = prevTaxByEmp.get(eid) || 0

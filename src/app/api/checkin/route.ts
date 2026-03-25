@@ -162,6 +162,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "เช็คอินไปแล้ว" })
     }
 
+    // ── ถ้า exempt → ไม่บันทึกมาสายเลย ────────────────────────
+    const isExempt = !!emp.is_attendance_exempt
+
     // คำนวณนาทีสาย
     const expectedStart = shift
       ? new Date(`${workDate}T${shift.work_start}+07:00`)
@@ -169,10 +172,10 @@ export async function POST(request: Request) {
 
     // rawLateMin = นาทีที่มาช้ากว่าเวลาเริ่มงาน (0 ถ้ามาก่อน/ตรงเวลา)
     const rawLateMin     = expectedStart ? calcLateMinutes(now, expectedStart) : 0
-    // effectiveLate = นาทีที่หักจริง หลังหัก grace period แล้ว
-    const effectiveLate  = Math.max(rawLateMin - lateThreshold, 0)
-    // isLate = true เฉพาะเมื่อเกิน grace period
-    const isLate         = effectiveLate > 0
+    // effectiveLate = exempt → 0 เสมอ / ปกติ → หัก grace period
+    const effectiveLate  = isExempt ? 0 : Math.max(rawLateMin - lateThreshold, 0)
+    // isLate = exempt → false เสมอ
+    const isLate         = isExempt ? false : effectiveLate > 0
 
     const { error: insErr } = await supa
       .from("attendance_records")
@@ -236,17 +239,20 @@ export async function POST(request: Request) {
     const earlyOutRaw = expectedEndAdj
       ? Math.floor((expectedEndAdj.getTime() - now.getTime()) / 60_000)
       : 0
-    const earlyOutMin = Math.max(earlyOutRaw, 0)
+    // exempt → ไม่นับ early_out
+    const isExemptOut = !!emp.is_attendance_exempt
+    const earlyOutMin = isExemptOut ? 0 : Math.max(earlyOutRaw, 0)
 
     // ✅ ไม่คิด OT อัตโนมัติ — ถ้าออกหลัง expected_end ก็แค่บันทึก = 0
     // พนักงานต้องยื่นขอ OT/bonus ผ่านระบบด้วยตัวเองเท่านั้น
     const otMin = 0
 
-    // status: ถ้าเคย late ให้คง late ไว้ / ถ้าออกก่อน = early_out / ปกติ = present
-    const newStatus =
-      rec.status === "late" ? "late"
-      : earlyOutMin > 0     ? "early_out"
-      :                       "present"
+    // status: exempt → present เสมอ / ปกติ → ถ้าเคย late ให้คง late ไว้
+    const newStatus = isExemptOut
+      ? "present"
+      : rec.status === "late" ? "late"
+      : earlyOutMin > 0       ? "early_out"
+      :                         "present"
 
     const { error: updErr } = await supa
       .from("attendance_records")
