@@ -126,7 +126,7 @@ async function initRecord(
   }
 
   const baseSalary = Number(sal.base_salary) || 0
-  // ไม่รวม allowance_transport จาก salary_structures (ค่าเริ่มต้น = 0, ใช้ transport_claims แทน)
+  // allowance_transport ถูกยกเลิกแล้ว (ไม่ใช้ในการคำนวณ)
   const allAllowances =
     (Number(sal.allowance_position)  || 0) +
     (Number(sal.allowance_food)      || 0) +
@@ -147,26 +147,13 @@ async function initRecord(
     (s: number, l: any) => s + (Number(l.monthly_deduction) || 0), 0
   )
 
-  // ── ค่าเดินทางที่อนุมัติแล้วในงวดนี้ ────────────────────────────
-  const { data: transportData } = await supa
-    .from("transport_claims")
-    .select("amount")
-    .eq("employee_id", employee_id)
-    .eq("payroll_period_id", payroll_period_id)
-    .eq("status", "approved")
-
-  const transportClaimTotal = (transportData ?? []).reduce(
-    (s: number, t: any) => s + (Number(t.amount) || 0), 0
-  )
-
   // ── KPI Bonus: ดึงฐาน KPI + เกรดเดือนนี้ → คำนวณโบนัส ──
   const kpiBonus = await getKpiBonus(supa, employee_id, Number(period.year), Number(period.month))
 
   // คำนวณแบบ init: ไม่มี attendance deductions, ไม่มี OT
-  // รวมค่าเดินทางที่อนุมัติแล้วเข้า allowances
   const result = calculatePayrollSummary({
     baseSalary,
-    allowances:      allAllowances + transportClaimTotal,
+    allowances:      allAllowances,
     otBreakdown:     { weekday_minutes: 0, holiday_regular_minutes: 0, holiday_ot_minutes: 0 },
     bonus:           kpiBonus.amount,
     absentDays:      0,
@@ -184,7 +171,7 @@ async function initRecord(
     month:                  Number(period.month),
     base_salary:            baseSalary,
     allowance_position:     Number(sal.allowance_position)  || 0,
-    allowance_transport:    transportClaimTotal,  // ค่าเดินทาง = เฉพาะที่อนุมัติจาก transport_claims
+    allowance_transport:    0,
     allowance_food:         Number(sal.allowance_food)      || 0,
     allowance_phone:        Number(sal.allowance_phone)     || 0,
     allowance_housing:      Number(sal.allowance_housing)   || 0,
@@ -246,7 +233,6 @@ async function initRecord(
       mode: "init",
       base_salary: baseSalary,
       allowances: allAllowances,
-      transport_claims: transportClaimTotal,
       gross: result.gross,
       sso: result.sso,
       tax: result.tax,
@@ -460,25 +446,12 @@ async function calcAndSave(
     (s: number, l: any) => s + (Number(l.monthly_deduction) || 0), 0
   )
 
-  // ── Allowances รวม (ไม่รวมค่าเดินทาง — ใช้จาก transport_claims แทน) ─
+  // ── Allowances รวม ─
   const allAllowances =
     (Number(sal.allowance_position)  || 0) +
     (Number(sal.allowance_food)      || 0) +
     (Number(sal.allowance_phone)     || 0) +
     (Number(sal.allowance_housing)   || 0)
-
-  // ── ค่าเดินทาง: ใช้จาก transport_claims ที่อนุมัติแล้วเท่านั้น ──
-  // (allowance_transport ใน salary_structures ไม่ใช้ → ค่าเริ่มต้น = 0)
-  const { data: transportData } = await supa
-    .from("transport_claims")
-    .select("amount")
-    .eq("employee_id", employee_id)
-    .eq("payroll_period_id", payroll_period_id)
-    .eq("status", "approved")
-
-  const transportClaimTotal = (transportData ?? []).reduce(
-    (s: number, t: any) => s + (Number(t.amount) || 0), 0
-  )
 
   // ── ภาษีหัก ณ ที่จ่าย (% ตั้งค่าเอง หรือ auto) ───────────────
   const taxWithholdingPct: number | null =
@@ -490,7 +463,7 @@ async function calcAndSave(
   // ── คำนวณ ─────────────────────────────────────────────────────
   const result = calculatePayrollSummary({
     baseSalary:      Number(sal.base_salary),
-    allowances:      allAllowances + transportClaimTotal,
+    allowances:      allAllowances,
     otBreakdown,
     bonus:           kpiBonus.amount,
     absentDays,
@@ -529,7 +502,7 @@ async function calcAndSave(
     // รายได้
     base_salary:            Number(sal.base_salary),
     allowance_position:     Number(sal.allowance_position)  || 0,
-    allowance_transport:    transportClaimTotal,  // ค่าเดินทาง = เฉพาะที่อนุมัติจาก transport_claims
+    allowance_transport:    0,
     allowance_food:         Number(sal.allowance_food)      || 0,
     allowance_phone:        Number(sal.allowance_phone)     || 0,
     allowance_housing:      Number(sal.allowance_housing)   || 0,

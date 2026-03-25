@@ -125,12 +125,10 @@ export async function POST(req: Request) {
   const empMap = new Map<string, any>()
   for (const e of (empData ?? [])) empMap.set(e.id, e)
 
-  // ── Pre-fetch loans, transport, OT, prev payroll (batch queries) ─
-  const [loanRes, transportRes, otRes, prevPayrollRes] = await Promise.all([
+  // ── Pre-fetch loans, OT, prev payroll (batch queries) ─
+  const [loanRes, otRes, prevPayrollRes] = await Promise.all([
     supa.from("employee_loans").select("employee_id, monthly_deduction")
       .in("employee_id", employee_ids).eq("status", "active"),
-    supa.from("transport_claims").select("employee_id, amount")
-      .in("employee_id", employee_ids).eq("payroll_period_id", payroll_period_id).eq("status", "approved"),
     supa.from("overtime_requests").select("employee_id, ot_start, ot_end, work_date")
       .in("employee_id", employee_ids).eq("status", "approved")
       .gte("work_date", periodStart).lte("work_date", periodEnd),
@@ -142,11 +140,6 @@ export async function POST(req: Request) {
   const loanByEmp = new Map<string, number>()
   for (const l of (loanRes.data ?? [])) {
     loanByEmp.set(l.employee_id, (loanByEmp.get(l.employee_id) || 0) + (Number(l.monthly_deduction) || 0))
-  }
-
-  const transportByEmp = new Map<string, number>()
-  for (const t of (transportRes.data ?? [])) {
-    transportByEmp.set(t.employee_id, (transportByEmp.get(t.employee_id) || 0) + (Number(t.amount) || 0))
   }
 
   const otByEmp = new Map<string, any[]>()
@@ -238,12 +231,11 @@ export async function POST(req: Request) {
           const baseSalary = Number(sal.base_salary) || 0
           const allAllowances = (Number(sal.allowance_position) || 0) + (Number(sal.allowance_food) || 0) +
             (Number(sal.allowance_phone) || 0) + (Number(sal.allowance_housing) || 0)
-          const transportClaimTotal = transportByEmp.get(eid) || 0
           const loanDeduction = loanByEmp.get(eid) || 0
           const taxPct = sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
 
           const result = calculatePayrollSummary({
-            baseSalary, allowances: allAllowances + transportClaimTotal,
+            baseSalary, allowances: allAllowances,
             otBreakdown, bonus: 0, absentDays, lateMinutes: totalLateMin,
             earlyOutMinutes: totalEarlyMin, loanDeduction, taxWithholdingPct: taxPct,
           })
@@ -256,7 +248,7 @@ export async function POST(req: Request) {
             year: currentYear, month: currentMonth,
             base_salary: baseSalary,
             allowance_position: Number(sal.allowance_position) || 0,
-            allowance_transport: transportClaimTotal,
+            allowance_transport: 0,
             allowance_food: Number(sal.allowance_food) || 0,
             allowance_phone: Number(sal.allowance_phone) || 0,
             allowance_housing: Number(sal.allowance_housing) || 0,

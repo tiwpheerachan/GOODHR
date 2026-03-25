@@ -1119,14 +1119,6 @@ export default function PayrollPage() {
         // เมื่อมี attendance เปลี่ยน → recalculate เบื้องหลัง (หน่วง 2 วิ)
         setTimeout(() => bgRecalculate(), 2000)
       })
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "transport_claims",
-      }, () => {
-        // เมื่อมี transport_claims เปลี่ยน → recalculate
-        setTimeout(() => bgRecalculate(), 2000)
-      })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [selected, companyId, bgRecalculate])

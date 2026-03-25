@@ -3,7 +3,7 @@ import { usePathname } from "next/navigation"
 import Link from "next/link"
 import {
   Home, Clock, Calendar, CalendarDays, CalendarClock, User, Bell, Users, Shield, Target,
-  Megaphone, FileText, Grip, X, MessageCircle, Car,
+  Megaphone, FileText, Grip, X, MessageCircle,
 } from "lucide-react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useEffect, useState, useRef, useCallback } from "react"
@@ -25,7 +25,6 @@ const FLOAT_MENU = [
   { href: "/app/schedule",          icon: CalendarClock, label: "ตารางกะ",     color: "from-violet-500 to-purple-500" },
   { href: "/app/kpi",               icon: Target,        label: "KPI",         color: "from-amber-500 to-orange-500" },
   { href: "/app/payslip",           icon: FileText,      label: "สลิป",        color: "from-emerald-500 to-green-500" },
-  { href: "/app/transport-claims",  icon: Car,           label: "ค่าเดินทาง",  color: "from-blue-500 to-indigo-500" },
 ]
 
 // ── AssistiveTouch Component ──
