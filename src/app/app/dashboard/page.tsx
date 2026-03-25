@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { useAttendance } from "@/lib/hooks/useAttendance"
 import { useLeaveBalance } from "@/lib/hooks/useLeave"
 import { formatTime } from "@/lib/utils/attendance"
+import { getLateThreshold } from "@/lib/utils/payroll"
 import Link from "next/link"
 import {
   Clock, ChevronRight, FileEdit, Timer, CalendarClock,
@@ -453,19 +454,35 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Status pill */}
-                  <div className="flex items-center justify-center">
-                    <div className="flex items-center gap-2 rounded-full px-4 py-2" style={{
-                      background: todayRecord.late_minutes > 0 ? "rgba(239,68,68,.06)" : "rgba(34,197,94,.06)",
-                    }}>
-                      {todayRecord.late_minutes > 0
-                        ? <AlertCircle size={14} style={{ color:"#ef4444" }}/>
-                        : <CheckCircle size={14} style={{ color:"#22c55e" }}/>
-                      }
-                      <p style={{ fontSize:13, fontWeight:700, color: todayRecord.late_minutes > 0 ? "#dc2626" : "#16a34a" }}>
-                        {todayRecord.late_minutes > 0 ? `มาสาย +${todayRecord.late_minutes} นาที` : "ตรงเวลา"}
-                      </p>
-                    </div>
-                  </div>
+                  {(() => {
+                    const dashGrace = getLateThreshold((user as any)?.employee?.department?.name, (user as any)?.employee?.company?.code)
+                    const dashLateMin = todayRecord.late_minutes || 0
+                    const dashWithinGrace = dashLateMin > 0 && dashLateMin <= dashGrace
+                    const isOnTime = dashLateMin === 0
+
+                    return (
+                      <div className="flex items-center justify-center">
+                        <div className="flex items-center gap-2 rounded-full px-4 py-2" style={{
+                          background: isOnTime ? "rgba(34,197,94,.06)" : dashWithinGrace ? "rgba(34,197,94,.06)" : "rgba(239,68,68,.06)",
+                        }}>
+                          {isOnTime
+                            ? <CheckCircle size={14} style={{ color:"#22c55e" }}/>
+                            : dashWithinGrace
+                              ? <CheckCircle size={14} style={{ color:"#22c55e" }}/>
+                              : <AlertCircle size={14} style={{ color:"#ef4444" }}/>
+                          }
+                          <p style={{ fontSize:13, fontWeight:700, color: isOnTime ? "#16a34a" : dashWithinGrace ? "#16a34a" : "#dc2626" }}>
+                            {isOnTime
+                              ? "ตรงเวลา"
+                              : dashWithinGrace
+                                ? `แหน่ะ สาย ${dashLateMin} น. แต่ให้อภัยได้ 😊`
+                                : `มาสาย +${dashLateMin} นาที`
+                            }
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })()}
 
                   {/* Checkout CTA */}
                   {todayRecord.clock_in && !todayRecord.clock_out && (

@@ -4,6 +4,7 @@ import Script from "next/script"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useAttendance, useCheckin } from "@/lib/hooks/useAttendance"
 import { calcGeoDistance, formatTime } from "@/lib/utils/attendance"
+import { getLateThreshold } from "@/lib/utils/payroll"
 import {
   Loader2, RefreshCw, X, Send, LogIn, LogOut,
   Building2, MapPin, AlertTriangle, Clock, CheckCircle2,
@@ -930,6 +931,11 @@ export default function CheckInPage() {
   const isEarlyOut = todayRecord?.status === "early_out" || earlyOutMin > 0
   const today = format(new Date(), "yyyy-MM-dd")
 
+  // Grace period: ถ้าสายไม่เกิน grace → ไม่หัก
+  const checkinGrace = getLateThreshold((user as any)?.employee?.department?.name, (user as any)?.employee?.company?.code)
+  const lateAfterGrace = Math.max(0, lateMin - checkinGrace)
+  const isLateWithinGrace = isLate && lateAfterGrace === 0
+
   const handleClockIn = async () => {
     if (!pos) return toast.error("กรุณาเปิด GPS ก่อน")
     const r = await clockIn(pos.lat, pos.lng)
@@ -1322,24 +1328,38 @@ export default function CheckInPage() {
           {isLate && !hasClockedOut && (
             <div className="bg-white rounded-2xl p-4 space-y-3 border border-gray-100 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-                  <AlertTriangle size={16} className="text-amber-500" />
+                <div className={`w-9 h-9 rounded-xl ${isLateWithinGrace ? "bg-green-50" : "bg-amber-50"} flex items-center justify-center shrink-0`}>
+                  {isLateWithinGrace
+                    ? <CheckCircle2 size={16} className="text-green-500" />
+                    : <AlertTriangle size={16} className="text-amber-500" />
+                  }
                 </div>
                 <div>
-                  <p className="font-bold text-gray-800 text-sm">มาสาย {lateMin} นาที</p>
-                  <p className="text-[11px] text-gray-400">ต้องการแก้ไขหรือยื่นใบลา?</p>
+                  {isLateWithinGrace ? (
+                    <>
+                      <p className="font-bold text-gray-800 text-sm">แหน่ะ วันนี้มาสาย {lateMin} นาที</p>
+                      <p className="text-[11px] text-green-600">แต่ยังอยู่ในเกณฑ์ให้อภัยได้ ไม่หักเงิน 😊</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-bold text-gray-800 text-sm">มาสาย {lateMin} นาที</p>
+                      <p className="text-[11px] text-gray-400">เกินเกณฑ์ {checkinGrace} นาที — หักจริง {lateAfterGrace} นาที</p>
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => setShowAdj(true)}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 active:scale-[.98] transition-all" style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}>
-                  <FileEdit size={11} /> แก้ไขเวลา
-                </button>
-                <Link href={`/app/leave/new?type=leave&date=${today}`}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-gray-200 text-gray-600 flex items-center justify-center gap-1.5 hover:bg-gray-50 transition-colors">
-                  <CalendarClock size={11} /> ยื่นใบลา
-                </Link>
-              </div>
+              {!isLateWithinGrace && (
+                <div className="flex gap-2">
+                  <button onClick={() => setShowAdj(true)}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 active:scale-[.98] transition-all" style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}>
+                    <FileEdit size={11} /> แก้ไขเวลา
+                  </button>
+                  <Link href={`/app/leave/new?type=leave&date=${today}`}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-gray-200 text-gray-600 flex items-center justify-center gap-1.5 hover:bg-gray-50 transition-colors">
+                    <CalendarClock size={11} /> ยื่นใบลา
+                  </Link>
+                </div>
+              )}
             </div>
           )}
 
@@ -1387,12 +1407,21 @@ export default function CheckInPage() {
           {hasClockedOut && isLate && isEarlyOut && (
             <div className="bg-white rounded-2xl p-4 space-y-3 border border-gray-100 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-rose-50 flex items-center justify-center shrink-0">
-                  <AlertTriangle size={16} className="text-rose-400" />
+                <div className={`w-9 h-9 rounded-xl ${isLateWithinGrace ? "bg-amber-50" : "bg-rose-50"} flex items-center justify-center shrink-0`}>
+                  <AlertTriangle size={16} className={isLateWithinGrace ? "text-amber-400" : "text-rose-400"} />
                 </div>
                 <div>
-                  <p className="font-bold text-gray-800 text-sm">สาย {lateMin} น. + ออกก่อน {earlyOutMin} น.</p>
-                  <p className="text-[11px] text-gray-400">จะถูกหักเงินเดือนทั้ง 2 รายการ</p>
+                  {isLateWithinGrace ? (
+                    <>
+                      <p className="font-bold text-gray-800 text-sm">สาย {lateMin} น. (ให้อภัยได้ 😊) + ออกก่อน {earlyOutMin} น.</p>
+                      <p className="text-[11px] text-gray-400">หักเฉพาะออกก่อนเวลา</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-bold text-gray-800 text-sm">สาย {lateMin} น. + ออกก่อน {earlyOutMin} น.</p>
+                      <p className="text-[11px] text-gray-400">จะถูกหักเงินเดือนทั้ง 2 รายการ</p>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="flex gap-2">

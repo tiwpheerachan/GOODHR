@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useAttendance } from "@/lib/hooks/useAttendance"
 import { formatTime } from "@/lib/utils/attendance"
+import { getLateThreshold } from "@/lib/utils/payroll"
 import {
   ChevronLeft, ChevronRight, Clock, LogIn, LogOut,
   AlertTriangle, TrendingDown, Info, FileEdit, CalendarClock,
@@ -107,6 +108,15 @@ export default function AttendancePage() {
     totalLateMin:  periodRecords.reduce((s: number, r: any) => s + (r.late_minutes || 0), 0),
     totalEarlyMin: periodRecords.reduce((s: number, r: any) => s + (r.early_out_minutes || 0), 0),
   }
+  // ── Grace period: คำนวณนาทีสายหลังหัก grace ──
+  const emp = (user as any)?.employee
+  const graceMinutes = getLateThreshold(emp?.department?.name, emp?.company?.code)
+  const graceAdjustedLateMin = periodRecords.reduce(
+    (s: number, r: any) => s + Math.max(0, (Number(r.late_minutes) || 0) - graceMinutes), 0
+  )
+  // ถ้า graceAdjustedLateMin === 0 แปลว่าสายทั้งหมดอยู่ในเกณฑ์ให้อภัย
+  const lateWithinGrace = periodStats.late > 0 && graceAdjustedLateMin === 0
+
   const hasIssues = periodStats.late > 0 || periodStats.absent > 0 || periodStats.earlyOut > 0
 
   const periodLabel = (() => {
@@ -308,13 +318,19 @@ export default function AttendancePage() {
                 {periodStats.late > 0 && (
                   <div className="flex items-center justify-between px-4 py-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 bg-amber-100 rounded-xl flex items-center justify-center"><Clock size={12} className="text-amber-600" /></div>
+                      <div className={`w-7 h-7 ${lateWithinGrace ? "bg-green-100" : "bg-amber-100"} rounded-xl flex items-center justify-center`}>
+                        <Clock size={12} className={lateWithinGrace ? "text-green-600" : "text-amber-600"} />
+                      </div>
                       <div>
                         <p className="text-sm font-bold text-slate-700">มาสาย {periodStats.late} ครั้ง</p>
                         <p className="text-[10px] text-slate-400">{periodStats.totalLateMin} นาที ในงวดนี้</p>
                       </div>
                     </div>
-                    <span className="text-[10px] font-black text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full">หักเงิน</span>
+                    {lateWithinGrace ? (
+                      <span className="text-[10px] font-black text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full">ให้อภัยได้ 😊</span>
+                    ) : (
+                      <span className="text-[10px] font-black text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full">หักเงิน</span>
+                    )}
                   </div>
                 )}
                 {periodStats.earlyOut > 0 && (
