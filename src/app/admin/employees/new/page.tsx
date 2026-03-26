@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, Save, Loader2, User, Briefcase, Banknote, ChevronRight,
-  Key, Copy, Check, Eye, EyeOff, RefreshCw, Sparkles, Search, X,
+  Key, Copy, Check, Eye, EyeOff, RefreshCw, Sparkles, Search, X, Building2,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -60,6 +60,7 @@ export default function NewEmployeePage() {
   const supabase = createClient()
   const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [companies, setCompanies]     = useState<any[]>([])
   const [departments, setDepartments] = useState<any[]>([])
   const [positions, setPositions]     = useState<any[]>([])
   const [branches, setBranches]       = useState<any[]>([])
@@ -69,6 +70,7 @@ export default function NewEmployeePage() {
   const [showPw, setShowPw]           = useState(false)
   const [copied, setCopied]           = useState<string | null>(null)
   const [created, setCreated]         = useState<{ email: string; password: string; name: string } | null>(null)
+  const [selectedCompanyId, setSelectedCompanyId] = useState("")
 
   const [f, setF] = useState<any>({
     // personal
@@ -88,22 +90,35 @@ export default function NewEmployeePage() {
   })
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }))
 
-  const companyId = user?.employee?.company_id ?? (user as any)?.company_id
+  const defaultCompanyId = user?.employee?.company_id ?? (user as any)?.company_id
 
+  // โหลดรายชื่อบริษัท + set default
   useEffect(() => {
-    if (!companyId) return
+    supabase.from("companies").select("id,name_th,code").eq("is_active", true).order("name_th")
+      .then(({ data }) => {
+        setCompanies(data ?? [])
+        if (!selectedCompanyId && defaultCompanyId) setSelectedCompanyId(defaultCompanyId)
+      })
+  }, [defaultCompanyId]) // eslint-disable-line
+
+  // โหลดแผนก/ตำแหน่ง/สาขา/พนักงาน ตาม company ที่เลือก
+  useEffect(() => {
+    if (!selectedCompanyId) return
+    // reset ค่าที่ขึ้นกับ company เดิม
+    set("department_id", ""); set("position_id", ""); set("branch_id", ""); set("supervisor_id", "")
+    setSupervisorSearch("")
     Promise.all([
-      supabase.from("departments").select("id,name").eq("company_id", companyId).order("name"),
-      supabase.from("positions").select("id,name").eq("company_id", companyId).order("name"),
-      supabase.from("branches").select("id,name").eq("company_id", companyId).order("name"),
-      supabase.from("employees").select("id,first_name_th,last_name_th,nickname,employee_code,position:positions(name)").eq("company_id", companyId).eq("is_active", true).order("first_name_th"),
+      supabase.from("departments").select("id,name").eq("company_id", selectedCompanyId).order("name"),
+      supabase.from("positions").select("id,name").eq("company_id", selectedCompanyId).order("name"),
+      supabase.from("branches").select("id,name").eq("company_id", selectedCompanyId).order("name"),
+      supabase.from("employees").select("id,first_name_th,last_name_th,nickname,employee_code,position:positions(name)").eq("company_id", selectedCompanyId).eq("is_active", true).order("first_name_th"),
     ]).then(([d, p, b, e]) => {
       setDepartments(d.data ?? [])
       setPositions(p.data ?? [])
       setBranches(b.data ?? [])
       setAllEmployees(e.data ?? [])
     })
-  }, [companyId]) // eslint-disable-line
+  }, [selectedCompanyId]) // eslint-disable-line
 
   // Close supervisor dropdown on outside click
   useEffect(() => {
@@ -131,6 +146,7 @@ export default function NewEmployeePage() {
       if (f.national_id.length !== 13) return "เลขบัตรประชาชนต้องมี 13 หลัก"
     }
     if (step === 1) {
+      if (!selectedCompanyId) return "กรุณาเลือกบริษัทที่สังกัด"
       if (!f.employee_code) return "กรุณากรอกรหัสพนักงาน"
       if (!f.email)         return "กรุณากรอกอีเมล"
       if (!f.hire_date)     return "กรุณาเลือกวันเริ่มงาน"
@@ -155,7 +171,7 @@ export default function NewEmployeePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...f,
-          company_id: companyId,
+          company_id: selectedCompanyId,
           tax_id: f.national_id, // ใช้เลขบัตรประชาชนเป็นเลขผู้เสียภาษีด้วย
         }),
       })
@@ -368,6 +384,21 @@ export default function NewEmployeePage() {
         {step === 1 && (
           <div className="space-y-5">
             <h3 className="font-black text-slate-800 text-base">ข้อมูลการจ้างงาน</h3>
+
+            {/* ── เลือกบริษัท ── */}
+            <div className="border-2 border-blue-200 bg-blue-50/50 rounded-2xl p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Building2 size={16} className="text-blue-600"/>
+                <h4 className="font-bold text-blue-800 text-sm">บริษัทที่สังกัด</h4>
+              </div>
+              <Field label="เลือกบริษัท" required hint="เปลี่ยนบริษัทจะ reset แผนก/ตำแหน่ง/สาขา/หัวหน้า">
+                <Select value={selectedCompanyId} onChange={(e:any) => setSelectedCompanyId(e.target.value)}>
+                  <option value="">— เลือกบริษัท —</option>
+                  {companies.map((c: any) => <option key={c.id} value={c.id}>{c.code ? `[${c.code}] ` : ""}{c.name_th}</option>)}
+                </Select>
+              </Field>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <Field label="รหัสพนักงาน" required><Input value={f.employee_code} onChange={(e:any) => set("employee_code", e.target.value)} placeholder="67000XXX" /></Field>
               <Field label="สิทธิ์การเข้าถึง">

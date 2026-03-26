@@ -99,7 +99,7 @@ function LeaveNewInner() {
   const companyId = (user as any)?.company_id   ?? (user as any)?.employee?.company_id
   const emp       = (user as any)?.employee as any
 
-  const { types } = useLeaveTypes(companyId)
+  const { types, loading: typesLoading, loaded: typesLoaded } = useLeaveTypes(companyId)
 
   const [loading, setLoading] = useState(false)
   const [submitErr, setSubmitErr] = useState<string | null>(null)
@@ -622,7 +622,8 @@ function LeaveNewInner() {
                         <option value="">— เลือกประเภทการลา —</option>
                         {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                       </select>
-                      {types.length === 0 && <p className="text-xs text-amber-500 mt-1.5 font-semibold">กำลังโหลดประเภทการลา...</p>}
+                      {typesLoading && <p className="text-xs text-amber-500 mt-1.5 font-semibold">กำลังโหลดประเภทการลา...</p>}
+                      {typesLoaded && types.length === 0 && <p className="text-xs text-red-500 mt-1.5 font-semibold">ไม่พบประเภทการลาสำหรับบริษัทของคุณ — กรุณาแจ้ง HR Admin ตั้งค่าระบบ</p>}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div><label className={labelCls}>วันที่เริ่ม</label>

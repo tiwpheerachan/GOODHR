@@ -51,6 +51,10 @@ export default function EmployeeDetailPage() {
   const [resignLoading, setResignLoading] = useState(false)
   const [resignHistory, setResignHistory] = useState<any[]>([])
   const [showReinstateModal, setShowReinstateModal] = useState(false)
+  const [companies, setCompanies] = useState<any[]>([])
+  const [departments, setDepartments] = useState<any[]>([])
+  const [positions, setPositions] = useState<any[]>([])
+  const [branches, setBranches] = useState<any[]>([])
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }))
 
@@ -71,11 +75,29 @@ export default function EmployeeDetailPage() {
     // ดึงประวัติการลาออก/ดึงกลับ
     supabase.from("resignation_history").select("*").eq("employee_id",id as string).order("created_at",{ascending:false})
       .then(({ data }) => setResignHistory(data ?? []))
+    // ดึงรายชื่อบริษัท
+    supabase.from("companies").select("id,name_th,code").eq("is_active", true).order("name_th")
+      .then(({ data }) => setCompanies(data ?? []))
     if (user?.employee?.company_id) {
       supabase.from("employees").select("id,first_name_th,last_name_th,employee_code").eq("company_id",user.employee.company_id).neq("id",id as string)
         .then(({ data }) => setAllEmps(data ?? []))
     }
   }, [id, user])
+
+  // โหลดแผนก/ตำแหน่ง/สาขา ตาม company ของพนักงาน
+  useEffect(() => {
+    const cid = form.company_id
+    if (!cid) return
+    Promise.all([
+      supabase.from("departments").select("id,name").eq("company_id", cid).order("name"),
+      supabase.from("positions").select("id,name").eq("company_id", cid).order("name"),
+      supabase.from("branches").select("id,name").eq("company_id", cid).order("name"),
+    ]).then(([d, p, b]) => {
+      setDepartments(d.data ?? [])
+      setPositions(p.data ?? [])
+      setBranches(b.data ?? [])
+    })
+  }, [form.company_id]) // eslint-disable-line
 
   const saveEmployee = async () => {
     setLoading(true)
@@ -114,8 +136,25 @@ export default function EmployeeDetailPage() {
 
   const saveEmployment = async () => {
     setLoading(true)
-    const { error } = await supabase.from("employees").update({ employment_type:form.employment_type, employment_status:form.employment_status, hire_date:form.hire_date, probation_end_date:form.probation_end_date||null, resign_date:form.resign_date||null }).eq("id",id as string)
-    if (error) toast.error("เกิดข้อผิดพลาด"); else toast.success("บันทึกสำเร็จ")
+    const { error } = await supabase.from("employees").update({
+      company_id: form.company_id || null,
+      department_id: form.department_id || null,
+      position_id: form.position_id || null,
+      branch_id: form.branch_id || null,
+      employment_type: form.employment_type,
+      employment_status: form.employment_status,
+      hire_date: form.hire_date,
+      probation_end_date: form.probation_end_date || null,
+      resign_date: form.resign_date || null,
+    }).eq("id", id as string)
+    if (error) toast.error("เกิดข้อผิดพลาด"); else {
+      toast.success("บันทึกสำเร็จ")
+      // อัปเดต users table ด้วย company_id ถ้าเปลี่ยน
+      if (form.company_id && form.company_id !== emp?.company_id) {
+        await supabase.from("users").update({ company_id: form.company_id }).eq("employee_id", id as string)
+      }
+      setEmp((prev: any) => ({ ...prev, company_id: form.company_id, department_id: form.department_id, position_id: form.position_id, branch_id: form.branch_id }))
+    }
     setLoading(false)
   }
 
@@ -293,6 +332,17 @@ export default function EmployeeDetailPage() {
         {/* ── Tab 2: การจ้างงาน ── */}
         {tab === 2 && <>
           <h3 className="font-bold text-slate-800 mb-4">ข้อมูลการจ้างงาน</h3>
+
+          {/* บริษัทที่สังกัด */}
+          <div className="mb-4 p-3 rounded-xl border-2 border-blue-100 bg-blue-50/50">
+            <label className="block text-sm font-bold text-blue-800 mb-1.5 flex items-center gap-1.5"><Building2 size={14}/> บริษัทที่สังกัด</label>
+            <select value={form.company_id||""} onChange={e => set("company_id",e.target.value)} className={inp}>
+              <option value="">— เลือกบริษัท —</option>
+              {companies.map((c: any) => <option key={c.id} value={c.id}>{c.code ? `[${c.code}] ` : ""}{c.name_th}</option>)}
+            </select>
+            <p className="text-[11px] text-blue-500 mt-1">เปลี่ยนบริษัทจะอัปเดตแผนก/ตำแหน่ง/สาขาให้เลือกใหม่</p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">ประเภท</label>
               <select value={form.employment_type||""} onChange={e => set("employment_type",e.target.value)} className={inp}>
@@ -301,6 +351,21 @@ export default function EmployeeDetailPage() {
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สถานะ</label>
               <select value={form.employment_status||""} onChange={e => set("employment_status",e.target.value)} className={inp}>
                 {[["active","ปกติ"],["probation","ทดลองงาน"],["resigned","ลาออก"],["terminated","เลิกจ้าง"],["on_leave","ลา"],["suspended","พักงาน"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+              </select></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">แผนก</label>
+              <select value={form.department_id||""} onChange={e => set("department_id",e.target.value)} className={inp}>
+                <option value="">ไม่ระบุ</option>
+                {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">ตำแหน่ง</label>
+              <select value={form.position_id||""} onChange={e => set("position_id",e.target.value)} className={inp}>
+                <option value="">ไม่ระบุ</option>
+                {positions.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สาขา</label>
+              <select value={form.branch_id||""} onChange={e => set("branch_id",e.target.value)} className={inp}>
+                <option value="">ไม่ระบุ</option>
+                {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select></div>
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">วันเริ่มงาน</label><input type="date" value={form.hire_date||""} onChange={e => set("hire_date",e.target.value)} className={inp}/></div>
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สิ้นสุดทดลองงาน</label><input type="date" value={form.probation_end_date||""} onChange={e => set("probation_end_date",e.target.value)} className={inp}/></div>
@@ -1075,31 +1140,26 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
   const { user } = useAuth()
 
   const [allBranches,   setAllBranches]   = useState<any[]>([])
+  const [branchCompanies, setBranchCompanies] = useState<any[]>([])
   const [allowedRows,   setAllowedRows]   = useState<any[]>([])
   const [saving,        setSaving]        = useState<string|null>(null)
   const [showCustom,    setShowCustom]    = useState(false)
   const [customForm,    setCustomForm]    = useState({ name:"", lat:"", lng:"", radius:"200" })
   const [savingCustom,  setSavingCustom]  = useState(false)
 
-  const ICS_MALL_ID = "24e5ed9a-de98-438c-8104-217c4052229f"
-
   const load = useCallback(async () => {
-    const [{ data: companyBranches }, { data: icsBranch }, { data: allowed }] = await Promise.all([
-      supabase.from("branches").select("id,name,address,latitude,longitude,geo_radius_m").eq("company_id", companyId).eq("is_active", true).order("name"),
-      // โหลด ICS Mall แยก (กรณีไม่อยู่ใน company เดียวกัน) — ให้ทุกบริษัทเช็คอินได้
-      supabase.from("branches").select("id,name,address,latitude,longitude,geo_radius_m").eq("id", ICS_MALL_ID).single(),
+    const [{ data: allCompanyBranches }, { data: companiesList }, { data: allowed }] = await Promise.all([
+      // ดึงสาขาจาก ทุกบริษัท
+      supabase.from("branches").select("id,name,address,latitude,longitude,geo_radius_m,company_id").eq("is_active", true).order("name"),
+      supabase.from("companies").select("id,name_th,code").eq("is_active", true).order("name_th"),
       supabase.from("employee_allowed_locations")
         .select("id,branch_id,custom_name,custom_lat,custom_lng,custom_radius_m,branch:branches(id,name,geo_radius_m)")
         .eq("employee_id", employeeId),
     ])
-    // รวม ICS Mall เข้าไปถ้ายังไม่อยู่ในรายการ
-    const merged = [...(companyBranches ?? [])]
-    if (icsBranch && !merged.some(b => b.id === ICS_MALL_ID)) {
-      merged.push(icsBranch)
-    }
-    setAllBranches(merged)
+    setAllBranches(allCompanyBranches ?? [])
+    setBranchCompanies(companiesList ?? [])
     setAllowedRows(allowed ?? [])
-  }, [employeeId, companyId])
+  }, [employeeId])
 
   useEffect(() => { load() }, [load])
 
@@ -1277,40 +1337,104 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
         </div>
       )}
 
-      {/* ── Branch list ── */}
+      {/* ── Branch list (จัดกลุ่มตามบริษัท) ── */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">สาขาของบริษัท ({allBranches.length})</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">สาขาทั้งหมด ({allBranches.length})</p>
           <div className="flex gap-2">
             <button onClick={async () => { const missing = allBranches.filter(b => !branchAllowedIds.has(b.id)); if (!missing.length) return; await supabase.from("employee_allowed_locations").insert(missing.map(b => ({ employee_id: employeeId, branch_id: b.id, created_by: user?.employee_id??null }))); toast.success(`เพิ่ม ${missing.length} สาขา`); load() }} className="text-[10px] font-bold px-2.5 py-1 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100">✓ ทั้งหมด</button>
             <button onClick={async () => { if (!confirm("ยกเลิกสาขาทั้งหมด?")) return; const ids = allowedRows.filter(r=>r.branch_id).map(r=>r.id); for (const id of ids) await supabase.from("employee_allowed_locations").delete().eq("id",id); toast.success("ยกเลิกแล้ว"); load() }} className="text-[10px] font-bold px-2.5 py-1 bg-red-50 text-red-500 rounded-lg hover:bg-red-100">✗ ล้าง</button>
           </div>
         </div>
-        <div className="space-y-2">
-          {allBranches.map(b => {
-            const allowed = branchAllowedIds.has(b.id)
-            return (
-              <div key={b.id} onClick={() => !saving && toggleBranch(b.id)}
-                className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${allowed ? "border-green-300 bg-green-50" : "border-slate-100 bg-white hover:border-slate-200"}`}>
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${allowed ? "bg-green-100" : "bg-slate-100"}`}>
-                  {saving===b.id ? <Loader2 size={14} className="animate-spin text-slate-400"/> : <Building2 size={14} className={allowed?"text-green-600":"text-slate-400"}/>}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`font-bold text-sm ${allowed?"text-green-800":"text-slate-700"}`}>{b.name}</p>
-                  <p className="text-[10px] text-slate-400 truncate">
-                    {b.address && b.address+" · "}
-                    {b.latitude ? `${Number(b.latitude).toFixed(5)}, ${Number(b.longitude).toFixed(5)}` : "ไม่มีพิกัด"}
-                    {b.geo_radius_m ? ` · รัศมี ${b.geo_radius_m} ม.` : ""}
-                  </p>
-                </div>
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${allowed?"bg-green-500 text-white":"bg-white border-2 border-slate-200 text-slate-300"}`}>
-                  {allowed ? <Check size={14}/> : <X size={12}/>}
+
+        {branchCompanies.map((company: any) => {
+          const compBranches = allBranches.filter(b => b.company_id === company.id)
+          if (compBranches.length === 0) return null
+          const compAllowedCount = compBranches.filter(b => branchAllowedIds.has(b.id)).length
+          return (
+            <div key={company.id} className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-blue-700 flex items-center gap-1.5">
+                  <Building2 size={12}/>
+                  {company.code ? `[${company.code}] ` : ""}{company.name_th}
+                  <span className="text-[10px] font-normal text-slate-400 ml-1">({compBranches.length} สาขา · เลือกแล้ว {compAllowedCount})</span>
+                </p>
+                <div className="flex gap-1.5">
+                  <button onClick={async () => {
+                    const missing = compBranches.filter(b => !branchAllowedIds.has(b.id))
+                    if (!missing.length) return
+                    await supabase.from("employee_allowed_locations").insert(missing.map(b => ({ employee_id: employeeId, branch_id: b.id, created_by: user?.employee_id??null })))
+                    toast.success(`เพิ่ม ${missing.length} สาขาของ ${company.code||company.name_th}`)
+                    load()
+                  }} className="text-[9px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">✓ ทั้งหมด</button>
+                  <button onClick={async () => {
+                    const ids = allowedRows.filter(r => r.branch_id && compBranches.some(b => b.id === r.branch_id)).map(r => r.id)
+                    if (!ids.length) return
+                    for (const rid of ids) await supabase.from("employee_allowed_locations").delete().eq("id", rid)
+                    toast.success("ยกเลิกแล้ว"); load()
+                  }} className="text-[9px] font-bold px-2 py-0.5 bg-red-50 text-red-500 rounded hover:bg-red-100">✗ ล้าง</button>
                 </div>
               </div>
-            )
-          })}
-          {allBranches.length === 0 && <p className="text-center text-slate-300 py-6 text-sm">ยังไม่มีสาขา</p>}
-        </div>
+              <div className="space-y-2">
+                {compBranches.map(b => {
+                  const allowed = branchAllowedIds.has(b.id)
+                  return (
+                    <div key={b.id} onClick={() => !saving && toggleBranch(b.id)}
+                      className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${allowed ? "border-green-300 bg-green-50" : "border-slate-100 bg-white hover:border-slate-200"}`}>
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${allowed ? "bg-green-100" : "bg-slate-100"}`}>
+                        {saving===b.id ? <Loader2 size={14} className="animate-spin text-slate-400"/> : <Building2 size={14} className={allowed?"text-green-600":"text-slate-400"}/>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`font-bold text-sm ${allowed?"text-green-800":"text-slate-700"}`}>{b.name}</p>
+                        <p className="text-[10px] text-slate-400 truncate">
+                          {b.address && b.address+" · "}
+                          {b.latitude ? `${Number(b.latitude).toFixed(5)}, ${Number(b.longitude).toFixed(5)}` : "ไม่มีพิกัด"}
+                          {b.geo_radius_m ? ` · รัศมี ${b.geo_radius_m} ม.` : ""}
+                        </p>
+                      </div>
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${allowed?"bg-green-500 text-white":"bg-white border-2 border-slate-200 text-slate-300"}`}>
+                        {allowed ? <Check size={14}/> : <X size={12}/>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+
+        {/* สาขาที่ไม่มี company (ถ้ามี) */}
+        {allBranches.filter(b => !b.company_id || !branchCompanies.some((c: any) => c.id === b.company_id)).length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs font-bold text-slate-500 mb-2">สาขาอื่นๆ</p>
+            <div className="space-y-2">
+              {allBranches.filter(b => !b.company_id || !branchCompanies.some((c: any) => c.id === b.company_id)).map(b => {
+                const allowed = branchAllowedIds.has(b.id)
+                return (
+                  <div key={b.id} onClick={() => !saving && toggleBranch(b.id)}
+                    className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${allowed ? "border-green-300 bg-green-50" : "border-slate-100 bg-white hover:border-slate-200"}`}>
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${allowed ? "bg-green-100" : "bg-slate-100"}`}>
+                      {saving===b.id ? <Loader2 size={14} className="animate-spin text-slate-400"/> : <Building2 size={14} className={allowed?"text-green-600":"text-slate-400"}/>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`font-bold text-sm ${allowed?"text-green-800":"text-slate-700"}`}>{b.name}</p>
+                      <p className="text-[10px] text-slate-400 truncate">
+                        {b.address && b.address+" · "}
+                        {b.latitude ? `${Number(b.latitude).toFixed(5)}, ${Number(b.longitude).toFixed(5)}` : "ไม่มีพิกัด"}
+                        {b.geo_radius_m ? ` · รัศมี ${b.geo_radius_m} ม.` : ""}
+                      </p>
+                    </div>
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${allowed?"bg-green-500 text-white":"bg-white border-2 border-slate-200 text-slate-300"}`}>
+                      {allowed ? <Check size={14}/> : <X size={12}/>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {allBranches.length === 0 && <p className="text-center text-slate-300 py-6 text-sm">ยังไม่มีสาขา</p>}
       </div>
     </div>
   )

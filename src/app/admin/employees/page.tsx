@@ -39,7 +39,7 @@ export default function EmployeesPage() {
   const [total,            setTotal]            = useState(0)
   const [page,             setPage]             = useState(0)
   const [search,           setSearch]           = useState("")
-  const [status,           setStatus]           = useState("active")
+  const [status,           setStatus]           = useState("")
   const [showInactive,     setShowInactive]     = useState(false)
   const [dept,             setDept]             = useState("")
   const [selectedCompany,  setSelectedCompany]  = useState<string>("")

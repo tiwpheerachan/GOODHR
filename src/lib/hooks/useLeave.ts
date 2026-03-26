@@ -8,11 +8,13 @@ const supabase = createClient()
 
 export function useLeaveTypes(companyId?: string) {
   const [types, setTypes] = useState<LeaveType[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    if (!companyId) return
+    if (!companyId) { setLoading(false); return }
     setLoading(true)
+    setLoaded(false)
     supabase
       .from("leave_types")
       .select("*")
@@ -22,10 +24,11 @@ export function useLeaveTypes(companyId?: string) {
       .then(({ data, error }) => {
         if (!error) setTypes((data as LeaveType[]) ?? [])
         setLoading(false)
+        setLoaded(true)
       })
   }, [companyId])
 
-  return { types, loading }
+  return { types, loading, loaded }
 }
 
 export function useLeaveBalance(employeeId?: string) {

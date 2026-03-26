@@ -1035,25 +1035,36 @@ WHERE e.branch_id IS NOT NULL
 AND e.id NOT IN ('11655ff2-5e7e-4e80-8a26-e910aa257192','79cfbb9a-cf6c-45d7-bed9-a630e4cee21b')
 AND NOT EXISTS (SELECT 1 FROM employee_allowed_locations eal WHERE eal.employee_id = e.id);
 
--- ═══ 12. Insert leave types per company ═══
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'sick', 'ลาป่วย', true, 30, '#ef4444', true, false, false FROM companies c WHERE c.code = 'SHD' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'sick');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'personal', 'ลากิจ', true, 6, '#f59e0b', true, false, false FROM companies c WHERE c.code = 'SHD' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'personal');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'vacation', 'ลาพักร้อน', true, 6, '#3b82f6', true, true, false FROM companies c WHERE c.code = 'SHD' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'vacation');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'maternity', 'ลาคลอด', true, 98, '#ec4899', true, false, false FROM companies c WHERE c.code = 'SHD' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'maternity');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'ordination', 'ลาบวช', false, 15, '#8b5cf6', true, false, false FROM companies c WHERE c.code = 'SHD' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'ordination');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'military', 'ลารับราชการทหาร', true, 60, '#10b981', true, false, false FROM companies c WHERE c.code = 'SHD' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'military');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'sick', 'ลาป่วย', true, 30, '#ef4444', true, false, false FROM companies c WHERE c.code = 'RABBIT' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'sick');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'personal', 'ลากิจ', true, 6, '#f59e0b', true, false, false FROM companies c WHERE c.code = 'RABBIT' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'personal');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'vacation', 'ลาพักร้อน', true, 6, '#3b82f6', true, true, false FROM companies c WHERE c.code = 'RABBIT' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'vacation');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'maternity', 'ลาคลอด', true, 98, '#ec4899', true, false, false FROM companies c WHERE c.code = 'RABBIT' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'maternity');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'ordination', 'ลาบวช', false, 15, '#8b5cf6', true, false, false FROM companies c WHERE c.code = 'RABBIT' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'ordination');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'military', 'ลารับราชการทหาร', true, 60, '#10b981', true, false, false FROM companies c WHERE c.code = 'RABBIT' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'military');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'sick', 'ลาป่วย', true, 30, '#ef4444', true, false, false FROM companies c WHERE c.code = 'TOPONE' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'sick');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'personal', 'ลากิจ', true, 6, '#f59e0b', true, false, false FROM companies c WHERE c.code = 'TOPONE' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'personal');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'vacation', 'ลาพักร้อน', true, 6, '#3b82f6', true, true, false FROM companies c WHERE c.code = 'TOPONE' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'vacation');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'maternity', 'ลาคลอด', true, 98, '#ec4899', true, false, false FROM companies c WHERE c.code = 'TOPONE' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'maternity');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'ordination', 'ลาบวช', false, 15, '#8b5cf6', true, false, false FROM companies c WHERE c.code = 'TOPONE' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'ordination');
-INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document) SELECT gen_random_uuid(), c.id, 'military', 'ลารับราชการทหาร', true, 60, '#10b981', true, false, false FROM companies c WHERE c.code = 'TOPONE' AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'military');
+-- ═══ 12. Insert leave types for ALL companies (ใส่ให้ทุกบริษัทอัตโนมัติ) ═══
+-- ลาป่วย (30 วัน/ปี, มีเงิน)
+INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document)
+SELECT gen_random_uuid(), c.id, 'sick', 'ลาป่วย', true, 30, '#ef4444', true, false, false
+FROM companies c WHERE c.is_active = true AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'sick');
+
+-- ลากิจ (6 วัน/ปี, มีเงิน)
+INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document)
+SELECT gen_random_uuid(), c.id, 'personal', 'ลากิจ', true, 6, '#f59e0b', true, false, false
+FROM companies c WHERE c.is_active = true AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'personal');
+
+-- ลาพักร้อน (6 วัน/ปี, มีเงิน, ยกยอด)
+INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document)
+SELECT gen_random_uuid(), c.id, 'vacation', 'ลาพักร้อน', true, 6, '#3b82f6', true, true, false
+FROM companies c WHERE c.is_active = true AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'vacation');
+
+-- ลาคลอด (98 วัน, มีเงิน)
+INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document)
+SELECT gen_random_uuid(), c.id, 'maternity', 'ลาคลอด', true, 98, '#ec4899', true, false, false
+FROM companies c WHERE c.is_active = true AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'maternity');
+
+-- ลาบวช (15 วัน, ไม่มีเงิน)
+INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document)
+SELECT gen_random_uuid(), c.id, 'ordination', 'ลาบวช', false, 15, '#8b5cf6', true, false, false
+FROM companies c WHERE c.is_active = true AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'ordination');
+
+-- ลารับราชการทหาร (60 วัน, มีเงิน)
+INSERT INTO leave_types (id, company_id, code, name, is_paid, days_per_year, color_hex, is_active, carry_over, require_document)
+SELECT gen_random_uuid(), c.id, 'military', 'ลารับราชการทหาร', true, 60, '#10b981', true, false, false
+FROM companies c WHERE c.is_active = true AND NOT EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = c.id AND lt.code = 'military');
 
 -- ═══ 13. Create leave balances for 2026 ═══
 INSERT INTO leave_balances (id, employee_id, leave_type_id, year, entitled_days, used_days, pending_days, carried_over, remaining_days)
