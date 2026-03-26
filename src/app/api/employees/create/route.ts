@@ -1,9 +1,16 @@
-import { createClient } from "@/lib/supabase/server"
+import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 
 export async function POST(req: Request) {
   try {
-    const supabase = createClient()
+    // ใช้ cookie client สำหรับตรวจสิทธิ์ caller
+    const cookieClient = createClient()
+    const { data: { user: caller } } = await cookieClient.auth.getUser()
+    if (!caller) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    // ใช้ service role client สำหรับ admin operations ทั้งหมด
+    const supabase = createServiceClient()
+
     const body = await req.json()
     const {
       email, password,
@@ -15,10 +22,11 @@ export async function POST(req: Request) {
       company_id, branch_id, department_id, position_id,
       base_salary, allowance_position, allowance_transport,
       allowance_food, allowance_phone, allowance_housing,
+      kpi_standard_amount,
       role,
     } = body
 
-    // 1. สร้าง auth user
+    // 1. สร้าง auth user (ต้องใช้ service role)
     const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
       email,
       password: password || Math.random().toString(36).slice(-8) + "A1!",
@@ -92,6 +100,17 @@ export async function POST(req: Request) {
           remaining_days: lt.days_per_year || 0,
         }))
       )
+    }
+
+    // 6. สร้าง KPI bonus settings ถ้ามี
+    if (kpi_standard_amount && +kpi_standard_amount > 0) {
+      await supabase.from("kpi_bonus_settings").insert({
+        employee_id: emp.id,
+        company_id,
+        standard_amount: +kpi_standard_amount,
+        effective_from: hire_date,
+        is_active: true,
+      })
     }
 
     return NextResponse.json({ employee_id: emp.id, auth_id: authId })

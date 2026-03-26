@@ -79,6 +79,7 @@ export default function NewEmployeePage() {
     // salary
     base_salary: "", allowance_position: "0", allowance_transport: "0",
     allowance_food: "0", allowance_phone: "0", allowance_housing: "0",
+    kpi_standard_amount: "0",
     // auth
     password: generatePassword(),
   })
@@ -459,10 +460,38 @@ export default function NewEmployeePage() {
               <Field label="ค่าโทรศัพท์"><Input type="number" value={f.allowance_phone} onChange={(e:any) => set("allowance_phone", e.target.value)} placeholder="0" /></Field>
               <Field label="ค่าที่พัก"><Input type="number" value={f.allowance_housing} onChange={(e:any) => set("allowance_housing", e.target.value)} placeholder="0" /></Field>
             </div>
+
+            {/* KPI Bonus */}
+            <div className="border-2 border-emerald-200 bg-emerald-50/50 rounded-2xl p-5 space-y-3">
+              <h4 className="font-bold text-emerald-800 text-sm">ฐาน KPI Bonus</h4>
+              <Field label="ฐาน KPI มาตรฐาน (บาท/เดือน)" hint="เกรด A = x1.2 · เกรด B = x1.0 · เกรด C = x0.8 · ไม่กรอก = ไม่มี KPI">
+                <Input type="number" value={f.kpi_standard_amount} onChange={(e:any) => set("kpi_standard_amount", e.target.value)} placeholder="0" />
+              </Field>
+              {+f.kpi_standard_amount > 0 && (
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-white rounded-xl p-2 border border-emerald-200">
+                    <p className="text-[10px] text-slate-400">เกรด A</p>
+                    <p className="font-bold text-emerald-700 text-sm">฿{Math.round(+f.kpi_standard_amount * 1.2).toLocaleString()}</p>
+                  </div>
+                  <div className="bg-white rounded-xl p-2 border border-emerald-200">
+                    <p className="text-[10px] text-slate-400">เกรด B</p>
+                    <p className="font-bold text-indigo-700 text-sm">฿{(+f.kpi_standard_amount).toLocaleString()}</p>
+                  </div>
+                  <div className="bg-white rounded-xl p-2 border border-emerald-200">
+                    <p className="text-[10px] text-slate-400">เกรด C</p>
+                    <p className="font-bold text-amber-700 text-sm">฿{Math.round(+f.kpi_standard_amount * 0.8).toLocaleString()}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="bg-slate-50 rounded-xl p-4 space-y-2">
               <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเดือนฐาน</span><span className="font-bold text-slate-800">฿{(+f.base_salary||0).toLocaleString()}</span></div>
               <div className="flex justify-between text-sm"><span className="text-slate-500">รวมเบี้ยเลี้ยง</span><span className="font-bold text-slate-800">฿{((+f.allowance_position||0)+(+f.allowance_transport||0)+(+f.allowance_food||0)+(+f.allowance_phone||0)+(+f.allowance_housing||0)).toLocaleString()}</span></div>
               <div className="border-t border-slate-200 pt-2 flex justify-between text-sm"><span className="text-slate-700 font-semibold">รวมทั้งหมด</span><span className="font-black text-indigo-700 text-base">฿{((+f.base_salary||0)+(+f.allowance_position||0)+(+f.allowance_transport||0)+(+f.allowance_food||0)+(+f.allowance_phone||0)+(+f.allowance_housing||0)).toLocaleString()}</span></div>
+              {+f.kpi_standard_amount > 0 && (
+                <div className="flex justify-between text-sm"><span className="text-emerald-600">ฐาน KPI (เกรด B)</span><span className="font-bold text-emerald-700">฿{(+f.kpi_standard_amount).toLocaleString()}</span></div>
+              )}
             </div>
           </div>
         )}
