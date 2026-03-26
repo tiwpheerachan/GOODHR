@@ -23,6 +23,7 @@ export async function POST(req: Request) {
       base_salary, allowance_position, allowance_transport,
       allowance_food, allowance_phone, allowance_housing,
       kpi_standard_amount,
+      supervisor_id,
       role,
     } = body
 
@@ -51,6 +52,7 @@ export async function POST(req: Request) {
       bank_account: bank_account || null, bank_name: bank_name || null,
       tax_id: tax_id || null, social_security_no: social_security_no || null,
       hire_date, probation_end_date: probation_end_date || null,
+      supervisor_id: supervisor_id || null,
       employment_type: employment_type || "full_time",
       employment_status: employment_status || "probation",
       is_active: true,
@@ -68,6 +70,18 @@ export async function POST(req: Request) {
       role: role || "employee",
     })
     if (userErr) return NextResponse.json({ error: userErr.message }, { status: 400 })
+
+    // 3.5 สร้าง employee_manager_history ถ้ามีหัวหน้า
+    if (supervisor_id) {
+      // หา employee_id ของ caller สำหรับ created_by
+      const { data: callerUser } = await supabase.from("users").select("employee_id").eq("id", caller.id).maybeSingle()
+      await supabase.from("employee_manager_history").insert({
+        employee_id: emp.id,
+        manager_id: supervisor_id,
+        effective_from: hire_date,
+        created_by: callerUser?.employee_id ?? null,
+      })
+    }
 
     // 4. สร้าง salary structure ถ้ามี
     if (base_salary) {

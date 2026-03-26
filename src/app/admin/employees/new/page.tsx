@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, Save, Loader2, User, Briefcase, Banknote, ChevronRight,
-  Key, Copy, Check, Eye, EyeOff, RefreshCw, Sparkles,
+  Key, Copy, Check, Eye, EyeOff, RefreshCw, Sparkles, Search, X,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -63,6 +63,9 @@ export default function NewEmployeePage() {
   const [departments, setDepartments] = useState<any[]>([])
   const [positions, setPositions]     = useState<any[]>([])
   const [branches, setBranches]       = useState<any[]>([])
+  const [allEmployees, setAllEmployees] = useState<any[]>([])
+  const [supervisorSearch, setSupervisorSearch] = useState("")
+  const [showSupervisorDropdown, setShowSupervisorDropdown] = useState(false)
   const [showPw, setShowPw]           = useState(false)
   const [copied, setCopied]           = useState<string | null>(null)
   const [created, setCreated]         = useState<{ email: string; password: string; name: string } | null>(null)
@@ -75,7 +78,7 @@ export default function NewEmployeePage() {
     // employment
     employee_code: "", hire_date: "", probation_end_date: "",
     employment_type: "full_time", employment_status: "probation", role: "employee",
-    department_id: "", position_id: "", branch_id: "",
+    department_id: "", position_id: "", branch_id: "", supervisor_id: "",
     // salary
     base_salary: "", allowance_position: "0", allowance_transport: "0",
     allowance_food: "0", allowance_phone: "0", allowance_housing: "0",
@@ -93,12 +96,23 @@ export default function NewEmployeePage() {
       supabase.from("departments").select("id,name").eq("company_id", companyId).order("name"),
       supabase.from("positions").select("id,name").eq("company_id", companyId).order("name"),
       supabase.from("branches").select("id,name").eq("company_id", companyId).order("name"),
-    ]).then(([d, p, b]) => {
+      supabase.from("employees").select("id,first_name_th,last_name_th,nickname,employee_code,position:positions(name)").eq("company_id", companyId).eq("is_active", true).order("first_name_th"),
+    ]).then(([d, p, b, e]) => {
       setDepartments(d.data ?? [])
       setPositions(p.data ?? [])
       setBranches(b.data ?? [])
+      setAllEmployees(e.data ?? [])
     })
   }, [companyId]) // eslint-disable-line
+
+  // Close supervisor dropdown on outside click
+  useEffect(() => {
+    const handler = () => setShowSupervisorDropdown(false)
+    if (showSupervisorDropdown) {
+      const timer = setTimeout(() => document.addEventListener("click", handler), 100)
+      return () => { clearTimeout(timer); document.removeEventListener("click", handler) }
+    }
+  }, [showSupervisorDropdown])
 
   // Auto-calculate probation end (119 days = ~4 months from hire)
   const autoCalcProbation = useCallback(() => {
@@ -401,6 +415,83 @@ export default function NewEmployeePage() {
               </Field>
               <Field label="สิ้นสุดทดลองงาน" hint="คำนวณอัตโนมัติ 120 วัน (แก้ไขได้)">
                 <Input type="date" value={f.probation_end_date} onChange={(e:any) => set("probation_end_date", e.target.value)} />
+              </Field>
+            </div>
+
+            {/* ── หัวหน้า / ผู้อนุมัติ ──────────────────────────── */}
+            <div className="border-2 border-violet-200 bg-violet-50/50 rounded-2xl p-5 space-y-3">
+              <h4 className="font-bold text-violet-800 text-sm">หัวหน้า / ผู้อนุมัติ</h4>
+              <Field label="เลือกหัวหน้างาน" hint="ผู้อนุมัติคำขอลา, OT, การลาออก ฯลฯ">
+                <div className="relative">
+                  {f.supervisor_id ? (
+                    <div className="flex items-center gap-2 bg-white border border-violet-300 rounded-xl px-3.5 py-2.5">
+                      <div className="flex-1 text-sm text-slate-800">
+                        {(() => {
+                          const sup = allEmployees.find((e: any) => e.id === f.supervisor_id)
+                          return sup ? `${sup.first_name_th} ${sup.last_name_th}${sup.nickname ? ` (${sup.nickname})` : ""} — ${sup.employee_code}` : f.supervisor_id
+                        })()}
+                      </div>
+                      <button type="button" onClick={() => { set("supervisor_id", ""); setSupervisorSearch("") }}
+                        className="p-1 hover:bg-red-50 rounded-lg transition-colors">
+                        <X size={14} className="text-red-400"/>
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                        <input
+                          value={supervisorSearch}
+                          onChange={(e) => { setSupervisorSearch(e.target.value); setShowSupervisorDropdown(true) }}
+                          onFocus={() => setShowSupervisorDropdown(true)}
+                          placeholder="ค้นหาชื่อ, รหัสพนักงาน..."
+                          className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3.5 py-2.5 text-sm text-slate-800 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-400/10 transition-all placeholder-slate-300"
+                        />
+                      </div>
+                      {showSupervisorDropdown && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                          {allEmployees
+                            .filter((e: any) => {
+                              if (!supervisorSearch) return true
+                              const q = supervisorSearch.toLowerCase()
+                              return (
+                                e.first_name_th?.toLowerCase().includes(q) ||
+                                e.last_name_th?.toLowerCase().includes(q) ||
+                                e.nickname?.toLowerCase().includes(q) ||
+                                e.employee_code?.toLowerCase().includes(q)
+                              )
+                            })
+                            .slice(0, 20)
+                            .map((e: any) => (
+                              <button key={e.id} type="button"
+                                onClick={() => {
+                                  set("supervisor_id", e.id)
+                                  setSupervisorSearch("")
+                                  setShowSupervisorDropdown(false)
+                                }}
+                                className="w-full text-left px-3.5 py-2 hover:bg-violet-50 transition-colors border-b border-slate-50 last:border-0">
+                                <p className="text-sm font-medium text-slate-800">
+                                  {e.first_name_th} {e.last_name_th}
+                                  {e.nickname && <span className="text-slate-400 ml-1">({e.nickname})</span>}
+                                </p>
+                                <p className="text-[11px] text-slate-400">
+                                  {e.employee_code}{e.position?.name && ` · ${e.position.name}`}
+                                </p>
+                              </button>
+                            ))
+                          }
+                          {allEmployees.filter((e: any) => {
+                            if (!supervisorSearch) return true
+                            const q = supervisorSearch.toLowerCase()
+                            return e.first_name_th?.toLowerCase().includes(q) || e.last_name_th?.toLowerCase().includes(q) || e.nickname?.toLowerCase().includes(q) || e.employee_code?.toLowerCase().includes(q)
+                          }).length === 0 && (
+                            <p className="px-3.5 py-3 text-sm text-slate-400 text-center">ไม่พบพนักงาน</p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </Field>
             </div>
 
