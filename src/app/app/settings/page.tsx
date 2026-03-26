@@ -10,29 +10,29 @@ import toast from "react-hot-toast"
 
 export default function SettingsPage() {
   const { user } = useAuth()
+  const emp = user?.employee as any
+
+  // ── Password state ──
   const [current, setCurrent]   = useState("")
   const [newPw,   setNewPw]     = useState("")
   const [confirm, setConfirm]   = useState("")
   const [showCur, setShowCur]   = useState(false)
   const [showNew, setShowNew]   = useState(false)
   const [showCon, setShowCon]   = useState(false)
-  const [loading, setLoading]   = useState(false)
-  const [success, setSuccess]   = useState(false)
-  const [error,   setError]     = useState<string|null>(null)
+  const [pwLoading, setPwLoading]  = useState(false)
+  const [pwSuccess, setPwSuccess]  = useState(false)
+  const [pwError, setPwError]      = useState<string|null>(null)
 
-  const emp = user?.employee as any
-
-  // ── Validation ──
+  // ── Password validation ──
   const pwLen   = newPw.length >= 6
   const pwMatch = newPw === confirm && confirm.length > 0
   const pwDiff  = newPw !== current || newPw.length === 0
-  const canSubmit = current.length > 0 && pwLen && pwMatch && pwDiff
+  const canPw   = current.length > 0 && pwLen && pwMatch && pwDiff
 
-  const handleSubmit = async () => {
-    if (!canSubmit) return
-    setLoading(true)
-    setError(null)
-
+  // ── Handle password change ──
+  const handlePwSubmit = async () => {
+    if (!canPw) return
+    setPwLoading(true); setPwError(null)
     try {
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
@@ -41,32 +41,12 @@ export default function SettingsPage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || "เปลี่ยนรหัสผ่านไม่สำเร็จ")
-
-      setSuccess(true)
+      setPwSuccess(true)
       setCurrent(""); setNewPw(""); setConfirm("")
       toast.success("เปลี่ยนรหัสผ่านสำเร็จ")
     } catch (e: any) {
-      setError(e.message)
-      toast.error(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  if (success) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-green-50 to-white flex flex-col items-center justify-center px-6">
-        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4 animate-bounce">
-          <CheckCircle2 className="w-10 h-10 text-green-500" />
-        </div>
-        <h2 className="text-xl font-bold text-slate-800 mb-1">เปลี่ยนรหัสผ่านสำเร็จ</h2>
-        <p className="text-sm text-slate-400 mb-6">ระบบได้ส่งอีเมลแจ้งเตือนไปยัง {(user as any)?.email} แล้ว</p>
-        <Link href="/app/profile"
-          className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors">
-          กลับไปหน้าโปรไฟล์
-        </Link>
-      </div>
-    )
+      setPwError(e.message); toast.error(e.message)
+    } finally { setPwLoading(false) }
   }
 
   return (
@@ -77,9 +57,9 @@ export default function SettingsPage() {
           <Link href="/app/profile" className="p-1 -ml-1 rounded-lg hover:bg-white/20 transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </Link>
-          <h1 className="text-lg font-semibold">ตั้งค่า</h1>
+          <h1 className="text-lg font-semibold">ตั้งค่าบัญชี</h1>
         </div>
-        <p className="text-sm text-white/60 ml-8">จัดการบัญชีและความปลอดภัย</p>
+        <p className="text-sm text-white/60 ml-8">จัดการรหัสผ่านเข้าสู่ระบบ</p>
       </div>
 
       <div className="px-4 -mt-3 space-y-4">
@@ -109,115 +89,128 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* Change password form */}
+        {/* ═══════════════════════════════════════════════════════
+            เปลี่ยนรหัสผ่าน
+        ═══════════════════════════════════════════════════════ */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
           <div className="flex items-center gap-2 mb-4">
             <KeyRound className="w-5 h-5 text-slate-600" />
             <h2 className="text-sm font-bold text-slate-800">เปลี่ยนรหัสผ่าน</h2>
           </div>
 
-          {/* Current password */}
-          <div className="mb-4">
-            <label className="text-xs font-medium text-slate-500 mb-1.5 block">รหัสผ่านปัจจุบัน *</label>
-            <div className="relative">
-              <input
-                type={showCur ? "text" : "password"}
-                value={current}
-                onChange={e => setCurrent(e.target.value)}
-                placeholder="กรอกรหัสผ่านเดิม"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 pr-10 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all"
-              />
-              <button onClick={() => setShowCur(!showCur)} type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                {showCur ? <EyeOff size={16}/> : <Eye size={16}/>}
-              </button>
+          {pwSuccess ? (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+              <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2" />
+              <p className="text-sm font-bold text-green-800">เปลี่ยนรหัสผ่านสำเร็จ</p>
+              <p className="text-xs text-slate-400 mt-1">ระบบได้ส่งอีเมลแจ้งเตือนไปยัง {(user as any)?.email} แล้ว</p>
+              <button onClick={() => setPwSuccess(false)}
+                className="mt-3 text-xs text-indigo-600 underline">เปลี่ยนอีกครั้ง</button>
             </div>
-          </div>
-
-          {/* New password */}
-          <div className="mb-4">
-            <label className="text-xs font-medium text-slate-500 mb-1.5 block">รหัสผ่านใหม่ *</label>
-            <div className="relative">
-              <input
-                type={showNew ? "text" : "password"}
-                value={newPw}
-                onChange={e => setNewPw(e.target.value)}
-                placeholder="อย่างน้อย 6 ตัวอักษร"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 pr-10 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all"
-              />
-              <button onClick={() => setShowNew(!showNew)} type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                {showNew ? <EyeOff size={16}/> : <Eye size={16}/>}
-              </button>
-            </div>
-            {/* Strength indicators */}
-            {newPw.length > 0 && (
-              <div className="flex gap-1 mt-2">
-                <div className={`h-1 flex-1 rounded-full ${newPw.length >= 2 ? "bg-red-400" : "bg-slate-200"}`}/>
-                <div className={`h-1 flex-1 rounded-full ${newPw.length >= 6 ? "bg-amber-400" : "bg-slate-200"}`}/>
-                <div className={`h-1 flex-1 rounded-full ${newPw.length >= 8 && /[A-Z]/.test(newPw) && /[0-9]/.test(newPw) ? "bg-green-400" : "bg-slate-200"}`}/>
+          ) : (
+            <>
+              {/* Current password */}
+              <div className="mb-4">
+                <label className="text-xs font-medium text-slate-500 mb-1.5 block">รหัสผ่านปัจจุบัน *</label>
+                <div className="relative">
+                  <input
+                    type={showCur ? "text" : "password"}
+                    value={current}
+                    onChange={e => setCurrent(e.target.value)}
+                    placeholder="กรอกรหัสผ่านเดิม"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 pr-10 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all"
+                  />
+                  <button onClick={() => setShowCur(!showCur)} type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {showCur ? <EyeOff size={16}/> : <Eye size={16}/>}
+                  </button>
+                </div>
               </div>
-            )}
-            {newPw.length > 0 && !pwLen && (
-              <p className="text-[10px] text-red-500 mt-1">ต้องมีอย่างน้อย 6 ตัวอักษร</p>
-            )}
-            {newPw.length > 0 && current.length > 0 && !pwDiff && (
-              <p className="text-[10px] text-red-500 mt-1">รหัสใหม่ต้องไม่ซ้ำกับรหัสเดิม</p>
-            )}
-          </div>
 
-          {/* Confirm password */}
-          <div className="mb-4">
-            <label className="text-xs font-medium text-slate-500 mb-1.5 block">ยืนยันรหัสผ่านใหม่ *</label>
-            <div className="relative">
-              <input
-                type={showCon ? "text" : "password"}
-                value={confirm}
-                onChange={e => setConfirm(e.target.value)}
-                placeholder="กรอกรหัสผ่านใหม่อีกครั้ง"
-                className={`w-full bg-slate-50 border rounded-xl px-3 py-2.5 pr-10 text-sm text-slate-700 outline-none focus:ring-2 transition-all ${
-                  confirm.length > 0 && !pwMatch
-                    ? "border-red-300 focus:border-red-400 focus:ring-red-400/10"
-                    : confirm.length > 0 && pwMatch
-                    ? "border-green-300 focus:border-green-400 focus:ring-green-400/10"
-                    : "border-slate-200 focus:border-indigo-400 focus:ring-indigo-400/10"
-                }`}
-              />
-              <button onClick={() => setShowCon(!showCon)} type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                {showCon ? <EyeOff size={16}/> : <Eye size={16}/>}
+              {/* New password */}
+              <div className="mb-4">
+                <label className="text-xs font-medium text-slate-500 mb-1.5 block">รหัสผ่านใหม่ *</label>
+                <div className="relative">
+                  <input
+                    type={showNew ? "text" : "password"}
+                    value={newPw}
+                    onChange={e => setNewPw(e.target.value)}
+                    placeholder="อย่างน้อย 6 ตัวอักษร"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 pr-10 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all"
+                  />
+                  <button onClick={() => setShowNew(!showNew)} type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {showNew ? <EyeOff size={16}/> : <Eye size={16}/>}
+                  </button>
+                </div>
+                {newPw.length > 0 && (
+                  <div className="flex gap-1 mt-2">
+                    <div className={`h-1 flex-1 rounded-full ${newPw.length >= 2 ? "bg-red-400" : "bg-slate-200"}`}/>
+                    <div className={`h-1 flex-1 rounded-full ${newPw.length >= 6 ? "bg-amber-400" : "bg-slate-200"}`}/>
+                    <div className={`h-1 flex-1 rounded-full ${newPw.length >= 8 && /[A-Z]/.test(newPw) && /[0-9]/.test(newPw) ? "bg-green-400" : "bg-slate-200"}`}/>
+                  </div>
+                )}
+                {newPw.length > 0 && !pwLen && (
+                  <p className="text-[10px] text-red-500 mt-1">ต้องมีอย่างน้อย 6 ตัวอักษร</p>
+                )}
+                {newPw.length > 0 && current.length > 0 && !pwDiff && (
+                  <p className="text-[10px] text-red-500 mt-1">รหัสใหม่ต้องไม่ซ้ำกับรหัสเดิม</p>
+                )}
+              </div>
+
+              {/* Confirm password */}
+              <div className="mb-4">
+                <label className="text-xs font-medium text-slate-500 mb-1.5 block">ยืนยันรหัสผ่านใหม่ *</label>
+                <div className="relative">
+                  <input
+                    type={showCon ? "text" : "password"}
+                    value={confirm}
+                    onChange={e => setConfirm(e.target.value)}
+                    placeholder="กรอกรหัสผ่านใหม่อีกครั้ง"
+                    className={`w-full bg-slate-50 border rounded-xl px-3 py-2.5 pr-10 text-sm text-slate-700 outline-none focus:ring-2 transition-all ${
+                      confirm.length > 0 && !pwMatch
+                        ? "border-red-300 focus:border-red-400 focus:ring-red-400/10"
+                        : confirm.length > 0 && pwMatch
+                        ? "border-green-300 focus:border-green-400 focus:ring-green-400/10"
+                        : "border-slate-200 focus:border-indigo-400 focus:ring-indigo-400/10"
+                    }`}
+                  />
+                  <button onClick={() => setShowCon(!showCon)} type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {showCon ? <EyeOff size={16}/> : <Eye size={16}/>}
+                  </button>
+                </div>
+                {confirm.length > 0 && !pwMatch && (
+                  <p className="text-[10px] text-red-500 mt-1">รหัสผ่านไม่ตรงกัน</p>
+                )}
+                {confirm.length > 0 && pwMatch && (
+                  <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
+                    <CheckCircle2 size={10}/> รหัสผ่านตรงกัน
+                  </p>
+                )}
+              </div>
+
+              {/* Error */}
+              {pwError && (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 mb-4">
+                  <AlertTriangle size={14} className="text-red-500 flex-shrink-0"/>
+                  <p className="text-xs text-red-600">{pwError}</p>
+                </div>
+              )}
+
+              {/* Submit */}
+              <button
+                onClick={handlePwSubmit}
+                disabled={!canPw || pwLoading}
+                className="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium text-sm shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:shadow-none hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+              >
+                {pwLoading ? (
+                  <><Loader2 className="w-4 h-4 animate-spin"/> กำลังเปลี่ยนรหัสผ่าน...</>
+                ) : (
+                  <><Lock className="w-4 h-4"/> เปลี่ยนรหัสผ่าน</>
+                )}
               </button>
-            </div>
-            {confirm.length > 0 && !pwMatch && (
-              <p className="text-[10px] text-red-500 mt-1">รหัสผ่านไม่ตรงกัน</p>
-            )}
-            {confirm.length > 0 && pwMatch && (
-              <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
-                <CheckCircle2 size={10}/> รหัสผ่านตรงกัน
-              </p>
-            )}
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 mb-4">
-              <AlertTriangle size={14} className="text-red-500 flex-shrink-0"/>
-              <p className="text-xs text-red-600">{error}</p>
-            </div>
+            </>
           )}
-
-          {/* Submit */}
-          <button
-            onClick={handleSubmit}
-            disabled={!canSubmit || loading}
-            className="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium text-sm shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:shadow-none hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <><Loader2 className="w-4 h-4 animate-spin"/> กำลังเปลี่ยนรหัสผ่าน...</>
-            ) : (
-              <><Lock className="w-4 h-4"/> เปลี่ยนรหัสผ่าน</>
-            )}
-          </button>
         </div>
 
         {/* Forgot password hint */}

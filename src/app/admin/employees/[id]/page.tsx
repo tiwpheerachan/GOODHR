@@ -80,14 +80,13 @@ export default function EmployeeDetailPage() {
   const saveEmployee = async () => {
     setLoading(true)
     const emailChanged = form.email && form.email !== (emp?.email || "")
-    const oldEmail = emp?.email || ""
 
-    // ── ถ้าอีเมลเปลี่ยน → เรียก API เปลี่ยน auth ก่อน (ต้องทำก่อน update employees!) ──
+    // ── ถ้าอีเมลเปลี่ยน → เรียก API เปลี่ยน auth + users + employees ──
     if (emailChanged) {
       try {
         const res = await fetch("/api/auth/change-email", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee_id: id, new_email: form.email, old_email: oldEmail }),
+          body: JSON.stringify({ employee_id: id, new_email: form.email.trim().toLowerCase() }),
         })
         const d = await res.json()
         if (!res.ok) {
@@ -274,9 +273,18 @@ export default function EmployeeDetailPage() {
         {tab === 1 && <>
           <h3 className="font-bold text-slate-800 mb-4">ข้อมูลส่วนตัว</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[["first_name_th","ชื่อ (ไทย)"],["last_name_th","นามสกุล (ไทย)"],["first_name_en","ชื่อ (EN)"],["last_name_en","นามสกุล (EN)"],["nickname","ชื่อเล่น"],["phone","เบอร์โทร"],["email","อีเมล"],["national_id","บัตรประชาชน"],["bank_account","เลขบัญชี"],["bank_name","ธนาคาร"]].map(([k,l]) => (
+            {[["first_name_th","ชื่อ (ไทย)"],["last_name_th","นามสกุล (ไทย)"],["first_name_en","ชื่อ (EN)"],["last_name_en","นามสกุล (EN)"],["nickname","ชื่อเล่น"],["phone","เบอร์โทร"],["national_id","บัตรประชาชน"],["bank_account","เลขบัญชี"],["bank_name","ธนาคาร"]].map(([k,l]) => (
               <div key={k}><label className="block text-sm font-medium text-slate-700 mb-1.5">{l}</label><input value={form[k]||""} onChange={e => set(k,e.target.value)} className={inp}/></div>
             ))}
+            {/* อีเมล — แสดงแยกเพื่อบอกว่ากระทบระบบล็อกอิน */}
+            <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <label className="block text-sm font-bold text-blue-800 mb-1">อีเมล (ใช้เข้าสู่ระบบ)</label>
+              <p className="text-[11px] text-blue-600 mb-2">การเปลี่ยนอีเมลจะอัปเดตอีเมลล็อกอินของพนักงานด้วย — พนักงานต้องใช้อีเมลใหม่ในการเข้าสู่ระบบ</p>
+              <input value={form.email||""} onChange={e => set("email",e.target.value)} placeholder="example@company.com" className={inp + " border-blue-300 focus:border-blue-500"}/>
+              {form.email && form.email !== (emp?.email || "") && (
+                <p className="text-[11px] text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle size={10}/> จะเปลี่ยนจาก {emp?.email || "ไม่มี"} → {form.email}</p>
+              )}
+            </div>
             <div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1.5">ที่อยู่</label><textarea value={form.address||""} onChange={e => set("address",e.target.value)} className={inp + " h-20 resize-none"}/></div>
           </div>
           <button onClick={saveEmployee} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>

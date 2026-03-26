@@ -64,6 +64,7 @@ export default function OrgMapPage() {
   const [addLocBranch, setAddLocBranch] = useState("")
   const [dragEmpId, setDragEmpId] = useState<string | null>(null)
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null) // "dept:xxx" or "mgr:xxx"
+  const [showSubModal, setShowSubModal] = useState(false)
 
   useEffect(() => {
     if (!isSA) return
@@ -368,6 +369,155 @@ export default function OrgMapPage() {
     if (r.success) { toast.success("ลบที่เช็คอินแล้ว"); load() } else toast.error(r.error)
   }
 
+  // ── Subordinate Picker Modal (ค้นหา + เลือกหลายคน) ──
+  const SubordinateModal = () => {
+    const [subSearch, setSubSearch] = useState("")
+    const [picked, setPicked] = useState<Set<string>>(new Set())
+    const [submitting, setSubmitting] = useState(false)
+
+    if (!showSubModal || !selected) return null
+    const e = selected
+
+    // รายชื่อที่เลือกได้: ไม่ใช่ตัวเอง + ยังไม่เป็นลูกน้องอยู่แล้ว
+    const candidates = employees
+      .filter(m => m.id !== e.id && m.supervisor_id !== e.id)
+      .sort((a, b) => a.first_name_th.localeCompare(b.first_name_th))
+
+    // ค้นหา
+    const q = subSearch.toLowerCase()
+    const filtered = q
+      ? candidates.filter(m =>
+          `${m.first_name_th} ${m.last_name_th} ${m.nickname} ${m.employee_code} ${m.position?.name} ${m.department?.name}`.toLowerCase().includes(q)
+        )
+      : candidates
+
+    const toggle = (id: string) => {
+      setPicked(prev => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+    }
+
+    const handleConfirm = async () => {
+      if (picked.size === 0) return
+      const names = Array.from(picked).map(id => employees.find(x => x.id === id)?.first_name_th || "").join(", ")
+      if (!confirm(`เพิ่ม ${picked.size} คน (${names}) เป็นลูกน้องของ ${e.first_name_th}?`)) return
+      setSubmitting(true)
+      await assignSubordinates(e.id, Array.from(picked))
+      setSubmitting(false)
+      setShowSubModal(false)
+    }
+
+    return (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowSubModal(false)}>
+        <div onClick={ev => ev.stopPropagation()} className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg mx-4 overflow-hidden">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-4 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-black text-base">เพิ่มลูกน้อง</p>
+                <p className="text-xs text-white/70 mt-0.5">เลือกพนักงานเข้าทีมของ {e.first_name_th} {e.nickname ? `(${e.nickname})` : ""}</p>
+              </div>
+              <button onClick={() => setShowSubModal(false)} className="p-1.5 hover:bg-white/20 rounded-lg"><X size={18}/></button>
+            </div>
+          </div>
+
+          {/* Search */}
+          <div className="px-5 pt-4 pb-2">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+              <input
+                autoFocus
+                value={subSearch}
+                onChange={ev => setSubSearch(ev.target.value)}
+                placeholder="ค้นหาชื่อ, นามสกุล, ชื่อเล่น, รหัส, ตำแหน่ง..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10"
+              />
+            </div>
+            {picked.size > 0 && (
+              <p className="text-xs font-bold text-indigo-600 mt-2">เลือกแล้ว {picked.size} คน</p>
+            )}
+          </div>
+
+          {/* List */}
+          <div className="px-5 pb-2 max-h-[50vh] overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="text-center text-sm text-slate-400 py-8">ไม่พบพนักงาน</p>
+            ) : (
+              <div className="space-y-1">
+                {filtered.map(m => {
+                  const isPicked = picked.has(m.id)
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => toggle(m.id)}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
+                        isPicked
+                          ? "bg-indigo-50 ring-2 ring-indigo-400"
+                          : "bg-white hover:bg-slate-50 border border-transparent hover:border-slate-200"
+                      }`}
+                    >
+                      {/* Checkbox */}
+                      <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                        isPicked ? "bg-indigo-600 border-indigo-600" : "border-slate-300"
+                      }`}>
+                        {isPicked && <Check size={12} className="text-white"/>}
+                      </div>
+
+                      {/* Avatar */}
+                      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-slate-500 to-slate-700 text-white flex items-center justify-center text-xs font-black flex-shrink-0 overflow-hidden">
+                        {m.avatar_url ? <img src={m.avatar_url} className="w-full h-full object-cover"/> : m.first_name_th?.[0]}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-slate-800 truncate">
+                          {m.first_name_th} {m.last_name_th}
+                          {m.nickname ? <span className="text-slate-400 font-normal ml-1">({m.nickname})</span> : ""}
+                        </p>
+                        <p className="text-[10px] text-slate-400 truncate">
+                          {m.position?.name || m.employee_code} · {m.department?.name || "ไม่ระบุแผนก"}
+                        </p>
+                      </div>
+
+                      {/* Current supervisor badge */}
+                      {m.supervisor_id && (
+                        <span className="text-[8px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md flex-shrink-0">
+                          หน.{employees.find(x => x.id === m.supervisor_id)?.first_name_th || "?"}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between gap-3">
+            <p className="text-xs text-slate-400">{filtered.length} คน จากทั้งหมด {candidates.length} คน</p>
+            <div className="flex gap-2">
+              <button onClick={() => setShowSubModal(false)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50">
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={picked.size === 0 || submitting}
+                className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 disabled:opacity-40 hover:bg-indigo-700 transition-all flex items-center gap-1.5"
+              >
+                {submitting ? <Loader2 size={14} className="animate-spin"/> : <Check size={14}/>}
+                เพิ่ม {picked.size > 0 ? `${picked.size} คน` : ""}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // ── Detail Popup ──
   const DetailPopup = () => {
     if (!selected) return null
@@ -560,30 +710,13 @@ export default function OrgMapPage() {
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
               <Users size={10}/> กำหนดลูกน้อง (เพิ่มคนเข้าทีมของ {e.first_name_th})
             </p>
-            <select
-              onChange={ev => {
-                const eid = ev.target.value
-                if (!eid) return
-                if (!confirm(`เพิ่ม ${employees.find(x => x.id === eid)?.first_name_th || ""} เป็นลูกน้องของ ${e.first_name_th}?`)) {
-                  ev.target.value = ""
-                  return
-                }
-                assignSubordinates(e.id, [eid]).then(() => { ev.target.value = "" })
-              }}
+            <button
+              onClick={() => setShowSubModal(true)}
               disabled={saving}
-              className="w-full bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1.5 text-[10px] font-bold text-indigo-800 outline-none"
+              className="w-full bg-indigo-50 border border-indigo-200 border-dashed rounded-lg px-3 py-2.5 text-xs font-bold text-indigo-600 hover:bg-indigo-100 hover:border-indigo-400 transition-all flex items-center justify-center gap-1.5"
             >
-              <option value="">+ เลือกพนักงานเพิ่มเป็นลูกน้อง...</option>
-              {employees
-                .filter(m => m.id !== e.id && m.supervisor_id !== e.id)
-                .sort((a, b) => a.first_name_th.localeCompare(b.first_name_th))
-                .map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.first_name_th} {m.last_name_th} {m.nickname ? `(${m.nickname})` : ""} · {m.position?.name || ""} [{m.department?.name || "ไม่ระบุ"}]
-                  </option>
-                ))
-              }
-            </select>
+              <Plus size={14}/> เลือกพนักงานเพิ่มเป็นลูกน้อง...
+            </button>
 
             {/* Quick: รับทีมจากหัวหน้าอื่น */}
             {(() => {
@@ -752,6 +885,7 @@ export default function OrgMapPage() {
 
       {/* Detail popup */}
       <DetailPopup/>
+      <SubordinateModal/>
     </div>
   )
 }

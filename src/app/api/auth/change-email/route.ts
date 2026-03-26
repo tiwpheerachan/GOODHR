@@ -1,30 +1,48 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import type { User } from "@supabase/supabase-js"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
-// ── POST: เปลี่ยนอีเมลพนักงาน (Admin only) ──────────────────
-// อัพเดททั้ง Supabase Auth + employees table + users table
+// ── helper: ดึง auth users ทั้งหมด (pagination) ──
+async function getAllAuthUsers(supa: SupabaseClient): Promise<User[]> {
+  const all: User[] = []
+  let page = 1
+  while (true) {
+    const { data: { users }, error } = await supa.auth.admin.listUsers({
+      page,
+      perPage: 500,
+    })
+    if (error || !users || users.length === 0) break
+    all.push(...users)
+    if (users.length < 500) break
+    page++
+  }
+  return all
+}
+
+// ── helper: หา auth user จาก email (case-insensitive) ──
+async function findAuthUserByEmail(
+  supa: SupabaseClient,
+  email: string
+): Promise<User | null> {
+  const target = email.trim().toLowerCase()
+  const allUsers = await getAllAuthUsers(supa)
+  return allUsers.find(u => u.email?.toLowerCase() === target) ?? null
+}
+
+// ── POST: เปลี่ยนอีเมลล็อกอิน (Admin เท่านั้น) ──────────────────
+// Admin → ส่ง employee_id + new_email
 export async function POST(req: Request) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const supa = createServiceClient()
+  const body = await req.json()
+  const { employee_id, new_email } = body
 
-  // ── ตรวจสิทธิ์ admin ──
-  const { data: adminData } = await supa
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .single()
-
-  if (!adminData || !["super_admin", "hr_admin"].includes(adminData.role)) {
-    return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
-  }
-
-  const { employee_id, new_email, old_email } = await req.json()
-
-  if (!employee_id || !new_email) {
-    return NextResponse.json({ error: "กรุณาระบุ employee_id และ new_email" }, { status: 400 })
+  if (!new_email) {
+    return NextResponse.json({ error: "กรุณาระบุอีเมลใหม่" }, { status: 400 })
   }
 
   // ── validate email format ──
@@ -33,117 +51,153 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "รูปแบบอีเมลไม่ถูกต้อง" }, { status: 400 })
   }
 
-  // ── หา auth user ──
-  let authUserId: string | null = null
-  let foundEmail: string | null = null
+  // ── normalize ──
+  const normalizedEmail = new_email.trim().toLowerCase()
 
-  // วิธี 1: หาจาก users.employee_id
-  const { data: userData } = await supa
+  // ── ตรวจสิทธิ์: เฉพาะ admin เท่านั้น ──
+  const { data: callerData } = await supa
+    .from("users")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle()
+
+  const isAdmin = callerData && ["super_admin", "hr_admin"].includes(callerData.role)
+  if (!isAdmin) {
+    return NextResponse.json({ error: "เฉพาะแอดมินเท่านั้นที่สามารถเปลี่ยนอีเมลได้" }, { status: 403 })
+  }
+
+  if (!employee_id) {
+    return NextResponse.json({ error: "กรุณาระบุ employee_id" }, { status: 400 })
+  }
+
+  // ── กำหนด target ──
+  let targetAuthId: string
+  const targetEmployeeId: string = employee_id
+  let oldEmail: string
+
+  // ── Lookup 1: users table → employee_id ──
+  const { data: targetUser } = await supa
     .from("users")
     .select("id, email")
     .eq("employee_id", employee_id)
     .maybeSingle()
 
-  if (userData) {
-    authUserId = userData.id
-    foundEmail = userData.email
-  }
-
-  // วิธี 2: หาจาก old_email ที่ส่งมา → match กับ users table
-  if (!authUserId && old_email) {
-    const { data: userByOldEmail } = await supa
-      .from("users")
-      .select("id, email")
-      .eq("email", old_email)
-      .maybeSingle()
-
-    if (userByOldEmail) {
-      authUserId = userByOldEmail.id
-      foundEmail = userByOldEmail.email
-      // เชื่อม employee_id ให้ด้วย
-      await supa.from("users").update({ employee_id }).eq("id", userByOldEmail.id)
-    }
-  }
-
-  // วิธี 3: หาจากอีเมลเดิมของ employee ใน employees table
-  if (!authUserId) {
+  if (targetUser) {
+    targetAuthId = targetUser.id
+    oldEmail = targetUser.email || ""
+  } else {
+    // ── ดึง email จาก employees table ──
     const { data: empData } = await supa
       .from("employees")
       .select("email")
       .eq("id", employee_id)
       .maybeSingle()
 
-    const empEmail = empData?.email
-    if (empEmail) {
-      const { data: userByEmpEmail } = await supa
+    if (empData?.email) {
+      const empEmailLower = empData.email.trim().toLowerCase()
+
+      // ── Lookup 2: users table → email (case-insensitive) ──
+      const { data: usersMatchList } = await supa
         .from("users")
         .select("id, email")
-        .eq("email", empEmail)
-        .maybeSingle()
 
-      if (userByEmpEmail) {
-        authUserId = userByEmpEmail.id
-        foundEmail = userByEmpEmail.email
-        await supa.from("users").update({ employee_id }).eq("id", userByEmpEmail.id)
-      }
-    }
-  }
+      const userByEmail = (usersMatchList ?? []).find(
+        u => u.email?.toLowerCase() === empEmailLower
+      )
 
-  // วิธี 4: ค้น auth.users โดยตรงผ่าน database function (ต้องรัน supabase_auth_helper.sql ก่อน)
-  if (!authUserId) {
-    const lookupEmail = old_email || (await supa.from("employees").select("email").eq("id", employee_id).maybeSingle())?.data?.email
-    if (lookupEmail) {
-      try {
-        const { data: authId } = await supa.rpc("get_auth_user_by_email", { lookup_email: lookupEmail })
-        if (authId) {
-          authUserId = authId
-          foundEmail = lookupEmail
+      if (userByEmail) {
+        targetAuthId = userByEmail.id
+        oldEmail = userByEmail.email || empData.email
+        // เชื่อม employee_id ให้ด้วย
+        await supa.from("users").update({ employee_id }).eq("id", userByEmail.id)
+      } else {
+        // ── Lookup 3: ค้นหาใน Supabase Auth โดยตรง (ทุก page) ──
+        const authMatch = await findAuthUserByEmail(supa, empData.email)
+
+        if (authMatch) {
+          targetAuthId = authMatch.id
+          oldEmail = authMatch.email || empData.email
+          // สร้าง record ใน users table เชื่อมกับ employee
+          await supa.from("users").upsert({
+            id: authMatch.id,
+            email: authMatch.email,
+            employee_id,
+            role: "employee",
+          }, { onConflict: "id" })
+        } else {
+          return NextResponse.json({
+            error: `ไม่พบบัญชีล็อกอินของพนักงานนี้ (อีเมลใน employees: ${empData.email}) — กรุณาสร้างบัญชีล็อกอินให้พนักงานก่อน`,
+          }, { status: 404 })
         }
-      } catch {
-        // function ยังไม่ได้สร้าง — ข้ามไป
+      }
+    } else {
+      // employees ไม่มี email → ลอง match ด้วย user_metadata
+      const allUsers = await getAllAuthUsers(supa)
+      const authMatch2 = allUsers.find(
+        u => (u.user_metadata as Record<string, unknown>)?.employee_id === employee_id
+      )
+      if (authMatch2) {
+        targetAuthId = authMatch2.id
+        oldEmail = authMatch2.email || ""
+        await supa.from("users").upsert({
+          id: authMatch2.id,
+          email: authMatch2.email,
+          employee_id,
+          role: "employee",
+        }, { onConflict: "id" })
+      } else {
+        return NextResponse.json({
+          error: "ไม่พบบัญชีล็อกอินของพนักงานนี้ — กรุณาสร้างบัญชีล็อกอินให้พนักงานก่อน",
+        }, { status: 404 })
       }
     }
   }
 
-  if (!authUserId) {
-    return NextResponse.json({
-      error: `ไม่พบบัญชีล็อกอินของพนักงานนี้ (ค้นด้วย old_email: ${old_email || "ไม่มี"})`,
-    }, { status: 404 })
-  }
-
-  // ── ตรวจว่าอีเมลใหม่ไม่ซ้ำกับคนอื่น ──
+  // ── ตรวจว่าอีเมลใหม่ไม่ซ้ำ (ทั้ง users table + Supabase Auth) ──
   const { data: existing } = await supa
     .from("users")
     .select("id")
-    .eq("email", new_email)
-    .neq("id", authUserId)
+    .eq("email", normalizedEmail)
+    .neq("id", targetAuthId)
     .maybeSingle()
 
   if (existing) {
     return NextResponse.json({ error: "อีเมลนี้ถูกใช้งานในระบบแล้ว" }, { status: 409 })
   }
 
-  // ── Step 1: อัพเดท Supabase Auth (อีเมลล็อกอิน) ──
-  const { error: authErr } = await supa.auth.admin.updateUserById(authUserId, {
-    email: new_email,
+  // ตรวจใน Supabase Auth ด้วย (ทุก page)
+  const allAuthForDupCheck = await getAllAuthUsers(supa)
+  const authDup = allAuthForDupCheck.find(
+    u => u.email?.toLowerCase() === normalizedEmail && u.id !== targetAuthId
+  )
+  if (authDup) {
+    return NextResponse.json({ error: "อีเมลนี้ถูกใช้งานในระบบแล้ว" }, { status: 409 })
+  }
+
+  // ── Step 1: อัพเดท Supabase Auth ──
+  const { error: authErr } = await supa.auth.admin.updateUserById(targetAuthId, {
+    email: normalizedEmail,
     email_confirm: true,
   })
-
   if (authErr) {
     return NextResponse.json({ error: `Auth error: ${authErr.message}` }, { status: 500 })
   }
 
   // ── Step 2: อัพเดท users table ──
-  await supa.from("users").update({ email: new_email, employee_id }).eq("id", authUserId)
+  await supa
+    .from("users")
+    .update({ email: normalizedEmail })
+    .eq("id", targetAuthId)
 
-  // ── Step 3: อัพเดท employees table ──
-  await supa.from("employees").update({ email: new_email }).eq("id", employee_id)
+  // ── Step 3: อัพเดท employees table (ถ้ามี employee_id) ──
+  if (targetEmployeeId) {
+    await supa.from("employees").update({ email: normalizedEmail }).eq("id", targetEmployeeId)
+  }
 
   return NextResponse.json({
     success: true,
-    message: `เปลี่ยนอีเมลล็อกอินสำเร็จ: ${foundEmail} → ${new_email}`,
-    old_email: foundEmail,
-    new_email,
-    auth_updated: true,
+    message: `เปลี่ยนอีเมลล็อกอินสำเร็จ: ${oldEmail} → ${normalizedEmail}`,
+    old_email: oldEmail,
+    new_email: normalizedEmail,
   })
 }

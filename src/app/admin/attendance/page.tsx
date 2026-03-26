@@ -264,6 +264,7 @@ export default function AdminAttendancePage() {
   const [kpi,          setKpi]          = useState({present:0,late:0,absent:0,leave:0})
   const [exporting,    setExporting]    = useState(false)
   const [offsitePending, setOffsitePending] = useState(0)
+  const [markingAbsent, setMarkingAbsent] = useState(false)
   const [listFilters,  setListFilters]  = useState({
     start:  format(subDays(new Date(),7),"yyyy-MM-dd"),
     end:    today, status:"", dept:"", search:"",
@@ -311,6 +312,28 @@ export default function AdminAttendancePage() {
       setOffsitePending(osRes.count??0)
     } catch(e) { console.error("Load KPI error:", e) }
   },[activeCid,today])
+
+  // ── Mark absent: สร้าง record ขาดงานย้อนหลัง ──────────────────
+  const handleMarkAbsent = useCallback(async()=>{
+    if(markingAbsent) return
+    setMarkingAbsent(true)
+    try {
+      // backfill จากต้นเดือนถึงเมื่อวาน
+      const from = format(startOfMonth(new Date()),"yyyy-MM-dd")
+      const res = await fetch("/api/attendance/backfill-absent",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ from }),
+      })
+      const json = await res.json()
+      if(!res.ok) throw new Error(json.error||"เกิดข้อผิดพลาด")
+      toast.success(`Mark absent สำเร็จ: ${json.marked} records`)
+      // reload data
+      loadList(); loadKpi()
+    } catch(e:any) {
+      toast.error(e.message||"เกิดข้อผิดพลาด")
+    } finally { setMarkingAbsent(false) }
+  },[markingAbsent])
 
   // ── LIST: load records ────────────────────────────────────────
   const loadList = useCallback(async()=>{
@@ -467,6 +490,10 @@ export default function AdminAttendancePage() {
           <button onClick={()=>{loadList();loadAdj();loadKpi()}} disabled={loadingList}
             className="flex items-center gap-2 px-3 py-2.5 border border-slate-200 bg-white rounded-xl text-sm text-slate-500 hover:bg-slate-50 transition-colors">
             <RefreshCw size={13} className={loadingList?"animate-spin":""}/>
+          </button>
+          <button onClick={handleMarkAbsent} disabled={markingAbsent}
+            className="flex items-center gap-2 px-3 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold rounded-xl shadow-sm shadow-rose-200 transition-colors disabled:opacity-50">
+            <AlertTriangle size={13} className={markingAbsent?"animate-pulse":""}/>{markingAbsent?"กำลัง Mark…":"Mark ขาดงาน"}
           </button>
           <button onClick={activeTab==="list"?handleExportList:()=>exportSummaryXLSX(`รายงานการเข้างาน – ${viewMode==="department"?"ตามแผนก":viewMode==="branch"?"ตามสาขา":"ภาพรวม"}`,summaryRows,filteredEmps,periodLabel)}
             disabled={exporting}
