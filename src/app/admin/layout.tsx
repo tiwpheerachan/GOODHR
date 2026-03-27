@@ -59,7 +59,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       })
     }
     load()
-  }, [user]) // eslint-disable-line
+    const iv = setInterval(load, 30_000) // refresh ทุก 30 วินาที
+    return () => clearInterval(iv)
+  }, [user, pathname]) // eslint-disable-line
 
   const emp         = user?.employee
   const avatarUrl   = emp?.avatar_url

@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, Save, Loader2, Plus, MapPin, Check, X, Building2, Trash2,
   Clock, Calendar, DollarSign, BarChart2, User2, ChevronRight, CalendarClock,
-  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History
+  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History, Globe
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -1146,19 +1146,23 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
   const [showCustom,    setShowCustom]    = useState(false)
   const [customForm,    setCustomForm]    = useState({ name:"", lat:"", lng:"", radius:"200" })
   const [savingCustom,  setSavingCustom]  = useState(false)
+  const [checkinAnywhere, setCheckinAnywhere] = useState(false)
+  const [savingAnywhere,  setSavingAnywhere]  = useState(false)
 
   const load = useCallback(async () => {
-    const [{ data: allCompanyBranches }, { data: companiesList }, { data: allowed }] = await Promise.all([
+    const [{ data: allCompanyBranches }, { data: companiesList }, { data: allowed }, { data: empData }] = await Promise.all([
       // ดึงสาขาจาก ทุกบริษัท
       supabase.from("branches").select("id,name,address,latitude,longitude,geo_radius_m,company_id").eq("is_active", true).order("name"),
       supabase.from("companies").select("id,name_th,code").eq("is_active", true).order("name_th"),
       supabase.from("employee_allowed_locations")
         .select("id,branch_id,custom_name,custom_lat,custom_lng,custom_radius_m,branch:branches(id,name,geo_radius_m)")
         .eq("employee_id", employeeId),
+      supabase.from("employees").select("checkin_anywhere").eq("id", employeeId).maybeSingle(),
     ])
     setAllBranches(allCompanyBranches ?? [])
     setBranchCompanies(companiesList ?? [])
     setAllowedRows(allowed ?? [])
+    setCheckinAnywhere(!!(empData as any)?.checkin_anywhere)
   }, [employeeId])
 
   useEffect(() => { load() }, [load])
@@ -1222,6 +1226,17 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
 
   const customRows = allowedRows.filter(r => !r.branch_id)
 
+  const toggleAnywhere = async () => {
+    setSavingAnywhere(true)
+    const newVal = !checkinAnywhere
+    const { error } = await supabase.from("employees").update({ checkin_anywhere: newVal }).eq("id", employeeId)
+    if (error) { toast.error(error.message) } else {
+      setCheckinAnywhere(newVal)
+      toast.success(newVal ? "เปิดเช็คอิน Anywhere แล้ว" : "ปิดเช็คอิน Anywhere แล้ว")
+    }
+    setSavingAnywhere(false)
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -1237,6 +1252,30 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
           {showCustom ? <X size={12}/> : <Plus size={12}/>}
           {showCustom ? "ยกเลิก" : "เพิ่มพิกัด"}
         </button>
+      </div>
+
+      {/* ── Checkin Anywhere Toggle ── */}
+      <div className={`mb-5 p-4 rounded-2xl border-2 transition-all ${checkinAnywhere ? "bg-emerald-50 border-emerald-300" : "bg-slate-50 border-slate-200"}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${checkinAnywhere ? "bg-emerald-100" : "bg-slate-200"}`}>
+              <Globe size={18} className={checkinAnywhere ? "text-emerald-600" : "text-slate-400"} />
+            </div>
+            <div>
+              <p className="font-bold text-sm text-slate-800">เช็คอิน Anywhere</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {checkinAnywhere
+                  ? "พนักงานเช็คอิน/เช็คเอ้าท์ที่ไหนก็ได้ ไม่ตรวจสอบพิกัด GPS"
+                  : "เช็คอินได้เฉพาะสาขาหรือพิกัดที่กำหนดเท่านั้น"
+                }
+              </p>
+            </div>
+          </div>
+          <button onClick={toggleAnywhere} disabled={savingAnywhere}
+            className={`relative w-14 h-7 rounded-full transition-all duration-200 ${checkinAnywhere ? "bg-emerald-500" : "bg-slate-300"} ${savingAnywhere ? "opacity-50" : ""}`}>
+            <span className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-sm transition-all duration-200 ${checkinAnywhere ? "left-7" : "left-0.5"}`} />
+          </button>
+        </div>
       </div>
 
       {/* ── Custom GPS form ── */}

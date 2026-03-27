@@ -99,7 +99,10 @@ export async function POST(request: Request) {
     return []
   })
 
-  if (branches.length === 0) {
+  // ── checkin_anywhere: ข้ามตรวจพิกัดทั้งหมด ──────────────────
+  const isAnywhereAllowed = !!emp.checkin_anywhere
+
+  if (!isAnywhereAllowed && branches.length === 0) {
     return NextResponse.json({
       success: false,
       error: "ยังไม่ได้รับสิทธิ์เช็คอิน กรุณาติดต่อ HR",
@@ -114,12 +117,15 @@ export async function POST(request: Request) {
     if (d < minDist) { minDist = d; nearest = b }
   }
 
-  const nearestName = nearest?.name ?? "สาขา"
-  if (!nearest || minDist > nearest.geo_radius_m) {
-    return NextResponse.json({
-      success: false,
-      error: `อยู่นอกรัศมีที่กำหนด (${Math.round(minDist)} ม. จาก ${nearestName})`,
-    })
+  // ถ้า checkin_anywhere → ข้ามตรวจรัศมี (ยังบันทึกสาขาที่ใกล้ที่สุดไว้ reference)
+  if (!isAnywhereAllowed) {
+    const nearestName = nearest?.name ?? "สาขา"
+    if (!nearest || minDist > nearest.geo_radius_m) {
+      return NextResponse.json({
+        success: false,
+        error: `อยู่นอกรัศมีที่กำหนด (${Math.round(minDist)} ม. จาก ${nearestName})`,
+      })
+    }
   }
 
   // ── Shift template ─────────────────────────────────────────────
@@ -186,8 +192,8 @@ export async function POST(request: Request) {
         clock_in:            now.toISOString(),
         clock_in_lat:        lat,
         clock_in_lng:        lng,
-        clock_in_branch_id:  nearest.id,
-        clock_in_distance_m: Math.round(minDist),
+        clock_in_branch_id:  nearest?.id ?? null,
+        clock_in_distance_m: nearest ? Math.round(minDist) : null,
         clock_in_valid:      true,
         expected_start:      expectedStart?.toISOString() ?? null,
         late_minutes:        effectiveLate,    // ✅ หักจริง (หลัง grace period)
@@ -204,7 +210,8 @@ export async function POST(request: Request) {
       is_late:           isLate,
       raw_late_minutes:  rawLateMin,
       threshold_minutes: lateThreshold,
-      location_name:     nearest.name,
+      location_name:     isAnywhereAllowed ? (nearest?.name ?? "Anywhere") : (nearest?.name ?? "สาขา"),
+      checkin_anywhere:  isAnywhereAllowed,
     })
   }
 
@@ -260,8 +267,8 @@ export async function POST(request: Request) {
         clock_out:            now.toISOString(),
         clock_out_lat:        lat,
         clock_out_lng:        lng,
-        clock_out_branch_id:  nearest.id,
-        clock_out_distance_m: Math.round(minDist),
+        clock_out_branch_id:  nearest?.id ?? null,
+        clock_out_distance_m: nearest ? Math.round(minDist) : null,
         clock_out_valid:      true,
         work_minutes:         workMin,
         ot_minutes:           otMin,

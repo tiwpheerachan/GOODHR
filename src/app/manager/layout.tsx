@@ -26,18 +26,23 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
     if (!empId) return
     const supabase = createClient()
     // นับ pending ทั้ง leave + adjustment
-    Promise.all([
-      supabase.from("leave_requests")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "pending"),
-      supabase.from("time_adjustment_requests")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "pending")
-        .eq("company_id", emp?.company_id),
-    ]).then(([{ count: lc }, { count: ac }]) => {
-      setPendingCount((lc ?? 0) + (ac ?? 0))
-    })
-  }, [empId])
+    const load = () => {
+      Promise.all([
+        supabase.from("leave_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "pending"),
+        supabase.from("time_adjustment_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "pending")
+          .eq("company_id", emp?.company_id),
+      ]).then(([{ count: lc }, { count: ac }]) => {
+        setPendingCount((lc ?? 0) + (ac ?? 0))
+      })
+    }
+    load()
+    const iv = setInterval(load, 30_000) // refresh ทุก 30 วินาที
+    return () => clearInterval(iv)
+  }, [empId, pathname]) // eslint-disable-line
 
   return (
     <div className="mobile-container">

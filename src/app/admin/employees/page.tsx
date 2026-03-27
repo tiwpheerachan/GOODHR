@@ -61,7 +61,7 @@ export default function EmployeesPage() {
         // load counts per company
         Promise.all((data ?? []).map((c: any) =>
           supabase.from("employees").select("id", { count: "exact", head: true })
-            .eq("company_id", c.id).eq("is_active", true).eq("employment_status", "active")
+            .eq("company_id", c.id).eq("is_active", true)
         )).then(results => {
           const counts: Record<string, number> = {}
           ;(data ?? []).forEach((c: any, i: number) => { counts[c.id] = results[i].count ?? 0 })

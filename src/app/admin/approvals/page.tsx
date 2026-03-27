@@ -10,6 +10,7 @@ import {
 import { format, startOfMonth, endOfMonth } from "date-fns"
 import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
+import Link from "next/link"
 
 const TYPE_CFG: Record<string, { label: string; icon: any; color: string; bg: string }> = {
   leave:      { label: "ลางาน",      icon: Calendar,  color: "text-sky-700",    bg: "bg-sky-100" },
@@ -149,8 +150,14 @@ export default function AdminApprovalsPage() {
           <h2 className="text-xl font-black text-slate-800">คำร้องทั้งหมด</h2>
           <p className="text-xs text-slate-400">รวมคำขอลา · แก้ไขเวลา · โอที · ขอยกเลิก ในที่เดียว</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Users size={13}/> <b className="text-slate-800">{requests.length}</b> รายการ
+        <div className="flex items-center gap-3">
+          <Link href="/admin/approvals/supervisors"
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-50 text-indigo-700 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">
+            <Users size={13}/> ภาพรวมหัวหน้า-ลูกน้อง
+          </Link>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Users size={13}/> <b className="text-slate-800">{requests.length}</b> รายการ
+          </div>
         </div>
       </div>
 
