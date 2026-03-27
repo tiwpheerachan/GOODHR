@@ -736,6 +736,7 @@ export default function CheckInPage() {
   const [branches, setBranches] = useState<Branch[]>([])
   const [nearest, setNearest] = useState<Branch | null>(null)
   const [distance, setDistance] = useState<number | null>(null)
+  const [checkinAnywhere, setCheckinAnywhere] = useState(false)
   const [showAdj, setShowAdj] = useState(false)
   const [showOffsite, setShowOffsite] = useState<"clock_in" | "clock_out" | null>(null)
   const [burst, setBurst] = useState(false)
@@ -775,9 +776,10 @@ export default function CheckInPage() {
   const remainM = Math.floor((remainSec % 3600) / 60)
   const workProgress = Math.min(100, (workSec / totalWorkSec) * 100)
 
-  // ── Fetch branches ──
+  // ── Fetch branches + checkin_anywhere ──
   useEffect(() => {
     if (!user?.employee_id) return
+    // ดึง branches
     supabase.from("employee_allowed_locations")
       .select("branch:branches(id,name,latitude,longitude,geo_radius_m)")
       .eq("employee_id", user.employee_id)
@@ -787,6 +789,9 @@ export default function CheckInPage() {
           .map((b: any) => ({ id: b.id, name: b.name, latitude: Number(b.latitude), longitude: Number(b.longitude), geo_radius_m: Number(b.geo_radius_m) || 200 }))
         setBranches(list)
       })
+    // ดึง checkin_anywhere flag
+    supabase.from("employees").select("checkin_anywhere").eq("id", user.employee_id).maybeSingle()
+      .then(({ data }) => { setCheckinAnywhere(!!(data as any)?.checkin_anywhere) })
   }, [user?.employee_id])
 
   // ── Nearest branch ──
@@ -922,7 +927,7 @@ export default function CheckInPage() {
   }, [sdkReady, initMap, panToUser])
 
   // ── Derived ──
-  const inRadius = nearest !== null && distance !== null && distance <= (nearest.geo_radius_m || 200)
+  const inRadius = checkinAnywhere || (nearest !== null && distance !== null && distance <= (nearest.geo_radius_m || 200))
   const hasClockedIn = !!todayRecord?.clock_in
   const hasClockedOut = !!todayRecord?.clock_out
   const lateMin = todayRecord?.late_minutes || 0
@@ -1265,8 +1270,16 @@ export default function CheckInPage() {
               </div>
             )}
 
+            {/* Checkin Anywhere badge */}
+            {checkinAnywhere && !hasClockedIn && (
+              <div className="flex items-center justify-center gap-1.5 mb-3 px-3 py-2 bg-emerald-50 rounded-xl">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span className="text-[11px] font-bold text-emerald-600">เช็คอินที่ไหนก็ได้ (Anywhere)</span>
+              </div>
+            )}
+
             {/* Not in radius warning */}
-            {!inRadius && branches.length > 0 && !hasClockedIn && (
+            {!inRadius && branches.length > 0 && !hasClockedIn && !checkinAnywhere && (
               <p className="text-center text-[10px] text-gray-400 mb-3">
                 <AlertCircle size={10} className="inline mr-1 text-orange-400" />
                 อยู่นอกรัศมีสาขา — ใช้เช็คอินนอกสถานที่
@@ -1274,7 +1287,7 @@ export default function CheckInPage() {
             )}
 
             {/* No branch warning */}
-            {branches.length === 0 && user?.employee_id && !gpsLoading && (
+            {branches.length === 0 && !checkinAnywhere && user?.employee_id && !gpsLoading && (
               <div className="flex items-center gap-2 mb-3 px-3 py-2.5 bg-orange-50 rounded-xl">
                 <AlertCircle size={13} className="text-orange-400 shrink-0" />
                 <div>
