@@ -1148,6 +1148,8 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
   const [savingCustom,  setSavingCustom]  = useState(false)
   const [checkinAnywhere, setCheckinAnywhere] = useState(false)
   const [savingAnywhere,  setSavingAnywhere]  = useState(false)
+  const [canSelfSchedule, setCanSelfSchedule] = useState(false)
+  const [savingSelfSched, setSavingSelfSched] = useState(false)
 
   const load = useCallback(async () => {
     const [{ data: allCompanyBranches }, { data: companiesList }, { data: allowed }, { data: empData }] = await Promise.all([
@@ -1157,12 +1159,13 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
       supabase.from("employee_allowed_locations")
         .select("id,branch_id,custom_name,custom_lat,custom_lng,custom_radius_m,branch:branches(id,name,geo_radius_m)")
         .eq("employee_id", employeeId),
-      supabase.from("employees").select("checkin_anywhere").eq("id", employeeId).maybeSingle(),
+      supabase.from("employees").select("checkin_anywhere, can_self_schedule").eq("id", employeeId).maybeSingle(),
     ])
     setAllBranches(allCompanyBranches ?? [])
     setBranchCompanies(companiesList ?? [])
     setAllowedRows(allowed ?? [])
     setCheckinAnywhere(!!(empData as any)?.checkin_anywhere)
+    setCanSelfSchedule(!!(empData as any)?.can_self_schedule)
   }, [employeeId])
 
   useEffect(() => { load() }, [load])
@@ -1237,6 +1240,17 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
     setSavingAnywhere(false)
   }
 
+  const toggleSelfSchedule = async () => {
+    setSavingSelfSched(true)
+    const newVal = !canSelfSchedule
+    const { error } = await supabase.from("employees").update({ can_self_schedule: newVal }).eq("id", employeeId)
+    if (error) { toast.error(error.message) } else {
+      setCanSelfSchedule(newVal)
+      toast.success(newVal ? "เปิดวางกะเองแล้ว" : "ปิดวางกะเองแล้ว")
+    }
+    setSavingSelfSched(false)
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -1274,6 +1288,30 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
           <button onClick={toggleAnywhere} disabled={savingAnywhere}
             className={`relative w-14 h-7 rounded-full transition-all duration-200 ${checkinAnywhere ? "bg-emerald-500" : "bg-slate-300"} ${savingAnywhere ? "opacity-50" : ""}`}>
             <span className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-sm transition-all duration-200 ${checkinAnywhere ? "left-7" : "left-0.5"}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Self-Schedule Toggle ── */}
+      <div className={`mb-5 p-4 rounded-2xl border-2 transition-all ${canSelfSchedule ? "bg-violet-50 border-violet-300" : "bg-slate-50 border-slate-200"}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${canSelfSchedule ? "bg-violet-100" : "bg-slate-200"}`}>
+              <CalendarClock size={18} className={canSelfSchedule ? "text-violet-600" : "text-slate-400"} />
+            </div>
+            <div>
+              <p className="font-bold text-sm text-slate-800">วางกะเอง (Self-Schedule)</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {canSelfSchedule
+                  ? "พนักงานสามารถวางกะการทำงานด้วยตัวเองได้ — เปลี่ยนกะต้องอนุมัติ"
+                  : "พนักงานไม่สามารถวางกะเอง — หัวหน้าหรือ Admin กำหนดให้เท่านั้น"
+                }
+              </p>
+            </div>
+          </div>
+          <button onClick={toggleSelfSchedule} disabled={savingSelfSched}
+            className={`relative w-14 h-7 rounded-full transition-all duration-200 ${canSelfSchedule ? "bg-violet-500" : "bg-slate-300"} ${savingSelfSched ? "opacity-50" : ""}`}>
+            <span className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-sm transition-all duration-200 ${canSelfSchedule ? "left-7" : "left-0.5"}`} />
           </button>
         </div>
       </div>

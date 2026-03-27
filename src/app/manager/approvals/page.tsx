@@ -2,12 +2,12 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
-import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp, Bell } from "lucide-react"
+import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp, Bell, ArrowRightLeft } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
-type Tab = "leave" | "overtime" | "adjustment" | "resignation"
+type Tab = "leave" | "overtime" | "adjustment" | "resignation" | "shift_change"
 
 const RESIGN_REASONS_MAP: Record<string, string> = {
   heavy_work: "งานหนัก/ทีมน้อย", boss: "ปัญหาหัวหน้า", low_salary: "เงินเดือนน้อย",
@@ -24,7 +24,7 @@ export default function ApprovalsPage() {
   const [acting, setActing] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [counts, setCounts] = useState({ leave: 0, overtime: 0, adjustment: 0, resignation: 0 })
+  const [counts, setCounts] = useState({ leave: 0, overtime: 0, adjustment: 0, resignation: 0, shift_change: 0 })
   // ── ป้องกัน double-click: เก็บ ID ที่ดำเนินการแล้ว ──
   const processedRef = useRef(new Set<string>())
   // ── realtime: แสดง badge "คำร้องใหม่" ──
@@ -139,6 +139,16 @@ export default function ApprovalsPage() {
         const { data, error } = await q
         if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
         setItems(data ?? [])
+
+      } else if (tab === "shift_change") {
+        const res = await fetch(`/api/shifts/self-schedule/pending?status=pending`)
+        const json = await res.json()
+        if (json.success) {
+          setItems(json.requests ?? [])
+        } else {
+          toast.error(json.error ?? "โหลดข้อมูลผิดพลาด")
+          setItems([])
+        }
       }
     } catch (e: any) {
       console.error("Load approvals error:", e)
@@ -198,7 +208,19 @@ export default function ApprovalsPage() {
       resCount = count ?? 0
     }
 
-    setCounts({ leave: lv.count ?? 0, overtime: ot.count ?? 0, adjustment: adj.count ?? 0, resignation: resCount })
+    // shift change count
+    let shiftChangeCount = 0
+    if (isAdminRole) {
+      const { count: sc } = await supabase.from("shift_change_requests")
+        .select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending")
+      shiftChangeCount = sc ?? 0
+    } else if (teamIds.length > 0) {
+      const { count: sc } = await supabase.from("shift_change_requests")
+        .select("id", { count: "exact", head: true }).in("employee_id", teamIds).eq("status", "pending")
+      shiftChangeCount = sc ?? 0
+    }
+
+    setCounts({ leave: lv.count ?? 0, overtime: ot.count ?? 0, adjustment: adj.count ?? 0, resignation: resCount, shift_change: shiftChangeCount })
   }
 
   // ── เปลี่ยน tab → reset state + โหลดใหม่ ──
@@ -215,7 +237,7 @@ export default function ApprovalsPage() {
   useEffect(() => {
     if (!user) return
     const supabase = createClient()
-    const tables = ["leave_requests", "overtime_requests", "time_adjustment_requests", "resignation_requests"]
+    const tables = ["leave_requests", "overtime_requests", "time_adjustment_requests", "resignation_requests", "shift_change_requests"]
     const channel = supabase.channel("manager-approvals-realtime")
 
     for (const table of tables) {
@@ -226,6 +248,7 @@ export default function ApprovalsPage() {
         const tabMap: Record<string, Tab> = {
           leave_requests: "leave", overtime_requests: "overtime",
           time_adjustment_requests: "adjustment", resignation_requests: "resignation",
+          shift_change_requests: "shift_change",
         }
         if (tabMap[table] === tab) {
           setTimeout(() => loadItems(), 500)
@@ -242,6 +265,8 @@ export default function ApprovalsPage() {
     processedRef.current.add(id)
     setItems(prev => prev.filter(i => i.id !== id))
     setCounts(prev => ({ ...prev, [tab]: Math.max(0, prev[tab] - 1) }))
+    // ── แจ้ง layout ให้ refresh badge ทันที ──
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("approval-action"))
   }
 
   // ── approve/reject leave & overtime ──────────────────────────────────────
@@ -313,6 +338,27 @@ export default function ApprovalsPage() {
         })
       }
     } catch (err: any) { toast.error(err.message) }
+    setActing(null)
+  }
+
+  // ── approve/reject shift change ───────────────────────────────────────────
+  const handleShiftChange = async (id: string, action: "approve" | "reject") => {
+    if (processedRef.current.has(id)) return
+    setActing(id)
+    try {
+      const res = await fetch("/api/shifts/self-schedule/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, request_id: id, review_note: notes[id] || null }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        optimisticRemove(id)
+        toast.success(action === "approve" ? "อนุมัติเปลี่ยนกะแล้ว" : "ปฏิเสธคำขอเปลี่ยนกะแล้ว")
+      } else {
+        toast.error(json.error || "เกิดข้อผิดพลาด")
+      }
+    } catch (err: any) { toast.error(err.message || "ดำเนินการไม่สำเร็จ") }
     setActing(null)
   }
 
@@ -391,10 +437,11 @@ export default function ApprovalsPage() {
   }
 
   const TABS: { key: Tab; label: string; color: string }[] = [
-    { key: "leave",       label: "ใบลา",    color: "bg-sky-500" },
-    { key: "overtime",    label: "OT",       color: "bg-amber-500" },
-    { key: "adjustment",  label: "แก้เวลา", color: "bg-violet-500" },
-    { key: "resignation", label: "ลาออก",   color: "bg-rose-500" },
+    { key: "leave",        label: "ใบลา",    color: "bg-sky-500" },
+    { key: "overtime",     label: "OT",       color: "bg-amber-500" },
+    { key: "adjustment",   label: "แก้เวลา", color: "bg-violet-500" },
+    { key: "shift_change", label: "เปลี่ยนกะ", color: "bg-emerald-500" },
+    { key: "resignation",  label: "ลาออก",   color: "bg-rose-500" },
   ]
 
   return (
@@ -609,6 +656,67 @@ export default function ApprovalsPage() {
                 <ActionButtons id={item.id}
                   onReject={() => handleAdjustment(item.id, "reject")}
                   onApprove={() => handleAdjustment(item.id, "approve")} />
+              </div>
+            </div>
+          )
+        })}
+
+        {/* ── SHIFT CHANGE ── */}
+        {!loading && tab === "shift_change" && items.map(item => {
+          const emp = item.employee
+          const curShift = item.current_shift
+          const reqShift = item.requested_shift
+          return (
+            <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-4 pt-3 pb-2 flex items-center gap-2 border-b border-gray-50">
+                <ArrowRightLeft size={13} className="text-emerald-500 shrink-0" />
+                <span className="text-xs font-bold text-emerald-600">ขอเปลี่ยนกะ</span>
+                <span className="ml-auto text-[10px] text-gray-400">{fmtDate(item.submitted_at?.split("T")[0])}</span>
+              </div>
+              <div className="px-4 py-4">
+                <div className="flex items-center gap-3">
+                  <Avatar emp={emp} bgColor="bg-emerald-100" textColor="text-emerald-600" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-gray-900 text-sm leading-tight">{emp?.first_name_th} {emp?.last_name_th}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{emp?.employee_code}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
+                  <p className="text-gray-400 mb-0.5">วันที่</p>
+                  <p className="font-bold text-gray-800">{fmtDate(item.work_date, "EEEE d MMMM yyyy")}</p>
+                </div>
+
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-gray-50 rounded-xl px-3 py-2.5 border border-gray-100">
+                    <p className="text-gray-400 mb-0.5">กะปัจจุบัน</p>
+                    <p className="font-bold text-gray-700">
+                      {item.current_assignment_type === "dayoff" ? "วันหยุด" :
+                        curShift ? `${curShift.work_start?.substring(0,5)} - ${curShift.work_end?.substring(0,5)}` : "-"}
+                    </p>
+                  </div>
+                  <div className="bg-emerald-50 rounded-xl px-3 py-2.5 border border-emerald-100">
+                    <p className="text-emerald-500 mb-0.5">ขอเปลี่ยนเป็น</p>
+                    <p className="font-bold text-emerald-700">
+                      {item.requested_assignment_type === "dayoff" ? "วันหยุด" :
+                        reqShift ? `${reqShift.work_start?.substring(0,5)} - ${reqShift.work_end?.substring(0,5)}` : "-"}
+                    </p>
+                  </div>
+                </div>
+
+                {item.reason && (
+                  <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
+                    <p className="text-gray-400 mb-0.5">เหตุผล</p>
+                    <p className="text-gray-700">{item.reason}</p>
+                  </div>
+                )}
+
+                <input placeholder="หมายเหตุ (ไม่บังคับ)" value={notes[item.id] || ""}
+                  onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
+                  className={inputCls} />
+                <ActionButtons id={item.id}
+                  onReject={() => handleShiftChange(item.id, "reject")}
+                  onApprove={() => handleShiftChange(item.id, "approve")} />
               </div>
             </div>
           )

@@ -2,8 +2,10 @@
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import {
-  ChevronLeft, ChevronRight, Save, Clock, Moon, Calendar, Wand2, Copy, Users, AlertCircle
+  ChevronLeft, ChevronRight, Save, Clock, Moon, Calendar, Wand2, Copy, Users, AlertCircle,
+  CheckCircle2, X as XIcon, Trash2, CalendarDays
 } from "lucide-react"
+import Link from "next/link"
 import toast from "react-hot-toast"
 
 interface Shift { id: string; name: string; shift_type: string; work_start: string; work_end: string }
@@ -73,18 +75,64 @@ export default function ManagerShiftsPage() {
   const prevMonth = () => { if (month === 1) { setYear(y => y - 1); setMonth(12) } else setMonth(m => m - 1) }
   const nextMonth = () => { if (month === 12) { setYear(y => y + 1); setMonth(1) } else setMonth(m => m + 1) }
 
-  const applyShift = (empId: string, date: string, shiftId: string | null, type: "work" | "dayoff") => {
+  // ── Approve/Reject pending request ────────────────────────────
+  const handlePendingAction = async (reqId: string, action: "approve" | "reject") => {
+    const res = await fetch("/api/shifts/self-schedule/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, request_id: reqId }),
+    })
+    const data = await res.json()
+    if (data.success) {
+      toast.success(action === "approve" ? "อนุมัติแล้ว" : "ปฏิเสธแล้ว")
+      load()
+    } else toast.error(data.error)
+    setPicker(null)
+  }
+
+  // ── Clear shift ───────────────────────────────────────────────
+  const handleClearShift = async (empId: string, date: string) => {
+    const res = await fetch("/api/shifts/self-schedule/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "clear_shift", employee_id: empId, work_date: date }),
+    })
+    const data = await res.json()
+    if (data.success) {
+      toast.success("ลบกะสำเร็จ")
+      setGrid(prev => prev.map(row => {
+        if (row.employee.id !== empId) return row
+        return { ...row, days: row.days.map((d: any) => d.date === date ? { ...d, assignment: null, pending_request: null } : d) }
+      }))
+    } else toast.error(data.error)
+    setPicker(null)
+  }
+
+  const applyShift = (empId: string, date: string, shiftId: string | null, type: "work" | "dayoff" | "leave", leaveType?: string) => {
     const key = `${empId}_${date}`
-    setModifications(prev => { const n = new Map(prev); n.set(key, { employee_id: empId, work_date: date, shift_id: shiftId, assignment_type: type }); return n })
+    setModifications(prev => { const n = new Map(prev); n.set(key, { employee_id: empId, work_date: date, shift_id: shiftId, assignment_type: type, leave_type: leaveType ?? null }); return n })
     setGrid(prev => prev.map(row => {
       if (row.employee.id !== empId) return row
       return { ...row, days: row.days.map(d => {
         if (d.date !== date) return d
         const s = shifts.find(sh => sh.id === shiftId)
-        return { date, assignment: { employee_id: empId, work_date: date, shift_id: shiftId, assignment_type: type, shift: s ?? undefined } as any }
+        return { date, assignment: { employee_id: empId, work_date: date, shift_id: shiftId, assignment_type: type, leave_type: leaveType, shift: s ?? undefined } as any }
       })}
     }))
     setPicker(null)
+  }
+
+  const LEAVE_OPTIONS_MGR = [
+    { key: "sick",       label: "ลาป่วย",       bg: "bg-red-50",    text: "text-red-600",    border: "border-red-200" },
+    { key: "personal",   label: "ลากิจ",        bg: "bg-orange-50",  text: "text-orange-600", border: "border-orange-200" },
+    { key: "vacation",   label: "ลาพักร้อน",    bg: "bg-green-50",   text: "text-green-600",  border: "border-green-200" },
+    { key: "company",    label: "หยุดบริษัท",   bg: "bg-purple-50",  text: "text-purple-600", border: "border-purple-200" },
+    { key: "graduation", label: "ลารับปริญญา",  bg: "bg-sky-50",     text: "text-sky-600",    border: "border-sky-200" },
+  ]
+
+  const LEAVE_LABEL: Record<string, string> = {
+    sick: "ป่วย", personal: "กิจ", vacation: "ร้อน",
+    company: "บ.หยุด", graduation: "ปริญญา",
   }
 
   const handleSave = async () => {
@@ -137,6 +185,12 @@ export default function ManagerShiftsPage() {
         </button>
       </div>
 
+      {/* Calendar link */}
+      <Link href="/manager/calendar"
+        className="flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-bold text-indigo-600 hover:bg-indigo-100 transition-colors">
+        <CalendarDays size={14} /> ปฏิทินสรุปตารางงาน
+      </Link>
+
       {/* Filter tabs */}
       <div className="flex items-center gap-2">
         <div className="flex flex-1 rounded-xl border border-slate-200 bg-white p-0.5">
@@ -185,6 +239,7 @@ export default function ManagerShiftsPage() {
         <div className="space-y-2">
           {filtered.map(row => {
             const isVariable = row.profile?.schedule_type === "variable"
+            const canSelfSched = (row.employee as any).can_self_schedule
             const assigned = row.days.filter(d => d.assignment).length
             const total = row.days.length
             return (
@@ -193,13 +248,15 @@ export default function ManagerShiftsPage() {
                 onClick={() => setSelectedEmp(row.employee.id)}
                 className="w-full flex items-center gap-3 rounded-2xl bg-white border border-slate-100 p-4 shadow-sm hover:border-indigo-200 hover:shadow-md transition-all text-left"
               >
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-sm flex-shrink-0 ${isVariable ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-indigo-400 to-violet-500"}`}>
+                <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-sm flex-shrink-0 ${isVariable ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-indigo-400 to-violet-500"}`}>
                   {row.employee.first_name_th?.[0]}
+                  {canSelfSched && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-400 border-2 border-white flex items-center justify-center text-[7px] text-white font-black">S</span>}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-slate-800 truncate">
                     {row.employee.first_name_th} {row.employee.last_name_th}
                     {isVariable && <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 font-black">ไม่แน่นอน</span>}
+                    {canSelfSched && <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-emerald-100 text-emerald-700 font-black">วางกะเอง</span>}
                   </p>
                   <p className="text-[10px] text-slate-400">{row.employee.employee_code} · {row.employee.department}</p>
                 </div>
@@ -230,46 +287,73 @@ export default function ManagerShiftsPage() {
           </div>
 
           <div className="space-y-1.5">
-            {selectedRow?.days.map(({ date, assignment }) => {
+            {selectedRow?.days.map(({ date, assignment, pending_request }: any) => {
               const d = new Date(date)
               const dow = d.getDay()
               const aType = assignment?.assignment_type
               const shiftStart = assignment?.shift?.work_start
               const s = shiftStyle(shiftStart)
               const isModified = modifications.has(`${selectedEmp}_${date}`)
+              const hasPending = !!pending_request
 
               return (
-                <div
-                  key={date}
-                  onClick={e => {
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                    setPicker({ empId: selectedEmp!, date, x: rect.left, y: rect.bottom + 4 })
-                  }}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 border transition-all cursor-pointer active:scale-[.98] ${
-                    isModified ? "border-amber-300 bg-amber-50" :
-                    aType === "dayoff" ? "border-slate-100 bg-slate-50" :
-                    aType === "work" ? `border-slate-100 ${s.bg}` :
-                    "border-slate-100 bg-white"
-                  }`}
-                >
-                  <div className="w-8 text-center">
-                    <p className={`text-[9px] font-bold ${dow === 0 || dow === 6 ? "text-red-400" : "text-slate-400"}`}>{TH_DAYS[dow]}</p>
-                    <p className="text-sm font-black text-slate-700">{d.getDate()}</p>
+                <div key={date}>
+                  <div
+                    onClick={e => {
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                      setPicker({ empId: selectedEmp!, date, x: rect.left, y: rect.bottom + 4 })
+                    }}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 border transition-all cursor-pointer active:scale-[.98] ${
+                      hasPending ? "border-yellow-300 bg-yellow-50" :
+                      isModified ? "border-amber-300 bg-amber-50" :
+                      aType === "dayoff" ? "border-slate-100 bg-slate-50" :
+                      aType === "leave" ? "border-sky-200 bg-sky-50" :
+                      aType === "holiday" ? "border-red-200 bg-red-100" :
+                      aType === "work" ? `border-slate-100 ${s.bg}` :
+                      "border-slate-100 bg-white"
+                    }`}
+                  >
+                    <div className="w-8 text-center">
+                      <p className={`text-[9px] font-bold ${dow === 0 || dow === 6 ? "text-red-400" : "text-slate-400"}`}>{TH_DAYS[dow]}</p>
+                      <p className="text-sm font-black text-slate-700">{d.getDate()}</p>
+                    </div>
+                    {aType === "dayoff" ? (
+                      <div className="flex items-center gap-2">
+                        <Moon size={14} className="text-slate-300" />
+                        <span className="text-xs font-bold text-slate-400">วันหยุด</span>
+                      </div>
+                    ) : aType === "leave" ? (
+                      <div className="flex items-center gap-2 px-2 py-0.5 rounded-lg bg-sky-50">
+                        <span className="text-xs font-bold text-sky-600">{LEAVE_LABEL[(assignment as any)?.leave_type ?? ""] ?? "ลา"}</span>
+                      </div>
+                    ) : aType === "holiday" ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-red-500">วันหยุดนักขัตฤกษ์</span>
+                      </div>
+                    ) : aType === "work" && shiftStart ? (
+                      <div className="flex items-center gap-2">
+                        <Clock size={14} className={s.text} />
+                        <span className={`text-xs font-bold ${s.text}`}>
+                          {shiftStart.substring(0, 5)} - {assignment?.shift?.work_end?.substring(0, 5)}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-300">ยังไม่จัด — แตะเพื่อเลือก</span>
+                    )}
+                    {hasPending && <span className="text-[8px] font-black text-yellow-600 bg-yellow-100 px-1.5 py-0.5 rounded-full ml-auto">รอเปลี่ยน</span>}
                   </div>
-                  {aType === "dayoff" ? (
-                    <div className="flex items-center gap-2">
-                      <Moon size={14} className="text-slate-300" />
-                      <span className="text-xs font-bold text-slate-400">วันหยุด</span>
+                  {/* Quick approve/reject for pending */}
+                  {hasPending && (
+                    <div className="flex gap-1.5 mt-1 ml-11">
+                      <button onClick={() => handlePendingAction(pending_request.id, "approve")}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold text-white bg-emerald-500 hover:bg-emerald-600">
+                        <CheckCircle2 size={11} /> อนุมัติ
+                      </button>
+                      <button onClick={() => handlePendingAction(pending_request.id, "reject")}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold text-white bg-red-500 hover:bg-red-600">
+                        <XIcon size={11} /> ปฏิเสธ
+                      </button>
                     </div>
-                  ) : aType === "work" && shiftStart ? (
-                    <div className="flex items-center gap-2">
-                      <Clock size={14} className={s.text} />
-                      <span className={`text-xs font-bold ${s.text}`}>
-                        {shiftStart.substring(0, 5)} - {assignment?.shift?.work_end?.substring(0, 5)}
-                      </span>
-                    </div>
-                  ) : (
-                    <span className="text-xs text-slate-300">ยังไม่จัด — แตะเพื่อเลือก</span>
                   )}
                 </div>
               )
@@ -279,34 +363,109 @@ export default function ManagerShiftsPage() {
       )}
 
       {/* ── Shift Picker Popup ─────────────────────────────────── */}
-      {picker && (
-        <>
-          <div className="fixed inset-0 z-50 bg-black/20" onClick={() => setPicker(null)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl bg-white p-4 pb-8 shadow-2xl max-w-[430px] mx-auto" style={{ maxHeight: "60vh", overflowY: "auto" }}>
-            <div className="w-10 h-1 rounded-full bg-slate-200 mx-auto mb-3" />
-            <p className="text-xs font-bold text-slate-400 mb-3">
-              {new Date(picker.date).toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "short" })}
-            </p>
+      {picker && (() => {
+        const pickerRow = grid.find(r => r.employee.id === picker.empId)
+        const pickerDay = pickerRow?.days.find((d: any) => d.date === picker.date) as any
+        const pickerPending = pickerDay?.pending_request
+        const pickerAssignment = pickerDay?.assignment
 
-            <button onClick={() => applyShift(picker.empId, picker.date, null, "dayoff")}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors mb-1">
-              <Moon size={18} className="text-slate-400" /> วันหยุด (OFF)
-            </button>
-            <div className="border-t border-slate-100 my-2" />
-            {shifts.map(s => {
-              const st = shiftStyle(s.work_start)
-              return (
-                <button key={s.id} onClick={() => applyShift(picker.empId, picker.date, s.id, "work")}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold ${st.bg} ${st.text} hover:opacity-80 transition-colors mb-1`}>
-                  <Clock size={18} />
-                  <span>{s.work_start?.substring(0, 5)} - {s.work_end?.substring(0, 5)}</span>
-                  <span className="ml-auto text-xs opacity-60">{s.name}</span>
-                </button>
-              )
-            })}
-          </div>
-        </>
-      )}
+        return (
+          <>
+            <div className="fixed inset-0 z-50 bg-black/20" onClick={() => setPicker(null)} />
+            <div className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl bg-white p-4 pb-8 shadow-2xl max-w-[430px] mx-auto" style={{ maxHeight: "60vh", overflowY: "auto" }}>
+              <div className="w-10 h-1 rounded-full bg-slate-200 mx-auto mb-3" />
+              <p className="text-xs font-bold text-slate-400 mb-3">
+                {new Date(picker.date).toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "short" })}
+              </p>
+
+              {/* Pending Request Info */}
+              {pickerPending && (
+                <div className="mb-3 p-3 rounded-xl bg-yellow-50 border border-yellow-200">
+                  <p className="text-[10px] font-bold text-yellow-700 mb-1">คำขอเปลี่ยนกะรออนุมัติ</p>
+                  {/* แสดงรายละเอียดเวลา: จากกะไหน → เป็นกะไหน */}
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <div className="flex-1 bg-white rounded-lg px-2 py-1 border border-yellow-200">
+                      <p className="text-[8px] text-yellow-500 font-bold">กะเดิม</p>
+                      <p className="text-[10px] font-black text-yellow-800">
+                        {pickerPending.current_assignment_type === "dayoff" ? "วันหยุด" :
+                          pickerPending.current_shift ? `${pickerPending.current_shift.work_start?.substring(0,5)}-${pickerPending.current_shift.work_end?.substring(0,5)}` : "-"}
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-yellow-400 font-black">→</span>
+                    <div className="flex-1 bg-white rounded-lg px-2 py-1 border border-emerald-200">
+                      <p className="text-[8px] text-emerald-500 font-bold">ขอเปลี่ยน</p>
+                      <p className="text-[10px] font-black text-emerald-700">
+                        {pickerPending.requested_assignment_type === "dayoff" ? "วันหยุด" :
+                          pickerPending.requested_shift ? `${pickerPending.requested_shift.work_start?.substring(0,5)}-${pickerPending.requested_shift.work_end?.substring(0,5)}` : "-"}
+                      </p>
+                    </div>
+                  </div>
+                  {pickerPending.reason && (
+                    <p className="text-[9px] text-yellow-600 mb-1.5 truncate" title={pickerPending.reason}>เหตุผล: {pickerPending.reason}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handlePendingAction(pickerPending.id, "approve")}
+                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600"
+                    >
+                      <CheckCircle2 size={13} /> อนุมัติ
+                    </button>
+                    <button
+                      onClick={() => handlePendingAction(pickerPending.id, "reject")}
+                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-bold text-white bg-red-500 hover:bg-red-600"
+                    >
+                      <XIcon size={13} /> ปฏิเสธ
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <button onClick={() => applyShift(picker.empId, picker.date, null, "dayoff")}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors mb-1">
+                <Moon size={18} className="text-slate-400" /> วันหยุด (OFF)
+              </button>
+
+              {/* ── ประเภทลา ── */}
+              <p className="text-[10px] font-bold text-slate-400 mt-2 mb-1 px-1">วันลา</p>
+              <div className="grid grid-cols-2 gap-1.5 mb-2">
+                {LEAVE_OPTIONS_MGR.map(lo => (
+                  <button key={lo.key} onClick={() => applyShift(picker.empId, picker.date, null, "leave", lo.key)}
+                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold ${lo.bg} ${lo.text} border ${lo.border} hover:opacity-80 transition-colors`}>
+                    {lo.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="border-t border-slate-100 my-2" />
+              <p className="text-[10px] font-bold text-slate-400 mb-1 px-1">เลือกกะ</p>
+              {shifts.map(s => {
+                const st = shiftStyle(s.work_start)
+                return (
+                  <button key={s.id} onClick={() => applyShift(picker.empId, picker.date, s.id, "work")}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold ${st.bg} ${st.text} hover:opacity-80 transition-colors mb-1`}>
+                    <Clock size={18} />
+                    <span>{s.work_start?.substring(0, 5)} - {s.work_end?.substring(0, 5)}</span>
+                    <span className="ml-auto text-xs opacity-60">{s.name}</span>
+                  </button>
+                )
+              })}
+
+              {/* ลบกะ (Clear Shift) — เฉพาะเมื่อมี assignment อยู่ */}
+              {pickerAssignment && (
+                <>
+                  <div className="border-t border-slate-100 my-2" />
+                  <button
+                    onClick={() => handleClearShift(picker.empId, picker.date)}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 size={18} className="text-red-400" /> ลบกะ (ไม่มีกะ)
+                  </button>
+                </>
+              )}
+            </div>
+          </>
+        )
+      })()}
     </div>
   )
 }

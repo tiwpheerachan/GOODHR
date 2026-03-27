@@ -1,6 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
-import { ChevronLeft, ChevronRight, Clock, Sun, Moon, Coffee, Calendar } from "lucide-react"
+import { ChevronLeft, ChevronRight, Clock, Sun, Moon, Coffee, Calendar, CalendarClock } from "lucide-react"
+import Link from "next/link"
 
 const TH_DAYS_FULL = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"]
 const TH_DAYS_SHORT = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
@@ -40,6 +41,7 @@ export default function MySchedulePage() {
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar")
+  const [canSelfSchedule, setCanSelfSchedule] = useState(false)
 
   const monthStr = `${year}-${String(month).padStart(2, "0")}`
   const todayStr = now.toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
@@ -51,6 +53,7 @@ export default function MySchedulePage() {
     if (data.success) {
       setSchedule(data.schedule)
       setProfile(data.profile)
+      setCanSelfSchedule(data.can_self_schedule ?? false)
     }
     setLoading(false)
   }, [monthStr])
@@ -135,6 +138,16 @@ export default function MySchedulePage() {
           </div>
         </div>
       </div>
+
+      {/* ── Self-Schedule Button ─────────────────────────────── */}
+      {canSelfSchedule && (
+        <Link href="/app/schedule/self-schedule"
+          className="flex items-center justify-center gap-2 rounded-xl bg-violet-50 border border-violet-200 px-4 py-3 hover:bg-violet-100 transition-colors">
+          <CalendarClock size={16} className="text-violet-600" />
+          <span className="text-sm font-bold text-violet-700">วางกะเอง (Self-Schedule)</span>
+          <ChevronRight size={14} className="text-violet-400 ml-auto" />
+        </Link>
+      )}
 
       {/* ── View Toggle ────────────────────────────────────────── */}
       <div className="flex rounded-xl bg-slate-100 p-0.5">

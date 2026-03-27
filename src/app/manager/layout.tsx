@@ -25,23 +25,58 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
   useEffect(() => {
     if (!empId) return
     const supabase = createClient()
-    // นับ pending ทั้ง leave + adjustment
-    const load = () => {
-      Promise.all([
-        supabase.from("leave_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "pending"),
-        supabase.from("time_adjustment_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "pending")
-          .eq("company_id", emp?.company_id),
-      ]).then(([{ count: lc }, { count: ac }]) => {
-        setPendingCount((lc ?? 0) + (ac ?? 0))
-      })
+    const role = (user as any)?.role ?? "employee"
+    const isAdmin = ["super_admin", "hr_admin"].includes(role)
+    const companyId = emp?.company_id
+
+    const load = async () => {
+      // ── ดึง team IDs ของหัวหน้า (ถ้าไม่ใช่ admin) ────────────
+      let teamIds: string[] = []
+      if (!isAdmin && empId) {
+        const { data: teamRows } = await supabase
+          .from("employee_manager_history").select("employee_id")
+          .eq("manager_id", empId).is("effective_to", null)
+        teamIds = (teamRows ?? []).map((r: any) => String(r.employee_id))
+      }
+
+      // ── นับ pending เฉพาะลูกทีม (หรือทั้งบริษัทถ้า admin) ──
+      const countQuery = (table: string) => {
+        if (isAdmin && companyId) {
+          return supabase.from(table).select("id", { count: "exact", head: true })
+            .eq("status", "pending").eq("company_id", companyId)
+        }
+        if (teamIds.length === 0) return Promise.resolve({ count: 0 })
+        return supabase.from(table).select("id", { count: "exact", head: true })
+          .eq("status", "pending").in("employee_id", teamIds)
+      }
+
+      const [lv, adj, ot, sc] = await Promise.all([
+        countQuery("leave_requests"),
+        countQuery("time_adjustment_requests"),
+        countQuery("overtime_requests"),
+        countQuery("shift_change_requests"),
+      ])
+
+      // resignation: ใช้ status ต่างจากตารางอื่น
+      let resCount = 0
+      if (isAdmin && companyId) {
+        const { count } = await supabase.from("resignation_requests")
+          .select("id", { count: "exact", head: true }).eq("status", "pending_manager").eq("company_id", companyId)
+        resCount = count ?? 0
+      } else if (teamIds.length > 0) {
+        const { count } = await supabase.from("resignation_requests")
+          .select("id", { count: "exact", head: true }).eq("status", "pending_manager").in("employee_id", teamIds)
+        resCount = count ?? 0
+      }
+
+      setPendingCount((lv.count ?? 0) + (adj.count ?? 0) + (ot.count ?? 0) + (sc.count ?? 0) + resCount)
     }
     load()
-    const iv = setInterval(load, 30_000) // refresh ทุก 30 วินาที
-    return () => clearInterval(iv)
+    const iv = setInterval(load, 30_000)
+    // ── รับ event จากหน้า approvals เมื่ออนุมัติ/ปฏิเสธ → refresh badge ทันที ──
+    const onApprovalAction = () => load()
+    window.addEventListener("approval-action", onApprovalAction)
+    return () => { clearInterval(iv); window.removeEventListener("approval-action", onApprovalAction) }
   }, [empId, pathname]) // eslint-disable-line
 
   return (

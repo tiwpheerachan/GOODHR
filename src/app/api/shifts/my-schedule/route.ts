@@ -47,12 +47,17 @@ export async function GET(request: Request) {
 
   if (error) return NextResponse.json({ success: false, error: error.message })
 
-  // ดึง profile
-  const { data: profile } = await supa
-    .from("employee_schedule_profiles")
-    .select("*, default_shift:shift_templates(id, name, work_start, work_end)")
-    .eq("employee_id", userData.employee_id)
-    .maybeSingle()
+  // ดึง profile + can_self_schedule
+  const [{ data: profile }, { data: empData }] = await Promise.all([
+    supa.from("employee_schedule_profiles")
+      .select("*, default_shift:shift_templates(id, name, work_start, work_end)")
+      .eq("employee_id", userData.employee_id)
+      .maybeSingle(),
+    supa.from("employees")
+      .select("can_self_schedule")
+      .eq("id", userData.employee_id)
+      .maybeSingle(),
+  ])
 
   // Map assignments by date
   const assignMap: Record<string, any> = {}
@@ -71,5 +76,6 @@ export async function GET(request: Request) {
     days,
     schedule,
     profile,
+    can_self_schedule: !!(empData as any)?.can_self_schedule,
   })
 }

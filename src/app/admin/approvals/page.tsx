@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   Check, X, Clock, Calendar, Timer, FileEdit, Search, Filter,
   ChevronLeft, ChevronRight, Loader2, AlertCircle, Building2,
-  Download, Users, Ban,
+  Download, Users, Ban, ArrowRightLeft,
 } from "lucide-react"
 import { format, startOfMonth, endOfMonth } from "date-fns"
 import { th } from "date-fns/locale"
@@ -13,9 +13,10 @@ import toast from "react-hot-toast"
 import Link from "next/link"
 
 const TYPE_CFG: Record<string, { label: string; icon: any; color: string; bg: string }> = {
-  leave:      { label: "ลางาน",      icon: Calendar,  color: "text-sky-700",    bg: "bg-sky-100" },
-  adjustment: { label: "แก้ไขเวลา",  icon: FileEdit,  color: "text-violet-700", bg: "bg-violet-100" },
-  overtime:   { label: "โอที",       icon: Timer,     color: "text-amber-700",  bg: "bg-amber-100" },
+  leave:        { label: "ลางาน",      icon: Calendar,       color: "text-sky-700",     bg: "bg-sky-100" },
+  adjustment:   { label: "แก้ไขเวลา",  icon: FileEdit,       color: "text-violet-700",  bg: "bg-violet-100" },
+  overtime:     { label: "โอที",       icon: Timer,          color: "text-amber-700",   bg: "bg-amber-100" },
+  shift_change: { label: "เปลี่ยนกะ",  icon: ArrowRightLeft, color: "text-emerald-700", bg: "bg-emerald-100" },
 }
 
 const STATUS_CFG: Record<string, { label: string; color: string; bg: string }> = {
@@ -35,10 +36,11 @@ const STATUS_TABS = [
 ]
 
 const TYPE_TABS = [
-  { key: "all",        label: "ทั้งหมด" },
-  { key: "leave",      label: "ลางาน" },
-  { key: "adjustment", label: "แก้ไขเวลา" },
-  { key: "overtime",   label: "โอที" },
+  { key: "all",          label: "ทั้งหมด" },
+  { key: "leave",        label: "ลางาน" },
+  { key: "adjustment",   label: "แก้ไขเวลา" },
+  { key: "overtime",     label: "โอที" },
+  { key: "shift_change", label: "เปลี่ยนกะ" },
 ]
 
 export default function AdminApprovalsPage() {

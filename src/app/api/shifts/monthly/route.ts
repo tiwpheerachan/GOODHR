@@ -51,7 +51,7 @@ export async function GET(request: Request) {
   // ── ดึงพนักงาน + profile ────────────────────────────────────────
   let empQuery = supa
     .from("employees")
-    .select("id, employee_code, first_name_th, last_name_th, department_id, department:departments(name), schedule_profile:employee_schedule_profiles(*)")
+    .select("id, employee_code, first_name_th, last_name_th, department_id, can_self_schedule, department:departments(name), schedule_profile:employee_schedule_profiles(*)")
     .eq("company_id", companyId)
     .eq("is_active", true)
     .order("employee_code", { ascending: true })
@@ -99,6 +99,27 @@ export async function GET(request: Request) {
     .eq("company_id", companyId)
     .order("work_start")
 
+  // ── ดึง pending shift_change_requests ──────────────────────
+  let pendingRequests: any[] = []
+  if (empIds.length > 0) {
+    const { data: pReqs } = await supa
+      .from("shift_change_requests")
+      .select(`employee_id, work_date, requested_shift_id, requested_assignment_type, current_shift_id, current_assignment_type, reason, status, id,
+        current_shift:shift_templates!shift_change_requests_current_shift_id_fkey(id, name, work_start, work_end),
+        requested_shift:shift_templates!shift_change_requests_requested_shift_id_fkey(id, name, work_start, work_end)`)
+      .in("employee_id", empIds)
+      .gte("work_date", startDate)
+      .lte("work_date", endDate)
+      .eq("status", "pending")
+    pendingRequests = pReqs ?? []
+  }
+
+  // Map pending by employee+date
+  const pendingMap: Record<string, any> = {}
+  for (const p of pendingRequests) {
+    pendingMap[`${p.employee_id}_${p.work_date}`] = p
+  }
+
   // ── จัดรูปแบบข้อมูลเป็น grid ─────────────────────────────────
   const assignmentMap: Record<string, Record<string, any>> = {}
   for (const a of assignments) {
@@ -115,12 +136,18 @@ export async function GET(request: Request) {
         first_name_th: emp.first_name_th,
         last_name_th: emp.last_name_th,
         department: emp.department?.name,
+        can_self_schedule: emp.can_self_schedule ?? false,
       },
       profile: profile ?? null,
-      days: days.map(date => ({
-        date,
-        assignment: assignmentMap[emp.id]?.[date] ?? null,
-      })),
+      days: days.map(date => {
+        const a = assignmentMap[emp.id]?.[date] ?? null
+        const pending = pendingMap[`${emp.id}_${date}`] ?? null
+        return {
+          date,
+          assignment: a,
+          pending_request: pending,
+        }
+      }),
     }
   })
 
@@ -285,6 +312,8 @@ export async function POST(request: Request) {
       leave_type: a.leave_type ?? null,
       note: a.note ?? null,
       assigned_by: user.id,
+      submitted_by: null,
+      has_pending_change: false,
     }))
 
     // Batch upsert

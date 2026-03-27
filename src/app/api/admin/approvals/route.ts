@@ -94,6 +94,29 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── Shift change requests ──
+  if (shouldFetch("shift_change")) {
+    let q = supa.from("shift_change_requests")
+      .select(`id,employee_id,company_id,work_date,current_shift_id,current_assignment_type,requested_shift_id,requested_assignment_type,reason,status,submitted_at,reviewed_at,review_note,created_at,${empSelect},current_shift:shift_templates!shift_change_requests_current_shift_id_fkey(id,name,work_start,work_end),requested_shift:shift_templates!shift_change_requests_requested_shift_id_fkey(id,name,work_start,work_end)`)
+      .order("created_at", { ascending: false }).limit(200)
+    q = applyFilters(q, "work_date", status)
+    const { data, error: scErr } = await q
+    if (!scErr) {
+      for (const r of (data || [])) {
+        const curLabel = r.current_assignment_type === "dayoff" ? "วันหยุด" :
+          (r as any).current_shift ? `${(r as any).current_shift.work_start?.substring(0,5)}-${(r as any).current_shift.work_end?.substring(0,5)}` : "-"
+        const reqLabel = r.requested_assignment_type === "dayoff" ? "วันหยุด" :
+          (r as any).requested_shift ? `${(r as any).requested_shift.work_start?.substring(0,5)}-${(r as any).requested_shift.work_end?.substring(0,5)}` : "-"
+        results.push({
+          ...r, request_type: "shift_change",
+          date_label: r.work_date,
+          detail: `${curLabel} → ${reqLabel}`,
+          is_cancel_requested: false,
+        })
+      }
+    }
+  }
+
   // Sort all by created_at desc
   results.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
@@ -254,6 +277,113 @@ export async function POST(req: NextRequest) {
     leave: "leave_requests",
     adjustment: "time_adjustment_requests",
     overtime: "overtime_requests",
+  }
+
+  // shift_change → delegate to self-schedule approve API
+  if (request_type === "shift_change") {
+    const scAction = action === "approve" ? "approve" : action === "reject" ? "reject" : null
+    if (!scAction) return NextResponse.json({ error: "Invalid action for shift_change" }, { status: 400 })
+
+    const { data: userData } = await supa.from("users").select("employee_id").eq("id", user.id).single()
+
+    if (scAction === "approve") {
+      const { data: reqData } = await supa.from("shift_change_requests").select("*").eq("id", request_id).single()
+      if (!reqData || reqData.status !== "pending") return NextResponse.json({ error: "Request not found or not pending" }, { status: 400 })
+
+      // อัปเดตหรือสร้าง assignment
+      const { data: existAssign } = await supa.from("monthly_shift_assignments")
+        .select("id").eq("employee_id", reqData.employee_id).eq("work_date", reqData.work_date).maybeSingle()
+
+      if (existAssign) {
+        await supa.from("monthly_shift_assignments").update({
+          shift_id: reqData.requested_shift_id,
+          assignment_type: reqData.requested_assignment_type,
+          submitted_by: reqData.employee_id,
+          has_pending_change: false,
+        }).eq("employee_id", reqData.employee_id).eq("work_date", reqData.work_date)
+      } else {
+        await supa.from("monthly_shift_assignments").insert({
+          employee_id: reqData.employee_id,
+          company_id: reqData.company_id,
+          work_date: reqData.work_date,
+          shift_id: reqData.requested_shift_id,
+          assignment_type: reqData.requested_assignment_type,
+          submitted_by: reqData.employee_id,
+          has_pending_change: false,
+        })
+      }
+
+      await supa.from("shift_change_requests").update({
+        status: "approved", reviewed_by: user.id, reviewed_at: new Date().toISOString(), review_note: note || null,
+      }).eq("id", request_id)
+
+      // ═══ ย้อนหลัง: ตรวจสอบ attendance + คำนวณ payroll ใหม่ ═══
+      const todayBKK = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
+      if (reqData.work_date < todayBKK && reqData.requested_shift_id) {
+        try {
+          const { data: newShift } = await supa.from("shift_templates").select("*").eq("id", reqData.requested_shift_id).single()
+          if (newShift) {
+            const { data: attRec } = await supa.from("attendance_records")
+              .select("*").eq("employee_id", reqData.employee_id).eq("work_date", reqData.work_date).maybeSingle()
+
+            if (attRec && attRec.clock_in) {
+              const clockIn = new Date(attRec.clock_in)
+              const expectedStart = new Date(reqData.work_date + "T" + newShift.work_start + "+07:00")
+              let newLateMin = calcLateMinutes(clockIn, expectedStart)
+              let newStatus = attRec.status as string
+              if (newLateMin > 5) { newStatus = "late" } else { newStatus = "present"; newLateMin = 0 }
+
+              let newWorkMin = attRec.work_minutes ?? 0
+              if (attRec.clock_in && attRec.clock_out) {
+                newWorkMin = calcWorkMinutes(new Date(attRec.clock_in), new Date(attRec.clock_out), newShift.break_minutes ?? 60)
+              }
+
+              await supa.from("attendance_records").update({
+                shift_template_id: reqData.requested_shift_id,
+                late_minutes: newLateMin, work_minutes: newWorkMin, status: newStatus,
+                note: `กะเปลี่ยนย้อนหลัง: ${newShift.work_start?.substring(0,5)}-${newShift.work_end?.substring(0,5)}`,
+              }).eq("id", attRec.id)
+
+              // payroll recalc
+              const wd = new Date(reqData.work_date)
+              const yr = wd.getFullYear(), mo = wd.getMonth() + 1
+              const { data: payrollRec } = await supa.from("payroll_records")
+                .select("id, base_salary").eq("employee_id", reqData.employee_id).eq("year", yr).eq("month", mo).maybeSingle()
+              if (payrollRec) {
+                const monthStart = `${yr}-${String(mo).padStart(2, "0")}-01`
+                const monthEnd = new Date(yr, mo, 0).toISOString().split("T")[0]
+                const { data: attRows } = await supa.from("attendance_records")
+                  .select("status, late_minutes").eq("employee_id", reqData.employee_id)
+                  .gte("work_date", monthStart).lte("work_date", monthEnd)
+                const rows = attRows ?? []
+                const lateCount = rows.filter((r: any) => r.status === "late").length
+                const absentCount = rows.filter((r: any) => r.status === "absent").length
+                const totalLateMin = rows.reduce((s: number, r: any) => s + (r.late_minutes || 0), 0)
+                const dailyRate = (payrollRec.base_salary ?? 0) / 26
+                const minuteRate = dailyRate / 8 / 60
+                await supa.from("payroll_records").update({
+                  deduct_late: Math.round(totalLateMin * minuteRate * 100) / 100,
+                  deduct_absent: Math.round(absentCount * dailyRate * 100) / 100,
+                  late_count: lateCount, absent_days: absentCount,
+                }).eq("id", payrollRec.id)
+              }
+            }
+          }
+        } catch (e) { console.error("Retroactive shift change recalc error:", e) }
+      }
+
+      return NextResponse.json({ success: true })
+    } else {
+      const { data: reqData } = await supa.from("shift_change_requests").select("employee_id, work_date").eq("id", request_id).single()
+      await supa.from("shift_change_requests").update({
+        status: "rejected", reviewed_by: user.id, reviewed_at: new Date().toISOString(), review_note: note || null,
+      }).eq("id", request_id)
+      if (reqData) {
+        await supa.from("monthly_shift_assignments").update({ has_pending_change: false })
+          .eq("employee_id", reqData.employee_id).eq("work_date", reqData.work_date)
+      }
+      return NextResponse.json({ success: true })
+    }
   }
 
   const table = TABLES[request_type]
