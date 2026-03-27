@@ -26,6 +26,7 @@ const SHIFT_COLORS: Record<string, { bg: string; text: string; short: string }> 
   "12:30": { bg: "bg-orange-200", text: "text-orange-800", short: "12½" },
   "13:00": { bg: "bg-rose-200", text: "text-rose-800", short: "13" },
   "15:30": { bg: "bg-indigo-200", text: "text-indigo-800", short: "15½" },
+  "16:00": { bg: "bg-fuchsia-200", text: "text-fuchsia-800", short: "16" },
 }
 
 function shiftStyle(startTime: string | null | undefined) {

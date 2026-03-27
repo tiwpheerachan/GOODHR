@@ -55,15 +55,8 @@ export async function POST(req: Request) {
   // ── กำหนดวันที่จะ mark absent ─────────────────────────────────
   const targetDate = body.date || addDays(todayTH(), -1) // default = เมื่อวาน
 
-  // ตรวจว่าเป็นวันทำงาน (จ-ศ)
-  const dow = dayOfWeek(targetDate)
-  if (dow === 0 || dow === 6) {
-    return NextResponse.json({
-      success: true,
-      message: `${targetDate} เป็นวันหยุด (${dow === 0 ? "อาทิตย์" : "เสาร์"}) — ไม่ต้อง mark absent`,
-      marked: 0,
-    })
-  }
+  // หมายเหตุ: ไม่ skip เสาร์-อาทิตย์อัตโนมัติแล้ว เพราะบางคนมีกะข้ามคืน/ทำงานเสาร์-อาทิตย์
+  // ใช้ monthly_shift_assignments เป็นตัวตัดสินแทน (ดูด้านล่าง)
 
   // ── ดึงพนักงาน active ทั้งหมด ─────────────────────────────────
   const { data: employees, error: empErr } = await supa
@@ -130,24 +123,50 @@ export async function POST(req: Request) {
 
   const onLeaveSet = new Set((leaveData ?? []).map((l: any) => l.employee_id as string))
 
+  // ── ดึง shift assignments สำหรับวันนี้ เพื่อเช็คว่าใครมี dayoff ──
+  const { data: shiftAssignments } = await supa
+    .from("monthly_shift_assignments")
+    .select("employee_id, assignment_type, shift:shift_templates(is_overnight)")
+    .eq("work_date", targetDate)
+    .in("employee_id", workingEmpIds)
+
+  // สร้าง set ของคนที่มี dayoff/holiday/leave assignment (ไม่ต้องทำงาน)
+  const dayoffFromShift = new Set(
+    (shiftAssignments ?? [])
+      .filter((a: any) => a.assignment_type === "dayoff" || a.assignment_type === "holiday" || a.assignment_type === "leave")
+      .map((a: any) => a.employee_id as string)
+  )
+
+  // สร้าง set ของคนที่มีกะข้ามคืน (16:00-01:00 etc.) — อาจยังไม่เช็คอินตอน 00:30
+  // ไม่ mark absent ถ้ายังไม่ถึงเวลาเข้างาน (กะข้ามคืนเริ่มบ่าย/เย็น)
+  const overnightWorkers = new Set(
+    (shiftAssignments ?? [])
+      .filter((a: any) => a.assignment_type === "work" && (a.shift as any)?.is_overnight === true)
+      .map((a: any) => a.employee_id as string)
+  )
+
   // ── หาพนักงานที่ต้อง mark absent ─────────────────────────────
   const toMarkAbsent = workingEmpIds.filter((id: string) => {
     if (hasRecordSet.has(id)) return false    // มี record แล้ว (เช็คอินแล้ว)
     if (onLeaveSet.has(id)) return false       // ลาอนุมัติแล้ว
     if (exemptIds.has(id)) return false        // exempt ไม่ต้องเช็คอิน
+    if (dayoffFromShift.has(id)) return false  // มี dayoff/holiday assignment
+    if (overnightWorkers.has(id)) return false // กะข้ามคืน — อย่า mark absent (จะเช็คอินตอนเย็น)
     return true
   })
 
   if (toMarkAbsent.length === 0) {
     return NextResponse.json({
       success: true,
-      message: `${targetDate} — พนักงานทุกคนเช็คอินแล้ว/ลาแล้ว/exempt`,
+      message: `${targetDate} — พนักงานทุกคนเช็คอินแล้ว/ลาแล้ว/exempt/dayoff`,
       marked: 0,
       stats: {
         total_active: workingEmpIds.length,
         already_checked_in: hasRecordSet.size,
         on_leave: onLeaveSet.size,
         exempt: Array.from(exemptIds).filter(id => workingEmpIds.includes(id)).length,
+        dayoff_assignment: dayoffFromShift.size,
+        overnight_shift: overnightWorkers.size,
       },
     })
   }
@@ -190,6 +209,8 @@ export async function POST(req: Request) {
       already_checked_in: hasRecordSet.size,
       on_leave: onLeaveSet.size,
       exempt: Array.from(exemptIds).filter(id => workingEmpIds.includes(id)).length,
+      dayoff_assignment: dayoffFromShift.size,
+      overnight_shift: overnightWorkers.size,
       marked_absent: toMarkAbsent.length,
     },
   })

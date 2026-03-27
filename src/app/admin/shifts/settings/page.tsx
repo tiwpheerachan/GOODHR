@@ -24,6 +24,7 @@ const COLORS: Record<string, string> = {
   "12:30": "bg-orange-50 text-orange-700 border-orange-200",
   "13:00": "bg-rose-50 text-rose-700 border-rose-200",
   "15:30": "bg-indigo-50 text-indigo-700 border-indigo-200",
+  "16:00": "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200",
 }
 
 function getColor(start: string): string {
@@ -136,7 +137,14 @@ export default function ShiftSettingsPage() {
               <input
                 type="time"
                 value={form.work_start}
-                onChange={e => setForm(f => ({ ...f, work_start: e.target.value }))}
+                onChange={e => {
+                  const newStart = e.target.value
+                  setForm(f => ({
+                    ...f,
+                    work_start: newStart,
+                    is_overnight: f.work_end && newStart ? f.work_end < newStart : f.is_overnight,
+                  }))
+                }}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none"
               />
             </div>
@@ -145,7 +153,15 @@ export default function ShiftSettingsPage() {
               <input
                 type="time"
                 value={form.work_end}
-                onChange={e => setForm(f => ({ ...f, work_end: e.target.value }))}
+                onChange={e => {
+                  const newEnd = e.target.value
+                  setForm(f => ({
+                    ...f,
+                    work_end: newEnd,
+                    // auto-detect overnight: ถ้าเวลาออก < เวลาเข้า → ข้ามคืน
+                    is_overnight: f.work_start && newEnd ? newEnd < f.work_start : f.is_overnight,
+                  }))
+                }}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none"
               />
             </div>

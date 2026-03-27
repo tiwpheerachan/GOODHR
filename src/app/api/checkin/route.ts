@@ -142,10 +142,49 @@ export async function POST(request: Request) {
     shift = (schedule as any)?.shift ?? null
   }
 
+  // ── สำหรับ clock_out ข้ามคืน: ถ้าเวลาปัจจุบัน < 12:00 (เช้ามืด)
+  //    ให้ลองดูว่ามี attendance record ของเมื่อวานที่ยังไม่ได้ clock_out อยู่ไหม
+  //    ถ้ามี → ใช้ shift ของเมื่อวานแทน (เพราะคือ clock_out ของกะข้ามคืน)
+  const bkkHour = parseInt(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hour12: false }))
+  let yesterdayShift: any = null
+  let yesterdayDate: string | null = null
+
+  if (action === "clock_out" && bkkHour < 12) {
+    const yDate = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }))
+    yDate.setDate(yDate.getDate() - 1)
+    yesterdayDate = yDate.toISOString().split("T")[0]
+
+    // ดึง shift ของเมื่อวาน + attendance record ที่ยังไม่ clock_out
+    const [yShiftRes, yRecRes] = await Promise.all([
+      supa.from("monthly_shift_assignments")
+        .select("*, shift:shift_templates(*)")
+        .eq("employee_id", emp.id)
+        .eq("work_date", yesterdayDate)
+        .maybeSingle(),
+      supa.from("attendance_records")
+        .select("id, clock_in, clock_out, shift_template_id")
+        .eq("employee_id", emp.id)
+        .eq("work_date", yesterdayDate)
+        .maybeSingle(),
+    ])
+
+    // ถ้าเมื่อวานเป็นกะข้ามคืน + มี clock_in แต่ยังไม่ clock_out → ใช้ shift เมื่อวาน
+    if (yRecRes.data?.clock_in && !yRecRes.data.clock_out) {
+      const yShift = yShiftRes.data?.shift
+      if (yShift?.is_overnight) {
+        yesterdayShift = yShift
+        shift = yShift
+      }
+    }
+  }
+
   // work_date: overnight shift ให้นับวันก่อนหน้า
-  const workDate = shift?.is_overnight
-    ? calcWorkDate(now, true, "Asia/Bangkok")
-    : today
+  // ถ้า clock_out ข้ามคืน → ใช้ yesterdayDate โดยตรง
+  const workDate = yesterdayShift
+    ? yesterdayDate!
+    : shift?.is_overnight
+      ? calcWorkDate(now, true, "Asia/Bangkok")
+      : today
 
   // grace period ตามบริษัท+แผนก (หรือจาก work_schedule ถ้ามี override)
   const lateThreshold: number =
