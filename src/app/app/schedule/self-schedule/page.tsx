@@ -201,52 +201,55 @@ export default function SelfSchedulePage() {
   }
 
   return (
-    <div className="px-4 py-4 space-y-4 max-w-[430px] mx-auto">
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <Link href="/app/schedule" className="flex items-center gap-1 text-sm font-bold text-violet-600">
-          <ChevronLeft size={16} /> ตารางงาน
-        </Link>
-        <h2 className="text-base font-black text-slate-800">วางกะเอง</h2>
-        <div className="w-16" />
-      </div>
-
-      {/* ── Month Nav ──────────────────────────────────────────── */}
-      <div className="flex items-center justify-between bg-gradient-to-r from-violet-600 to-purple-600 rounded-2xl px-4 py-3 text-white">
-        <button onClick={prevMonth} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20">
-          <ChevronLeft size={16} />
-        </button>
-        <div className="text-center">
-          <p className="text-sm font-black">{TH_MONTHS[month]} {year + 543}</p>
-          {edits.size > 0 && (
-            <p className="text-[10px] text-white/70">{edits.size} วันที่ยังไม่บันทึก</p>
-          )}
+    <div className="max-w-[430px] mx-auto">
+      {/* ── Sticky Header Zone ─────────────────────────────────── */}
+      <div className="sticky top-[52px] z-30 bg-[#f8fafc] px-4 pt-4 pb-2 space-y-3">
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between">
+          <Link href="/app/schedule" className="flex items-center gap-1 text-sm font-bold text-violet-600">
+            <ChevronLeft size={16} /> ตารางงาน
+          </Link>
+          <h2 className="text-base font-black text-slate-800">วางกะเอง</h2>
+          <div className="w-16" />
         </div>
-        <button onClick={nextMonth} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20">
-          <ChevronRight size={16} />
-        </button>
-      </div>
 
-      {/* ── Save Bar ───────────────────────────────────────────── */}
-      {edits.size > 0 && (
-        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
-          <AlertCircle size={14} className="text-amber-500 flex-shrink-0" />
-          <p className="text-xs text-amber-700 font-medium flex-1">
-            {edits.size} วันที่ยังไม่บันทึก
-          </p>
-          <button onClick={() => setEdits(new Map())} className="text-xs font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-amber-100">
-            ยกเลิก
+        {/* ── Month Nav ── */}
+        <div className="flex items-center justify-between bg-gradient-to-r from-violet-600 to-purple-600 rounded-2xl px-4 py-2.5 text-white">
+          <button onClick={prevMonth} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20">
+            <ChevronLeft size={16} />
           </button>
-          <button onClick={handleSubmit} disabled={saving}
-            className="flex items-center gap-1 text-xs font-bold text-white bg-violet-600 px-3 py-1.5 rounded-lg hover:bg-violet-700 disabled:opacity-50">
-            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-            บันทึก
+          <div className="text-center">
+            <p className="text-sm font-black">{TH_MONTHS[month]} {year + 543}</p>
+            {edits.size > 0 && (
+              <p className="text-[10px] text-white/70">{edits.size} วันที่ยังไม่บันทึก</p>
+            )}
+          </div>
+          <button onClick={nextMonth} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20">
+            <ChevronRight size={16} />
           </button>
         </div>
-      )}
 
-      {/* ── Day List ───────────────────────────────────────────── */}
-      <div className="space-y-1.5">
+        {/* ── Save Bar ── */}
+        {edits.size > 0 && (
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+            <AlertCircle size={14} className="text-amber-500 flex-shrink-0" />
+            <p className="text-xs text-amber-700 font-medium flex-1">
+              {edits.size} วันที่ยังไม่บันทึก
+            </p>
+            <button onClick={() => setEdits(new Map())} className="text-xs font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-amber-100">
+              ยกเลิก
+            </button>
+            <button onClick={handleSubmit} disabled={saving}
+              className="flex items-center gap-1 text-xs font-bold text-white bg-violet-600 px-3 py-1.5 rounded-lg hover:bg-violet-700 disabled:opacity-50">
+              {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+              บันทึก
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Day List (touch-friendly scroll) ───────────────────── */}
+      <div className="px-4 pb-4 space-y-1.5" style={{ touchAction: "pan-y" }}>
         {schedule.map(day => {
           const d = new Date(day.date)
           const dow = d.getDay()
@@ -350,7 +353,7 @@ export default function SelfSchedulePage() {
 
       {/* ── Pending Requests Section ─────────────────────────────── */}
       {pendingReqs.filter(r => r.status === "pending").length > 0 && (
-        <div className="mt-4">
+        <div className="mt-4 px-4">
           <h3 className="text-xs font-black text-slate-600 mb-2 px-1">คำขอเปลี่ยนกะที่รออนุมัติ</h3>
           <div className="space-y-1.5">
             {pendingReqs.filter(r => r.status === "pending").map(req => {
@@ -390,62 +393,71 @@ export default function SelfSchedulePage() {
       {pickerDate && (
         <>
           <div className="fixed inset-0 z-50 bg-black/20" onClick={() => setPickerDate(null)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl bg-white p-4 pb-8 shadow-2xl max-w-[430px] mx-auto">
-            <div className="w-10 h-1 rounded-full bg-slate-200 mx-auto mb-3" />
-            <p className="text-xs font-bold text-slate-400 mb-1">
-              {new Date(pickerDate).toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "short" })}
-            </p>
+          <div className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl bg-white shadow-2xl max-w-[430px] mx-auto flex flex-col"
+            style={{ maxHeight: "75vh" }}>
+            {/* ── Handle + Date (sticky top) ── */}
+            <div className="flex-shrink-0 px-4 pt-4 pb-2">
+              <div className="w-10 h-1 rounded-full bg-slate-200 mx-auto mb-3" />
+              <p className="text-xs font-bold text-slate-400">
+                {new Date(pickerDate).toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "short" })}
+              </p>
+            </div>
 
-            {/* ถ้ามีกะอยู่แล้ว → แสดงเหตุผล field */}
-            {schedule.find(s => s.date === pickerDate)?.assignment && (
-              <div className="mb-3">
-                <p className="text-[10px] font-bold text-amber-600 mb-1">มีกะอยู่แล้ว — การเปลี่ยนจะต้องรอหัวหน้าอนุมัติ</p>
-                <input
-                  value={editReason}
-                  onChange={e => setEditReason(e.target.value)}
-                  placeholder="เหตุผลที่ขอเปลี่ยน (ไม่บังคับ)..."
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-violet-400"
-                />
+            {/* ── Scrollable content ── */}
+            <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-8"
+              style={{ WebkitOverflowScrolling: "touch" }}>
+
+              {/* ถ้ามีกะอยู่แล้ว → แสดงเหตุผล field */}
+              {schedule.find(s => s.date === pickerDate)?.assignment && (
+                <div className="mb-3">
+                  <p className="text-[10px] font-bold text-amber-600 mb-1">มีกะอยู่แล้ว — การเปลี่ยนจะต้องรอหัวหน้าอนุมัติ</p>
+                  <input
+                    value={editReason}
+                    onChange={e => setEditReason(e.target.value)}
+                    placeholder="เหตุผลที่ขอเปลี่ยน (ไม่บังคับ)..."
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-violet-400"
+                  />
+                </div>
+              )}
+
+              {/* วันหยุด */}
+              <button onClick={() => setEdit(pickerDate, null, "dayoff")}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors mb-1">
+                <Moon size={18} className="text-slate-400" /> วันหยุด (OFF)
+              </button>
+
+              {/* ── ประเภทลา ── */}
+              <p className="text-[10px] font-bold text-slate-400 mt-2 mb-1 px-1">วันลา</p>
+              <div className="grid grid-cols-2 gap-1.5 mb-2">
+                {LEAVE_OPTIONS.map(lo => {
+                  const Icon = lo.icon
+                  return (
+                    <button key={lo.key} onClick={() => setEdit(pickerDate, null, "leave", lo.key)}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold ${lo.bg} ${lo.text} border ${lo.border} hover:opacity-80 transition-colors`}>
+                      <Icon size={14} />
+                      {lo.label}
+                    </button>
+                  )
+                })}
               </div>
-            )}
 
-            {/* วันหยุด */}
-            <button onClick={() => setEdit(pickerDate, null, "dayoff")}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors mb-1">
-              <Moon size={18} className="text-slate-400" /> วันหยุด (OFF)
-            </button>
+              <div className="border-t border-slate-100 my-2" />
 
-            {/* ── ประเภทลา ── */}
-            <p className="text-[10px] font-bold text-slate-400 mt-2 mb-1 px-1">วันลา</p>
-            <div className="grid grid-cols-2 gap-1.5 mb-2">
-              {LEAVE_OPTIONS.map(lo => {
-                const Icon = lo.icon
+              {/* กะ */}
+              <p className="text-[10px] font-bold text-slate-400 mb-1 px-1">เลือกกะ</p>
+              {shifts.map(s => {
+                const sc = shiftColor(s.work_start)
                 return (
-                  <button key={lo.key} onClick={() => setEdit(pickerDate, null, "leave", lo.key)}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold ${lo.bg} ${lo.text} border ${lo.border} hover:opacity-80 transition-colors`}>
-                    <Icon size={14} />
-                    {lo.label}
+                  <button key={s.id} onClick={() => setEdit(pickerDate, s.id, "work")}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold ${sc.bg} ${sc.text} hover:opacity-80 transition-colors mb-1`}>
+                    <Clock size={18} />
+                    <span>{s.work_start?.substring(0, 5)} - {s.work_end?.substring(0, 5)}</span>
+                    <span className="ml-auto text-xs opacity-60">{s.name}</span>
+                    {s.is_overnight && <span className="text-[9px] opacity-50">(ข้ามคืน)</span>}
                   </button>
                 )
               })}
             </div>
-
-            <div className="border-t border-slate-100 my-2" />
-
-            {/* กะ */}
-            <p className="text-[10px] font-bold text-slate-400 mb-1 px-1">เลือกกะ</p>
-            {shifts.map(s => {
-              const sc = shiftColor(s.work_start)
-              return (
-                <button key={s.id} onClick={() => setEdit(pickerDate, s.id, "work")}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold ${sc.bg} ${sc.text} hover:opacity-80 transition-colors mb-1`}>
-                  <Clock size={18} />
-                  <span>{s.work_start?.substring(0, 5)} - {s.work_end?.substring(0, 5)}</span>
-                  <span className="ml-auto text-xs opacity-60">{s.name}</span>
-                  {s.is_overnight && <span className="text-[9px] opacity-50">(ข้ามคืน)</span>}
-                </button>
-              )
-            })}
           </div>
         </>
       )}
