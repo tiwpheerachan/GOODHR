@@ -79,10 +79,19 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Get comment counts
+  const commentCountMap: Record<string, number> = {}
+  const { data: commentCounts } = await supa.from("announcement_comments")
+    .select("announcement_id").in("announcement_id", annIds)
+  if (commentCounts) {
+    for (const c of commentCounts) commentCountMap[c.announcement_id] = (commentCountMap[c.announcement_id] || 0) + 1
+  }
+
   const result = anns.map(a => ({
     ...a,
     is_read: reads.includes(a.id),
     reactions: reactionMap[a.id] || { counts: {}, total: 0, my: null, reactors: [] },
+    comment_count: commentCountMap[a.id] || 0,
   }))
 
   return NextResponse.json({
@@ -197,6 +206,73 @@ export async function POST(req: NextRequest) {
       await supa.from("announcements").update({ image_url }).eq("id", announcement_id)
     }
     return NextResponse.json({ success: true, image_url })
+  }
+
+  // ── Comments: list ──
+  if (action === "list_comments") {
+    const { announcement_id } = body
+
+    // Try with FK join first, fallback to manual join
+    let { data: comments, error: commentsErr } = await supa.from("announcement_comments")
+      .select("*, employee:employees!employee_id(first_name_th, last_name_th, nickname, avatar_url, employee_code)")
+      .eq("announcement_id", announcement_id)
+      .order("created_at", { ascending: true })
+      .limit(100)
+
+    if (commentsErr) {
+      // FK not set up — manual join
+      const { data: rawComments } = await supa.from("announcement_comments")
+        .select("*")
+        .eq("announcement_id", announcement_id)
+        .order("created_at", { ascending: true })
+        .limit(100)
+
+      const empIds = Array.from(new Set((rawComments ?? []).map((c: any) => c.employee_id)))
+      const { data: emps } = empIds.length > 0
+        ? await supa.from("employees").select("id, first_name_th, last_name_th, nickname, avatar_url, employee_code").in("id", empIds)
+        : { data: [] }
+      const empMap: Record<string, any> = {}
+      for (const e of (emps ?? [])) empMap[e.id] = e
+
+      comments = (rawComments ?? []).map((c: any) => ({ ...c, employee: empMap[c.employee_id] || null }))
+    }
+
+    return NextResponse.json({ comments: comments ?? [] })
+  }
+
+  // ── Comments: add ──
+  if (action === "add_comment") {
+    if (!userData?.employee_id) return NextResponse.json({ error: "No employee" }, { status: 400 })
+    const { announcement_id, body: commentBody, parent_id } = body
+    if (!commentBody?.trim()) return NextResponse.json({ error: "Comment required" }, { status: 400 })
+
+    // Insert comment
+    const { data: rawComment, error } = await supa.from("announcement_comments").insert({
+      announcement_id,
+      employee_id: userData.employee_id,
+      body: commentBody.trim(),
+      parent_id: parent_id || null,
+    }).select("*").single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Get employee info separately (works regardless of FK)
+    const { data: emp } = await supa.from("employees")
+      .select("first_name_th, last_name_th, nickname, avatar_url")
+      .eq("id", userData.employee_id).single()
+
+    return NextResponse.json({ success: true, comment: { ...rawComment, employee: emp } })
+  }
+
+  // ── Comments: delete (own or admin) ──
+  if (action === "delete_comment") {
+    const { comment_id } = body
+    if (isAdmin) {
+      await supa.from("announcement_comments").delete().eq("id", comment_id)
+    } else {
+      await supa.from("announcement_comments").delete().eq("id", comment_id).eq("employee_id", userData?.employee_id)
+    }
+    return NextResponse.json({ success: true })
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 })

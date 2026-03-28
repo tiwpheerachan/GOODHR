@@ -341,11 +341,17 @@ export async function GET(req: NextRequest) {
           .eq("conversation_id", convId),
       ])
 
-      // Fire-and-forget mark read
+      // Fire-and-forget mark read — update BOTH last_read_at AND is_read flags
       if (hasMembersTable) {
         supa.from("chat_members").update({ last_read_at: new Date().toISOString() })
           .eq("conversation_id", convId).eq("employee_id", empId).then(() => {})
       }
+      // Mark messages as read: for user = mark non-user msgs, for admin = mark user msgs
+      supa.from("chat_messages").update({ is_read: true })
+        .eq("conversation_id", convId)
+        .eq("is_read", false)
+        .neq("sender_id", empId)
+        .then(() => {})
 
       return jsonRes({
         new_messages: newMessages ?? [],
@@ -364,15 +370,17 @@ export async function GET(req: NextRequest) {
     const conv = convResult.data
     const messages = messagesResult.data ?? []
 
-    // Mark read (fire-and-forget)
+    // Mark read (fire-and-forget) — update BOTH last_read_at AND is_read flags
     if (hasMembersTable) {
       supa.from("chat_members").update({ last_read_at: new Date().toISOString() })
         .eq("conversation_id", convId).eq("employee_id", empId).then(() => {})
     }
-    if (conv?.employee_id === empId) {
-      supa.from("chat_messages").update({ is_read: true })
-        .eq("conversation_id", convId).neq("sender_role", "user").eq("is_read", false).then(() => {})
-    }
+    // Mark all messages from others as read
+    supa.from("chat_messages").update({ is_read: true })
+      .eq("conversation_id", convId)
+      .eq("is_read", false)
+      .neq("sender_id", empId)
+      .then(() => {})
 
     // Enrich conversation
     const convType = conv?.type || "hr"

@@ -112,6 +112,126 @@ function ExpandableText({ text, maxLines = 3 }: { text: string; maxLines?: numbe
   )
 }
 
+// ── Comment Section (Facebook-style) ──
+function CommentSection({ announcementId }: { announcementId: string }) {
+  const [comments, setComments] = useState<any[]>([])
+  const [text, setText] = useState("")
+  const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null)
+  const [sending, setSending] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  const loadComments = useCallback(async () => {
+    const r = await fetch("/api/announcements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_comments", announcement_id: announcementId }) })
+    const d = await r.json()
+    setComments(d.comments ?? [])
+    setLoaded(true)
+  }, [announcementId])
+
+  useEffect(() => { loadComments() }, [loadComments])
+
+  const send = async () => {
+    if (!text.trim() || sending) return
+    setSending(true)
+    const res = await fetch("/api/announcements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add_comment", announcement_id: announcementId, body: text.trim(), parent_id: replyTo?.id || null }) })
+    const d = await res.json()
+    if (d.comment) setComments(p => [...p, d.comment])
+    setText(""); setReplyTo(null); setSending(false)
+  }
+
+  const deleteComment = async (id: string) => {
+    await fetch("/api/announcements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete_comment", comment_id: id }) })
+    setComments(p => p.filter(c => c.id !== id))
+  }
+
+  // Group: top-level + replies
+  const topLevel = comments.filter(c => !c.parent_id)
+  const replies = comments.filter(c => c.parent_id)
+
+  if (!loaded) return <div className="px-4 py-3 text-xs text-slate-400 text-center">กำลังโหลด...</div>
+
+  return (
+    <div className="border-t border-slate-100 bg-slate-50/50">
+      {/* Comments list */}
+      {topLevel.length > 0 && (
+        <div className="px-4 pt-3 pb-1 space-y-3">
+          {topLevel.map(c => {
+            const emp = c.employee || {}
+            const name = emp.nickname || `${emp.first_name_th || ""} ${emp.last_name_th || ""}`.trim() || "?"
+            const childReplies = replies.filter(r => r.parent_id === c.id)
+            return (
+              <div key={c.id}>
+                {/* Main comment */}
+                <div className="flex gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-300 to-violet-400 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 overflow-hidden">
+                    {emp.avatar_url ? <img src={emp.avatar_url} className="w-full h-full object-cover" /> : name[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="bg-white rounded-2xl rounded-tl-md px-3 py-2 inline-block max-w-full">
+                      <p className="text-[12px] font-bold text-slate-700">{name}</p>
+                      <p className="text-[13px] text-slate-600 whitespace-pre-wrap break-words">{c.body}</p>
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5 px-1">
+                      <span className="text-[10px] text-slate-400">{formatDistanceToNow(new Date(c.created_at), { locale: th, addSuffix: true })}</span>
+                      <button onClick={() => setReplyTo({ id: c.id, name })} className="text-[10px] font-bold text-slate-400 hover:text-indigo-500">ตอบกลับ</button>
+                      <button onClick={() => deleteComment(c.id)} className="text-[10px] text-slate-300 hover:text-red-400">ลบ</button>
+                    </div>
+                  </div>
+                </div>
+                {/* Replies */}
+                {childReplies.length > 0 && (
+                  <div className="ml-10 mt-2 space-y-2">
+                    {childReplies.map(r => {
+                      const re = r.employee || {}
+                      const rn = re.nickname || `${re.first_name_th || ""} ${re.last_name_th || ""}`.trim() || "?"
+                      return (
+                        <div key={r.id} className="flex gap-2">
+                          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-300 to-slate-400 flex items-center justify-center text-white text-[8px] font-bold flex-shrink-0 overflow-hidden">
+                            {re.avatar_url ? <img src={re.avatar_url} className="w-full h-full object-cover" /> : rn[0]}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="bg-white rounded-2xl rounded-tl-md px-2.5 py-1.5 inline-block max-w-full">
+                              <p className="text-[11px] font-bold text-slate-600">{rn}</p>
+                              <p className="text-[12px] text-slate-600 whitespace-pre-wrap break-words">{r.body}</p>
+                            </div>
+                            <div className="flex items-center gap-3 mt-0.5 px-1">
+                              <span className="text-[10px] text-slate-400">{formatDistanceToNow(new Date(r.created_at), { locale: th, addSuffix: true })}</span>
+                              <button onClick={() => deleteComment(r.id)} className="text-[10px] text-slate-300 hover:text-red-400">ลบ</button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Comment input */}
+      <div className="px-4 py-3">
+        {replyTo && (
+          <div className="flex items-center gap-2 mb-1.5 px-1">
+            <span className="text-[10px] text-slate-400">ตอบกลับ <strong>{replyTo.name}</strong></span>
+            <button onClick={() => setReplyTo(null)} className="text-[10px] text-slate-400 hover:text-red-400">ยกเลิก</button>
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <input value={text} onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send() } }}
+            placeholder={replyTo ? `ตอบกลับ ${replyTo.name}...` : "เขียนคอมเมนต์..."}
+            className="flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+          <button onClick={send} disabled={!text.trim() || sending}
+            className="h-9 w-9 flex-shrink-0 rounded-full bg-indigo-500 text-white flex items-center justify-center disabled:opacity-40">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ──
 export default function UserAnnouncementsPage() {
   const [anns, setAnns] = useState<any[]>([])
@@ -119,6 +239,7 @@ export default function UserAnnouncementsPage() {
   const [picker, setPicker] = useState<string | null>(null)
   const [reactorModal, setReactorModal] = useState<any[] | null>(null)
   const [imgModal, setImgModal] = useState<string | null>(null)
+  const [openComments, setOpenComments] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -315,12 +436,18 @@ export default function UserAnnouncementsPage() {
                       rc.my ? "text-indigo-600" : "text-slate-400 hover:text-slate-600"
                     }`}>
                     {myR ? <span className="text-lg">{myR.emoji}</span> : <Heart size={18} />}
-                    <span>{myR ? myR.label : "แสดงความรู้สึก"}</span>
+                    <span>{myR ? myR.label : "ถูกใจ"}</span>
+                  </button>
+
+                  <button onClick={e => { e.stopPropagation(); setOpenComments(prev => { const n = new Set(Array.from(prev)); n.has(a.id) ? n.delete(a.id) : n.add(a.id); return n }) }}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold text-slate-400 hover:text-slate-600 transition-all active:scale-95">
+                    <MessageCircle size={18} />
+                    <span>{a.comment_count > 0 ? `${a.comment_count}` : "คอมเมนต์"}</span>
                   </button>
 
                   {/* Reaction picker */}
                   {picker === a.id && (
-                    <div className="absolute bottom-14 left-1/2 -translate-x-1/2 bg-white rounded-full shadow-2xl border border-slate-200 px-2 py-1.5 flex gap-0.5 z-10"
+                    <div className="absolute bottom-14 left-4 bg-white rounded-full shadow-2xl border border-slate-200 px-2 py-1.5 flex gap-0.5 z-10"
                       style={{ animation: "scaleIn .2s cubic-bezier(.34,1.56,.64,1)" }}>
                       {REACTIONS.map(r => (
                         <button key={r.type} onClick={e => { e.stopPropagation(); react(a.id, r.type) }}
@@ -334,6 +461,9 @@ export default function UserAnnouncementsPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Comment section */}
+                {openComments.has(a.id) && <CommentSection announcementId={a.id} />}
               </div>
             )
           })}
