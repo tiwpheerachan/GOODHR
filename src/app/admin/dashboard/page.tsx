@@ -328,6 +328,10 @@ export default function AdminDashboard() {
   const [pendLeaves,  setPendLeaves]  = useState<PendLeave[]>([])
   const [checkins,    setCheckins]    = useState<any[]>([])
   const [kpiStats,    setKpiStats]    = useState<{total:number;avg:number;grades:Record<string,number>;topDepts:{name:string;avg:number;count:number}[];topEmployees:{name:string;avatar_url?:string;position?:string;score:number;grade:string}[];monthlyAvg:{month:number;avg:number;count:number}[]}>({total:0,avg:0,grades:{A:0,B:0,C:0,D:0},topDepts:[],topEmployees:[],monthlyAvg:[]})
+  // ── New: Payroll + OT + Headcount ──
+  const [payrollOverview, setPayrollOverview] = useState<{totalGross:number;totalNet:number;totalOT:number;totalSSO:number;totalTax:number;totalDeductLate:number;totalDeductAbsent:number;count:number;avgSalary:number;prevGross:number;prevNet:number}>({totalGross:0,totalNet:0,totalOT:0,totalSSO:0,totalTax:0,totalDeductLate:0,totalDeductAbsent:0,count:0,avgSalary:0,prevGross:0,prevNet:0})
+  const [resignedCount, setResignedCount] = useState(0)
+  const [otTop5, setOtTop5] = useState<{name:string;avatar_url?:string;dept?:string;totalOT:number;totalMin:number}[]>([])
 
   const myCompanyId:string|undefined = user?.employee?.company_id??(user as any)?.company_id??undefined
   const companyId:string|undefined   = isSA?(selectedCo||undefined):myCompanyId
@@ -495,6 +499,62 @@ export default function AdminDashboard() {
           setCoStats(stats)
         }
       }
+      // ── Payroll overview ──
+      const bangkokDay = parseInt(today.split("-")[2])
+      const pMonth = bangkokDay > 21 ? new Date().getMonth() + 2 : new Date().getMonth() + 1
+      const pYear = pMonth > 12 ? new Date().getFullYear() + 1 : new Date().getFullYear()
+      const adjPMonth = pMonth > 12 ? 1 : pMonth
+      const prevMonth = adjPMonth - 1 <= 0 ? 12 : adjPMonth - 1
+      const prevYear = adjPMonth - 1 <= 0 ? pYear - 1 : pYear
+
+      const [prCurrent, prPrev] = await Promise.all([
+        fc(supabase.from("payroll_records").select("gross_income, net_salary, ot_amount, social_security_amount, monthly_tax_withheld, deduct_late, deduct_absent, base_salary, employee_id").eq("year", pYear).eq("month", adjPMonth)),
+        fc(supabase.from("payroll_records").select("gross_income, net_salary").eq("year", prevYear).eq("month", prevMonth)),
+      ])
+
+      const prData = prCurrent.data ?? []
+      const prevData = prPrev.data ?? []
+      if (prData.length > 0) {
+        const totalGross = prData.reduce((s: number, r: any) => s + (Number(r.gross_income) || 0), 0)
+        const totalNet = prData.reduce((s: number, r: any) => s + (Number(r.net_salary) || 0), 0)
+        const totalOT = prData.reduce((s: number, r: any) => s + (Number(r.ot_amount) || 0), 0)
+        const totalSSO = prData.reduce((s: number, r: any) => s + (Number(r.social_security_amount) || 0), 0)
+        const totalTax = prData.reduce((s: number, r: any) => s + (Number(r.monthly_tax_withheld) || 0), 0)
+        const totalDeductLate = prData.reduce((s: number, r: any) => s + (Number(r.deduct_late) || 0), 0)
+        const totalDeductAbsent = prData.reduce((s: number, r: any) => s + (Number(r.deduct_absent) || 0), 0)
+        const avgSalary = prData.length > 0 ? Math.round(totalGross / prData.length) : 0
+        const prevGross = prevData.reduce((s: number, r: any) => s + (Number(r.gross_income) || 0), 0)
+        const prevNet = prevData.reduce((s: number, r: any) => s + (Number(r.net_salary) || 0), 0)
+        setPayrollOverview({ totalGross, totalNet, totalOT, totalSSO, totalTax, totalDeductLate, totalDeductAbsent, count: prData.length, avgSalary, prevGross, prevNet })
+      }
+
+      // ── OT Top 5 ──
+      const otMap: Record<string, { totalOT: number; totalMin: number }> = {}
+      for (const r of prData) {
+        if (Number(r.ot_amount) > 0) {
+          if (!otMap[r.employee_id]) otMap[r.employee_id] = { totalOT: 0, totalMin: 0 }
+          otMap[r.employee_id].totalOT += Number(r.ot_amount) || 0
+        }
+      }
+      const otEntries = Object.entries(otMap).sort((a, b) => b[1].totalOT - a[1].totalOT).slice(0, 5)
+      if (otEntries.length > 0) {
+        const otEmpIds = otEntries.map(([id]) => id)
+        const { data: otEmps } = await supabase.from("employees").select("id, first_name_th, last_name_th, avatar_url, department:departments(name)").in("id", otEmpIds)
+        const oem: Record<string, any> = {}
+        for (const e of otEmps ?? []) oem[e.id] = e
+        setOtTop5(otEntries.map(([id, info]) => ({
+          name: oem[id] ? `${oem[id].first_name_th} ${oem[id].last_name_th}` : id.slice(0, 8),
+          avatar_url: oem[id]?.avatar_url,
+          dept: oem[id]?.department?.name,
+          totalOT: info.totalOT,
+          totalMin: info.totalMin,
+        })))
+      }
+
+      // ── Resigned count (this year) ──
+      const { count: resCount } = await fe(supabase.from("employees").select("id", { count: "exact", head: true }).not("resign_date", "is", null).gte("resign_date", `${new Date().getFullYear()}-01-01`))
+      setResignedCount(resCount ?? 0)
+
     } finally { setLoading(false); setLastRefresh(new Date()) }
   },[companyId,isSA,myCompanyId,companies,today,monthStart])
 
@@ -1025,6 +1085,156 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* ── Payroll + Cost Overview ───────────────────────────── */}
+      {payrollOverview.count > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-slate-50">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+              <FileBarChart2 size={14} className="text-emerald-500"/>
+            </div>
+            <p className="font-black text-sm text-slate-800">ภาพรวมเงินเดือนรอบปัจจุบัน</p>
+            <span className="text-[10px] bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded-full">{payrollOverview.count} คน</span>
+            <Link href="/admin/payroll" className="ml-auto text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">จัดการ<ChevronRight size={12}/></Link>
+          </div>
+          <div className="p-5">
+            {/* Main numbers */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+              {[
+                { label: "Gross รวม", value: payrollOverview.totalGross, color: "text-slate-800", prev: payrollOverview.prevGross },
+                { label: "Net จ่ายจริง", value: payrollOverview.totalNet, color: "text-emerald-700", prev: payrollOverview.prevNet },
+                { label: "OT รวม", value: payrollOverview.totalOT, color: "text-amber-700", prev: 0 },
+                { label: "เฉลี่ย/คน", value: payrollOverview.avgSalary, color: "text-indigo-700", prev: 0 },
+              ].map(item => {
+                const diff = item.prev > 0 ? ((item.value - item.prev) / item.prev * 100) : 0
+                return (
+                  <div key={item.label} className="bg-slate-50 rounded-xl p-4">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">{item.label}</p>
+                    <p className={`text-xl font-black ${item.color} mt-1`}>{item.value.toLocaleString()} <span className="text-xs font-bold text-slate-400">฿</span></p>
+                    {diff !== 0 && (
+                      <div className={`flex items-center gap-1 mt-1 text-[10px] font-bold ${diff > 0 ? "text-red-500" : "text-emerald-500"}`}>
+                        {diff > 0 ? <TrendingUp size={10}/> : <TrendingDown size={10}/>}
+                        <span>{diff > 0 ? "+" : ""}{diff.toFixed(1)}% จากเดือนก่อน</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            {/* Deduction breakdown */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                { label: "ประกันสังคม", value: payrollOverview.totalSSO, bg: "bg-blue-50", tc: "text-blue-600" },
+                { label: "ภาษี", value: payrollOverview.totalTax, bg: "bg-purple-50", tc: "text-purple-600" },
+                { label: "หักมาสาย", value: payrollOverview.totalDeductLate, bg: "bg-amber-50", tc: "text-amber-600" },
+                { label: "หักขาดงาน", value: payrollOverview.totalDeductAbsent, bg: "bg-red-50", tc: "text-red-600" },
+              ].map(d => (
+                <div key={d.label} className={`${d.bg} rounded-xl px-3 py-2.5 flex items-center justify-between`}>
+                  <span className="text-[10px] font-bold text-slate-500">{d.label}</span>
+                  <span className={`text-sm font-black ${d.tc}`}>{d.value.toLocaleString()}฿</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── OT + Headcount Row ──────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* OT Top 5 */}
+        {otTop5.length > 0 && (
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-50">
+              <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
+                <Clock size={14} className="text-amber-500"/> OT สูงสุดรอบนี้
+              </h3>
+            </div>
+            <div className="divide-y divide-slate-50">
+              {otTop5.map((emp, i) => {
+                const maxOT = otTop5[0]?.totalOT || 1
+                const pct = (emp.totalOT / maxOT) * 100
+                return (
+                  <div key={i} className="flex items-center gap-3 px-5 py-3">
+                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black flex-shrink-0 ${i === 0 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{i + 1}</div>
+                    <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center font-black text-amber-600 text-xs flex-shrink-0 overflow-hidden">
+                      {emp.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/> : emp.name[0]}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-700 truncate">{emp.name}</p>
+                      {emp.dept && <p className="text-xs text-slate-400 truncate">{emp.dept}</p>}
+                    </div>
+                    <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden flex-shrink-0">
+                      <div className="h-full rounded-full bg-amber-400 transition-all" style={{ width: `${pct}%` }}/>
+                    </div>
+                    <span className="text-sm font-black text-amber-600 w-20 text-right flex-shrink-0">{emp.totalOT.toLocaleString()}฿</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Headcount Summary */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <h3 className="font-black text-slate-700 text-sm mb-4 flex items-center gap-2">
+            <Users size={14} className="text-indigo-500"/> สรุปกำลังคน
+          </h3>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-500">พนักงานทั้งหมด</span>
+              <span className="text-2xl font-black text-indigo-700">{kpi.totalEmp}</span>
+            </div>
+            <div className="h-px bg-slate-100"/>
+            <div className="space-y-2.5">
+              {[
+                { label: "ทดลองงาน", value: kpi.probCount, icon: Shield, color: "text-amber-600", bg: "bg-amber-50" },
+                { label: "พนักงานใหม่ (เดือนนี้)", value: kpi.newHires, icon: UserPlus, color: "text-sky-600", bg: "bg-sky-50" },
+                { label: "ลาออก (ปีนี้)", value: resignedCount, icon: XCircle, color: "text-red-500", bg: "bg-red-50" },
+              ].map(item => (
+                <div key={item.label} className="flex items-center gap-3">
+                  <div className={`w-7 h-7 ${item.bg} rounded-lg flex items-center justify-center flex-shrink-0`}>
+                    <item.icon size={13} className={item.color}/>
+                  </div>
+                  <span className="flex-1 text-xs text-slate-500">{item.label}</span>
+                  <span className={`text-lg font-black ${item.color}`}>{item.value}</span>
+                </div>
+              ))}
+            </div>
+            {kpi.totalEmp > 0 && resignedCount > 0 && (
+              <div className="mt-2 bg-slate-50 rounded-xl px-3 py-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400">Turnover Rate (ปีนี้)</span>
+                  <span className={`text-sm font-black ${(resignedCount / kpi.totalEmp * 100) > 15 ? "text-red-500" : "text-emerald-600"}`}>
+                    {(resignedCount / kpi.totalEmp * 100).toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Quick Actions ───────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: "คำนวณเงินเดือน", desc: "รอบปัจจุบัน", href: "/admin/payroll", icon: FileBarChart2, bg: "bg-emerald-500" },
+          { label: "จัดกะทำงาน", desc: "เดือนนี้", href: "/admin/shifts", icon: Calendar, bg: "bg-indigo-500" },
+          { label: "อนุมัติคำร้อง", desc: `${kpi.pendingLeave + kpi.pendingAdj} รายการ`, href: "/admin/approvals", icon: CheckCircle, bg: "bg-amber-500" },
+          { label: "ดูสูตรคำนวณ", desc: "กฎเงินเดือน", href: "/admin/payroll-rules", icon: Brain, bg: "bg-violet-500" },
+        ].map(a => (
+          <Link key={a.label} href={a.href}
+            className="group flex items-center gap-3 bg-white rounded-2xl border border-slate-100 p-4 hover:border-indigo-200 hover:shadow-md transition-all">
+            <div className={`w-10 h-10 ${a.bg} rounded-xl flex items-center justify-center flex-shrink-0`}>
+              <a.icon size={18} className="text-white"/>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-black text-slate-700">{a.label}</p>
+              <p className="text-[10px] text-slate-400">{a.desc}</p>
+            </div>
+            <ArrowRight size={14} className="text-slate-300 group-hover:text-indigo-500 transition-colors flex-shrink-0"/>
+          </Link>
+        ))}
+      </div>
 
       {/* ── Probation full alert banner ─────────────────────────── */}
       <ProbationBanner list={probList}/>

@@ -1,6 +1,7 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
+import { logPayroll } from "@/lib/auditLog"
 
 // ── Date helpers (copy จาก payroll/route.ts เพื่อ self-contained) ────
 function addDays(ds: string, n: number): string {
@@ -13,11 +14,49 @@ function dayOfWeek(ds: string): number {
   return new Date(y, m - 1, d).getDay()
 }
 function cmp(a: string, b: string): -1 | 0 | 1 { return a < b ? -1 : a > b ? 1 : 0 }
-function workDaysBetween(start: string, end: string, holidays: Set<string>): string[] {
-  const days: string[] = []; let cur = start
-  while (cmp(cur, end) <= 0) { const dow = dayOfWeek(cur); if (dow !== 0 && dow !== 6 && !holidays.has(cur)) days.push(cur); cur = addDays(cur, 1) }
+
+const DOW_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const
+
+function workDaysBetween(
+  start: string, end: string, holidays: Set<string>,
+  shiftMap?: Map<string, { assignment_type: string }>,
+  fixedDayoffs?: string[],
+): string[] {
+  const days: string[] = []
+  const hasShiftData = shiftMap && shiftMap.size > 0
+  const hasProfile   = fixedDayoffs !== undefined
+  let cur = start
+  while (cmp(cur, end) <= 0) {
+    const assignment = hasShiftData ? shiftMap!.get(cur) : undefined
+    if (assignment) {
+      if (assignment.assignment_type === "work") days.push(cur)
+    } else if (hasProfile) {
+      const dowName = DOW_NAMES[dayOfWeek(cur)]
+      if (!fixedDayoffs!.includes(dowName) && !holidays.has(cur)) days.push(cur)
+    } else {
+      const dow = dayOfWeek(cur)
+      if (dow !== 0 && dow !== 6 && !holidays.has(cur)) days.push(cur)
+    }
+    cur = addDays(cur, 1)
+  }
   return days
 }
+
+function isWorkDay(
+  date: string, holidays: Set<string>,
+  shiftMap?: Map<string, { assignment_type: string }>,
+  fixedDayoffs?: string[],
+): boolean {
+  const assignment = (shiftMap && shiftMap.size > 0) ? shiftMap.get(date) : undefined
+  if (assignment) return assignment.assignment_type === "work"
+  if (fixedDayoffs !== undefined) {
+    const dowName = DOW_NAMES[dayOfWeek(date)]
+    return !fixedDayoffs.includes(dowName) && !holidays.has(date)
+  }
+  const dow = dayOfWeek(date)
+  return dow !== 0 && dow !== 6 && !holidays.has(date)
+}
+
 function todayTH(): string { return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" }) }
 
 /**
@@ -72,6 +111,31 @@ export async function POST(req: Request) {
 
   const holidaySet = new Set<string>((holData ?? []).map((h: any) => h.date as string))
 
+  // ── Pre-fetch shift assignments + schedule profiles (batch) ────
+  const [shiftAssignRes, schedProfileRes] = await Promise.all([
+    supa.from("monthly_shift_assignments")
+      .select("employee_id, work_date, assignment_type")
+      .in("employee_id", employee_ids)
+      .gte("work_date", periodStart)
+      .lte("work_date", periodEnd),
+    supa.from("employee_schedule_profiles")
+      .select("employee_id, fixed_dayoffs")
+      .in("employee_id", employee_ids),
+  ])
+
+  // Group shift assignments by employee → Map<employee_id, Map<date, assignment>>
+  const shiftByEmp = new Map<string, Map<string, { assignment_type: string }>>()
+  for (const a of (shiftAssignRes.data ?? []) as any[]) {
+    if (!shiftByEmp.has(a.employee_id)) shiftByEmp.set(a.employee_id, new Map())
+    shiftByEmp.get(a.employee_id)!.set(a.work_date, { assignment_type: a.assignment_type })
+  }
+
+  // Group schedule profiles by employee → Map<employee_id, string[] | undefined>
+  const profileByEmp = new Map<string, string[]>()
+  for (const p of (schedProfileRes.data ?? []) as any[]) {
+    if (p.fixed_dayoffs) profileByEmp.set(p.employee_id, p.fixed_dayoffs as string[])
+  }
+
   // ── Pre-fetch attendance records ทุกคนในงวดนี้ (1 query แทน 500) ─
   const { data: allAtt } = await supa
     .from("attendance_records")
@@ -111,7 +175,7 @@ export async function POST(req: Request) {
 
   const { data: salData } = await supa
     .from("salary_structures")
-    .select("employee_id, base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, effective_from")
+    .select("employee_id, base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, effective_from")
     .in("employee_id", employee_ids)
     .is("effective_to", null)
     .order("effective_from", { ascending: false })
@@ -176,9 +240,13 @@ export async function POST(req: Request) {
           const records = attByEmp.get(eid) ?? []
           const recordMap = new Map<string, any>(records.map((r: any) => [r.work_date, r]))
 
+          // Shift + Profile สำหรับพนักงานคนนี้
+          const empShiftMap = shiftByEmp.get(eid)
+          const empDayoffs  = profileByEmp.has(eid) ? profileByEmp.get(eid) : undefined
+
           const hireDate = (emp.hire_date as string | null) ?? periodStart
           const effectiveStart = cmp(hireDate, periodStart) > 0 ? hireDate : periodStart
-          const allWorkDays = workDaysBetween(effectiveStart, periodEnd, holidaySet)
+          const allWorkDays = workDaysBetween(effectiveStart, periodEnd, holidaySet, empShiftMap, empDayoffs)
           const pastWorkDays = allWorkDays.filter(d => cmp(d, todayStr) <= 0)
 
           // Leave calc
@@ -189,8 +257,7 @@ export async function POST(req: Request) {
             const leaveEnd = l.end_date as string
             let cnt = 0
             while (cmp(cur, leaveEnd) <= 0) {
-              const dow = dayOfWeek(cur)
-              if (dow !== 0 && dow !== 6 && !holidaySet.has(cur) && cmp(cur, periodStart) >= 0 && cmp(cur, periodEnd) <= 0) {
+              if (isWorkDay(cur, holidaySet, empShiftMap, empDayoffs) && cmp(cur, periodStart) >= 0 && cmp(cur, periodEnd) <= 0) {
                 leaveDaySet.add(cur); cnt++
               }
               cur = addDays(cur, 1)
@@ -216,17 +283,47 @@ export async function POST(req: Request) {
           const totalLateMin = records.reduce((s: number, r: any) => s + Math.max(0, (Number(r.late_minutes) || 0) - graceMinutes), 0)
           const totalEarlyMin = records.reduce((s: number, r: any) => s + (Number(r.early_out_minutes) || 0), 0)
 
-          // OT
-          let otMin = records.reduce((s: number, r: any) => s + (Number(r.ot_minutes) || 0), 0)
-          if (otMin === 0) {
+          // OT แยกประเภท (weekday 1.5x / holiday_regular 1.0x / holiday_ot 3.0x)
+          let weekdayOtMin  = 0
+          let holidayRegMin = 0
+          let holidayOtMin  = 0
+
+          for (const r of records) {
+            const otM   = Number(r.ot_minutes)   || 0
+            const workM = Number(r.work_minutes) || 0
+            if (otM <= 0 && workM <= 0) continue
+
+            const wd = r.work_date as string
+            if (!isWorkDay(wd, holidaySet, empShiftMap, empDayoffs)) {
+              holidayRegMin += Math.max(0, workM - otM)
+              holidayOtMin  += otM
+            } else {
+              weekdayOtMin += otM
+            }
+          }
+
+          // fallback: overtime_requests
+          if (weekdayOtMin === 0 && holidayOtMin === 0 && holidayRegMin === 0) {
             for (const ot of (otByEmp.get(eid) ?? [])) {
               if (ot.ot_start && ot.ot_end) {
-                otMin += Math.max(0, Math.round((new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000))
+                const mins = Math.max(0, Math.round(
+                  (new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000
+                ))
+                const wd = ot.work_date as string
+                if (!isWorkDay(wd, holidaySet, empShiftMap, empDayoffs)) {
+                  holidayOtMin += mins
+                } else {
+                  weekdayOtMin += mins
+                }
               }
             }
           }
 
-          const otBreakdown: OTBreakdown = { weekday_minutes: otMin, holiday_regular_minutes: 0, holiday_ot_minutes: 0 }
+          const otBreakdown: OTBreakdown = {
+            weekday_minutes: weekdayOtMin,
+            holiday_regular_minutes: holidayRegMin,
+            holiday_ot_minutes: holidayOtMin,
+          }
 
           const baseSalary = Number(sal.base_salary) || 0
           const allAllowances = (Number(sal.allowance_position) || 0) + (Number(sal.allowance_food) || 0) +
@@ -244,6 +341,8 @@ export async function POST(req: Request) {
             lateMinutes:     isExempt ? 0 : totalLateMin,
             earlyOutMinutes: isExempt ? 0 : totalEarlyMin,
             loanDeduction, taxWithholdingPct: taxPct,
+            otRateWeekday:   sal.ot_rate_normal  != null ? Number(sal.ot_rate_normal)  : null,
+            otRateHoliday:   sal.ot_rate_holiday != null ? Number(sal.ot_rate_holiday) : null,
           })
 
           const previousYtdTax = prevTaxByEmp.get(eid) || 0
@@ -260,8 +359,8 @@ export async function POST(req: Request) {
             allowance_housing: Number(sal.allowance_housing) || 0,
             allowance_other: 0,
             ot_amount: result.otAmount,
-            ot_hours: otMin / 60,
-            ot_weekday_minutes: otMin, ot_holiday_reg_minutes: 0, ot_holiday_ot_minutes: 0,
+            ot_hours: (weekdayOtMin + holidayRegMin + holidayOtMin) / 60,
+            ot_weekday_minutes: weekdayOtMin, ot_holiday_reg_minutes: holidayRegMin, ot_holiday_ot_minutes: holidayOtMin,
             bonus: 0, commission: 0, other_income: 0,
             gross_income: result.gross,
             deduct_absent: result.deductAbsent, deduct_late: result.deductLate,
@@ -300,6 +399,18 @@ export async function POST(req: Request) {
   const successCount = results.filter(r => r.success).length
   const failCount    = results.filter(r => !r.success).length
   const errors       = results.filter(r => !r.success).slice(0, 5)
+
+  // Audit log
+  const { data: actorData } = await supa.from("users").select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", user.id).single()
+  const actorEmp = actorData?.employee as any
+  logPayroll(supa, {
+    actorId: actorData?.employee_id || user.id,
+    actorName: actorEmp ? `${actorEmp.first_name_th} ${actorEmp.last_name_th}` : undefined,
+    action: "bulk_calculate",
+    periodName: period ? `${period.month}/${period.year}` : undefined,
+    count: successCount,
+    companyId: period?.company_id,
+  })
 
   return NextResponse.json({
     total: employee_ids.length,

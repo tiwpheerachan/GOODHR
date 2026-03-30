@@ -84,7 +84,7 @@ export default function AdminApprovalsPage() {
       }
       if (search) params.set("search", search)
 
-      const res = await fetch(`/api/admin/approvals?${params}`)
+      const res = await fetch(`/api/admin/approvals?${params}`, { cache: "no-store" })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setRequests(data.requests ?? [])
@@ -127,6 +127,8 @@ export default function AdminApprovalsPage() {
         setRejectItem(null)
         setRejectNote("")
         load()
+        // แจ้ง sidebar ให้ refresh badge ทันที
+        window.dispatchEvent(new Event("approvals-changed"))
       } else {
         toast.error(data.error || "เกิดข้อผิดพลาด")
       }

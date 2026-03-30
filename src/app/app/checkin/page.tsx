@@ -874,12 +874,33 @@ export default function CheckInPage() {
     else if (mapObj.current) { userPin.current = new window.google.maps.Marker({ map: mapObj.current, position: { lat, lng }, zIndex: 99, icon }); mapObj.current.panTo({ lat, lng }); mapObj.current.setZoom(17) }
   }, [])
 
+  const [gpsError, setGpsError] = useState<string | null>(null)
+  const [gpsRetryCount, setGpsRetryCount] = useState(0)
+
   const getLocation = useCallback(() => {
     setGpsL(true)
+    setGpsError(null)
     navigator.geolocation.getCurrentPosition(
-      ({ coords: { latitude: lat, longitude: lng } }) => { setPos({ lat, lng }); setGpsL(false); if (mapObj.current) { userPin.current?.setPosition({ lat, lng }); mapObj.current.panTo({ lat, lng }) } else if (sdkReady) initMap(lat, lng) },
-      () => { toast.error("ไม่สามารถดึงตำแหน่งได้"); setGpsL(false) },
-      { enableHighAccuracy: true, timeout: 12000 }
+      ({ coords: { latitude: lat, longitude: lng } }) => {
+        setPos({ lat, lng }); setGpsL(false); setGpsError(null); setGpsRetryCount(0)
+        if (mapObj.current) { userPin.current?.setPosition({ lat, lng }); mapObj.current.panTo({ lat, lng }) }
+        else if (sdkReady) initMap(lat, lng)
+      },
+      (err) => {
+        setGpsL(false)
+        setGpsRetryCount(c => c + 1)
+        if (err.code === err.PERMISSION_DENIED) {
+          setGpsError("GPS ถูกปิด — กรุณาเปิดในการตั้งค่าเบราว์เซอร์")
+          toast.error("กรุณาเปิดสิทธิ์ GPS ในการตั้งค่า")
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          setGpsError("ไม่สามารถระบุตำแหน่งได้ — ลองออกไปที่โล่งแล้วกดลองใหม่")
+        } else if (err.code === err.TIMEOUT) {
+          setGpsError("GPS ใช้เวลานานเกินไป — กรุณาลองใหม่")
+        } else {
+          setGpsError("เกิดข้อผิดพลาด GPS — กรุณาลองใหม่")
+        }
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
     )
   }, [sdkReady, initMap])
 
@@ -1016,6 +1037,30 @@ export default function CheckInPage() {
             className="absolute top-4 right-4 w-10 h-10 bg-white rounded-xl shadow-lg flex items-center justify-center z-20 text-gray-500 hover:text-indigo-500 active:scale-95 transition-all border border-gray-100/50">
             {gpsLoading ? <Loader2 size={16} className="animate-spin" /> : <Crosshair size={16} />}
           </button>
+
+          {/* GPS Error + Retry Banner */}
+          {gpsError && (
+            <div className="absolute bottom-4 left-4 right-4 z-20 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-red-200 px-4 py-3" style={{ animation: "float-up .3s ease both" }}>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <MapPin size={12} className="text-red-500" />
+                </div>
+                <p className="text-xs font-bold text-red-600 flex-1">{gpsError}</p>
+              </div>
+              <button onClick={getLocation} disabled={gpsLoading}
+                className="w-full py-2 rounded-xl bg-indigo-500 text-white text-sm font-bold active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                {gpsLoading
+                  ? <><Loader2 size={14} className="animate-spin" /> กำลังค้นหา...</>
+                  : <><Crosshair size={14} /> ลองใหม่อีกครั้ง {gpsRetryCount > 0 ? `(ครั้งที่ ${gpsRetryCount + 1})` : ""}</>
+                }
+              </button>
+              {gpsRetryCount >= 2 && (
+                <p className="text-[10px] text-slate-400 text-center mt-1.5">
+                  💡 ลองปิด-เปิด GPS ในการตั้งค่ามือถือ หรือเปลี่ยนไปใช้ Wi-Fi
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Location status badge — top left */}
           {nearest && (

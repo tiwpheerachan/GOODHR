@@ -41,9 +41,9 @@ export const OT_RATES: Record<OtType, number> = {
   holiday_ot:      3.0,
 }
 
-export function calcOT(base: number, minutes: number, type: OtType = "weekday"): number {
+export function calcOT(base: number, minutes: number, type: OtType = "weekday", rateOverride?: number): number {
   if (minutes <= 0) return 0
-  const rate = OT_RATES[type]
+  const rate = rateOverride ?? OT_RATES[type]
   return Math.round((base / 30 / 8) * (minutes / 60) * rate * 100) / 100
 }
 
@@ -249,6 +249,10 @@ export function calculatePayrollSummary(args: {
    * null/undefined = คำนวณอัตโนมัติตามกฎหมายไทย
    */
   taxWithholdingPct?: number | null
+  /** อัตรา OT วันทำงาน (default 1.5) — จาก salary_structures.ot_rate_normal */
+  otRateWeekday?: number | null
+  /** อัตรา OT วันหยุด (default 3.0) — จาก salary_structures.ot_rate_holiday */
+  otRateHoliday?: number | null
 }) {
   const {
     baseSalary,
@@ -261,16 +265,22 @@ export function calculatePayrollSummary(args: {
     otBreakdown,
     otMinutes    = 0,
     taxWithholdingPct,
+    otRateWeekday,
+    otRateHoliday,
   } = args
 
   // ── รายได้ ──────────────────────────────────────────────────
+  // ใช้ per-employee OT rates จาก salary_structures ถ้ามี, ไม่งั้นใช้ค่า default ตามกฎหมาย
+  const rateWd  = (otRateWeekday != null && otRateWeekday > 0)  ? otRateWeekday  : undefined
+  const rateHol = (otRateHoliday != null && otRateHoliday > 0)  ? otRateHoliday  : undefined
+
   let otAmount = 0
   if (otBreakdown) {
-    otAmount += calcOT(baseSalary, otBreakdown.weekday_minutes,         "weekday")
-    otAmount += calcOT(baseSalary, otBreakdown.holiday_regular_minutes, "holiday_regular")
-    otAmount += calcOT(baseSalary, otBreakdown.holiday_ot_minutes,      "holiday_ot")
+    otAmount += calcOT(baseSalary, otBreakdown.weekday_minutes,         "weekday",         rateWd)
+    otAmount += calcOT(baseSalary, otBreakdown.holiday_regular_minutes, "holiday_regular")         // 1.0x เสมอ (ค่าจ้างทำงานวันหยุด)
+    otAmount += calcOT(baseSalary, otBreakdown.holiday_ot_minutes,      "holiday_ot",      rateHol)
   } else {
-    otAmount = calcOT(baseSalary, otMinutes, "weekday")
+    otAmount = calcOT(baseSalary, otMinutes, "weekday", rateWd)
   }
 
   const gross = baseSalary + allowances + otAmount + bonus

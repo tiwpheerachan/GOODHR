@@ -23,6 +23,7 @@ export function useAttendance(employeeId?: string, month = new Date()) {
   const [records,      setRecords]      = useState<any[]>([])
   const [periodRecords,setPeriodRecords] = useState<any[]>([])  // records เฉพาะในงวดเงินเดือน
   const [holidays,     setHolidays]     = useState<any[]>([])
+  const [leaveMap,     setLeaveMap]     = useState<Record<string, { type: string; status: string }>>({})
   const [today,        setToday]        = useState<any>(null)
   const [loading,      setLoading]      = useState(true)
 
@@ -45,7 +46,7 @@ export function useAttendance(employeeId?: string, month = new Date()) {
 
     // ดึง attendance สำหรับ calendar (ทั้งเดือน)
     // และดึง attendance สำหรับงวดเงินเดือน (22-21) แยกกัน
-    const [attRes, periodRes, todayRes, holRes] = await Promise.all([
+    const [attRes, periodRes, todayRes, holRes, leaveRes] = await Promise.all([
       supabase.from("attendance_records").select("*")
         .eq("employee_id", employeeId)
         .gte("work_date", startDate).lte("work_date", endDate)
@@ -63,12 +64,36 @@ export function useAttendance(employeeId?: string, month = new Date()) {
         ? supabase.from("company_holidays").select("date,name")
             .eq("company_id", emp.company_id).eq("is_active", true).eq("year", year)
         : Promise.resolve({ data: [] }),
+
+      // ดึง leave_requests ที่ approved เพื่อแสดงสถานะ "ลา" แทน "ขาดงาน"
+      supabase.from("leave_requests")
+        .select("start_date, end_date, total_days, is_half_day, half_day_period, status, leave_type:leave_types(name, code)")
+        .eq("employee_id", employeeId)
+        .in("status", ["approved", "pending"])
+        .lte("start_date", endDate)
+        .gte("end_date", startDate),
     ])
+
+    // สร้าง leaveMap: { "2026-03-27": { type: "ลาพักร้อน", status: "approved" } }
+    const lm: Record<string, { type: string; status: string; isHalf?: boolean; halfPeriod?: string }> = {}
+    for (const l of (leaveRes.data ?? []) as any[]) {
+      const typeName = l.leave_type?.name || "ลา"
+      let cur = l.start_date
+      const end = l.end_date
+      while (cur <= end) {
+        lm[cur] = { type: typeName, status: l.status, isHalf: l.is_half_day, halfPeriod: l.half_day_period }
+        // Increment date
+        const d = new Date(cur + "T00:00:00")
+        d.setDate(d.getDate() + 1)
+        cur = format(d, "yyyy-MM-dd")
+      }
+    }
 
     setRecords(attRes.data ?? [])
     setPeriodRecords(periodRes.data ?? [])
     setToday(todayRes.data)
     setHolidays((holRes as any).data ?? [])
+    setLeaveMap(lm)
     setLoading(false)
   }, [employeeId, startDate, endDate, period.start, period.end])
 
@@ -86,6 +111,7 @@ export function useAttendance(employeeId?: string, month = new Date()) {
     period,           // { start, end } ของงวดเงินเดือน
     holidays,
     holidayMap,
+    leaveMap,         // วันลาที่ approved/pending — ใช้แสดง "ลา" แทน "ขาดงาน"
     today,
     todayRecord: today,
     loading,

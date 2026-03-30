@@ -1,6 +1,7 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
+import { logApproval } from "@/lib/auditLog"
 
 export async function POST(request: Request) {
   const body = await request.json()
@@ -258,6 +259,16 @@ export async function POST(request: Request) {
       })
       .eq("id", request_id)
 
+    // Audit log
+    const { data: adjEmpInfo } = await supa.from("employees").select("first_name_th, last_name_th").eq("id", req.employee_id).single()
+    const { data: actorInfo } = await supa.from("employees").select("first_name_th, last_name_th, company_id").eq("id", empId).single()
+    logApproval(supa, {
+      actorId: empId!, actorName: actorInfo ? `${actorInfo.first_name_th} ${actorInfo.last_name_th}` : undefined,
+      action: "approved", requestType: "time_adjustment", requestId: request_id,
+      employeeName: adjEmpInfo ? `${adjEmpInfo.first_name_th} ${adjEmpInfo.last_name_th}` : undefined,
+      companyId: actorInfo?.company_id,
+    })
+
     return NextResponse.json({
       success: true,
       updated: { late_minutes: newLateMin, status: newStatus, work_minutes: newWorkMin },
@@ -287,6 +298,17 @@ export async function POST(request: Request) {
       .eq("status", "pending")
 
     if (error) return NextResponse.json({ success: false, error: error.message })
+
+    // Audit log
+    const { data: rejEmpInfo } = await supa.from("time_adjustment_requests").select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", request_id).single()
+    const { data: rejActorInfo } = await supa.from("employees").select("first_name_th, last_name_th, company_id").eq("id", empId).single()
+    logApproval(supa, {
+      actorId: empId!, actorName: rejActorInfo ? `${rejActorInfo.first_name_th} ${rejActorInfo.last_name_th}` : undefined,
+      action: "rejected", requestType: "time_adjustment", requestId: request_id,
+      employeeName: (rejEmpInfo?.employee as any) ? `${(rejEmpInfo?.employee as any).first_name_th} ${(rejEmpInfo?.employee as any).last_name_th}` : undefined,
+      companyId: rejActorInfo?.company_id,
+    })
+
     return NextResponse.json({ success: true })
   }
 

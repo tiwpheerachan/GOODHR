@@ -29,6 +29,9 @@ export default function ApprovalsPage() {
   const processedRef = useRef(new Set<string>())
   // ── realtime: แสดง badge "คำร้องใหม่" ──
   const [newRequestAlert, setNewRequestAlert] = useState(false)
+  // ── super_admin toggle: "myteam" = เฉพาะทีม, "company" = ทั้งบริษัท ──
+  const isSuperAdmin = (user as any)?.role === "super_admin"
+  const [viewMode, setViewMode] = useState<"myteam" | "company">("myteam")
 
   // ── helpers ──────────────────────────────────────────────────────────────
   const fmtTime = (iso?: string | null) => {
@@ -77,8 +80,11 @@ export default function ApprovalsPage() {
 
     try {
       const isAdminRole = ["super_admin", "hr_admin"].includes(role)
+      // super_admin สามารถเลือก viewMode ได้ | hr_admin เห็นทั้งบริษัทเสมอ | manager เห็นเฉพาะทีม
+      const useCompanyWide = isAdminRole && (role !== "super_admin" || viewMode === "company")
+
       let teamIds: string[] = []
-      if (!isAdminRole && empId) {
+      if (!useCompanyWide && empId) {
         const { data: teamRows } = await supabase
           .from("employee_manager_history").select("employee_id")
           .eq("manager_id", empId).is("effective_to", null)
@@ -86,11 +92,12 @@ export default function ApprovalsPage() {
       }
 
       const fetchPending = async (table: string, selectStr: string) => {
-        if (isAdminRole || teamIds.length === 0) {
+        if (useCompanyWide) {
           return supabase.from(table).select(selectStr)
             .eq("company_id", companyId).eq("status", "pending")
             .order("created_at", { ascending: true })
         }
+        if (teamIds.length === 0) return { data: [], error: null }
         return supabase.from(table).select(selectStr)
           .in("employee_id", teamIds).eq("status", "pending")
           .order("created_at", { ascending: true })
@@ -133,9 +140,9 @@ export default function ApprovalsPage() {
             id,first_name_th,last_name_th,employee_code,avatar_url,hire_date,
             position:positions(name),department:departments(name))`)
           .eq("status", "pending_manager").order("created_at", { ascending: true })
-        if (!isAdminRole && teamIds.length > 0) q = (q as any).in("employee_id", teamIds)
-        else if (!isAdminRole) { setItems([]); return }
-        else q = (q as any).eq("company_id", companyId)
+        if (useCompanyWide) q = (q as any).eq("company_id", companyId)
+        else if (teamIds.length > 0) q = (q as any).in("employee_id", teamIds)
+        else { setItems([]); return }
         const { data, error } = await q
         if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
         setItems(data ?? [])
@@ -172,45 +179,32 @@ export default function ApprovalsPage() {
     }
     if (!companyId) return
 
+    const useCompanyWide = isAdminRole && (role !== "super_admin" || viewMode === "company")
+
     let teamIds: string[] = []
-    if (!isAdminRole && empId) {
+    if (!useCompanyWide && empId) {
       const { data: teamRows } = await supabase.from("employee_manager_history")
         .select("employee_id").eq("manager_id", empId).is("effective_to", null)
       teamIds = (teamRows ?? []).map((r: any) => String(r.employee_id))
     }
 
-    const [lv, ot, adj] = await Promise.all([
-      isAdminRole
-        ? supabase.from("leave_requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending")
-        : teamIds.length > 0
-          ? supabase.from("leave_requests").select("id", { count: "exact", head: true }).in("employee_id", teamIds).eq("status", "pending")
-          : Promise.resolve({ count: 0 }),
-      isAdminRole
-        ? supabase.from("overtime_requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending")
-        : teamIds.length > 0
-          ? supabase.from("overtime_requests").select("id", { count: "exact", head: true }).in("employee_id", teamIds).eq("status", "pending")
-          : Promise.resolve({ count: 0 }),
-      isAdminRole
-        ? supabase.from("time_adjustment_requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending")
-        : teamIds.length > 0
-          ? supabase.from("time_adjustment_requests").select("id", { count: "exact", head: true }).in("employee_id", teamIds).eq("status", "pending")
-          : Promise.resolve({ count: 0 }),
-    ])
-
-    let resCount = 0
-    if (teamIds.length > 0) {
-      const { count } = await supabase.from("resignation_requests")
-        .select("id", { count: "exact", head: true }).in("employee_id", teamIds).eq("status", "pending_manager")
-      resCount = count ?? 0
-    } else if (isAdminRole) {
-      const { count } = await supabase.from("resignation_requests")
-        .select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending_manager")
-      resCount = count ?? 0
+    const countQuery = (table: string, statusField = "pending") => {
+      if (useCompanyWide) return supabase.from(table).select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", statusField)
+      if (teamIds.length > 0) return supabase.from(table).select("id", { count: "exact", head: true }).in("employee_id", teamIds).eq("status", statusField)
+      return Promise.resolve({ count: 0 })
     }
 
-    // shift change count
+    const [lv, ot, adj] = await Promise.all([
+      countQuery("leave_requests"),
+      countQuery("overtime_requests"),
+      countQuery("time_adjustment_requests"),
+    ])
+
+    const resResult = await countQuery("resignation_requests", "pending_manager")
+    const resCount = resResult.count ?? 0
+
     let shiftChangeCount = 0
-    if (isAdminRole) {
+    if (useCompanyWide) {
       const { count: sc } = await supabase.from("shift_change_requests")
         .select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending")
       shiftChangeCount = sc ?? 0
@@ -231,7 +225,7 @@ export default function ApprovalsPage() {
     setNewRequestAlert(false)
     loadItems()
     loadCounts()
-  }, [tab, user?.role, (user as any)?.employee_id, (user as any)?.employee?.id])
+  }, [tab, user?.role, (user as any)?.employee_id, (user as any)?.employee?.id, viewMode])
 
   // ── Realtime: ลูกน้องส่งคำร้องใหม่ → แสดง alert + auto reload ──
   useEffect(() => {
@@ -463,6 +457,20 @@ export default function ApprovalsPage() {
             </button>
           )}
         </div>
+
+        {/* Toggle: ทีมของฉัน / ทั้งบริษัท (super_admin เท่านั้น) */}
+        {isSuperAdmin && (
+          <div className="mt-3 flex rounded-xl bg-gray-100 p-0.5">
+            <button onClick={() => setViewMode("myteam")}
+              className={"flex-1 py-1.5 text-xs font-bold rounded-lg transition-all " + (viewMode === "myteam" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-400")}>
+              ทีมของฉัน
+            </button>
+            <button onClick={() => setViewMode("company")}
+              className={"flex-1 py-1.5 text-xs font-bold rounded-lg transition-all " + (viewMode === "company" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-400")}>
+              ทั้งบริษัท
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Tabs ── */}

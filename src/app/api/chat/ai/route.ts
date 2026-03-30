@@ -22,14 +22,19 @@ async function fetchLiveContext(supa: any, _companyId?: string) {
     supa.from("payroll_records").select("company_id, gross_income, net_salary, deduct_late, deduct_absent, ot_amount, absent_days, base_salary, status").eq("year", periodYear).eq("month", periodMonth),
     // Today's attendance
     supa.from("attendance_records").select("company_id, status, late_minutes").eq("work_date", bangkokDate),
-    // Pending approvals
+    // Pending approvals — all types
     supa.from("leave_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supa.from("overtime_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    supa.from("time_adjustment_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
     // Companies
     supa.from("companies").select("id, code, name_th"),
+    // Departments
+    supa.from("departments").select("id, company_id, name"),
+    // Recent leave requests
+    supa.from("leave_requests").select("employee_id, total_days, status, leave_type:leave_types(name, is_paid)").gte("start_date", bangkokDate.slice(0, 7) + "-01").limit(100),
   ])
 
-  const [empResult, payrollResult, todayAttResult, pendingLeave, pendingOT, companiesResult] = queries
+  const [empResult, payrollResult, todayAttResult, pendingLeave, pendingOT, pendingAdj, companiesResult, deptsResult, recentLeaveResult] = queries
 
   // Summarize employees
   const empByCompany: Record<string, { active: number; total: number }> = {}
@@ -75,20 +80,55 @@ async function fetchLiveContext(supa: any, _companyId?: string) {
   for (const [cid, info] of Object.entries(payrollSummary)) {
     ctx += `- ${companyMap[cid] ?? cid}: ${info.count} records, gross รวม ${info.totalGross.toLocaleString()}฿, net รวม ${info.totalNet.toLocaleString()}฿, OT รวม ${info.totalOT.toLocaleString()}฿\n`
   }
+  // Departments summary
+  const deptsByCompany: Record<string, string[]> = {}
+  for (const d of deptsResult.data ?? []) {
+    if (!deptsByCompany[d.company_id]) deptsByCompany[d.company_id] = []
+    deptsByCompany[d.company_id].push(d.name)
+  }
+  ctx += `\n### แผนก\n`
+  for (const [cid, depts] of Object.entries(deptsByCompany)) {
+    ctx += `- ${companyMap[cid] ?? cid}: ${depts.join(", ")}\n`
+  }
+
+  // Leave summary
+  const leaveSummary: Record<string, number> = {}
+  let totalLeaveRequests = 0
+  for (const l of recentLeaveResult.data ?? []) {
+    const type = (l.leave_type as any)?.name || "อื่นๆ"
+    leaveSummary[type] = (leaveSummary[type] || 0) + 1
+    totalLeaveRequests++
+  }
+
   ctx += `\n### วันนี้ (${bangkokDate})
 - เช็คอินแล้ว: ${todayAtt.total} คน (ตรงเวลา ${todayAtt.present}, สาย ${todayAtt.late}, WFH ${todayAtt.wfh})
-- คำร้องลารออนุมัติ: ${pendingLeave.count ?? 0}
-- คำร้อง OT รออนุมัติ: ${pendingOT.count ?? 0}`
+- คำร้องรออนุมัติ: ลา ${pendingLeave.count ?? 0} | OT ${pendingOT.count ?? 0} | แก้เวลา ${pendingAdj.count ?? 0}
+
+### การลาเดือนนี้ (${totalLeaveRequests} รายการ)
+${Object.entries(leaveSummary).map(([t, c]) => `- ${t}: ${c} รายการ`).join("\n")}`
 
   return ctx
 }
 
-const SYSTEM_PROMPT = `คุณคือ "น้องเอช" ผู้ช่วย AI ของระบบ GOODHR — ฉลาด รวดเร็ว รู้ข้อมูลทุกอย่างในระบบ
-ตอบเป็นภาษาไทย กระชับ ใช้ตัวเลขจริง ใช้ emoji น้อย
+const SYSTEM_PROMPT = `คุณคือ "น้องเอช" ผู้ช่วย AI อัจฉริยะของระบบ GOODHR
+ตอบเป็นภาษาไทย กระชับ ใช้ตัวเลขจริง
+
+## กฎเหล็ก — ห้ามยอมแพ้
+- ห้ามตอบว่า "ข้อมูลซับซ้อนมาก ลองถามใหม่" เด็ดขาด
+- ถ้าคำถามกว้าง ให้แบ่งเป็นส่วนย่อยแล้ว query ทีละส่วน
+- ถ้า query แรกได้ข้อมูลไม่พอ ให้ query เพิ่มเติมอีก (มีได้ถึง 5 รอบ)
+- ถ้าข้อมูลเยอะ ให้สรุปเป็นตาราง/กราฟ/ตัวเลข ไม่ต้องแสดงทุก row
+- ตอบได้เสมอ แม้จะได้ข้อมูลบางส่วน — ตอบเท่าที่มีแล้วบอกว่ายังขาดอะไร
+
+## กลยุทธ์ตอบคำถาม
+1. คำถามเรื่องพนักงานรายคน → ใช้ search_employee (ได้ข้อมูลครบในครั้งเดียว)
+2. คำถามสรุปภาพรวม → ใช้ query_database ส่งหลาย query พร้อมกัน
+3. คำถามเปรียบเทียบ → query ข้อมูล 2 ชุดแล้วคำนวณเปรียบเทียบเอง
+4. คำถามที่ต้องรวมข้อมูลจากหลายตาราง → query แยก แล้ว join ด้วย employee_id
 
 ## ความสามารถ
-1. **query_database** — Query ข้อมูลจาก Supabase ได้ทุกตาราง
-2. **search_employee** — ค้นหาพนักงานจากชื่อ/รหัส/ชื่อเล่น แล้วดึงข้อมูลละเอียด
+1. **query_database** — Query ข้อมูลจาก Supabase ได้ทุกตาราง (ส่งหลาย query พร้อมกันในครั้งเดียว)
+2. **search_employee** — ค้นหาพนักงานจากชื่อ/รหัส/ชื่อเล่น แล้วดึงข้อมูลละเอียดทุกอย่าง
 
 ## ตาราง & คอลัมน์
 
@@ -164,12 +204,30 @@ filters: [{ method: "gte", args: ["start_date", "2026-03-01"] }]
 ใช้กราฟเมื่อ: สรุปสัดส่วน, เปรียบเทียบตัวเลข, แนวโน้ม
 ใช้ตารางเมื่อ: แสดงรายการพนักงาน, รายละเอียดเงินเดือน
 
+## ตัวอย่างคำถามที่พบบ่อย + วิธี query
+
+**"สรุปเงินเดือนเดือนนี้"** → query payroll_records ทั้งหมดของเดือนปัจจุบัน, group by company_id แล้วรวม gross/net/deductions
+
+**"ใครมาสายบ่อยที่สุด"** → query attendance_records ที่ late_minutes > 0 ในช่วง period, group by employee_id แล้วนับจำนวนครั้ง+รวมนาที, ดึงชื่อพนักงาน
+
+**"สถิติเข้างานวันนี้"** → query attendance_records ของวันนี้, นับ status แต่ละประเภท (present/late/absent/wfh)
+
+**"พนักงานใหม่เดือนนี้"** → query employees ที่ hire_date >= เดือนนี้
+
+**"เปรียบเทียบ OT เดือนนี้กับเดือนก่อน"** → query payroll_records 2 เดือน แล้วเปรียบเทียบ ot_amount
+
+**"ใครลาเยอะสุด"** → query leave_requests ที่ approved, group by employee_id, sum total_days
+
+**"คำขอรออนุมัติ"** → query leave_requests + overtime_requests + time_adjustment_requests ที่ status=pending
+
+**"ข้อมูลพนักงาน ..."** → ใช้ search_employee เสมอ (ได้ครบทุกอย่างในครั้งเดียว)
+
 ## สำคัญ
-- ถ้าถามเรื่องพนักงานรายคน ให้ใช้ search_employee ก่อน แล้วค่อย query ข้อมูลเพิ่ม
-- ถ้าข้อมูลเยอะ สรุปเป็นตาราง/ตัวเลข
-- ใช้กราฟเมื่อเหมาะสม (ไม่ต้องใช้ทุกครั้ง)
-- ตอบตรงประเด็น ไม่อ้อมค้อม
-- ถ้าไม่มีข้อมูลให้บอกตรงๆ`
+- ห้ามตอบว่า "ลองถามใหม่" หรือ "ข้อมูลซับซ้อน" — ต้องพยายามตอบเสมอ
+- ถ้าข้อมูลเยอะ สรุปเป็นตาราง/กราฟ
+- ส่งหลาย query พร้อมกันในครั้งเดียวเพื่อความเร็ว
+- ถ้า query ครั้งแรกไม่พอ ให้ query เพิ่มอีกรอบ ไม่ต้องยอมแพ้
+- ตอบตรงประเด็น ไม่อ้อมค้อม`
 
 // ── Tool definitions ──
 const TOOLS: Anthropic.Tool[] = [
@@ -383,16 +441,17 @@ async function runToolLoop(
   supa: any,
   systemPrompt: string,
   chatMessages: Anthropic.MessageParam[],
-  maxRounds = 3
+  maxRounds = 5
 ): Promise<string> {
   let messages = [...chatMessages]
 
   for (let round = 0; round < maxRounds; round++) {
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: systemPrompt,
       tools: TOOLS,
+      tool_choice: { type: "auto" },
       messages,
     })
 
@@ -449,8 +508,16 @@ async function runToolLoop(
     }
   }
 
-  // After max rounds, return whatever we have
-  return "ขอโทษครับ ข้อมูลซับซ้อนมาก ลองถามใหม่ให้เจาะจงขึ้นนะครับ"
+  // After max rounds, return the last text we got
+  // Search backwards through messages for the last assistant text
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.role === "assistant" && Array.isArray(msg.content)) {
+      const text = (msg.content as any[]).find((b: any) => b.type === "text")
+      if (text?.text) return text.text
+    }
+  }
+  return "ได้ข้อมูลมาแล้วครับ แต่ยังวิเคราะห์ไม่ครบ ลองถามเจาะจงขึ้นเช่น ระบุชื่อพนักงาน หรือระบุเดือนที่ต้องการ"
 }
 
 // ── Streaming POST handler ──

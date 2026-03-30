@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
+import { logEmployeeChange, logAudit } from "@/lib/auditLog"
 
 export async function GET(req: NextRequest) {
   const supabase = createClient()
@@ -104,6 +105,14 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json()
   const { action } = body
 
+  // ── ดึงข้อมูล actor สำหรับ audit log ──
+  const { data: actorData } = await supa.from("users")
+    .select("role, employee_id, employee:employees(first_name_th, last_name_th, company_id)")
+    .eq("id", user.id).single()
+  const actorEmp = actorData?.employee as any
+  const actorId = actorData?.employee_id || user.id
+  const actorName = actorEmp ? `${actorEmp.first_name_th} ${actorEmp.last_name_th}` : "Admin"
+
   // ── Update employee fields ──
   if (action === "update_employee" || !action) {
     const { employee_id, updates } = body
@@ -136,6 +145,13 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    // Audit log
+    logEmployeeChange(supa, {
+      actorId, actorName, action: payload.supervisor_id !== undefined ? "update_supervisor" : "update",
+      employeeId: employee_id, companyId: actorEmp?.company_id,
+      changes: Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, { old: null, new: v }])),
+    })
+
     return NextResponse.json({ success: true })
   }
 
@@ -152,6 +168,12 @@ export async function PATCH(req: NextRequest) {
     const { error } = await supa.from("employee_allowed_locations")
       .insert({ employee_id, branch_id })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    logAudit(supa, {
+      actorId, actorName, action: "add_allowed_location", entityType: "employee", entityId: employee_id,
+      description: `เพิ่มสถานที่เช็คอินให้พนักงาน (branch: ${branch_id})`,
+      companyId: actorEmp?.company_id,
+    })
     return NextResponse.json({ success: true })
   }
 
@@ -163,6 +185,12 @@ export async function PATCH(req: NextRequest) {
     const { error } = await supa.from("employee_allowed_locations")
       .delete().eq("employee_id", employee_id).eq("branch_id", branch_id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    logAudit(supa, {
+      actorId, actorName, action: "remove_allowed_location", entityType: "employee", entityId: employee_id,
+      description: `ลบสถานที่เช็คอินของพนักงาน (branch: ${branch_id})`,
+      companyId: actorEmp?.company_id,
+    })
     return NextResponse.json({ success: true })
   }
 
@@ -180,6 +208,12 @@ export async function PATCH(req: NextRequest) {
     const { data: created, error } = await supa.from("positions")
       .insert({ name, code, company_id }).select("id").single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    logAudit(supa, {
+      actorId, actorName, action: "create_position", entityType: "position", entityId: created.id,
+      description: `สร้างตำแหน่งใหม่: ${name}`,
+      companyId: company_id,
+    })
     return NextResponse.json({ position_id: created.id, success: true })
   }
 

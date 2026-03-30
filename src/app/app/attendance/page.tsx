@@ -62,15 +62,34 @@ function isWeekend(ds: string) {
   return d === 0 || d === 6
 }
 
-function buildDisplayList(records: any[], month: Date, todayStr: string, holidayMap: Record<string, string>): any[] {
+function buildDisplayList(
+  records: any[], month: Date, todayStr: string,
+  holidayMap: Record<string, string>,
+  leaveMap: Record<string, { type: string; status: string }>,
+): any[] {
   const existMap = new Map<string, any>(records.map(r => [r.work_date as string, r]))
-  const absent: any[] = []
+  const virtual: any[] = []
   for (const d of eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) })) {
     const ds = format(d, "yyyy-MM-dd")
     if (ds >= todayStr || isWeekend(ds) || holidayMap[ds] || existMap.has(ds)) continue
-    absent.push({ _virtual: true, id: `absent-${ds}`, work_date: ds, status: "absent", clock_in: null, clock_out: null, late_minutes: 0, early_out_minutes: 0, work_minutes: 0, ot_minutes: 0 })
+
+    const leave = leaveMap[ds]
+    if (leave && (leave.status === "approved" || leave.status === "pending")) {
+      // วันลา → แสดง "ลา" + ประเภทลา
+      virtual.push({
+        _virtual: true, id: `leave-${ds}`, work_date: ds,
+        status: "leave", leave_type_name: leave.type, leave_status: leave.status,
+        clock_in: null, clock_out: null, late_minutes: 0, early_out_minutes: 0, work_minutes: 0, ot_minutes: 0,
+      })
+    } else {
+      // ไม่มี attendance + ไม่มี leave = ขาดงาน
+      virtual.push({
+        _virtual: true, id: `absent-${ds}`, work_date: ds,
+        status: "absent", clock_in: null, clock_out: null, late_minutes: 0, early_out_minutes: 0, work_minutes: 0, ot_minutes: 0,
+      })
+    }
   }
-  return [...records, ...absent].sort((a, b) => a.work_date > b.work_date ? -1 : 1)
+  return [...records, ...virtual].sort((a, b) => a.work_date > b.work_date ? -1 : 1)
 }
 
 export default function AttendancePage() {
@@ -78,7 +97,7 @@ export default function AttendancePage() {
   const [month, setMonth] = useState(() => new Date(2026, 0, 1)) // fixed date, sync ใน useEffect
   const [hydrated, setHydrated] = useState(false)
   const empId = (user as any)?.employee_id ?? (user as any)?.employee?.id
-  const { records, periodRecords, period, holidayMap, loading } = useAttendance(empId, month)
+  const { records, periodRecords, period, holidayMap, leaveMap, loading } = useAttendance(empId, month)
 
   useEffect(() => {
     setMonth(getCurrentPeriodDate())
@@ -88,14 +107,14 @@ export default function AttendancePage() {
   const today = format(new Date(), "yyyy-MM-dd")
   const monthPfx = format(month, "yyyy-MM")
   const recMap = Object.fromEntries(records.map((r: any) => [r.work_date, r]))
-  const displayList = loading ? [] : buildDisplayList(records, month, today, holidayMap)
+  const displayList = loading ? [] : buildDisplayList(records, month, today, holidayMap, leaveMap)
 
   const stats = {
     present:       records.filter((r: any) => r.status === "present").length,
     late:          records.filter((r: any) => r.status === "late").length,
     absent:        displayList.filter((r: any) => r.status === "absent").length,
     earlyOut:      records.filter((r: any) => r.status === "early_out").length,
-    leave:         records.filter((r: any) => r.status === "leave").length,
+    leave:         records.filter((r: any) => r.status === "leave").length + displayList.filter((r: any) => r.status === "leave" && r._virtual).length,
     wfh:           records.filter((r: any) => r.status === "wfh").length,
     holidays:      Object.keys(holidayMap).filter(d => d.startsWith(monthPfx)).length,
     totalLateMin:  records.reduce((s: number, r: any) => s + (r.late_minutes || 0), 0),
@@ -416,13 +435,16 @@ export default function AttendancePage() {
                   const isFut = ds > today
                   const dow = getDay(new Date(ds + "T00:00:00"))
                   const wknd = dow === 0 || dow === 6
-                  const isVAbs = !isFut && ds !== today && !wknd && !hol && !rec
+                  const lv = leaveMap[ds]
+                  const hasLeave = lv && (lv.status === "approved" || lv.status === "pending")
+                  const isVAbs = !isFut && ds !== today && !wknd && !hol && !rec && !hasLeave
 
                   let cls = "", sub = ""
                   if (isT)         { cls = "bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-200"; sub = rec ? (STATUS_TH[rec.status] || "").slice(0, 2) : "วันนี้" }
                   else if (hol)    { cls = "bg-rose-100 text-rose-600"; sub = "หยุด" }
                   else if (isFut)  { cls = "text-slate-300" }
                   else if (rec)    { cls = CAL_BG[rec.status] ?? "bg-slate-100 text-slate-500"; sub = (STATUS_TH[rec.status] || "").slice(0, 2) }
+                  else if (hasLeave) { cls = "bg-purple-100 text-purple-600"; sub = lv.status === "pending" ? "รอลา" : "ลา" }
                   else if (isVAbs) { cls = "bg-red-100 text-red-500"; sub = "ขาด" }
                   else if (wknd)   { cls = "text-slate-300" }
                   else             { cls = "text-slate-400" }
@@ -507,9 +529,10 @@ export default function AttendancePage() {
             const isLate = r.status === "late" || lateMin > 0
             const isEarlyOut = r.status === "early_out" || earlyOutMin > 0
             const isAbsent = r.status === "absent"
+            const isLeave = r.status === "leave"
             const isVirtual = !!r._virtual
             const hasClockedIn = !!r.clock_in
-            const showActions = !hol && r.status !== "leave" && r.status !== "holiday"
+            const showActions = !hol && !isLeave && r.status !== "holiday"
                                  && (isAbsent || isLate || isEarlyOut || !hasClockedIn)
 
             return (
@@ -517,15 +540,15 @@ export default function AttendancePage() {
                 className={`rounded-3xl overflow-hidden ${isAbsent ? "absent-card" : "record-card"}`}
                 style={{ animationDelay: `${idx * 0.025}s` }}
               >
-                <div className={`flex items-center gap-3 px-4 py-3.5 ${isAbsent && isVirtual ? "bg-red-50/30" : ""}`}>
+                <div className={`flex items-center gap-3 px-4 py-3.5 ${isAbsent && isVirtual ? "bg-red-50/30" : ""} ${isLeave && isVirtual ? "bg-purple-50/30" : ""}`}>
 
                   {/* date */}
                   <div className={`w-11 h-11 flex-shrink-0 rounded-2xl flex flex-col items-center justify-center
-                    ${isAbsent ? "bg-red-100" : "bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-100"}`}>
-                    <p className={`text-[15px] font-black leading-none ${isAbsent ? "text-red-500" : "text-slate-700"}`}>
+                    ${isAbsent ? "bg-red-100" : isLeave ? "bg-purple-100" : "bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-100"}`}>
+                    <p className={`text-[15px] font-black leading-none ${isAbsent ? "text-red-500" : isLeave ? "text-purple-600" : "text-slate-700"}`}>
                       {r.work_date.split("-")[2]}
                     </p>
-                    <p className={`text-[9px] font-bold mt-0.5 ${isAbsent ? "text-red-400" : "text-slate-400"}`}>
+                    <p className={`text-[9px] font-bold mt-0.5 ${isAbsent ? "text-red-400" : isLeave ? "text-purple-400" : "text-slate-400"}`}>
                       {format(new Date(r.work_date + "T00:00:00"), "EEE", { locale: th })}
                     </p>
                   </div>
@@ -534,12 +557,16 @@ export default function AttendancePage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black ${STATUS_PILL[r.status] ?? "bg-slate-100 text-slate-500"}`}>
-                        {STATUS_ICON[r.status]}{STATUS_TH[r.status] ?? r.status}
+                        {STATUS_ICON[r.status]}{isLeave && r.leave_type_name ? r.leave_type_name : (STATUS_TH[r.status] ?? r.status)}
                       </span>
+                      {isLeave && r.leave_status === "pending" && <span className="text-[9px] font-bold text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded-lg border border-amber-100">รออนุมัติ</span>}
+                      {isLeave && r.leave_status === "approved" && <span className="text-[9px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded-lg border border-green-100">อนุมัติแล้ว</span>}
                       {hol && <span className="text-[9px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-lg border border-rose-100">{hol.length > 12 ? hol.slice(0, 12) + "…" : hol}</span>}
-                      {isVirtual && <span className="text-[9px] font-bold text-red-400 bg-red-50 px-1.5 py-0.5 rounded-lg border border-red-100">ไม่มีการเช็คอิน</span>}
+                      {isAbsent && isVirtual && <span className="text-[9px] font-bold text-red-400 bg-red-50 px-1.5 py-0.5 rounded-lg border border-red-100">ไม่มีการเช็คอิน</span>}
                     </div>
-                    {!isVirtual ? (
+                    {isLeave && isVirtual ? (
+                      <p className="text-[11px] text-purple-500 font-medium">{r.leave_type_name || "ลา"} {r.leave_status === "approved" ? "✓" : "(รออนุมัติ)"}</p>
+                    ) : !isVirtual ? (
                       <div className="flex items-center gap-2.5 text-xs">
                         <span className="flex items-center gap-1 text-slate-500">
                           <LogIn size={9} className="text-indigo-500" />
@@ -566,6 +593,7 @@ export default function AttendancePage() {
                     {lateMin > 0 && <span className="flex items-center gap-1 text-[10px] font-black text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full"><Clock size={8} />สาย {lateMin}น.</span>}
                     {earlyOutMin > 0 && <span className="flex items-center gap-1 text-[10px] font-black text-orange-700 bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full"><LogOut size={8} />ออกก่อน {earlyOutMin}น.</span>}
                     {isAbsent && !lateMin && !earlyOutMin && <span className="flex items-center gap-1 text-[10px] font-black text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full"><XCircle size={8} />ขาดงาน</span>}
+                    {isLeave && isVirtual && <span className="flex items-center gap-1 text-[10px] font-black text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-full"><Plane size={8} />{r.leave_type_name || "ลา"}</span>}
                     {(r.ot_minutes || 0) > 0 && <span className="text-[10px] font-black text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-full">OT {r.ot_minutes}น.</span>}
                   </div>
                 </div>

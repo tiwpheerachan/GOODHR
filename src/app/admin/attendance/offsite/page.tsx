@@ -89,6 +89,7 @@ export default function OffsiteReviewPage() {
         setRejectId(null)
         setRejectReason("")
         fetchRequests()
+        window.dispatchEvent(new Event("approvals-changed"))
       } else {
         toast.error(data.error)
       }

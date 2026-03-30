@@ -8,7 +8,7 @@ import AIChatWidget from "@/components/admin/AIChatWidget"
 import {
   LayoutDashboard, Users, Clock, CreditCard, Calendar,
   Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target, Camera, CalendarClock,
-  Network, ClipboardCheck, Megaphone, MessageCircle,
+  Network, ClipboardCheck, Megaphone, MessageCircle, ScrollText,
 } from "lucide-react"
 
 const SIDEBAR = [
@@ -25,6 +25,7 @@ const SIDEBAR = [
   { href: "/admin/kpi",                  icon: Target,          label: "KPI",            badge: null as string|null },
   { href: "/admin/payroll",              icon: CreditCard,      label: "เงินเดือน",      badge: null as string|null },
   { href: "/admin/payroll-rules",        icon: BookOpen,        label: "สูตรคำนวณ",     badge: null as string|null },
+  { href: "/admin/audit-logs",            icon: ScrollText,      label: "Audit Log",      badge: null as string|null },
   { href: "/admin/settings",             icon: Settings,        label: "ตั้งค่า",        badge: null as string|null },
 ]
 
@@ -61,7 +62,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
     load()
     const iv = setInterval(load, 30_000) // refresh ทุก 30 วินาที
-    return () => clearInterval(iv)
+    // ฟัง event จากหน้า approvals เพื่อ refresh badge ทันทีหลังอนุมัติ/ปฏิเสธ
+    const onChanged = () => load()
+    window.addEventListener("approvals-changed", onChanged)
+    return () => { clearInterval(iv); window.removeEventListener("approvals-changed", onChanged) }
   }, [user, pathname]) // eslint-disable-line
 
   const emp         = user?.employee

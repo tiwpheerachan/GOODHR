@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
+import { logApproval, logAudit } from "@/lib/auditLog"
 
 // GET — ดึงคำร้องทุกประเภทรวม
 export async function GET(req: NextRequest) {
@@ -212,7 +213,10 @@ async function approveAdjustment(supa: any, requestId: string, reviewerId: strin
 }
 
 // ── Helper: ยกเลิกคำร้อง (inline จาก cancel route) ──
-async function handleCancelAction(supa: any, action: string, requestId: string, requestType: string, reason: string | null) {
+async function handleCancelAction(
+  supa: any, action: string, requestId: string, requestType: string, reason: string | null,
+  actor?: { id: string; name?: string; companyId?: string },
+) {
   const CANCEL_TABLES: Record<string, string> = { leave: "leave_requests", adjustment: "time_adjustment_requests", overtime: "overtime_requests" }
   const table = CANCEL_TABLES[requestType]
   if (!table) return { error: "Invalid request_type" }
@@ -233,6 +237,16 @@ async function handleCancelAction(supa: any, action: string, requestId: string, 
         if (bal) await supa.from("leave_balances").update({ used_days: Math.max(0, (bal.used_days || 0) - reqData.total_days) }).eq("id", bal.id)
       } catch {}
     }
+    // Audit log
+    if (actor) {
+      const typeLabel: Record<string, string> = { leave: "คำขอลา", overtime: "คำขอ OT", adjustment: "คำขอแก้เวลา" }
+      logAudit(supa, {
+        actorId: actor.id, actorName: actor.name,
+        action: `approve_cancel_${requestType}`, entityType: `${requestType}_request`, entityId: requestId,
+        description: `อนุมัติยกเลิก${typeLabel[requestType] || requestType}${reason ? ` (${reason})` : ""}`,
+        companyId: actor.companyId,
+      })
+    }
     return { success: true, message: "ยกเลิกคำขอแล้ว" }
   }
 
@@ -241,6 +255,16 @@ async function handleCancelAction(supa: any, action: string, requestId: string, 
       review_note: `HR ปฏิเสธการยกเลิก${reason ? `: ${reason}` : ""}`,
     }).eq("id", requestId)
     if (error) return { error: error.message }
+    // Audit log
+    if (actor) {
+      const typeLabel: Record<string, string> = { leave: "คำขอลา", overtime: "คำขอ OT", adjustment: "คำขอแก้เวลา" }
+      logAudit(supa, {
+        actorId: actor.id, actorName: actor.name,
+        action: `reject_cancel_${requestType}`, entityType: `${requestType}_request`, entityId: requestId,
+        description: `ปฏิเสธการยกเลิก${typeLabel[requestType] || requestType}${reason ? ` (${reason})` : ""}`,
+        companyId: actor.companyId,
+      })
+    }
     return { success: true, message: "ปฏิเสธการยกเลิก — คงอนุมัติ" }
   }
 
@@ -257,6 +281,16 @@ async function handleCancelAction(supa: any, action: string, requestId: string, 
           .eq("employee_id", reqData.employee_id).eq("leave_type_id", reqData.leave_type_id).single()
         if (bal) await supa.from("leave_balances").update({ used_days: Math.max(0, (bal.used_days || 0) - reqData.total_days) }).eq("id", bal.id)
       } catch {}
+    }
+    // Audit log
+    if (actor) {
+      const typeLabel: Record<string, string> = { leave: "คำขอลา", overtime: "คำขอ OT", adjustment: "คำขอแก้เวลา" }
+      logAudit(supa, {
+        actorId: actor.id, actorName: actor.name,
+        action: `force_cancel_${requestType}`, entityType: `${requestType}_request`, entityId: requestId,
+        description: `HR ยกเลิก${typeLabel[requestType] || requestType}โดยตรง${reason ? ` (${reason})` : ""}`,
+        companyId: actor.companyId,
+      })
     }
     return { success: true, message: "ยกเลิกคำขอแล้ว" }
   }
@@ -389,9 +423,12 @@ export async function POST(req: NextRequest) {
   const table = TABLES[request_type]
   if (!table) return NextResponse.json({ error: "Invalid request_type" }, { status: 400 })
 
-  // Get current user's employee_id
+  // Get current user's employee_id + name for audit
   const { data: userData } = await supa.from("users")
-    .select("employee_id").eq("id", user.id).single()
+    .select("employee_id, employee:employees(first_name_th, last_name_th, company_id)")
+    .eq("id", user.id).single()
+  const actorEmp = userData?.employee as any
+  const actorName = actorEmp ? `${actorEmp.first_name_th} ${actorEmp.last_name_th}` : "Admin"
 
   if (action === "approve") {
     // Time adjustment → inline logic (ไม่ fetch /api/correction)
@@ -424,6 +461,17 @@ export async function POST(req: NextRequest) {
         }
       }
     }
+
+    // Audit log — ดึงชื่อพนักงานที่ยื่นคำขอ
+    const { data: reqOwner } = await supa.from(table).select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", request_id).maybeSingle()
+    const ownerEmp = (reqOwner as any)?.employee
+    logApproval(supa, {
+      actorId: userData?.employee_id || user.id,
+      actorName,
+      action: "approved", requestType: request_type as any,
+      requestId: request_id, companyId: actorEmp?.company_id,
+      employeeName: ownerEmp ? `${ownerEmp.first_name_th} ${ownerEmp.last_name_th}` : undefined,
+    })
 
     // ── อนุมัติ OT → อัปเดต attendance_records.ot_minutes ──
     if (request_type === "overtime") {
@@ -491,12 +539,26 @@ export async function POST(req: NextRequest) {
     }).eq("id", request_id)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Audit log
+    const { data: rejOwner } = await supa.from(table).select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", request_id).maybeSingle()
+    const rejEmp = (rejOwner as any)?.employee
+    logApproval(supa, {
+      actorId: userData?.employee_id || user.id,
+      actorName,
+      action: "rejected", requestType: request_type as any,
+      requestId: request_id, companyId: actorEmp?.company_id,
+      employeeName: rejEmp ? `${rejEmp.first_name_th} ${rejEmp.last_name_th}` : undefined,
+    })
+
     return NextResponse.json({ success: true })
   }
 
   // Cancel actions — inline logic (ไม่ fetch /api/requests/cancel)
   if (action === "approve_cancel" || action === "reject_cancel" || action === "force_cancel") {
-    const result = await handleCancelAction(supa, action, request_id, request_type, note)
+    const result = await handleCancelAction(supa, action, request_id, request_type, note, {
+      id: userData?.employee_id || user.id, name: actorName, companyId: actorEmp?.company_id,
+    })
     return NextResponse.json(result, { status: result.success ? 200 : 400 })
   }
 

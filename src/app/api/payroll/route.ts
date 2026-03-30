@@ -1,6 +1,7 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
+import { logPayroll } from "@/lib/auditLog"
 
 // ── Date helpers (pure string — ไม่มี timezone conversion) ───────────
 
@@ -23,16 +24,59 @@ function cmp(a: string, b: string): -1 | 0 | 1 {
   return a < b ? -1 : a > b ? 1 : 0
 }
 
-/** วันทำงาน (จ–ศ ไม่ใช่วันหยุด) ในช่วง [start, end] */
-function workDaysBetween(start: string, end: string, holidays: Set<string>): string[] {
+const DOW_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const
+
+/**
+ * วันทำงานในช่วง [start, end] — อิง shift assignment → profile → fallback จ-ศ
+ * @param shiftMap   Map<work_date, {assignment_type}> จาก monthly_shift_assignments
+ * @param fixedDayoffs  ["sat","sun"] จาก employee_schedule_profiles (ถ้ามี)
+ */
+function workDaysBetween(
+  start: string, end: string, holidays: Set<string>,
+  shiftMap?: Map<string, { assignment_type: string }>,
+  fixedDayoffs?: string[],
+): string[] {
   const days: string[] = []
+  const hasShiftData = shiftMap && shiftMap.size > 0
+  const hasProfile   = fixedDayoffs !== undefined
   let cur = start
   while (cmp(cur, end) <= 0) {
-    const dow = dayOfWeek(cur)
-    if (dow !== 0 && dow !== 6 && !holidays.has(cur)) days.push(cur)
+    const assignment = hasShiftData ? shiftMap!.get(cur) : undefined
+
+    if (assignment) {
+      // ชั้น 1: มี shift assignment → ดู assignment_type ตรงๆ
+      if (assignment.assignment_type === "work") days.push(cur)
+      // dayoff / leave / holiday → ไม่นับ
+    } else if (hasProfile) {
+      // ชั้น 2: ไม่มี assignment แต่มี profile → ดู fixedDayoffs
+      const dowName = DOW_NAMES[dayOfWeek(cur)]
+      const isDayoff = fixedDayoffs!.includes(dowName)
+      if (!isDayoff && !holidays.has(cur)) days.push(cur)
+    } else {
+      // ชั้น 3: ไม่มีข้อมูลเลย → fallback จ-ศ เดิม
+      const dow = dayOfWeek(cur)
+      if (dow !== 0 && dow !== 6 && !holidays.has(cur)) days.push(cur)
+    }
+
     cur = addDays(cur, 1)
   }
   return days
+}
+
+/** ตรวจว่าวันนั้น "ควรทำงาน" ไหม — ใช้ logic เดียวกับ workDaysBetween แต่เช็ควันเดียว */
+function isWorkDay(
+  date: string, holidays: Set<string>,
+  shiftMap?: Map<string, { assignment_type: string }>,
+  fixedDayoffs?: string[],
+): boolean {
+  const assignment = (shiftMap && shiftMap.size > 0) ? shiftMap.get(date) : undefined
+  if (assignment) return assignment.assignment_type === "work"
+  if (fixedDayoffs !== undefined) {
+    const dowName = DOW_NAMES[dayOfWeek(date)]
+    return !fixedDayoffs.includes(dowName) && !holidays.has(date)
+  }
+  const dow = dayOfWeek(date)
+  return dow !== 0 && dow !== 6 && !holidays.has(date)
 }
 
 /** วันที่ปัจจุบันในโซนเวลาไทย */
@@ -106,7 +150,7 @@ async function initRecord(
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
-      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct")
+      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, ot_rate_normal, ot_rate_holiday")
       .eq("employee_id", employee_id)
       .is("effective_to", null)
       .order("effective_from", { ascending: false })
@@ -122,7 +166,7 @@ async function initRecord(
   const sal    = sRes.data ?? {
     base_salary: 0, allowance_position: 0, allowance_transport: 0,
     allowance_food: 0, allowance_phone: 0, allowance_housing: 0,
-    tax_withholding_pct: null,
+    tax_withholding_pct: null, ot_rate_normal: null, ot_rate_holiday: null,
   }
 
   const baseSalary = Number(sal.base_salary) || 0
@@ -160,6 +204,8 @@ async function initRecord(
     lateMinutes:     0,
     earlyOutMinutes: 0,
     loanDeduction,
+    otRateWeekday:   sal.ot_rate_normal  != null ? Number(sal.ot_rate_normal)  : null,
+    otRateHoliday:   sal.ot_rate_holiday != null ? Number(sal.ot_rate_holiday) : null,
     taxWithholdingPct,
   })
 
@@ -263,7 +309,7 @@ async function calcAndSave(
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
-      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, effective_from, effective_to")
+      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, effective_from, effective_to")
       .eq("employee_id", employee_id)
       .is("effective_to", null)
       .order("effective_from", { ascending: false })
@@ -280,7 +326,7 @@ async function calcAndSave(
   const sal    = sRes.data ?? {
     base_salary: 0, allowance_position: 0, allowance_transport: 0,
     allowance_food: 0, allowance_phone: 0, allowance_housing: 0,
-    tax_withholding_pct: null,
+    tax_withholding_pct: null, ot_rate_normal: null, ot_rate_holiday: null,
   }
 
   const periodStart: string = period.start_date
@@ -297,6 +343,28 @@ async function calcAndSave(
 
   const holidaySet = new Set<string>((holData ?? []).map((h: any) => h.date as string))
 
+  // ── Shift assignments + Schedule profile (สำหรับนับวันทำงานตามกะ) ──
+  const [shiftAssignRes, schedProfileRes] = await Promise.all([
+    supa.from("monthly_shift_assignments")
+      .select("work_date, assignment_type")
+      .eq("employee_id", employee_id)
+      .gte("work_date", periodStart)
+      .lte("work_date", periodEnd),
+    supa.from("employee_schedule_profiles")
+      .select("fixed_dayoffs")
+      .eq("employee_id", employee_id)
+      .maybeSingle(),
+  ])
+
+  const shiftMap = new Map<string, { assignment_type: string }>()
+  for (const a of (shiftAssignRes.data ?? []) as any[]) {
+    shiftMap.set(a.work_date, { assignment_type: a.assignment_type })
+  }
+  const fixedDayoffs: string[] | undefined =
+    schedProfileRes.data?.fixed_dayoffs
+      ? (schedProfileRes.data.fixed_dayoffs as string[])
+      : undefined
+
   // ── ข้อมูลการเข้างานในงวด ──────────────────────────────────────
   const { data: attData, error: attErr } = await supa
     .from("attendance_records")
@@ -308,12 +376,12 @@ async function calcAndSave(
   const records   = (attData ?? []) as any[]
   const recordMap = new Map<string, any>(records.map(r => [r.work_date as string, r]))
 
-  // ── วันทำงานที่คาดหวัง ────────────────────────────────────────
+  // ── วันทำงานที่คาดหวัง (อิง shift → profile → fallback จ-ศ) ─────
   const hireDate       = (emp.hire_date as string | null) ?? periodStart
   const effectiveStart = cmp(hireDate, periodStart) > 0 ? hireDate : periodStart
   const todayStr       = todayTH()
 
-  const allWorkDays = workDaysBetween(effectiveStart, periodEnd, holidaySet)
+  const allWorkDays = workDaysBetween(effectiveStart, periodEnd, holidaySet, shiftMap, fixedDayoffs)
   // ✅ รวมวันนี้ด้วย (<=) เพื่อนับสาย/ขาดของวันนี้ real-time
   const pastWorkDays = allWorkDays.filter(d => cmp(d, todayStr) <= 0)
 
@@ -336,10 +404,8 @@ async function calcAndSave(
     const leaveEnd  = l.end_date   as string
     let cnt = 0
     while (cmp(cur, leaveEnd) <= 0) {
-      const dow = dayOfWeek(cur)
       if (
-        dow !== 0 && dow !== 6 &&          // ไม่ใช่วันหยุดสัปดาห์
-        !holidaySet.has(cur) &&             // ไม่ใช่วันหยุดบริษัท
+        isWorkDay(cur, holidaySet, shiftMap, fixedDayoffs) &&  // วันที่ "ควรทำงาน" ตามกะ
         cmp(cur, periodStart) >= 0 &&       // อยู่ในงวด
         cmp(cur, periodEnd)   <= 0
       ) {
@@ -406,33 +472,55 @@ async function calcAndSave(
     (s: number, r: any) => s + (Number(r.early_out_minutes) || 0), 0
   )
 
-  // ── OT แยกประเภท ──────────────────────────────────────────────
-  // ดึง ot_minutes จาก attendance_records ก่อน
-  let otFromAttendance = records.reduce((s: number, r: any) => s + (Number(r.ot_minutes) || 0), 0)
+  // ── OT แยกประเภท (weekday 1.5x / holiday_regular 1.0x / holiday_ot 3.0x) ──
+  let weekdayOtMin  = 0
+  let holidayRegMin = 0
+  let holidayOtMin  = 0
 
-  // ถ้า attendance ไม่มี OT → ดึงจาก overtime_requests ที่อนุมัติแล้วเป็น fallback
-  // (สำหรับ OT ที่อนุมัติก่อนแก้บั๊ก ที่ยังไม่ได้เขียนลง attendance_records)
-  if (otFromAttendance === 0) {
+  for (const r of records) {
+    const otMin   = Number(r.ot_minutes)   || 0
+    const workMin = Number(r.work_minutes) || 0
+    if (otMin <= 0 && workMin <= 0) continue
+
+    const wd = r.work_date as string
+    if (!isWorkDay(wd, holidaySet, shiftMap, fixedDayoffs)) {
+      // วันหยุด/dayoff → ชม.ปกติ 1.0x, OT 3.0x
+      holidayRegMin += Math.max(0, workMin - otMin)
+      holidayOtMin  += otMin
+    } else {
+      // วันทำงานปกติ → OT 1.5x
+      weekdayOtMin += otMin
+    }
+  }
+
+  // ถ้า attendance ไม่มี OT เลย → fallback ดึงจาก overtime_requests ที่อนุมัติแล้ว
+  if (weekdayOtMin === 0 && holidayOtMin === 0 && holidayRegMin === 0) {
     const { data: approvedOT } = await supa.from("overtime_requests")
-      .select("ot_start, ot_end")
+      .select("work_date, ot_start, ot_end")
       .eq("employee_id", employee_id)
       .eq("status", "approved")
       .gte("work_date", periodStart)
       .lte("work_date", periodEnd)
 
-    for (const ot of (approvedOT ?? [])) {
+    for (const ot of (approvedOT ?? []) as any[]) {
       if (ot.ot_start && ot.ot_end) {
-        const startMs = new Date(ot.ot_start).getTime()
-        const endMs = new Date(ot.ot_end).getTime()
-        otFromAttendance += Math.max(0, Math.round((endMs - startMs) / 60000))
+        const mins = Math.max(0, Math.round(
+          (new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000
+        ))
+        const wd = ot.work_date as string
+        if (!isWorkDay(wd, holidaySet, shiftMap, fixedDayoffs)) {
+          holidayOtMin += mins
+        } else {
+          weekdayOtMin += mins
+        }
       }
     }
   }
 
   const otBreakdown: OTBreakdown = {
-    weekday_minutes:         otFromAttendance,
-    holiday_regular_minutes: 0,
-    holiday_ot_minutes:      0,
+    weekday_minutes:         weekdayOtMin,
+    holiday_regular_minutes: holidayRegMin,
+    holiday_ot_minutes:      holidayOtMin,
   }
 
   // ── เงินกู้ ────────────────────────────────────────────────────
@@ -474,6 +562,8 @@ async function calcAndSave(
     earlyOutMinutes: isExempt ? 0 : totalEarlyMin,
     loanDeduction,
     taxWithholdingPct,
+    otRateWeekday:   sal.ot_rate_normal  != null ? Number(sal.ot_rate_normal)  : null,
+    otRateHoliday:   sal.ot_rate_holiday != null ? Number(sal.ot_rate_holiday) : null,
   })
 
   // ── YTD ภาษี: ดึงยอดสะสมจากเดือนก่อนหน้าในปีเดียวกัน ──
@@ -635,6 +725,16 @@ export async function POST(req: Request) {
     : await calcAndSave(supa, employee_id, payroll_period_id)
 
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 })
+
+  // Audit log
+  const { data: actorData } = await supa.from("users").select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", user.id).single()
+  const actorEmp = actorData?.employee as any
+  logPayroll(supa, {
+    actorId: actorData?.employee_id || user.id,
+    actorName: actorEmp ? `${actorEmp.first_name_th} ${actorEmp.last_name_th}` : undefined,
+    action: mode === "init" ? "calculate" : "calculate",
+  })
+
   return NextResponse.json(result)
 }
 

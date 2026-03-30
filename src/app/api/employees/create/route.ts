@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { logEmployeeChange } from "@/lib/auditLog"
 
 export async function POST(req: Request) {
   try {
@@ -126,6 +127,18 @@ export async function POST(req: Request) {
         is_active: true,
       })
     }
+
+    // Audit log
+    const { data: actorUser } = await supabase.from("users").select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", caller.id).single()
+    const ae = actorUser?.employee as any
+    logEmployeeChange(supabase, {
+      actorId: actorUser?.employee_id || caller.id,
+      actorName: ae ? `${ae.first_name_th} ${ae.last_name_th}` : undefined,
+      action: "create",
+      employeeId: emp.id,
+      employeeName: `${first_name_th} ${last_name_th}`,
+      companyId: company_id,
+    })
 
     return NextResponse.json({ employee_id: emp.id, auth_id: authId })
   } catch (e: any) {

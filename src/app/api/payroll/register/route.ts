@@ -1,5 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { logPayroll } from "@/lib/auditLog"
 
 /**
  * GET /api/payroll/register?period_id=xxx
@@ -113,5 +114,15 @@ export async function PATCH(req: Request) {
     .eq("id", id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Audit log
+  const { data: actorData } = await supa.from("users").select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", user.id).single()
+  const actorEmp = actorData?.employee as any
+  logPayroll(supa, {
+    actorId: actorData?.employee_id || user.id,
+    actorName: actorEmp ? `${actorEmp.first_name_th} ${actorEmp.last_name_th}` : undefined,
+    action: "edit",
+  })
+
   return NextResponse.json({ success: true })
 }

@@ -1,5 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { logEmployeeChange } from "@/lib/auditLog"
 
 /**
  * POST /api/employees/resign
@@ -76,6 +77,15 @@ export async function POST(req: Request) {
         }
       } catch { /* ignore if user not found */ }
 
+      // Audit log
+      logEmployeeChange(supa, {
+        actorId: user.id, action: "deactivate",
+        employeeId: employee_id,
+        employeeName: `${emp.first_name_th} ${emp.last_name_th}`,
+        companyId: emp.company_id,
+        changes: { employment_status: { old: emp.employment_status, new: "resigned" }, resign_date: { old: null, new: effectiveDate } },
+      })
+
       return NextResponse.json({
         success: true,
         message: `บันทึกลาออกเรียบร้อย — ${emp.first_name_th} ${emp.last_name_th}`,
@@ -119,6 +129,15 @@ export async function POST(req: Request) {
           await supa.auth.admin.updateUserById(userData.id, { ban_duration: "none" })
         }
       } catch { /* ignore if user not found */ }
+
+      // Audit log
+      logEmployeeChange(supa, {
+        actorId: user.id, action: "update",
+        employeeId: employee_id,
+        employeeName: `${emp.first_name_th} ${emp.last_name_th}`,
+        companyId: emp.company_id,
+        changes: { employment_status: { old: emp.employment_status, new: restoreStatus }, is_active: { old: false, new: true } },
+      })
 
       return NextResponse.json({
         success: true,
