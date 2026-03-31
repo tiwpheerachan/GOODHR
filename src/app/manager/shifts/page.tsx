@@ -20,6 +20,7 @@ interface EmpRow {
 }
 
 const SHIFT_COLORS: Record<string, { bg: string; text: string; short: string }> = {
+  "07:00": { bg: "bg-emerald-200", text: "text-emerald-800", short: "7" },
   "09:00": { bg: "bg-blue-200", text: "text-blue-800", short: "9" },
   "10:00": { bg: "bg-cyan-200", text: "text-cyan-800", short: "10" },
   "10:30": { bg: "bg-teal-200", text: "text-teal-800", short: "10½" },

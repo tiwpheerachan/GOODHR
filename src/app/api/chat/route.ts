@@ -330,7 +330,7 @@ export async function GET(req: NextRequest) {
       // Run BOTH queries in parallel (was sequential before)
       const [{ data: newMessages }, { count: totalCount }] = await Promise.all([
         supa.from("chat_messages")
-          .select("*, sender:employees!sender_id(id, first_name_th, last_name_th, nickname, avatar_url)")
+          .select("*, sender:employees!sender_id(id, first_name_th, last_name_th, nickname, avatar_url), reply_to:chat_messages!reply_to_id(id, message, sender:employees!sender_id(first_name_th, nickname))")
           .eq("conversation_id", convId)
           .gt("created_at", since)
           .order("created_at", { ascending: true })
@@ -353,10 +353,18 @@ export async function GET(req: NextRequest) {
         .neq("sender_id", empId)
         .then(() => {})
 
+      // Check who's typing in this conversation (within last 5 seconds)
+      const { data: typingData } = await supa.from("employee_online_status")
+        .select("employee_id, employee:employees!employee_id(first_name_th, nickname)")
+        .eq("typing_in", convId)
+        .gt("typing_at", new Date(Date.now() - 5000).toISOString())
+        .neq("employee_id", empId)
+
       return jsonRes({
         new_messages: newMessages ?? [],
         total_count: totalCount ?? 0,
         ts: new Date().toISOString(),
+        typing: (typingData ?? []).map((t: any) => ({ id: t.employee_id, name: (t.employee as any)?.nickname || (t.employee as any)?.first_name_th || "" })),
       })
     }
 
@@ -364,7 +372,7 @@ export async function GET(req: NextRequest) {
     const [convResult, messagesResult] = await Promise.all([
       supa.from("chat_conversations").select("*").eq("id", convId).single(),
       supa.from("chat_messages")
-        .select("*, sender:employees!sender_id(id, first_name_th, last_name_th, nickname, avatar_url)")
+        .select("*, sender:employees!sender_id(id, first_name_th, last_name_th, nickname, avatar_url), reply_to:chat_messages!reply_to_id(id, message, sender:employees!sender_id(first_name_th, nickname))")
         .eq("conversation_id", convId).order("created_at", { ascending: true }).limit(200),
     ])
     const conv = convResult.data
@@ -722,7 +730,7 @@ export async function POST(req: NextRequest) {
       sender_role: isAdmin ? userData.role : "user",
       message: message || null, images: images || [],
       reply_to_id: reply_to_id || null,
-    }).select("*, sender:employees!sender_id(id, first_name_th, last_name_th, nickname, avatar_url)").single()
+    }).select("*, sender:employees!sender_id(id, first_name_th, last_name_th, nickname, avatar_url), reply_to:chat_messages!reply_to_id(id, message, sender:employees!sender_id(first_name_th, nickname))").single()
 
     if (error) return jsonRes({ error: error.message })
 
@@ -799,6 +807,97 @@ export async function POST(req: NextRequest) {
       .update({ status: "closed", updated_at: new Date().toISOString() })
       .eq("id", body.conversation_id)
     return jsonRes({ success: true })
+  }
+
+  // ── Typing indicator ──
+  if (action === "typing") {
+    const { conversation_id } = body
+    // Upsert typing status (ใช้ employee_online_status + typing field)
+    // เนื่องจากไม่มี table แยก → ใช้ in-memory via response header
+    // Client จะ poll typing status มากับ delta response
+    await supa.from("employee_online_status").upsert({
+      employee_id: empId, is_online: true,
+      last_seen: new Date().toISOString(),
+      typing_in: conversation_id,
+      typing_at: new Date().toISOString(),
+    }, { onConflict: "employee_id" })
+    return jsonRes({ success: true })
+  }
+
+  // ── Search messages ──
+  if (action === "search") {
+    const { query, conversation_id, limit: searchLimit } = body
+    if (!query || query.length < 2) return jsonRes({ error: "Query must be at least 2 characters" })
+
+    let q = supa.from("chat_messages")
+      .select("id, conversation_id, message, created_at, sender_id, sender:employees!sender_id(first_name_th, last_name_th, avatar_url)")
+      .ilike("message", `%${query}%`)
+      .order("created_at", { ascending: false })
+      .limit(searchLimit || 30)
+
+    if (conversation_id) {
+      q = q.eq("conversation_id", conversation_id)
+    } else {
+      // Search across all conversations this user has access to
+      const accessConvIds: string[] = []
+      if (isAdmin) {
+        const { data: hrConvs } = await supa.from("chat_conversations").select("id").eq("company_id", companyId)
+        accessConvIds.push(...(hrConvs ?? []).map((c: any) => c.id))
+      } else {
+        const { data: memberConvs } = await supa.from("chat_members").select("conversation_id").eq("employee_id", empId)
+        const { data: hrConv } = await supa.from("chat_conversations").select("id").eq("employee_id", empId)
+        accessConvIds.push(...(memberConvs ?? []).map((c: any) => c.conversation_id))
+        if (hrConv?.[0]) accessConvIds.push(hrConv[0].id)
+      }
+      if (accessConvIds.length > 0) q = q.in("conversation_id", accessConvIds)
+      else return jsonRes({ results: [] })
+    }
+
+    const { data } = await q
+    return jsonRes({ results: data ?? [] })
+  }
+
+  // ── React to message (emoji) ──
+  if (action === "react") {
+    const { message_id, emoji } = body
+    if (!message_id || !emoji) return jsonRes({ error: "message_id and emoji required" })
+
+    // Check if already reacted with same emoji → remove (toggle)
+    const { data: existing } = await supa.from("chat_message_reactions")
+      .select("id, emoji")
+      .eq("message_id", message_id).eq("employee_id", empId).maybeSingle()
+
+    if (existing) {
+      if (existing.emoji === emoji) {
+        // Same → remove
+        await supa.from("chat_message_reactions").delete().eq("id", existing.id)
+        return jsonRes({ success: true, action: "removed" })
+      } else {
+        // Different → update
+        await supa.from("chat_message_reactions").update({ emoji }).eq("id", existing.id)
+        return jsonRes({ success: true, action: "updated" })
+      }
+    } else {
+      // New reaction
+      await supa.from("chat_message_reactions").insert({ message_id, employee_id: empId, emoji })
+      return jsonRes({ success: true, action: "added" })
+    }
+  }
+
+  // ── Get reactions for messages ──
+  if (action === "get_reactions") {
+    const { message_ids } = body
+    if (!message_ids?.length) return jsonRes({ reactions: {} })
+    const { data } = await supa.from("chat_message_reactions")
+      .select("message_id, emoji, employee_id, employee:employees!employee_id(first_name_th, nickname, avatar_url)")
+      .in("message_id", message_ids)
+    // Group by message_id
+    const grouped: Record<string, any[]> = {}
+    for (const r of (data ?? [])) {
+      if (!grouped[r.message_id]) grouped[r.message_id] = []
+      grouped[r.message_id].push(r)
+    }
+    return jsonRes({ reactions: grouped })
   }
 
   return jsonRes({ error: "Unknown action" })

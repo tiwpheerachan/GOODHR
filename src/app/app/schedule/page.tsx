@@ -19,6 +19,7 @@ interface DayInfo {
 
 // ── Shift Colors ──────────────────────────────────────────────────
 const SHIFT_COLORS: Record<string, { gradient: string; icon: string; badge: string }> = {
+  "07": { gradient: "from-emerald-500 to-emerald-600", icon: "🌄", badge: "bg-emerald-100 text-emerald-700" },
   "09": { gradient: "from-blue-500 to-blue-600", icon: "☀️", badge: "bg-blue-100 text-blue-700" },
   "10": { gradient: "from-cyan-500 to-cyan-600", icon: "🌤", badge: "bg-cyan-100 text-cyan-700" },
   "11": { gradient: "from-violet-500 to-violet-600", icon: "⛅", badge: "bg-violet-100 text-violet-700" },

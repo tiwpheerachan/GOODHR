@@ -52,6 +52,7 @@ const TH_DAYS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
 const TH_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
 const SHIFT_COLORS: Record<string, { bg: string; text: string }> = {
+  "07": { bg: "bg-emerald-100", text: "text-emerald-700" },
   "09": { bg: "bg-blue-100", text: "text-blue-700" },
   "10": { bg: "bg-cyan-100", text: "text-cyan-700" },
   "11": { bg: "bg-violet-100", text: "text-violet-700" },

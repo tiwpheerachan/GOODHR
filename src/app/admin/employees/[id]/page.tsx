@@ -13,7 +13,7 @@ import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
-const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท"]
+const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท"]
 const inp = "input-field"
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -451,14 +451,17 @@ export default function EmployeeDetailPage() {
           <button onClick={saveSalary} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึกเงินเดือน</button>
         </>}
 
-        {/* ── Tab 4: ตารางงาน ── */}
-        {tab === 4 && <WorkScheduleTab employeeId={id as string} companyId={emp.company_id}/>}
+        {/* ── Tab 4: สรุปเงินเดือนรายเดือน ── */}
+        {tab === 4 && <PayrollHistoryTab employeeId={id as string}/>}
 
-        {/* ── Tab 5: สิทธิ์เช็คอิน ── */}
-        {tab === 5 && <CheckinLocationsTab employeeId={id as string} companyId={emp.company_id}/>}
+        {/* ── Tab 5: ตารางงาน ── */}
+        {tab === 5 && <WorkScheduleTab employeeId={id as string} companyId={emp.company_id}/>}
 
-        {/* ── Tab 6: ประวัติหัวหน้า ── */}
-        {tab === 6 && <>
+        {/* ── Tab 6: สิทธิ์เช็คอิน ── */}
+        {tab === 6 && <CheckinLocationsTab employeeId={id as string} companyId={emp.company_id}/>}
+
+        {/* ── Tab 7: ประวัติหัวหน้า ── */}
+        {tab === 7 && <>
           <h3 className="font-bold text-slate-800 mb-4">ประวัติหัวหน้างาน</h3>
           <div className="flex gap-3 mb-5">
             <select value={newMgr} onChange={e => setNewMgr(e.target.value)} className={inp + " flex-1"}>
@@ -479,8 +482,8 @@ export default function EmployeeDetailPage() {
           </div>
         </>}
 
-        {/* ── Tab 7: บทบาท (Role Management) ── */}
-        {tab === 7 && <RoleManagementTab employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`}/>}
+        {/* ── Tab 8: บทบาท (Role Management) ── */}
+        {tab === 8 && <RoleManagementTab employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`}/>}
 
       </div>
 
@@ -858,6 +861,207 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
         </div>
       </div>
 
+    </div>
+  )
+}
+
+// ─── PayrollHistoryTab ───────────────────────────────────────────────────────
+function PayrollHistoryTab({ employeeId }: { employeeId: string }) {
+  const supabase = createClient()
+  const [records, setRecords] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<any | null>(null)
+  const [recalcing, setRecalcing] = useState(false)
+
+  const loadRecords = () => {
+    return supabase
+      .from("payroll_records")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .order("year", { ascending: false })
+      .order("month", { ascending: false })
+      .limit(24)
+      .then(({ data }) => {
+        const rows = data ?? []
+        setRecords(rows)
+        // sync selected to latest data
+        setSelected((prev: any) => {
+          if (!prev) return rows[0] ?? null
+          return rows.find((r: any) => r.id === prev.id) ?? prev
+        })
+        setLoading(false)
+      })
+  }
+
+  useEffect(() => { loadRecords() }, [employeeId]) // eslint-disable-line
+
+  const recalc = async () => {
+    if (!selected?.payroll_period_id) return
+    setRecalcing(true)
+    const res = await fetch("/api/payroll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employee_id: employeeId, payroll_period_id: selected.payroll_period_id }),
+    })
+    await loadRecords()
+    setRecalcing(false)
+    if (res.ok) toast.success("คำนวณเงินเดือนใหม่แล้ว")
+    else toast.error("คำนวณใหม่ไม่สำเร็จ")
+  }
+
+  const TH_MONTHS_SHORT = ["","ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
+
+  function minToHr(m?: number | null) {
+    if (!m) return "0 ชม."
+    const h = Math.floor(m / 60)
+    const min = m % 60
+    return min > 0 ? `${h} ชม. ${min} น.` : `${h} ชม.`
+  }
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-16">
+      <div className="h-7 w-7 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
+    </div>
+  )
+
+  if (records.length === 0) return (
+    <div className="py-12 text-center text-slate-400">
+      <DollarSign size={36} className="mx-auto mb-3 opacity-30"/>
+      <p className="font-medium">ยังไม่มีข้อมูลเงินเดือน</p>
+    </div>
+  )
+
+  const r = selected
+
+  return (
+    <div className="space-y-4">
+      {/* Month selector + recalc button */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-wrap gap-2 flex-1">
+          {records.map(rec => {
+            const isActive = selected?.id === rec.id
+            return (
+              <button
+                key={rec.id}
+                onClick={() => setSelected(rec)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                  isActive ? "bg-indigo-600 text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {TH_MONTHS_SHORT[rec.month]} {rec.year + 543}
+              </button>
+            )
+          })}
+        </div>
+        {selected && (
+          <button
+            onClick={recalc}
+            disabled={recalcing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors disabled:opacity-60 flex-shrink-0"
+          >
+            {recalcing ? <Loader2 size={12} className="animate-spin"/> : <BarChart2 size={12}/>}
+            คำนวณใหม่
+          </button>
+        )}
+      </div>
+
+      {r && (
+        <>
+          {/* ── รายได้ ── */}
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 space-y-2">
+            <h4 className="text-sm font-black text-emerald-800 mb-3 flex items-center gap-2">
+              <TrendingUp size={15}/> รายได้
+            </h4>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-white rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 mb-0.5">เงินเดือน</p>
+                <p className="font-black text-slate-800">฿{fmt(r.base_salary)}</p>
+              </div>
+              {(r.bonus ?? 0) > 0 && (
+                <div className="bg-white rounded-xl p-3">
+                  <p className="text-[10px] font-bold text-slate-400 mb-0.5">โบนัส</p>
+                  <p className="font-black text-emerald-700">฿{fmt(r.bonus)}</p>
+                </div>
+              )}
+              {(r.ot_hours ?? 0) > 0 && (
+                <div className="bg-white rounded-xl p-3 col-span-2">
+                  <p className="text-[10px] font-bold text-slate-400 mb-1">โอที ({fmtDec(r.ot_hours)} ชม.)</p>
+                  <p className="font-black text-indigo-700 text-lg">฿{fmt(r.ot_amount)}</p>
+                  <div className="mt-1.5 space-y-0.5 text-[11px] text-slate-500">
+                    {(r.ot_weekday_minutes ?? 0) > 0 && (
+                      <p>• ปกติ (1.5x): {minToHr(r.ot_weekday_minutes)}</p>
+                    )}
+                    {(r.ot_holiday_reg_minutes ?? 0) > 0 && (
+                      <p>• วันหยุด (1.0x): {minToHr(r.ot_holiday_reg_minutes)}</p>
+                    )}
+                    {(r.ot_holiday_ot_minutes ?? 0) > 0 && (
+                      <p>• วันหยุด OT (3.0x): {minToHr(r.ot_holiday_ot_minutes)}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="bg-emerald-100 rounded-xl p-3 col-span-2 flex items-center justify-between">
+                <p className="text-xs font-bold text-emerald-800">รายได้รวม (Gross)</p>
+                <p className="font-black text-emerald-800 text-base">฿{fmt(r.gross_income)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* ── การหัก ── */}
+          <div className="rounded-2xl border border-rose-100 bg-rose-50/50 p-4 space-y-2">
+            <h4 className="text-sm font-black text-rose-800 mb-3 flex items-center gap-2">
+              <TrendingDown size={15}/> การหัก
+            </h4>
+            <div className="space-y-2">
+              {[
+                ["หัก: ขาด/สาย/ออกก่อน", (r.deduct_absent ?? 0) + (r.deduct_late ?? 0) + (r.deduct_early_out ?? 0)],
+                ["ประกันสังคม (5%)", r.social_security_amount],
+                ["ภาษีหัก ณ ที่จ่าย", r.monthly_tax_withheld],
+                ["หักเงินกู้", r.deduct_loan],
+                ["หักอื่นๆ", r.deduct_other],
+              ].filter(([, v]) => (v as number) > 0).map(([label, val]) => (
+                <div key={label as string} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2">
+                  <span className="text-slate-600 font-medium">{label as string}</span>
+                  <span className="font-bold text-rose-700">-฿{fmt(val as number)}</span>
+                </div>
+              ))}
+              <div className="flex items-center justify-between bg-rose-100 rounded-xl px-3 py-2">
+                <span className="text-xs font-bold text-rose-800">หักรวม</span>
+                <span className="font-black text-rose-800">-฿{fmt(r.total_deductions)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── เงินสุทธิ + สถิติ ── */}
+          <div className="rounded-2xl border border-indigo-200 bg-indigo-600 p-4 text-white text-center">
+            <p className="text-xs font-bold opacity-70 mb-1">เงินเดือนสุทธิ</p>
+            <p className="text-3xl font-black">฿{fmt(r.net_salary)}</p>
+            <p className="text-[10px] opacity-60 mt-1">{TH_MONTHS_SHORT[r.month]} {r.year + 543}</p>
+          </div>
+
+          {/* ── สถิติการทำงาน ── */}
+          <div className="rounded-2xl border border-slate-100 bg-white p-4">
+            <h4 className="text-sm font-black text-slate-700 mb-3 flex items-center gap-2">
+              <BarChart2 size={15}/> สถิติการทำงาน
+            </h4>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {[
+                ["มาทำงาน", r.present_days ?? 0, "text-emerald-600", "วัน"],
+                ["ขาด", r.absent_days ?? 0, "text-rose-500", "วัน"],
+                ["สาย", r.late_count ?? 0, "text-amber-500", "ครั้ง"],
+                ["ลาพักร้อน", r.leave_paid_days ?? 0, "text-sky-500", "วัน"],
+                ["OT", fmtDec(r.ot_hours), "text-indigo-600", "ชม."],
+              ].map(([label, val, color, unit]) => (
+                <div key={label as string} className="bg-slate-50 rounded-xl p-2">
+                  <p className={`text-base font-black ${color}`}>{val}</p>
+                  <p className="text-[9px] text-slate-400 font-bold">{unit}</p>
+                  <p className="text-[9px] text-slate-500">{label as string}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

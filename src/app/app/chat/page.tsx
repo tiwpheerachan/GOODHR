@@ -152,6 +152,16 @@ export default function UserChatPage() {
   const [pinnedMessage, setPinnedMessage] = useState<any>(null)
   const [showPinBanner, setShowPinBanner] = useState(true)
 
+  // ── Tier 1 features ──
+  const [typingUsers, setTypingUsers] = useState<{ id: string; name: string }[]>([])
+  const [replyTo, setReplyTo] = useState<{ id: string; message: string; senderName: string } | null>(null)
+  const [msgReactions, setMsgReactions] = useState<Record<string, any[]>>({})
+  const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null)
+  const [msgSearch, setMsgSearch] = useState("")
+  const [msgSearchResults, setMsgSearchResults] = useState<any[]>([])
+  const [showMsgSearch, setShowMsgSearch] = useState(false)
+  const typingTimerRef = useRef<any>(null)
+
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const chatRef = useRef<HTMLDivElement>(null)
@@ -439,6 +449,9 @@ export default function UserChatPage() {
           }
 
           if (d.ts) lastTsRef.current = d.ts
+          // Update typing indicator
+          if (d.typing) setTypingUsers(d.typing)
+          else setTypingUsers([])
         } else if (d.messages) {
           // Full response (first load or no since param)
           const newMsgs = d.messages ?? []
@@ -766,6 +779,66 @@ export default function UserChatPage() {
   }
 
   // ═══════════════════════════════════════
+  // TYPING INDICATOR
+  // ═══════════════════════════════════════
+  const sendTyping = useCallback(() => {
+    if (!activeConv) return
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+    typingTimerRef.current = setTimeout(() => {
+      fetch("/api/chat", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "typing", conversation_id: activeConv.id }),
+      }).catch(() => {})
+    }, 300)
+  }, [activeConv])
+
+  // ═══════════════════════════════════════
+  // SEARCH MESSAGES
+  // ═══════════════════════════════════════
+  const searchMessages = useCallback(async (query: string) => {
+    if (!query || query.length < 2) { setMsgSearchResults([]); return }
+    const res = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "search", query, conversation_id: activeConv?.id }),
+    })
+    const data = await res.json()
+    setMsgSearchResults(data.results ?? [])
+  }, [activeConv])
+
+  // ═══════════════════════════════════════
+  // REACT TO MESSAGE
+  // ═══════════════════════════════════════
+  const reactToMessage = useCallback(async (messageId: string, emoji: string) => {
+    setShowReactionPicker(null)
+    // Optimistic update
+    setMsgReactions(prev => {
+      const existing = (prev[messageId] || []).find((r: any) => r.employee_id === myEmpId)
+      if (existing?.emoji === emoji) {
+        return { ...prev, [messageId]: (prev[messageId] || []).filter((r: any) => r.employee_id !== myEmpId) }
+      }
+      const filtered = (prev[messageId] || []).filter((r: any) => r.employee_id !== myEmpId)
+      return { ...prev, [messageId]: [...filtered, { employee_id: myEmpId, emoji }] }
+    })
+    await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "react", message_id: messageId, emoji }),
+    }).catch(() => {})
+  }, [myEmpId])
+
+  // Load reactions when messages change
+  useEffect(() => {
+    if (!msgs.length) return
+    const ids = msgs.slice(-50).map((m: any) => m.id).filter((id: string) => !id.startsWith("temp_"))
+    if (!ids.length) return
+    fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "get_reactions", message_ids: ids }),
+    }).then(r => r.json()).then(data => {
+      if (data.reactions) setMsgReactions(data.reactions)
+    }).catch(() => {})
+  }, [msgs.length]) // eslint-disable-line
+
+  // ═══════════════════════════════════════
   // SEND MESSAGE
   // ═══════════════════════════════════════
   const sendMessage = async (msgText?: string) => {
@@ -789,13 +862,13 @@ export default function UserChatPage() {
     }
     const optimistic = [...msgsRef.current, tempMsg]
     msgsRef.current = optimistic; setMsgs(optimistic)
-    setText(""); setImages([]); setAttachments([]); scrollToBottom(true)
+    setText(""); setImages([]); setAttachments([]); setReplyTo(null); scrollToBottom(true)
 
     try {
       const allMedia = [...tempMsg.images]
       const r = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "send", conversation_id: activeConv.id, message: finalText || null, images: allMedia }),
+        body: JSON.stringify({ action: "send", conversation_id: activeConv.id, message: finalText || null, images: allMedia, reply_to_id: replyTo?.id || null }),
       })
       const d = await r.json()
       if (d.success && d.message) {
@@ -1428,6 +1501,10 @@ export default function UserChatPage() {
                 }`}>{header.subtitle}</p>
               )}
             </div>
+            <button onClick={() => { setShowMsgSearch(!showMsgSearch); setMsgSearch(""); setMsgSearchResults([]) }}
+              className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center active:scale-90 flex-shrink-0">
+              <Search size={16} className="text-gray-400" />
+            </button>
             {(convType === "group" || convType === "department") && (
               <button onClick={() => setView("group_settings")}
                 className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center active:scale-90 flex-shrink-0">
@@ -1435,6 +1512,33 @@ export default function UserChatPage() {
               </button>
             )}
           </div>
+
+          {/* ═══ MESSAGE SEARCH BAR ═══ */}
+          {showMsgSearch && (
+            <div className="bg-white border-b border-gray-100 px-3 py-2">
+              <div className="flex items-center gap-2 bg-gray-100 rounded-xl px-3 py-2">
+                <Search size={14} className="text-gray-400 flex-shrink-0" />
+                <input value={msgSearch} onChange={e => { setMsgSearch(e.target.value); searchMessages(e.target.value) }}
+                  placeholder="ค้นหาข้อความ..." autoFocus
+                  className="flex-1 text-sm bg-transparent outline-none" />
+                {msgSearch && <button onClick={() => { setMsgSearch(""); setMsgSearchResults([]) }} className="text-gray-400"><X size={14}/></button>}
+              </div>
+              {msgSearchResults.length > 0 && (
+                <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
+                  {msgSearchResults.map(r => (
+                    <button key={r.id} onClick={() => { setShowMsgSearch(false); /* TODO: scroll to message */ }}
+                      className="w-full text-left px-3 py-2 rounded-xl hover:bg-gray-50 transition">
+                      <p className="text-xs text-gray-500 truncate">{r.message}</p>
+                      <p className="text-[10px] text-gray-400">{r.sender?.first_name_th || ""} · {new Date(r.created_at).toLocaleDateString("th-TH", { day:"numeric", month:"short" })}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {msgSearch.length >= 2 && msgSearchResults.length === 0 && (
+                <p className="text-center text-xs text-gray-400 py-3">ไม่พบข้อความ</p>
+              )}
+            </div>
+          )}
 
           {/* ═══ PINNED MESSAGE BANNER ═══ */}
           {pinnedMessage && showPinBanner && (
@@ -1572,6 +1676,14 @@ export default function UserChatPage() {
                                 </div>
                               )}
 
+                              {/* Reply quote */}
+                              {m.reply_to && m.reply_to.message && (
+                                <div className={`px-3 py-1.5 mb-0.5 rounded-xl text-[11px] border-l-2 ${isMe ? "bg-green-600/30 border-white/40 text-white/80" : "bg-gray-100 border-indigo-300 text-gray-500"}`}>
+                                  <span className="font-bold">{m.reply_to.sender?.nickname || m.reply_to.sender?.first_name_th || ""}</span>
+                                  <p className="truncate">{m.reply_to.message}</p>
+                                </div>
+                              )}
+
                               {m.message && (
                                 <div className={`flex items-end gap-1 ${isMe ? "flex-row-reverse" : "flex-row"}`}>
                                   <div className={`px-3 py-2 text-[13px] leading-[1.5] whitespace-pre-wrap break-words ${
@@ -1593,6 +1705,39 @@ export default function UserChatPage() {
                                   <span className="text-[9px] text-white/40">{fmtTime(m.created_at)}</span>
                                 </div>
                               )}
+
+                              {/* Reactions display */}
+                              {(msgReactions[m.id] || []).length > 0 && (
+                                <div className={`flex gap-0.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
+                                  {Object.entries((msgReactions[m.id] || []).reduce((acc: Record<string, number>, r: any) => { acc[r.emoji] = (acc[r.emoji] || 0) + 1; return acc }, {})).map(([emoji, count]) => (
+                                    <button key={emoji} onClick={() => reactToMessage(m.id, emoji)}
+                                      className="flex items-center gap-0.5 bg-white/90 border border-gray-200 rounded-full px-1.5 py-0.5 text-[11px] shadow-sm active:scale-95">
+                                      {emoji}<span className="text-gray-500 font-bold">{count as number}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Quick action: reply + react (show on hover/tap) */}
+                              {!m._sending && (
+                                <div className={`flex gap-1 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity ${isMe ? "justify-end" : "justify-start"}`}>
+                                  <button onClick={() => setReplyTo({ id: m.id, message: m.message || "📷", senderName: m.sender?.nickname || m.sender?.first_name_th || "" })}
+                                    className="text-[9px] text-gray-400 hover:text-indigo-500 px-1.5 py-0.5 rounded bg-white/80">ตอบ</button>
+                                  <button onClick={() => setShowReactionPicker(showReactionPicker === m.id ? null : m.id)}
+                                    className="text-[9px] text-gray-400 hover:text-indigo-500 px-1.5 py-0.5 rounded bg-white/80">😊</button>
+                                </div>
+                              )}
+
+                              {/* Reaction picker popup */}
+                              {showReactionPicker === m.id && (
+                                <div className={`flex gap-0.5 bg-white rounded-full shadow-xl border border-gray-200 px-1.5 py-1 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}
+                                  style={{ animation: "scaleIn .15s ease" }}>
+                                  {["👍","❤️","😂","😮","😢","🔥"].map(e => (
+                                    <button key={e} onClick={() => reactToMessage(m.id, e)}
+                                      className="w-8 h-8 flex items-center justify-center text-lg rounded-full hover:bg-gray-100 active:scale-110 transition-all">{e}</button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </div>
                         )
@@ -1611,6 +1756,36 @@ export default function UserChatPage() {
               </button>
             )}
           </div>
+
+          {/* ═══ TYPING INDICATOR ═══ */}
+          {typingUsers.length > 0 && (
+            <div className="px-4 py-1.5 bg-white/80 border-t border-gray-50">
+              <div className="flex items-center gap-1.5">
+                <div className="flex gap-0.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+                <span className="text-[10px] text-gray-400 font-medium">
+                  {typingUsers.map(t => t.name).join(", ")} กำลังพิมพ์...
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* ═══ REPLY BAR ═══ */}
+          {replyTo && (
+            <div className="px-4 py-2 bg-indigo-50/80 border-t border-indigo-100 flex items-center gap-2">
+              <div className="w-1 h-8 bg-indigo-400 rounded-full flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-indigo-600">{replyTo.senderName}</p>
+                <p className="text-[11px] text-gray-500 truncate">{replyTo.message}</p>
+              </div>
+              <button onClick={() => setReplyTo(null)} className="w-6 h-6 rounded-full bg-white flex items-center justify-center text-gray-400 hover:text-gray-600 flex-shrink-0">
+                <X size={12} />
+              </button>
+            </div>
+          )}
 
           {/* ═══ BOTTOM INPUT ═══ */}
           <div className="flex-shrink-0 bg-white">
@@ -1677,7 +1852,7 @@ export default function UserChatPage() {
                 <Plus size={18} className="text-gray-500" />
               </button>
               <div className="flex-1 bg-gray-100 rounded-[20px] px-3 py-1.5 flex items-end min-h-[36px] max-h-[88px]">
-                <textarea value={text} onChange={e => setText(e.target.value)} onKeyDown={handleKeyDown}
+                <textarea value={text} onChange={e => { setText(e.target.value); sendTyping() }} onKeyDown={handleKeyDown}
                   onFocus={() => { setShowEmoji(false); setShowAttach(false) }}
                   placeholder="Aa" rows={1}
                   className="flex-1 bg-transparent text-[13px] text-gray-700 placeholder:text-gray-400 resize-none outline-none max-h-[64px]"

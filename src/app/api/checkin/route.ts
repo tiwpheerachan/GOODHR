@@ -144,15 +144,15 @@ export async function POST(request: Request) {
 
   // ── สำหรับ clock_out ข้ามคืน: ถ้าเวลาปัจจุบัน < 12:00 (เช้ามืด)
   //    ให้ลองดูว่ามี attendance record ของเมื่อวานที่ยังไม่ได้ clock_out อยู่ไหม
-  //    ถ้ามี → ใช้ shift ของเมื่อวานแทน (เพราะคือ clock_out ของกะข้ามคืน)
+  //    ถ้ามี → ถือว่าเป็น clock_out ของกะข้ามคืน ไม่ต้องตรวจ is_overnight flag
   const bkkHour = parseInt(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hour12: false }))
-  let yesterdayShift: any = null
+  let useYesterday = false
   let yesterdayDate: string | null = null
 
   if (action === "clock_out" && bkkHour < 12) {
-    const yDate = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }))
-    yDate.setDate(yDate.getDate() - 1)
-    yesterdayDate = yDate.toISOString().split("T")[0]
+    // คำนวณ "เมื่อวาน" ใน timezone ไทยอย่างปลอดภัย (ไม่ผ่าน toLocaleString → new Date → toISOString)
+    yesterdayDate = new Date(now.getTime() - 86_400_000)
+      .toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
 
     // ดึง shift ของเมื่อวาน + attendance record ที่ยังไม่ clock_out
     const [yShiftRes, yRecRes] = await Promise.all([
@@ -168,19 +168,42 @@ export async function POST(request: Request) {
         .maybeSingle(),
     ])
 
-    // ถ้าเมื่อวานเป็นกะข้ามคืน + มี clock_in แต่ยังไม่ clock_out → ใช้ shift เมื่อวาน
+    // ถ้ามี clock_in เมื่อวานที่ยังไม่ clock_out → นี่คือ clock_out ของกะข้ามคืน
+    // ไม่ต้องตรวจ is_overnight — การมี record ค้างอยู่คือหลักฐานเพียงพอ
     if (yRecRes.data?.clock_in && !yRecRes.data.clock_out) {
-      const yShift = yShiftRes.data?.shift
-      if (yShift?.is_overnight) {
-        yesterdayShift = yShift
-        shift = yShift
+      useYesterday = true
+      let yShift = yShiftRes.data?.shift ?? null
+
+      // Fallback: work_schedules (กรณีไม่มี monthly assignment)
+      if (!yShift) {
+        const { data: ySchedData } = await supa
+          .from("work_schedules")
+          .select("*, shift:shift_templates(*)")
+          .eq("employee_id", emp.id)
+          .lte("effective_from", yesterdayDate)
+          .order("effective_from", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        yShift = (ySchedData as any)?.shift ?? null
       }
+
+      // Fallback: ดึง shift จาก shift_template_id ที่บันทึกใน attendance record เอง
+      if (!yShift && yRecRes.data.shift_template_id) {
+        const { data: tplData } = await supa
+          .from("shift_templates")
+          .select("*")
+          .eq("id", yRecRes.data.shift_template_id)
+          .maybeSingle()
+        yShift = tplData ?? null
+      }
+
+      shift = yShift
     }
   }
 
   // work_date: overnight shift ให้นับวันก่อนหน้า
-  // ถ้า clock_out ข้ามคืน → ใช้ yesterdayDate โดยตรง
-  const workDate = yesterdayShift
+  // ถ้า clock_out ข้ามคืน (useYesterday) → ใช้ yesterdayDate โดยตรง
+  const workDate = useYesterday
     ? yesterdayDate!
     : shift?.is_overnight
       ? calcWorkDate(now, true, "Asia/Bangkok")

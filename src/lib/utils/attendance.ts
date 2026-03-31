@@ -1,10 +1,16 @@
 export function calcWorkDate(clockIn: Date, isOvernight: boolean, tz = "Asia/Bangkok"): string {
-  const local = new Date(clockIn.toLocaleString("en-US", { timeZone: tz }))
-  if (isOvernight && local.getHours() < 12) {
-    const prev = new Date(local); prev.setDate(prev.getDate() - 1)
-    return prev.toISOString().split("T")[0]
+  // ใช้ sv-SE locale โดยตรง → ได้ "yyyy-MM-dd" ในโซนเวลาที่ต้องการ ไม่ผ่าน UTC conversion
+  const localDate = clockIn.toLocaleDateString("sv-SE", { timeZone: tz })
+  if (isOvernight) {
+    const localHour = parseInt(
+      clockIn.toLocaleString("en-US", { timeZone: tz, hour: "numeric", hour12: false })
+    )
+    if (localHour < 12) {
+      const [y, m, d] = localDate.split("-").map(Number)
+      return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().split("T")[0]
+    }
   }
-  return local.toISOString().split("T")[0]
+  return localDate
 }
 
 export function calcGeoDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {

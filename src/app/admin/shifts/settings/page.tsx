@@ -16,6 +16,7 @@ interface ShiftDef {
 }
 
 const COLORS: Record<string, string> = {
+  "07:00": "bg-emerald-50 text-emerald-700 border-emerald-200",
   "09:00": "bg-blue-50 text-blue-700 border-blue-200",
   "10:00": "bg-cyan-50 text-cyan-700 border-cyan-200",
   "10:30": "bg-teal-50 text-teal-700 border-teal-200",

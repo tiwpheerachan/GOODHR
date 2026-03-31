@@ -2,6 +2,182 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
 import { logApproval, logAudit } from "@/lib/auditLog"
+import { calculatePayrollSummary, type OTBreakdown } from "@/lib/utils/payroll"
+
+// ── recalculate payroll_records หลังอนุมัติ OT ──────────────────────────────
+// เรียกใช้หลังจาก attendance_records.ot_minutes ถูก update แล้ว
+// ใช้ logic เดียวกับ calcAndSave ใน /api/payroll/route.ts
+async function recalcPayrollAfterOT(supa: any, employeeId: string, workDate: string) {
+  try {
+    // ── 1. ดึง employee (ต้องการ company_id, is_attendance_exempt) ──
+    const { data: empData } = await supa
+      .from("employees")
+      .select("company_id, is_attendance_exempt")
+      .eq("id", employeeId)
+      .single()
+    if (!empData?.company_id) return
+
+    // ── 2. หา payroll_period ที่ครอบคลุม workDate (filter by company_id) ──
+    const { data: period } = await supa
+      .from("payroll_periods")
+      .select("id, start_date, end_date")
+      .eq("company_id", empData.company_id)
+      .lte("start_date", workDate)
+      .gte("end_date",   workDate)
+      .maybeSingle()
+    if (!period) return
+
+    // ── 3. ดึงข้อมูลพร้อมกัน 6 queries ──
+    const [payrollRes, salRes, attRes, holRes, shiftRes, schedRes] = await Promise.all([
+      supa.from("payroll_records")
+        .select("id, base_salary, allowance_position, allowance_food, allowance_phone, allowance_housing, deduct_loan, deduct_other, bonus")
+        .eq("employee_id", employeeId)
+        .eq("payroll_period_id", period.id)
+        .maybeSingle(),
+      supa.from("salary_structures")
+        .select("base_salary, ot_rate_normal, ot_rate_holiday, tax_withholding_pct")
+        .eq("employee_id", employeeId)
+        .is("effective_to", null)
+        .order("effective_from", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supa.from("attendance_records")
+        .select("work_date, ot_minutes, work_minutes, late_minutes, early_out_minutes, status")
+        .eq("employee_id", employeeId)
+        .gte("work_date", period.start_date)
+        .lte("work_date", period.end_date),
+      supa.from("company_holidays")
+        .select("date")
+        .eq("company_id", empData.company_id)
+        .eq("is_active", true)
+        .gte("date", period.start_date)
+        .lte("date", period.end_date),
+      supa.from("monthly_shift_assignments")
+        .select("work_date, assignment_type")
+        .eq("employee_id", employeeId)
+        .gte("work_date", period.start_date)
+        .lte("work_date", period.end_date),
+      supa.from("employee_schedule_profiles")
+        .select("fixed_dayoffs")
+        .eq("employee_id", employeeId)
+        .maybeSingle(),
+    ])
+
+    const payrollRec = payrollRes.data
+    if (!payrollRec) return // ยังไม่มี payroll_record → admin ต้องสร้างก่อน
+
+    const sal          = salRes.data
+    const attRows      = (attRes.data ?? []) as any[]
+    const holidaySet   = new Set<string>((holRes.data ?? []).map((h: any) => h.date as string))
+    const fixedDayoffs = schedRes.data?.fixed_dayoffs as string[] | undefined
+
+    // shiftMap: work_date → assignment_type
+    const shiftMap = new Map<string, string>()
+    for (const s of (shiftRes.data ?? [])) shiftMap.set(s.work_date, s.assignment_type)
+
+    // ── 4. isWorkDay — ตรงกับ logic ใน /api/payroll/route.ts ──
+    const DOW_NAMES = ["sun","mon","tue","wed","thu","fri","sat"] as const
+    const dowOf = (ds: string) => {
+      const [y, m, d] = ds.split("-").map(Number)
+      return new Date(y, m - 1, d).getDay()
+    }
+    const isWorkDay = (date: string): boolean => {
+      const asgn = shiftMap.size > 0 ? shiftMap.get(date) : undefined
+      if (asgn !== undefined) return asgn === "work"
+      if (fixedDayoffs !== undefined) {
+        return !fixedDayoffs.includes(DOW_NAMES[dowOf(date)]) && !holidaySet.has(date)
+      }
+      const dow = dowOf(date)
+      return dow !== 0 && dow !== 6 && !holidaySet.has(date)
+    }
+
+    // ── 5. แยก OT weekday / holiday (เหมือน calcAndSave ทุกประการ) ──
+    let weekdayOtMin  = 0
+    let holidayRegMin = 0
+    let holidayOtMin  = 0
+    let totalLateMin  = 0
+    let totalEarlyMin = 0
+    let absentDays    = 0
+
+    for (const r of attRows) {
+      const otMin   = Number(r.ot_minutes)   || 0
+      const workMin = Number(r.work_minutes) || 0
+      const wd      = r.work_date as string
+
+      if (otMin > 0 || workMin > 0) {
+        if (!isWorkDay(wd)) {
+          holidayRegMin += Math.max(0, workMin - otMin) // งานวันหยุด 1.0x
+          holidayOtMin  += otMin                        // OT วันหยุด 3.0x
+        } else {
+          weekdayOtMin  += otMin                        // OT วันทำงาน 1.5x
+        }
+      }
+
+      totalLateMin  += Number(r.late_minutes)       || 0
+      totalEarlyMin += Number(r.early_out_minutes)  || 0
+      if (r.status === "absent") absentDays++
+    }
+
+    const otBreakdown: OTBreakdown = {
+      weekday_minutes:         weekdayOtMin,
+      holiday_regular_minutes: holidayRegMin,
+      holiday_ot_minutes:      holidayOtMin,
+    }
+
+    // ── 6. คำนวณ summary ด้วย calculatePayrollSummary ──
+    const isExempt = !!empData.is_attendance_exempt
+    const base     = Number(sal?.base_salary ?? payrollRec.base_salary) || 0
+    const allAlw   = (Number(payrollRec.allowance_position) || 0)
+                   + (Number(payrollRec.allowance_food)     || 0)
+                   + (Number(payrollRec.allowance_phone)    || 0)
+                   + (Number(payrollRec.allowance_housing)  || 0)
+
+    const summary = calculatePayrollSummary({
+      baseSalary:       base,
+      allowances:       allAlw,
+      otBreakdown,
+      bonus:            Number(payrollRec.bonus) || 0,
+      absentDays:       isExempt ? 0 : absentDays,
+      lateMinutes:      isExempt ? 0 : totalLateMin,
+      earlyOutMinutes:  isExempt ? 0 : totalEarlyMin,
+      loanDeduction:    Number(payrollRec.deduct_loan) || 0,
+      otRateWeekday:    sal?.ot_rate_normal  != null ? Number(sal.ot_rate_normal)  : null,
+      otRateHoliday:    sal?.ot_rate_holiday != null ? Number(sal.ot_rate_holiday) : null,
+      taxWithholdingPct: sal?.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null,
+    })
+
+    // deduct_other = ค่าหักลาไม่ได้เงิน (คงค่าเดิม ไม่แตะ)
+    const deductUnpaidLeave = Number(payrollRec.deduct_other) || 0
+
+    // ── 7. update payroll_records ครบทุกฟิลด์ที่ได้รับผลจาก OT ──
+    await supa.from("payroll_records").update({
+      // OT minutes (ทั้ง 3 ประเภท)
+      ot_weekday_minutes:     weekdayOtMin,
+      ot_holiday_reg_minutes: holidayRegMin,
+      ot_holiday_ot_minutes:  holidayOtMin,
+      ot_hours:               (weekdayOtMin + holidayRegMin + holidayOtMin) / 60,
+      ot_amount:              summary.otAmount,
+      // รายได้รวม
+      gross_income:           summary.gross,
+      // การหักที่ขึ้นกับรายได้
+      deduct_absent:          summary.deductAbsent,
+      deduct_late:            summary.deductLate,
+      deduct_early_out:       summary.deductEarlyOut,
+      // ประกันสังคม + ภาษี (ขึ้นกับ gross)
+      social_security_amount: summary.sso,
+      taxable_income:         summary.gross - summary.sso,
+      monthly_tax_withheld:   summary.tax,
+      // รวมหัก + เงินสุทธิ
+      total_deductions:       summary.totalDeduct + deductUnpaidLeave,
+      net_salary:             Math.max(summary.net - deductUnpaidLeave, 0),
+      updated_at:             new Date().toISOString(),
+    }).eq("id", payrollRec.id)
+
+  } catch (e) {
+    // fire-and-forget: ไม่ block การอนุมัติ OT ถ้า recalc ล้มเหลว
+    console.error("[recalcPayrollAfterOT]", e)
+  }
+}
 
 // GET — ดึงคำร้องทุกประเภทรวม
 export async function GET(req: NextRequest) {
@@ -512,6 +688,10 @@ export async function POST(req: NextRequest) {
             note: `OT อนุมัติ ${otMinutes} นาที`,
           }).select("id").maybeSingle()
         }
+
+        // ── recalculate payroll_records อัตโนมัติ ──
+        // ทำหลัง attendance_records อัปเดตแล้ว เพื่อให้ payroll หน้า admin แสดงค่าถูก
+        await recalcPayrollAfterOT(supa, otReq.employee_id, otReq.work_date)
       }
     }
 
