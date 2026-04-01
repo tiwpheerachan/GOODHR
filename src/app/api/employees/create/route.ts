@@ -23,7 +23,13 @@ export async function POST(req: Request) {
       company_id, branch_id, department_id, position_id,
       base_salary, allowance_position, allowance_transport,
       allowance_food, allowance_phone, allowance_housing,
+      ot_rate_normal, ot_rate_holiday, tax_withholding_pct,
       kpi_standard_amount,
+      // post-probation promotion
+      post_base_salary, post_allowance_position, post_allowance_transport,
+      post_allowance_food, post_allowance_phone, post_allowance_housing,
+      post_ot_rate_normal, post_ot_rate_holiday, post_tax_withholding_pct,
+      post_position_id, post_kpi_amount,
       supervisor_id,
       role,
     } = body
@@ -94,8 +100,9 @@ export async function POST(req: Request) {
         allowance_food: +(allowance_food || 0),
         allowance_phone: +(allowance_phone || 0),
         allowance_housing: +(allowance_housing || 0),
-        ot_rate_normal: 1.5,
-        ot_rate_holiday: 3,
+        ot_rate_normal: ot_rate_normal ? +ot_rate_normal : 1.5,
+        ot_rate_holiday: ot_rate_holiday ? +ot_rate_holiday : 3.0,
+        tax_withholding_pct: tax_withholding_pct != null && tax_withholding_pct !== "" ? +tax_withholding_pct : null,
         effective_from: hire_date,
       })
     }
@@ -115,6 +122,28 @@ export async function POST(req: Request) {
           remaining_days: lt.days_per_year || 0,
         }))
       )
+    }
+
+    // 5.5 บันทึก post-probation promotion settings ถ้ามี
+    const hasPromo = post_base_salary || post_position_id || post_kpi_amount != null
+    if (hasPromo) {
+      await supabase.from("employee_probation_promotions").insert({
+        employee_id: emp.id,
+        company_id,
+        base_salary:           post_base_salary           ? +post_base_salary           : null,
+        allowance_position:    post_allowance_position    != null && post_allowance_position    !== "" ? +post_allowance_position    : null,
+        allowance_transport:   post_allowance_transport   != null && post_allowance_transport   !== "" ? +post_allowance_transport   : null,
+        allowance_food:        post_allowance_food        != null && post_allowance_food        !== "" ? +post_allowance_food        : null,
+        allowance_phone:       post_allowance_phone       != null && post_allowance_phone       !== "" ? +post_allowance_phone       : null,
+        allowance_housing:     post_allowance_housing     != null && post_allowance_housing     !== "" ? +post_allowance_housing     : null,
+        ot_rate_normal:        post_ot_rate_normal        ? +post_ot_rate_normal        : null,
+        ot_rate_holiday:       post_ot_rate_holiday       ? +post_ot_rate_holiday       : null,
+        tax_withholding_pct:   post_tax_withholding_pct  != null && post_tax_withholding_pct !== "" ? +post_tax_withholding_pct : null,
+        new_position_id:       post_position_id           || null,
+        kpi_standard_amount:   post_kpi_amount            != null && post_kpi_amount !== "" ? +post_kpi_amount : null,
+        is_applied: false,
+        created_by: caller.id,
+      })
     }
 
     // 6. สร้าง KPI bonus settings ถ้ามี

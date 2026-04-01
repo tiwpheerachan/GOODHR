@@ -71,6 +71,7 @@ export default function NewEmployeePage() {
   const [copied, setCopied]           = useState<string | null>(null)
   const [created, setCreated]         = useState<{ email: string; password: string; name: string } | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState("")
+  const [hasPostPromo, setHasPostPromo] = useState(false)
 
   const [f, setF] = useState<any>({
     // personal
@@ -81,10 +82,16 @@ export default function NewEmployeePage() {
     employee_code: "", hire_date: "", probation_end_date: "",
     employment_type: "full_time", employment_status: "probation", role: "employee",
     department_id: "", position_id: "", branch_id: "", supervisor_id: "",
-    // salary
+    // salary (ช่วงทดลองงาน)
     base_salary: "", allowance_position: "0", allowance_transport: "0",
     allowance_food: "0", allowance_phone: "0", allowance_housing: "0",
+    ot_rate_normal: "1.5", ot_rate_holiday: "3.0", tax_withholding_pct: "",
     kpi_standard_amount: "0",
+    // post-probation promotion
+    post_base_salary: "", post_allowance_position: "", post_allowance_transport: "",
+    post_allowance_food: "", post_allowance_phone: "", post_allowance_housing: "",
+    post_ot_rate_normal: "", post_ot_rate_holiday: "", post_tax_withholding_pct: "",
+    post_position_id: "", post_kpi_amount: "",
     // auth
     password: generatePassword(),
   })
@@ -172,7 +179,14 @@ export default function NewEmployeePage() {
         body: JSON.stringify({
           ...f,
           company_id: selectedCompanyId,
-          tax_id: f.national_id, // ใช้เลขบัตรประชาชนเป็นเลขผู้เสียภาษีด้วย
+          tax_id: f.national_id,
+          // ส่ง post-probation เฉพาะเมื่อ toggle เปิด
+          ...(hasPostPromo ? {} : {
+            post_base_salary: "", post_allowance_position: "", post_allowance_transport: "",
+            post_allowance_food: "", post_allowance_phone: "", post_allowance_housing: "",
+            post_ot_rate_normal: "", post_ot_rate_holiday: "", post_tax_withholding_pct: "",
+            post_position_id: "", post_kpi_amount: "",
+          }),
         }),
       })
       const data = await res.json()
@@ -574,39 +588,56 @@ export default function NewEmployeePage() {
             <div className="bg-indigo-50 rounded-xl p-3 text-sm text-indigo-700 font-medium">
               สามารถแก้ไขเงินเดือนได้ภายหลังในหน้าแก้ไขพนักงาน
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="เงินเดือนฐาน (บาท)" required><Input type="number" value={f.base_salary} onChange={(e:any) => set("base_salary", e.target.value)} placeholder="0" /></Field>
-              <Field label="เบี้ยตำแหน่ง"><Input type="number" value={f.allowance_position} onChange={(e:any) => set("allowance_position", e.target.value)} placeholder="0" /></Field>
-              <Field label="ค่าเดินทาง"><Input type="number" value={f.allowance_transport} onChange={(e:any) => set("allowance_transport", e.target.value)} placeholder="0" /></Field>
-              <Field label="ค่าอาหาร"><Input type="number" value={f.allowance_food} onChange={(e:any) => set("allowance_food", e.target.value)} placeholder="0" /></Field>
-              <Field label="ค่าโทรศัพท์"><Input type="number" value={f.allowance_phone} onChange={(e:any) => set("allowance_phone", e.target.value)} placeholder="0" /></Field>
-              <Field label="ค่าที่พัก"><Input type="number" value={f.allowance_housing} onChange={(e:any) => set("allowance_housing", e.target.value)} placeholder="0" /></Field>
+
+            {/* ── เงินเดือนช่วงทดลองงาน ── */}
+            <div className="space-y-4">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">เงินเดือนช่วงทดลองงาน</p>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="เงินเดือนฐาน (บาท)" required><Input type="number" value={f.base_salary} onChange={(e:any) => set("base_salary", e.target.value)} placeholder="0" /></Field>
+                <Field label="เบี้ยตำแหน่ง"><Input type="number" value={f.allowance_position} onChange={(e:any) => set("allowance_position", e.target.value)} placeholder="0" /></Field>
+                <Field label="ค่าเดินทาง"><Input type="number" value={f.allowance_transport} onChange={(e:any) => set("allowance_transport", e.target.value)} placeholder="0" /></Field>
+                <Field label="ค่าอาหาร"><Input type="number" value={f.allowance_food} onChange={(e:any) => set("allowance_food", e.target.value)} placeholder="0" /></Field>
+                <Field label="ค่าโทรศัพท์"><Input type="number" value={f.allowance_phone} onChange={(e:any) => set("allowance_phone", e.target.value)} placeholder="0" /></Field>
+                <Field label="ค่าที่พัก"><Input type="number" value={f.allowance_housing} onChange={(e:any) => set("allowance_housing", e.target.value)} placeholder="0" /></Field>
+                <Field label="อัตรา OT ปกติ (x)" hint="เช่น 1.5 เท่า"><Input type="number" step="0.5" value={f.ot_rate_normal} onChange={(e:any) => set("ot_rate_normal", e.target.value)} placeholder="1.5" /></Field>
+                <Field label="อัตรา OT วันหยุด (x)" hint="เช่น 3 เท่า"><Input type="number" step="0.5" value={f.ot_rate_holiday} onChange={(e:any) => set("ot_rate_holiday", e.target.value)} placeholder="3.0" /></Field>
+              </div>
+
+              {/* ภาษีหัก ณ ที่จ่าย */}
+              <div className="border border-indigo-100 bg-indigo-50/60 rounded-xl p-4">
+                <p className="text-xs font-bold text-indigo-700 mb-1">ภาษีหัก ณ ที่จ่าย</p>
+                <p className="text-[11px] text-slate-400 mb-3">เว้นว่าง = คำนวณอัตโนมัติตามขั้นบันไดภาษี</p>
+                <div className="flex items-center gap-3 max-w-[220px]">
+                  <div className="relative flex-1">
+                    <Input type="number" step="0.5" min="0" max="35"
+                      value={f.tax_withholding_pct} onChange={(e:any) => set("tax_withholding_pct", e.target.value)}
+                      placeholder="อัตโนมัติ" className="pr-8"/>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">%</span>
+                  </div>
+                  {f.tax_withholding_pct !== "" && (
+                    <button type="button" onClick={() => set("tax_withholding_pct", "")}
+                      className="text-xs text-slate-400 hover:text-red-500 transition-colors">ล้าง</button>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* KPI Bonus */}
+            {/* ── KPI ช่วงทดลองงาน ── */}
             <div className="border-2 border-emerald-200 bg-emerald-50/50 rounded-2xl p-5 space-y-3">
-              <h4 className="font-bold text-emerald-800 text-sm">ฐาน KPI Bonus</h4>
-              <Field label="ฐาน KPI มาตรฐาน (บาท/เดือน)" hint="เกรด A = x1.2 · เกรด B = x1.0 · เกรด C = x0.8 · ไม่กรอก = ไม่มี KPI">
+              <h4 className="font-bold text-emerald-800 text-sm">ฐาน KPI Bonus (ช่วงทดลองงาน)</h4>
+              <Field label="ฐาน KPI มาตรฐาน (บาท/เดือน)" hint="เกรด A = x1.2 · เกรด B = x1.0 · เกรด C = x0.8 · เว้นว่าง = ไม่มี KPI">
                 <Input type="number" value={f.kpi_standard_amount} onChange={(e:any) => set("kpi_standard_amount", e.target.value)} placeholder="0" />
               </Field>
               {+f.kpi_standard_amount > 0 && (
                 <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-white rounded-xl p-2 border border-emerald-200">
-                    <p className="text-[10px] text-slate-400">เกรด A</p>
-                    <p className="font-bold text-emerald-700 text-sm">฿{Math.round(+f.kpi_standard_amount * 1.2).toLocaleString()}</p>
-                  </div>
-                  <div className="bg-white rounded-xl p-2 border border-emerald-200">
-                    <p className="text-[10px] text-slate-400">เกรด B</p>
-                    <p className="font-bold text-indigo-700 text-sm">฿{(+f.kpi_standard_amount).toLocaleString()}</p>
-                  </div>
-                  <div className="bg-white rounded-xl p-2 border border-emerald-200">
-                    <p className="text-[10px] text-slate-400">เกรด C</p>
-                    <p className="font-bold text-amber-700 text-sm">฿{Math.round(+f.kpi_standard_amount * 0.8).toLocaleString()}</p>
-                  </div>
+                  <div className="bg-white rounded-xl p-2 border border-emerald-200"><p className="text-[10px] text-slate-400">เกรด A</p><p className="font-bold text-emerald-700 text-sm">฿{Math.round(+f.kpi_standard_amount*1.2).toLocaleString()}</p></div>
+                  <div className="bg-white rounded-xl p-2 border border-emerald-200"><p className="text-[10px] text-slate-400">เกรด B</p><p className="font-bold text-indigo-700 text-sm">฿{(+f.kpi_standard_amount).toLocaleString()}</p></div>
+                  <div className="bg-white rounded-xl p-2 border border-emerald-200"><p className="text-[10px] text-slate-400">เกรด C</p><p className="font-bold text-amber-700 text-sm">฿{Math.round(+f.kpi_standard_amount*0.8).toLocaleString()}</p></div>
                 </div>
               )}
             </div>
 
+            {/* ── สรุปเงินเดือนทดลองงาน ── */}
             <div className="bg-slate-50 rounded-xl p-4 space-y-2">
               <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเดือนฐาน</span><span className="font-bold text-slate-800">฿{(+f.base_salary||0).toLocaleString()}</span></div>
               <div className="flex justify-between text-sm"><span className="text-slate-500">รวมเบี้ยเลี้ยง</span><span className="font-bold text-slate-800">฿{((+f.allowance_position||0)+(+f.allowance_transport||0)+(+f.allowance_food||0)+(+f.allowance_phone||0)+(+f.allowance_housing||0)).toLocaleString()}</span></div>
@@ -615,6 +646,78 @@ export default function NewEmployeePage() {
                 <div className="flex justify-between text-sm"><span className="text-emerald-600">ฐาน KPI (เกรด B)</span><span className="font-bold text-emerald-700">฿{(+f.kpi_standard_amount).toLocaleString()}</span></div>
               )}
             </div>
+
+            {/* ════════ หลังผ่านทดลองงาน ════════ */}
+            <div className="border-2 border-amber-200 bg-amber-50/40 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-bold text-amber-800 text-sm">ตั้งค่าหลังผ่านทดลองงาน</h4>
+                  <p className="text-[11px] text-amber-600 mt-0.5">เงินเดือน/ตำแหน่ง/KPI ที่จะปรับอัตโนมัติเมื่อ admin กด &quot;ยืนยันผ่านทดลองงาน&quot;</p>
+                </div>
+                <button type="button" onClick={() => setHasPostPromo(v => !v)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${hasPostPromo ? "bg-amber-500 text-white" : "bg-amber-100 text-amber-700 hover:bg-amber-200"}`}>
+                  {hasPostPromo ? "เปิดอยู่" : "เปิดใช้"}
+                </button>
+              </div>
+
+              {hasPostPromo && (
+                <div className="space-y-4">
+                  {/* ตำแหน่งใหม่ */}
+                  <Field label="ตำแหน่งใหม่หลังผ่านทดลองงาน" hint="เว้นว่าง = ไม่เปลี่ยนตำแหน่ง">
+                    <Select value={f.post_position_id} onChange={(e:any) => set("post_position_id", e.target.value)}>
+                      <option value="">— ไม่เปลี่ยนตำแหน่ง —</option>
+                      {positions.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </Select>
+                  </Field>
+
+                  {/* เงินเดือนใหม่ */}
+                  <div>
+                    <p className="text-xs font-semibold text-slate-600 mb-3">เงินเดือนใหม่ (เว้นว่างช่องที่ไม่เปลี่ยน)</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="เงินเดือนฐาน (บาท)"><Input type="number" value={f.post_base_salary} onChange={(e:any) => set("post_base_salary", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
+                      <Field label="เบี้ยตำแหน่ง"><Input type="number" value={f.post_allowance_position} onChange={(e:any) => set("post_allowance_position", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
+                      <Field label="ค่าเดินทาง"><Input type="number" value={f.post_allowance_transport} onChange={(e:any) => set("post_allowance_transport", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
+                      <Field label="ค่าอาหาร"><Input type="number" value={f.post_allowance_food} onChange={(e:any) => set("post_allowance_food", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
+                      <Field label="ค่าโทรศัพท์"><Input type="number" value={f.post_allowance_phone} onChange={(e:any) => set("post_allowance_phone", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
+                      <Field label="ค่าที่พัก"><Input type="number" value={f.post_allowance_housing} onChange={(e:any) => set("post_allowance_housing", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
+                      <Field label="OT ปกติ (x)"><Input type="number" step="0.5" value={f.post_ot_rate_normal} onChange={(e:any) => set("post_ot_rate_normal", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
+                      <Field label="OT วันหยุด (x)"><Input type="number" step="0.5" value={f.post_ot_rate_holiday} onChange={(e:any) => set("post_ot_rate_holiday", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
+                    </div>
+                  </div>
+
+                  {/* KPI ใหม่ */}
+                  <Field label="ฐาน KPI ใหม่ (บาท/เดือน)" hint="เว้นว่าง = ไม่เปลี่ยน KPI">
+                    <Input type="number" value={f.post_kpi_amount} onChange={(e:any) => set("post_kpi_amount", e.target.value)} placeholder="ไม่เปลี่ยน" />
+                  </Field>
+
+                  {/* แสดง preview ถ้ากรอกเงินเดือนใหม่ */}
+                  {(+f.post_base_salary > 0 || +f.post_kpi_amount > 0) && (
+                    <div className="bg-white rounded-xl border border-amber-200 p-3 space-y-1.5">
+                      <p className="text-xs font-bold text-amber-800">เงินเดือนหลังผ่านทดลองงาน</p>
+                      {+f.post_base_salary > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">เงินเดือนฐาน</span>
+                          <span className="font-bold text-amber-700">฿{(+f.post_base_salary).toLocaleString()}</span>
+                        </div>
+                      )}
+                      {(+f.post_base_salary > 0 && +f.base_salary > 0) && (
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <span>เพิ่มขึ้น</span>
+                          <span className={`font-bold ${+f.post_base_salary > +f.base_salary ? "text-emerald-600" : "text-red-500"}`}>
+                            {+f.post_base_salary > +f.base_salary ? "+" : ""}
+                            ฿{((+f.post_base_salary)-(+f.base_salary)).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                      {+f.post_kpi_amount > 0 && (
+                        <div className="flex justify-between text-sm"><span className="text-slate-500">ฐาน KPI ใหม่ (เกรด B)</span><span className="font-bold text-emerald-700">฿{(+f.post_kpi_amount).toLocaleString()}</span></div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
           </div>
         )}
       </div>

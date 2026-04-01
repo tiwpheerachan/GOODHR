@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, Save, Loader2, Plus, MapPin, Check, X, Building2, Trash2,
   Clock, Calendar, DollarSign, BarChart2, User2, ChevronRight, CalendarClock,
-  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History, Globe
+  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History, Globe, ShieldAlert
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -51,6 +51,13 @@ export default function EmployeeDetailPage() {
   const [resignLoading, setResignLoading] = useState(false)
   const [resignHistory, setResignHistory] = useState<any[]>([])
   const [showReinstateModal, setShowReinstateModal] = useState(false)
+  // promote (pass probation)
+  const [promotion, setPromotion] = useState<any>(null)
+  const [promoteLoading, setPromoteLoading] = useState(false)
+  // delete modal
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteReason, setDeleteReason] = useState("")
+  const [deleteLoading, setDeleteLoading] = useState(false)
   const [companies, setCompanies] = useState<any[]>([])
   const [departments, setDepartments] = useState<any[]>([])
   const [positions, setPositions] = useState<any[]>([])
@@ -75,6 +82,9 @@ export default function EmployeeDetailPage() {
     // ดึงประวัติการลาออก/ดึงกลับ
     supabase.from("resignation_history").select("*").eq("employee_id",id as string).order("created_at",{ascending:false})
       .then(({ data }) => setResignHistory(data ?? []))
+    // ดึง probation promotion settings
+    supabase.from("employee_probation_promotions").select("*, new_position:positions(name)").eq("employee_id",id as string).eq("is_applied",false).order("created_at",{ascending:false}).limit(1).maybeSingle()
+      .then(({ data }) => setPromotion(data))
     // ดึงรายชื่อบริษัท
     supabase.from("companies").select("id,name_th,code").eq("is_active", true).order("name_th")
       .then(({ data }) => setCompanies(data ?? []))
@@ -224,6 +234,37 @@ export default function EmployeeDetailPage() {
     finally { setResignLoading(false) }
   }
 
+  const handlePromote = async () => {
+    setPromoteLoading(true)
+    try {
+      const res = await fetch("/api/employees/promote", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_id: id, promotion_id: promotion?.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || "เกิดข้อผิดพลาด"); return }
+      toast.success(data.message || "ยืนยันผ่านทดลองงานสำเร็จ")
+      window.location.reload()
+    } catch { toast.error("เกิดข้อผิดพลาด") }
+    finally { setPromoteLoading(false) }
+  }
+
+  const handleDelete = async () => {
+    setDeleteLoading(true)
+    try {
+      const res = await fetch("/api/employees/delete", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", employee_id: id, reason: deleteReason }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || "เกิดข้อผิดพลาด"); return }
+      toast.success(data.message || "ลบพนักงานเรียบร้อย")
+      setShowDeleteModal(false)
+      window.location.href = "/admin/employees"
+    } catch { toast.error("เกิดข้อผิดพลาด") }
+    finally { setDeleteLoading(false) }
+  }
+
   if (!emp) return <div className="flex items-center justify-center py-24 gap-2 text-slate-400"><Loader2 size={18} className="animate-spin"/>กำลังโหลด...</div>
 
   const empStatusMap: Record<string,string> = { active:"ปกติ", probation:"ทดลองงาน", resigned:"ลาออก", terminated:"เลิกจ้าง", on_leave:"ลา", suspended:"พักงาน" }
@@ -256,17 +297,26 @@ export default function EmployeeDetailPage() {
           </div>
         </div>
         {/* ── Resign / Reinstate button ── */}
-        {emp.employment_status === "resigned" || emp.employment_status === "terminated" ? (
-          <button onClick={() => { setResignReason(""); setShowReinstateModal(true) }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm">
-            <UserCheck size={14}/>ดึงกลับ
-          </button>
-        ) : (
-          <button onClick={() => { setResignReason(""); setResignDate(format(new Date(),"yyyy-MM-dd")); setShowResignModal(true) }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-all">
-            <UserX size={14}/>แจ้งลาออก
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {emp.employment_status === "resigned" || emp.employment_status === "terminated" ? (
+            <button onClick={() => { setResignReason(""); setShowReinstateModal(true) }}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm">
+              <UserCheck size={14}/>ดึงกลับ
+            </button>
+          ) : (
+            <button onClick={() => { setResignReason(""); setResignDate(format(new Date(),"yyyy-MM-dd")); setShowResignModal(true) }}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-all">
+              <UserX size={14}/>แจ้งลาออก
+            </button>
+          )}
+          {/* ── ปุ่มลบ (super_admin/hr_admin เท่านั้น) ── */}
+          {(user?.role === "super_admin" || user?.role === "hr_admin") && !emp.deleted_at && (
+            <button onClick={() => { setDeleteReason(""); setShowDeleteModal(true) }}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 border border-slate-200 hover:border-red-200 transition-all">
+              <Trash2 size={13}/>ลบ
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Resigned banner ── */}
@@ -287,6 +337,41 @@ export default function EmployeeDetailPage() {
           <button onClick={() => { setResignReason(""); setShowReinstateModal(true) }}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50 transition-all">
             <UserCheck size={13}/>ดึงกลับเข้ามา
+          </button>
+        </div>
+      )}
+
+      {/* ── Probation promotion banner ── */}
+      {emp.employment_status === "probation" && (
+        <div className={`rounded-2xl px-5 py-4 flex items-center gap-4 ${
+          promotion
+            ? "bg-amber-50 border-2 border-amber-300"
+            : "bg-slate-50 border border-slate-200"
+        }`}>
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${promotion ? "bg-amber-100" : "bg-slate-100"}`}>
+            <Clock size={18} className={promotion ? "text-amber-600" : "text-slate-400"}/>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className={`font-bold text-sm ${promotion ? "text-amber-800" : "text-slate-600"}`}>
+              {emp.probation_end_date
+                ? `ทดลองงานถึง ${format(new Date(emp.probation_end_date + "T00:00:00"),"d MMMM yyyy",{locale:th})}`
+                : "อยู่ในช่วงทดลองงาน"}
+            </p>
+            {promotion && (
+              <p className="text-xs text-amber-600 mt-0.5">
+                มีการตั้งค่าหลังผ่านทดลองงานรออยู่
+                {promotion.base_salary && ` · เงินเดือนใหม่ ฿${(+promotion.base_salary).toLocaleString()}`}
+                {promotion.new_position?.name && ` · ตำแหน่ง "${promotion.new_position.name}"`}
+                {promotion.kpi_standard_amount != null && ` · KPI ฿${(+promotion.kpi_standard_amount).toLocaleString()}`}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handlePromote}
+            disabled={promoteLoading}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 transition-all shadow-sm flex-shrink-0">
+            {promoteLoading ? <Loader2 size={13} className="animate-spin"/> : <CheckCircle2 size={13}/>}
+            ยืนยันผ่านทดลองงาน
           </button>
         </div>
       )}
@@ -608,6 +693,51 @@ export default function EmployeeDetailPage() {
                 className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
                 {resignLoading ? <Loader2 size={14} className="animate-spin"/> : <UserCheck size={14}/>}
                 ยืนยันดึงกลับ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ Delete Modal ═══════════ */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 mx-4">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-11 h-11 rounded-2xl bg-red-100 flex items-center justify-center">
+                <ShieldAlert size={20} className="text-red-600"/>
+              </div>
+              <div>
+                <h3 className="font-black text-slate-800 text-lg">ลบพนักงานออกจากระบบ</h3>
+                <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">เหตุผล (ถ้ามี)</label>
+                <textarea value={deleteReason} onChange={e => setDeleteReason(e.target.value)}
+                  className={inp + " h-20 resize-none"} placeholder="เช่น เพิ่มข้อมูลผิด, พนักงานทดลองงานไม่ผ่าน..."/>
+              </div>
+
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                <p className="text-xs font-bold text-red-800 mb-1">สิ่งที่จะเกิดขึ้น:</p>
+                <ul className="text-xs text-red-700 space-y-1 ml-3">
+                  <li>• ซ่อนพนักงานออกจากทุกรายการในระบบ</li>
+                  <li>• ปิดการเข้าสู่ระบบทันที</li>
+                  <li>• ข้อมูลทั้งหมดยังคงอยู่ — สามารถกู้คืนได้จากหน้า &quot;ประวัติการลบ&quot;</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowDeleteModal(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
+                ยกเลิก
+              </button>
+              <button onClick={handleDelete} disabled={deleteLoading}
+                className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                {deleteLoading ? <Loader2 size={14} className="animate-spin"/> : <Trash2 size={14}/>}
+                ยืนยันลบ
               </button>
             </div>
           </div>

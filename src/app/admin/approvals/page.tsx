@@ -11,6 +11,7 @@ import { format, startOfMonth, endOfMonth } from "date-fns"
 import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
 import Link from "next/link"
+import ApprovalsExportModal from "./ExportModal"
 
 const TYPE_CFG: Record<string, { label: string; icon: any; color: string; bg: string }> = {
   leave:        { label: "ลางาน",      icon: Calendar,       color: "text-sky-700",     bg: "bg-sky-100" },
@@ -62,6 +63,7 @@ export default function AdminApprovalsPage() {
   const [search, setSearch] = useState("")
   const [rejectItem, setRejectItem] = useState<any>(null)
   const [rejectNote, setRejectNote] = useState("")
+  const [showExport, setShowExport] = useState(false)
 
   // Load companies
   useEffect(() => {
@@ -162,6 +164,10 @@ export default function AdminApprovalsPage() {
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Users size={13}/> <b className="text-slate-800">{requests.length}</b> รายการ
           </div>
+          <button onClick={() => setShowExport(true)}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-200">
+            <Download size={13}/> Export Excel
+          </button>
         </div>
       </div>
 
@@ -354,6 +360,21 @@ export default function AdminApprovalsPage() {
           </div>
         </div>
       )}
+
+      {/* Export modal */}
+      <ApprovalsExportModal
+        open={showExport}
+        onClose={() => setShowExport(false)}
+        companies={companies}
+        initialFilters={{
+          company: filterCo,
+          type: filterType,
+          status: filterStatus,
+          dateFrom: filterFrom,
+          dateTo: filterTo,
+          search,
+        }}
+      />
 
       {/* Reject modal */}
       {rejectItem && (

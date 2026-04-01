@@ -2,10 +2,11 @@
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
-import { Search, Plus, Download, ChevronRight, ChevronLeft, Filter, Users, Building2 } from "lucide-react"
+import { Search, Plus, Download, ChevronRight, ChevronLeft, Filter, Users, Building2, Trash2, FileUp } from "lucide-react"
 import Link from "next/link"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
+import ImportModal from "./ImportModal"
 
 const STATUS: Record<string, { l: string; c: string }> = {
   active:     { l: "ปกติ",       c: "bg-green-100 text-green-700"   },
@@ -43,6 +44,7 @@ export default function EmployeesPage() {
   const [showInactive,     setShowInactive]     = useState(false)
   const [dept,             setDept]             = useState("")
   const [selectedCompany,  setSelectedCompany]  = useState<string>("")
+  const [showImport,       setShowImport]       = useState(false)
   const PER = 25
 
   const myCompanyId: string | undefined =
@@ -96,6 +98,9 @@ export default function EmployeesPage() {
         )
         .order("first_name_th")
         .range(page * PER, (page + 1) * PER - 1)
+
+      // ไม่แสดงพนักงานที่ถูกลบในรายการหลัก (ดูได้ที่ /admin/employees/deleted)
+      q = q.is("deleted_at", null)
 
       // ถ้าเลือกดูลาออก/เลิกจ้าง ให้แสดง is_active=false ด้วย
       if (status === "resigned" || status === "terminated" || showInactive) {
@@ -160,15 +165,33 @@ export default function EmployeesPage() {
           <h2 className="text-2xl font-black text-slate-800">พนักงาน</h2>
           <p className="text-slate-400 text-sm mt-0.5">{total.toLocaleString()} คน</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={exportCSV}
             className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
             <Download size={14} /> Export CSV
           </button>
+          {isSuperAdmin && (
+            <Link href="/admin/employees/deleted"
+              className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+              <Trash2 size={14} /> ประวัติลบ
+            </Link>
+          )}
+          {isSuperAdmin && (
+            <button onClick={() => setShowImport(true)}
+              className="flex items-center gap-2 px-4 py-2.5 border border-emerald-200 bg-emerald-50 rounded-xl text-sm font-bold text-emerald-700 hover:bg-emerald-100 transition-colors">
+              <FileUp size={14} /> Import Excel
+            </button>
+          )}
           <Link href="/admin/employees/new"
             className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm">
             <Plus size={14} /> เพิ่มพนักงาน
           </Link>
+          {isSuperAdmin && (
+            <Link href="/admin/employees/bulk-add"
+              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors">
+              <Users size={14} /> เพิ่มหลายคน
+            </Link>
+          )}
         </div>
       </div>
 
@@ -337,6 +360,17 @@ export default function EmployeesPage() {
           </div>
         )}
       </div>
+
+      {/* Import Modal */}
+      {showImport && (
+        <ImportModal
+          onClose={() => setShowImport(false)}
+          companies={companies}
+          defaultCompanyId={activeCompanyId}
+          isSuperAdmin={isSuperAdmin}
+          onImported={() => { load(); setShowImport(false) }}
+        />
+      )}
     </div>
   )
 }

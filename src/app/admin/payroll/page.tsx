@@ -19,6 +19,23 @@ const thb = (v: number | null | undefined) =>
   (v ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num = (v: any) => parseFloat(String(v).replace(/,/g, "")) || 0
 
+// ── Apply Excel number format to all numeric cells ──────────────────────
+// ทำให้ตัวเลขในไฟล์มีลูกน้ำคั่นและทศนิยม 2 ตำแหน่งเมื่อเปิดใน Excel
+function applyNumFmt(ws: XLSX.WorkSheet, moneyFmt = "#,##0.00", intFmt = "#,##0") {
+  if (!ws["!ref"]) return
+  const range = XLSX.utils.decode_range(ws["!ref"])
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C })
+      const cell = ws[addr]
+      if (!cell || cell.t !== "n") continue
+      // ตัวเลขที่เป็นจำนวนเต็มและค่าไม่ใหญ่ (เช่น จำนวนคน, วัน) ใช้ #,##0
+      // ตัวเลขที่มีทศนิยม หรือค่าสูง (เงิน) ใช้ #,##0.00
+      cell.z = Number.isInteger(cell.v) && (cell.v as number) < 10000 ? intFmt : moneyFmt
+    }
+  }
+}
+
 const inpCls = "bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all w-full text-right"
 const inpFull = "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all w-full"
 
@@ -418,43 +435,257 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
   )
 }
 
-// ── Export XLSX ──────────────────────────────────────────────────────────
+// ── Export XLSX (comprehensive) ──────────────────────────────────────────
 function exportXLSX(records: any[], period: any) {
-  const pLabel = period ? `${period.year}-${String(period.month).padStart(2, "0")}` : "payroll"
+  if (records.length === 0) { toast.error("ไม่มีข้อมูลที่จะ Export"); return }
 
-  const rows = records.map((r, i) => {
-    const row: Record<string, any> = {}
-    REG_COLS.forEach(col => { row[col.label] = col.get(r, i) })
-    return row
+  const pLabel  = period ? `${period.year}-${String(period.month).padStart(2,"0")}` : "payroll"
+  const pTh     = period ? `${format(new Date(period.year, period.month-1), "MMMM yyyy", { locale: th })}` : ""
+  const exportedAt = `ออกรายงาน: ${format(new Date(),"d MMMM yyyy HH:mm",{locale:th})}`
+  const wb = XLSX.utils.book_new()
+
+  // ── helpers ────────────────────────────────────────────────────────
+  const dlWb = () => {
+    const buf = XLSX.write(wb, { bookType:"xlsx", type:"array" })
+    const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a"); a.href=url; a.download=`payroll-${pLabel}.xlsx`; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // สร้าง sheet จาก subset ของ records
+  const buildRegSheet = (recs: any[], sheetTitle: string) => {
+    const infoRows: any[][] = [
+      [sheetTitle],
+      [pTh, "", exportedAt],
+      [`จำนวนพนักงาน: ${recs.length} คน`],
+      [],
+    ]
+    // group header (span via merge later — aoa จัดการเอง)
+    const groupRow: any[] = []
+    let incStart = -1, incEnd = -1, dedStart = -1, dedEnd = -1, sumStart = -1, sumEnd = -1
+    let colIdx = 0
+    REG_COLS.forEach(col => {
+      if (col.group === "income"    && incStart === -1) incStart = colIdx
+      if (col.group === "income")    incEnd = colIdx
+      if (col.group === "deduction" && dedStart === -1) dedStart = colIdx
+      if (col.group === "deduction") dedEnd = colIdx
+      if (col.group === "summary"   && sumStart === -1) sumStart = colIdx
+      if (col.group === "summary")   sumEnd = colIdx
+      colIdx++
+    })
+    REG_COLS.forEach((col, ci) => {
+      if (ci === 0) groupRow.push("ข้อมูลพนักงาน")
+      else if (ci === incStart) groupRow.push("รายรับ")
+      else if (ci === dedStart) groupRow.push("รายหัก")
+      else if (ci === sumStart) groupRow.push("สรุป")
+      else groupRow.push("")
+    })
+
+    const headers = REG_COLS.map(c => c.label)
+
+    const dataRows = recs.map((r, i) =>
+      REG_COLS.map(col => {
+        const v = col.get(r, i)
+        return v
+      })
+    )
+
+    // totals row
+    const totRow: any[] = REG_COLS.map(col => {
+      if (col.group === "info") return col.key === "no" ? "รวม" : col.key === "name" ? `${recs.length} คน` : ""
+      return recs.reduce((s: number, r: any, i: number) => {
+        const v = col.get(r, i)
+        return typeof v === "number" ? s + v : s
+      }, 0)
+    })
+
+    const wsData = [...infoRows, groupRow, headers, ...dataRows, totRow]
+    const ws = XLSX.utils.aoa_to_sheet(wsData)
+
+    // column widths
+    ws["!cols"] = REG_COLS.map(col => ({
+      wch: col.group === "info"
+        ? (col.key === "name" ? 22 : col.key === "pos" ? 18 : col.key === "dept" ? 14 : col.key === "code" ? 13 : 8)
+        : 12
+    }))
+
+    // autofilter on header row (row index = infoRows.length + 1 for groupRow)
+    const headerRowIdx = infoRows.length + 1
+    ws["!autofilter"] = { ref: XLSX.utils.encode_range({
+      s: { r: headerRowIdx, c: 0 },
+      e: { r: headerRowIdx + dataRows.length, c: REG_COLS.length - 1 }
+    })}
+
+    return ws
+  }
+
+  // ── Sheet 1: ทะเบียนเงินเดือนทั้งหมด ────────────────────────────
+  const wsAll = buildRegSheet(records, "ทะเบียนเงินเดือน")
+  applyNumFmt(wsAll)
+  XLSX.utils.book_append_sheet(wb, wsAll, "ทะเบียนเงินเดือน")
+
+  // ── Sheet 2+: แยกตามแผนก ────────────────────────────────────────
+  const deptGroups = new Map<string, any[]>()
+  records.forEach(r => {
+    const d = r.employee?.department?.name || "ไม่ระบุแผนก"
+    if (!deptGroups.has(d)) deptGroups.set(d, [])
+    deptGroups.get(d)!.push(r)
+  })
+  // เรียงแผนกตามจำนวนพนักงานมากสุด
+  const sortedDepts = Array.from(deptGroups.entries()).sort((a, b) => b[1].length - a[1].length)
+  sortedDepts.forEach(([dept, recs]) => {
+    const sheetName = dept.slice(0, 28) + (dept.length > 28 ? "..." : "")
+    const wsDept = buildRegSheet(recs, `แผนก: ${dept}`)
+    applyNumFmt(wsDept)
+    XLSX.utils.book_append_sheet(wb, wsDept, sheetName)
   })
 
-  // Totals row
-  const totalRow: Record<string, any> = {}
-  REG_COLS.forEach(col => {
-    if (col.group === "info") { totalRow[col.label] = col.key === "name" ? "รวมทั้งหมด" : ""; return }
-    totalRow[col.label] = records.reduce((s: number, r: any, i: number) => { const v = col.get(r, i); return typeof v === "number" ? s + v : s }, 0)
+  // ── Sheet สรุปตามแผนก ────────────────────────────────────────────
+  const deptSumInfo = [
+    [`สรุปเงินเดือนตามแผนก — ${pTh}`],
+    [exportedAt],
+    [],
+  ]
+  const deptSumHeaders = [
+    "แผนก","จำนวนคน",
+    "เงินเดือนรวม","OT รวม","เบี้ยรวม","Bonus/KPI","Commission","รายได้อื่นๆ",
+    "รวมรายรับ",
+    "หักสาย/ขาด","ประกันสังคม","ภาษี","รายหักอื่นๆ",
+    "รวมรายหัก",
+    "ยอดสุทธิ",
+  ]
+  const deptSumData = sortedDepts.map(([dept, recs]) => {
+    const sum = (fn: (r:any)=>number) => recs.reduce((s:number,r:any)=>s+fn(r),0)
+    const ie  = (r:any) => r.income_extras ?? {}
+    const de  = (r:any) => r.deduction_extras ?? {}
+    const otAmt = (r:any) => {
+      const base = n(r.base_salary)
+      return calcOTAmt(base,n(r.ot_weekday_minutes),1.5)
+           + calcOTAmt(base,n(r.ot_holiday_reg_minutes),1.0)
+           + calcOTAmt(base,n(r.ot_holiday_ot_minutes),3.0)
+    }
+    const allowTotal = (r:any) => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)
+    const bonusTotal = (r:any) => n(r.bonus)+n(ie(r).kpi||0)+n(ie(r).incentive||0)+n(ie(r).performance_bonus||0)+n(ie(r).diligence_bonus||0)+n(ie(r).referral_bonus||0)
+    const commTotal  = (r:any) => n(r.commission)+n(ie(r).service_fee||0)+n(ie(r).campaign||0)
+    const otherInc   = (r:any) => n(r.other_income)+n(ie(r).depreciation||0)+n(ie(r).expressway||0)+n(ie(r).fuel||0)+n(ie(r).retirement_fund||0)+n(ie(r).per_diem||0)
+    const workDeduct = (r:any) => n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)
+    const extraDeduct= (r:any) => n(r.deduct_loan)+n(r.deduct_other)+n(de(r).suspension||0)+n(de(r).card_lost||0)+n(de(r).uniform||0)+n(de(r).parking||0)+n(de(r).employee_products||0)+n(de(r).legal_enforcement||0)+n(de(r).student_loan||0)
+    return [
+      dept,
+      recs.length,
+      sum(r=>n(r.base_salary)),
+      sum(otAmt),
+      sum(allowTotal),
+      sum(bonusTotal),
+      sum(commTotal),
+      sum(otherInc),
+      sum(r=>n(r.gross_income)),
+      sum(workDeduct),
+      sum(r=>n(r.social_security_amount)),
+      sum(r=>n(r.monthly_tax_withheld)),
+      sum(extraDeduct),
+      sum(r=>n(r.total_deductions)),
+      sum(r=>n(r.net_salary)),
+    ]
   })
-  rows.push(totalRow)
-
-  // Dept summary sheet
-  const deptMap = new Map<string, { count: number; gross: number; deduct: number; net: number }>()
-  records.forEach((r: any) => {
-    const d = r.employee?.department?.name || "ไม่ระบุ"
-    const p = deptMap.get(d) || { count: 0, gross: 0, deduct: 0, net: 0 }
-    p.count++; p.gross += n(r.gross_income); p.deduct += n(r.total_deductions); p.net += n(r.net_salary)
-    deptMap.set(d, p)
+  // total row
+  const deptTotRow = deptSumHeaders.map((_, ci) => {
+    if (ci === 0) return "รวมทั้งหมด"
+    return deptSumData.reduce((s,r) => s + (typeof r[ci]==="number" ? r[ci] as number : 0), 0)
   })
-  const deptRows = Array.from(deptMap.entries()).map(([dept, d]) => ({
-    "แผนก": dept, "จำนวนคน": d.count, "รวมรายรับ": d.gross, "รวมรายหัก": d.deduct, "ยอดสุทธิ": d.net
-  }))
+  deptSumData.push(deptTotRow as any[])
 
-  const ws  = XLSX.utils.json_to_sheet(rows)
-  const ws2 = XLSX.utils.json_to_sheet(deptRows)
-  const wb  = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, "Payroll Register")
-  XLSX.utils.book_append_sheet(wb, ws2, "สรุปแผนก")
-  XLSX.writeFile(wb, `payroll-register-${pLabel}.xlsx`)
-  toast.success("ดาวน์โหลด Excel สำเร็จ")
+  const wsDeptSum = XLSX.utils.aoa_to_sheet([...deptSumInfo, deptSumHeaders, ...deptSumData])
+  wsDeptSum["!cols"] = [
+    {wch:20},{wch:10},
+    {wch:14},{wch:12},{wch:12},{wch:14},{wch:14},{wch:14},
+    {wch:14},
+    {wch:14},{wch:14},{wch:14},{wch:14},
+    {wch:14},
+    {wch:14},
+  ]
+  const dsi = deptSumInfo.length
+  wsDeptSum["!autofilter"] = { ref: XLSX.utils.encode_range({ s:{r:dsi,c:0}, e:{r:dsi+deptSumData.length,c:deptSumHeaders.length-1} }) }
+  applyNumFmt(wsDeptSum)
+  XLSX.utils.book_append_sheet(wb, wsDeptSum, "สรุปตามแผนก")
+
+  // ── Sheet สรุปรายจ่ายรวม ─────────────────────────────────────────
+  const grand = (fn:(r:any)=>number) => records.reduce((s:number,r:any)=>s+fn(r),0)
+  const ie2   = (r:any) => r.income_extras ?? {}
+  const de2   = (r:any) => r.deduction_extras ?? {}
+
+  const incomeItems: [string, number][] = [
+    ["เงินเดือนพื้นฐาน",          grand(r=>n(r.base_salary))],
+    ["OT วันทำงาน ×1.5",         grand(r=>calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5))],
+    ["OT วันหยุด ×1.0 (งานปกติ)", grand(r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0))],
+    ["OT วันหยุด ×3.0",          grand(r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0))],
+    ["ค่าตำแหน่ง",                grand(r=>n(r.allowance_position))],
+    ["ค่าเดินทาง",                 grand(r=>n(r.allowance_transport))],
+    ["ค่าอาหาร",                   grand(r=>n(r.allowance_food))],
+    ["ค่าโทรศัพท์",                grand(r=>n(r.allowance_phone))],
+    ["ค่าที่พัก",                  grand(r=>n(r.allowance_housing))],
+    ["เบี้ยเลี้ยงอื่นๆ",            grand(r=>n(r.allowance_other))],
+    ["Bonus / KPI",               grand(r=>n(r.bonus)+n(ie2(r).kpi||0))],
+    ["Incentive",                 grand(r=>n(ie2(r).incentive||0))],
+    ["Performance Bonus",         grand(r=>n(ie2(r).performance_bonus||0))],
+    ["Commission",                grand(r=>n(r.commission))],
+    ["ค่าบริการ",                  grand(r=>n(ie2(r).service_fee||0))],
+    ["แคมเปญ",                    grand(r=>n(ie2(r).campaign||0))],
+    ["ค่าเสื่อมสภาพ",              grand(r=>n(ie2(r).depreciation||0))],
+    ["ค่าทางด่วน",                 grand(r=>n(ie2(r).expressway||0))],
+    ["ค่าน้ำมัน",                  grand(r=>n(ie2(r).fuel||0))],
+    ["โครงการเกษียณ",              grand(r=>n(ie2(r).retirement_fund||0))],
+    ["เบี้ยเลี้ยง (Per Diem)",     grand(r=>n(ie2(r).per_diem||0))],
+    ["เบี้ยขยัน",                  grand(r=>n(ie2(r).diligence_bonus||0))],
+    ["เพื่อนแนะนำเพื่อน",           grand(r=>n(ie2(r).referral_bonus||0))],
+    ["รายได้อื่นๆ",                grand(r=>n(r.other_income))],
+  ]
+  const deductItems: [string, number][] = [
+    ["หักมาสาย",                   grand(r=>n(r.deduct_late))],
+    ["หักออกก่อนกำหนด",            grand(r=>n(r.deduct_early_out))],
+    ["หักขาดงาน/ลาไม่ได้เงิน",      grand(r=>n(r.deduct_absent)+n(r.deduct_other))],
+    ["พักงาน",                     grand(r=>n(de2(r).suspension||0))],
+    ["บัตรหาย/ชำรุด",              grand(r=>n(de2(r).card_lost||0))],
+    ["ค่าเครื่องแบบพนักงาน",         grand(r=>n(de2(r).uniform||0))],
+    ["ค่าบัตรจอดรถ",               grand(r=>n(de2(r).parking||0))],
+    ["สินค้าพนักงาน",               grand(r=>n(de2(r).employee_products||0))],
+    ["กรมบังคับคดี",               grand(r=>n(de2(r).legal_enforcement||0))],
+    ["กยศ.",                       grand(r=>n(de2(r).student_loan||0))],
+    ["หักเงินกู้",                  grand(r=>n(r.deduct_loan))],
+    ["ประกันสังคม (นายจ้าง)",       grand(r=>n(r.social_security_amount))],
+    ["ภาษีหัก ณ ที่จ่าย",           grand(r=>n(r.monthly_tax_withheld))],
+  ]
+
+  const totalGross  = grand(r=>n(r.gross_income))
+  const totalDeduct = grand(r=>n(r.total_deductions))
+  const totalNet    = grand(r=>n(r.net_salary))
+
+  // filter only non-zero items
+  const incFiltered = incomeItems.filter(([,v])=>v>0)
+  const dedFiltered = deductItems.filter(([,v])=>v>0)
+
+  const sumSheetData: any[][] = [
+    [`สรุปรายจ่ายเงินเดือน — ${pTh}`],
+    [exportedAt],
+    [`จำนวนพนักงาน: ${records.length} คน`],
+    [],
+    ["หมวด","รายการ","จำนวนเงิน (บาท)"],
+    ...incFiltered.map(([label, val]) => ["รายรับ", label, val]),
+    ["","รวมรายรับทั้งหมด", totalGross],
+    [],
+    ...dedFiltered.map(([label, val]) => ["รายหัก", label, val]),
+    ["","รวมรายหักทั้งหมด", totalDeduct],
+    [],
+    ["สรุป","ยอดเงินเดือนสุทธิที่จ่ายออก", totalNet],
+  ]
+  const wsSum = XLSX.utils.aoa_to_sheet(sumSheetData)
+  wsSum["!cols"] = [{wch:12},{wch:26},{wch:18}]
+  applyNumFmt(wsSum)
+  XLSX.utils.book_append_sheet(wb, wsSum, "สรุปรายจ่าย")
+
+  dlWb()
+  toast.success(`Export สำเร็จ: ${records.length} คน · ${sortedDepts.length} แผนก`)
 }
 
 // งวดเงินเดือน: 22 เดือนก่อน → 21 เดือนปัจจุบัน
@@ -1017,7 +1248,8 @@ export default function PayrollPage() {
 
   const myCompanyId: string | undefined =
     user?.employee?.company_id ?? (user as any)?.company_id ?? undefined
-  const companyId = isSA ? (selectedCo || myCompanyId) : myCompanyId
+  const isAllCo = selectedCo === "all"
+  const companyId = isSA ? (isAllCo ? undefined : (selectedCo || myCompanyId)) : myCompanyId
 
   useEffect(() => {
     if (!isSA) return
@@ -1029,28 +1261,90 @@ export default function PayrollPage() {
   }, [isSA])
 
   const loadPeriods = useCallback(async () => {
+    if (isAllCo) {
+      // โหลด periods ทุกบริษัทในครั้งเดียว แล้วรวม unique year/month
+      // พร้อมเก็บ period_ids ทั้งหมดของแต่ละ year/month ไว้ใน object เลย
+      // เพื่อให้ loadRecords ใช้โดยไม่ต้อง query ซ้ำ (ป้องกัน RLS race)
+      const { data, error } = await supabase.from("payroll_periods")
+        .select("id,year,month,period_name,start_date,end_date,pay_date,status,company_id")
+        .order("year", { ascending: false }).order("month", { ascending: false })
+      if (error) { console.error("loadPeriods (all):", error); return }
+
+      // จัดกลุ่มตาม year/month พร้อมเก็บ period_ids และนับจำนวนบริษัท
+      const byKey = new Map<string, { ids: string[]; companies: Set<string>; rep: any }>()
+      for (const p of (data ?? [])) {
+        const key = `${p.year}-${String(p.month).padStart(2,"0")}`
+        if (!byKey.has(key)) byKey.set(key, { ids: [], companies: new Set(), rep: p })
+        byKey.get(key)!.ids.push(p.id)
+        byKey.get(key)!.companies.add(p.company_id)
+      }
+
+      const merged: any[] = Array.from(byKey.entries()).map(([key, g]) => ({
+        ...g.rep,
+        id: key,                          // fake id สำหรับ dropdown เท่านั้น
+        _isAllCo: true,
+        _periodIds: g.ids,                // UUID จริงทุก period ของ month นี้ — ใช้ใน loadRecords
+        _companyCount: g.companies.size,
+      }))
+
+      setPeriods(merged)
+      setSelected((prev: any) => {
+        // ถ้ามี selected เดิมที่เป็น all-co อยู่แล้ว → หา month เดิม ถ้าไม่เจอก็ใช้อันแรก
+        if (prev?._isAllCo) {
+          const same = merged.find((m: any) => m.year === prev.year && m.month === prev.month)
+          return same ?? merged[0] ?? null
+        }
+        return merged[0] ?? null
+      })
+      return
+    }
     if (!companyId) return
-    const { data } = await supabase.from("payroll_periods")
+    const { data, error } = await supabase.from("payroll_periods")
       .select("*").eq("company_id", companyId)
       .order("year", { ascending: false }).order("month", { ascending: false })
+    if (error) { console.error("loadPeriods:", error); return }
     setPeriods(data ?? [])
     setSelected(data?.[0] ?? null)
-  }, [companyId])
+  }, [companyId, isAllCo])
 
   useEffect(() => { loadPeriods() }, [loadPeriods])
 
   const loadRecords = useCallback(async () => {
     if (!selected) { setRecords([]); return }
     setLoading(true)
-    const { data } = await supabase.from("payroll_records")
-      .select(`*, employee:employees!payroll_records_employee_id_fkey(
-        id,employee_code,first_name_th,last_name_th,nickname,avatar_url,brand,
-        position:positions(name),
-        department:departments(id,name),
-        company:companies(id,code,name_th))`)
-      .eq("payroll_period_id", selected.id)
-      .order("created_at")
-    setRecords(data ?? [])
+    const empSelect = `*, employee:employees!payroll_records_employee_id_fkey(
+      id,employee_code,first_name_th,last_name_th,nickname,avatar_url,brand,
+      position:positions(name),
+      department:departments(id,name),
+      company:companies(id,code,name_th))`
+
+    if (selected._isAllCo) {
+      // ใช้ _periodIds ที่เก็บไว้ตอน loadPeriods — ไม่ต้อง query ซ้ำ (เสถียรกว่า)
+      const periodIds: string[] = selected._periodIds ?? []
+      if (periodIds.length === 0) {
+        console.warn("loadRecords(all): no period IDs found for", selected.year, selected.month)
+        setRecords([]); setLoading(false); return
+      }
+      try {
+        const { data, error } = await supabase.from("payroll_records")
+          .select(empSelect).in("payroll_period_id", periodIds).order("created_at")
+        if (error) throw error
+        setRecords(data ?? [])
+      } catch (e) {
+        console.error("loadRecords(all):", e)
+        setRecords([])
+      }
+    } else {
+      try {
+        const { data, error } = await supabase.from("payroll_records")
+          .select(empSelect).eq("payroll_period_id", selected.id).order("created_at")
+        if (error) throw error
+        setRecords(data ?? [])
+      } catch (e) {
+        console.error("loadRecords:", e)
+        setRecords([])
+      }
+    }
     setLoading(false)
   }, [selected])
 
@@ -1058,7 +1352,7 @@ export default function PayrollPage() {
   // ทำงานอัตโนมัติเมื่อเลือกงวด + ทุก 60 วินาที + เมื่อมี attendance เปลี่ยน
   const bgCalcRef = useRef(false)
   const bgRecalculate = useCallback(async () => {
-    if (!selected || !companyId || bgCalcRef.current || calculating) return
+    if (!selected || !companyId || isAllCo || selected._isAllCo || bgCalcRef.current || calculating) return
     bgCalcRef.current = true
     try {
       const { data: emps } = await supabase.from("employees")
@@ -1343,6 +1637,7 @@ export default function PayrollPage() {
           {isSA && companies.length > 0 && (
             <select value={selectedCo} onChange={e => setSelectedCo(e.target.value)}
               className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400">
+              <option value="all">ทุกบริษัท (รวม)</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
             </select>
           )}
@@ -1366,12 +1661,14 @@ export default function PayrollPage() {
               {statusCfg.l}
             </span>
           )}
-          {/* actions */}
-          <button onClick={createPeriod} disabled={calculating}
-            className="flex items-center gap-2 px-3 py-2.5 border border-indigo-200 bg-indigo-50 rounded-xl text-xs font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
-            title={`สร้างงวด ${nextPeriodLabel}`}>
-            <Plus size={12}/> + {nextPeriodLabel}
-          </button>
+          {/* actions — ซ่อนเมื่ออยู่ในโหมดทุกบริษัท */}
+          {!isAllCo && (
+            <button onClick={createPeriod} disabled={calculating}
+              className="flex items-center gap-2 px-3 py-2.5 border border-indigo-200 bg-indigo-50 rounded-xl text-xs font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+              title={`สร้างงวด ${nextPeriodLabel}`}>
+              <Plus size={12}/> + {nextPeriodLabel}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1395,7 +1692,7 @@ export default function PayrollPage() {
               )}
             </div>
             <div className="flex gap-2 flex-wrap">
-              {selected.status === "draft" && (
+              {!isAllCo && selected.status === "draft" && (
                 <button onClick={calculateAll} disabled={calculating}
                   className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
                   {calculating
@@ -1403,11 +1700,16 @@ export default function PayrollPage() {
                     : <><Play size={13}/> คำนวณทั้งหมด</>}
                 </button>
               )}
-              {records.length > 0 && selected.status === "draft" && (
+              {!isAllCo && records.length > 0 && selected.status === "draft" && (
                 <button onClick={approvePeriod}
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 transition-colors">
                   <CheckCircle size={13}/> อนุมัติจ่าย
                 </button>
+              )}
+              {isAllCo && selected && (
+                <span className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 px-3 py-2 rounded-xl font-bold">
+                  รวม {selected._companyCount ?? "?"} บริษัท · {selected._periodIds?.length ?? "?"} งวด
+                </span>
               )}
               {/* Export ย้ายไปอยู่แถว filter ด้านล่าง */}
             </div>

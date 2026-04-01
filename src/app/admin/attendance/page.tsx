@@ -6,7 +6,7 @@ import {
   Download, RefreshCw, AlertCircle, Check, X,
   Clock, Users, TrendingUp, AlertTriangle,
   Search, ChevronLeft, ChevronRight,
-  Building2, GitBranch, BarChart2, List, Camera,
+  Building2, GitBranch, BarChart2, List, Camera, FileSpreadsheet,
 } from "lucide-react"
 import Link from "next/link"
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns"
@@ -47,9 +47,16 @@ function StatusBadge({status}:{status:string}) {
 }
 
 // ── Excel export helpers ──────────────────────────────────────────
-function applyHeaderStyle(ws: XLSX.WorkSheet, range: string) {
-  // xlsx community edition ไม่รองรับ style โดยตรง
-  // แต่เราจัดข้อมูลให้เป็นระเบียบ + ตั้ง column width ให้เหมาะสม
+function applyNumFmt(ws: XLSX.WorkSheet, fmt = "#,##0.00") {
+  if (!ws["!ref"]) return
+  const range = XLSX.utils.decode_range(ws["!ref"])
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C })
+      const cell = ws[addr]
+      if (cell && cell.t === "n") cell.z = Number.isInteger(cell.v) ? "#,##0" : fmt
+    }
+  }
 }
 
 function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
@@ -126,6 +133,7 @@ function exportRecordsXLSX(records: any[], dateFrom: string, dateTo: string) {
     e: { r: headerRowIdx + dataRows.length, c: headers.length - 1 }
   })}
 
+  applyNumFmt(ws)
   XLSX.utils.book_append_sheet(wb, ws, "รายงานเข้างาน")
 
   // ── สรุปตามแผนก (pivot) ──
@@ -164,6 +172,7 @@ function exportRecordsXLSX(records: any[], dateFrom: string, dateTo: string) {
     s: { r: pivotHeaderRow, c: 0 },
     e: { r: pivotHeaderRow + pivotData.length, c: pivotHeaders.length - 1 }
   })}
+  applyNumFmt(ws2)
   XLSX.utils.book_append_sheet(wb, ws2, "สรุปตามแผนก")
 
   downloadWorkbook(wb, `attendance_${dateFrom}_${dateTo}.xlsx`)
@@ -205,6 +214,7 @@ function exportSummaryXLSX(title: string, summary: GroupRow[], detail: SummaryEm
     s: { r: sumHeaderRow, c: 0 },
     e: { r: sumHeaderRow + sumData.length, c: sumHeaders.length - 1 }
   })}
+  applyNumFmt(ws1)
   XLSX.utils.book_append_sheet(wb, ws1, "สรุปตามกลุ่ม")
 
   // ── Sheet 2: รายละเอียดรายบุคคล ──
@@ -234,6 +244,7 @@ function exportSummaryXLSX(title: string, summary: GroupRow[], detail: SummaryEm
     s: { r: detHeaderRow, c: 0 },
     e: { r: detHeaderRow + detData.length, c: detHeaders.length - 1 }
   })}
+  applyNumFmt(ws2)
   XLSX.utils.book_append_sheet(wb, ws2, "รายบุคคล")
 
   downloadWorkbook(wb, `attendance_summary_${format(new Date(),"yyyyMMdd_HHmm")}.xlsx`)
@@ -263,6 +274,15 @@ export default function AdminAttendancePage() {
   const [adjReqs,      setAdjReqs]      = useState<any[]>([])
   const [kpi,          setKpi]          = useState({present:0,late:0,absent:0,leave:0})
   const [exporting,    setExporting]    = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [exportFilters, setExportFilters] = useState({
+    dateFrom: format(subDays(new Date(), 7), "yyyy-MM-dd"),
+    dateTo: format(new Date(), "yyyy-MM-dd"),
+    status: "",
+    dept: "",
+    search: "",
+    exportCompany: "current" as "current" | string,
+  })
   const [offsitePending, setOffsitePending] = useState(0)
   const [markingAbsent, setMarkingAbsent] = useState(false)
   const [listFilters,  setListFilters]  = useState({
@@ -495,7 +515,14 @@ export default function AdminAttendancePage() {
             className="flex items-center gap-2 px-3 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold rounded-xl shadow-sm shadow-rose-200 transition-colors disabled:opacity-50">
             <AlertTriangle size={13} className={markingAbsent?"animate-pulse":""}/>{markingAbsent?"กำลัง Mark…":"Mark ขาดงาน"}
           </button>
-          <button onClick={activeTab==="list"?handleExportList:()=>exportSummaryXLSX(`รายงานการเข้างาน – ${viewMode==="department"?"ตามแผนก":viewMode==="branch"?"ตามสาขา":"ภาพรวม"}`,summaryRows,filteredEmps,periodLabel)}
+          <button onClick={() => {
+              if (activeTab === "summary") {
+                exportSummaryXLSX(`รายงานการเข้างาน – ${viewMode==="department"?"ตามแผนก":viewMode==="branch"?"ตามสาขา":"ภาพรวม"}`,summaryRows,filteredEmps,periodLabel)
+              } else {
+                setExportFilters(f => ({ ...f, dateFrom: listFilters.start, dateTo: listFilters.end, status: listFilters.status, dept: listFilters.dept, search: listFilters.search }))
+                setShowExportModal(true)
+              }
+            }}
             disabled={exporting}
             className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl shadow-sm shadow-emerald-200 transition-colors">
             <Download size={14}/>{exporting?"กำลัง Export…":"Export Excel"}
@@ -843,6 +870,133 @@ export default function AdminAttendancePage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ── Export filter modal ─────────────────────────────────── */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowExportModal(false)}/>
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-5">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
+                  <Download size={18} className="text-emerald-600"/>
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-800">Export การเข้างาน</h3>
+                  <p className="text-xs text-slate-400">เลือกตัวกรองก่อนดาวน์โหลด XLSX</p>
+                </div>
+              </div>
+              <button onClick={() => setShowExportModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+                <X size={16}/>
+              </button>
+            </div>
+
+            {/* Date range */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-bold text-slate-600 mb-1 block">ตั้งแต่</label>
+                <input type="date" value={exportFilters.dateFrom}
+                  onChange={e => setExportFilters(f => ({ ...f, dateFrom: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-emerald-400"/>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600 mb-1 block">ถึง</label>
+                <input type="date" value={exportFilters.dateTo}
+                  onChange={e => setExportFilters(f => ({ ...f, dateTo: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-emerald-400"/>
+              </div>
+            </div>
+
+            {/* Quick presets */}
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { l: "7 วัน",   from: format(subDays(new Date(),7),"yyyy-MM-dd"), to: format(new Date(),"yyyy-MM-dd") },
+                { l: "30 วัน",  from: format(subDays(new Date(),30),"yyyy-MM-dd"), to: format(new Date(),"yyyy-MM-dd") },
+                { l: "เดือนนี้", from: format(startOfMonth(new Date()),"yyyy-MM-dd"), to: format(endOfMonth(new Date()),"yyyy-MM-dd") },
+                { l: "เดือนก่อน", from: format(startOfMonth(subMonths(new Date(),1)),"yyyy-MM-dd"), to: format(endOfMonth(subMonths(new Date(),1)),"yyyy-MM-dd") },
+              ].map(p => (
+                <button key={p.l} onClick={() => setExportFilters(f => ({ ...f, dateFrom: p.from, dateTo: p.to }))}
+                  className="px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">
+                  {p.l}
+                </button>
+              ))}
+            </div>
+
+            {/* Status */}
+            <div>
+              <label className="text-xs font-bold text-slate-600 mb-1 block">สถานะ</label>
+              <div className="flex flex-wrap gap-1.5">
+                {[["", "ทุกสถานะ"], ["present","มาทำงาน"], ["late","มาสาย"], ["absent","ขาดงาน"], ["leave","ลา"]].map(([k, l]) => (
+                  <button key={k} onClick={() => setExportFilters(f => ({ ...f, status: k }))}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                      exportFilters.status === k ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                    }`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Department */}
+            {departments.length > 0 && (
+              <div>
+                <label className="text-xs font-bold text-slate-600 mb-1 block">แผนก</label>
+                <select value={exportFilters.dept} onChange={e => setExportFilters(f => ({ ...f, dept: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white outline-none focus:border-emerald-400">
+                  <option value="">ทุกแผนก</option>
+                  {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Search */}
+            <div>
+              <label className="text-xs font-bold text-slate-600 mb-1 block">ค้นหาพนักงาน (ชื่อ / รหัส)</label>
+              <input value={exportFilters.search} onChange={e => setExportFilters(f => ({ ...f, search: e.target.value }))}
+                placeholder="ค้นหา หรือเว้นว่างเพื่อดึงทั้งหมด"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-emerald-400"/>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setShowExportModal(false)}
+                className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50">
+                ยกเลิก
+              </button>
+              <button disabled={exporting} onClick={async () => {
+                if (!activeCid) return
+                setExporting(true)
+                setShowExportModal(false)
+                try {
+                  let eq = supabase.from("attendance_records")
+                    .select(`work_date,clock_in,clock_out,status,late_minutes,ot_minutes,
+                      employee:employees!attendance_records_employee_id_fkey(employee_code,first_name_th,last_name_th,department:departments(id,name),position:positions(name))`)
+                    .gte("work_date", exportFilters.dateFrom).lte("work_date", exportFilters.dateTo)
+                    .order("work_date", { ascending: false })
+                  if (activeCid !== "all") eq = eq.eq("company_id", activeCid) as any
+                  if (exportFilters.status) eq = eq.eq("status", exportFilters.status) as any
+                  let { data } = await (eq as any)
+                  let rows = data ?? []
+                  if (exportFilters.search) {
+                    const s = exportFilters.search.toLowerCase()
+                    rows = rows.filter((r: any) =>
+                      r.employee?.first_name_th?.toLowerCase().includes(s) ||
+                      r.employee?.last_name_th?.toLowerCase().includes(s) ||
+                      r.employee?.employee_code?.toLowerCase().includes(s))
+                  }
+                  if (exportFilters.dept) rows = rows.filter((r: any) => r.employee?.department?.id === exportFilters.dept)
+                  exportRecordsXLSX(rows, exportFilters.dateFrom, exportFilters.dateTo)
+                } catch (e) { toast.error("ส่งออกข้อมูลไม่สำเร็จ") }
+                finally { setExporting(false) }
+              }}
+                className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                {exporting ? <><RefreshCw size={13} className="animate-spin"/> กำลัง Export…</> : <><Download size={13}/> Download XLSX</>}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
