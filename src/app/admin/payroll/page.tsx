@@ -1225,6 +1225,46 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
   )
 }
 
+// ── Deduplicate payroll records by employee_code ──────────────────────
+// ถ้ามีพนักงาน employee_code เดียวกันหลาย record (จาก migration ซ้ำ)
+// เก็บเฉพาะ record ที่ employee.updated_at ใหม่สุด (= ข้อมูลจาก import ใหม่)
+function dedupePayrollRecords(records: any[]): any[] {
+  const byCode = new Map<string, any>()
+  for (const r of records) {
+    const code = r.employee?.employee_code
+    if (!code) { byCode.set(r.id, r); continue }
+    const existing = byCode.get(code)
+    if (!existing) {
+      byCode.set(code, r)
+    } else {
+      // เก็บ record ที่ employee updated_at ใหม่กว่า
+      const existDate = existing.employee?.updated_at || existing.updated_at || ''
+      const newDate = r.employee?.updated_at || r.updated_at || ''
+      if (newDate > existDate) byCode.set(code, r)
+    }
+  }
+  return Array.from(byCode.values())
+}
+
+// ── Deduplicate employees by employee_code ────────────────────────────
+// สำหรับ createPeriod / calculateAll — เก็บเฉพาะ employee ที่ updated_at ใหม่สุด
+function dedupeEmployees(emps: any[]): any[] {
+  const byCode = new Map<string, any>()
+  for (const e of emps) {
+    const code = e.employee_code
+    if (!code) { byCode.set(e.id, e); continue }
+    const existing = byCode.get(code)
+    if (!existing) {
+      byCode.set(code, e)
+    } else {
+      const existDate = existing.updated_at || ''
+      const newDate = e.updated_at || ''
+      if (newDate > existDate) byCode.set(code, e)
+    }
+  }
+  return Array.from(byCode.values())
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────
 export default function PayrollPage() {
   const { user }  = useAuth()
@@ -1313,7 +1353,7 @@ export default function PayrollPage() {
     if (!selected) { setRecords([]); return }
     setLoading(true)
     const empSelect = `*, employee:employees!payroll_records_employee_id_fkey(
-      id,employee_code,first_name_th,last_name_th,nickname,avatar_url,brand,
+      id,employee_code,first_name_th,last_name_th,nickname,avatar_url,brand,updated_at,
       position:positions(name),
       department:departments(id,name),
       company:companies(id,code,name_th))`
@@ -1329,7 +1369,7 @@ export default function PayrollPage() {
         const { data, error } = await supabase.from("payroll_records")
           .select(empSelect).in("payroll_period_id", periodIds).order("created_at")
         if (error) throw error
-        setRecords(data ?? [])
+        setRecords(dedupePayrollRecords(data ?? []))
       } catch (e) {
         console.error("loadRecords(all):", e)
         setRecords([])
@@ -1339,7 +1379,7 @@ export default function PayrollPage() {
         const { data, error } = await supabase.from("payroll_records")
           .select(empSelect).eq("payroll_period_id", selected.id).order("created_at")
         if (error) throw error
-        setRecords(data ?? [])
+        setRecords(dedupePayrollRecords(data ?? []))
       } catch (e) {
         console.error("loadRecords:", e)
         setRecords([])
@@ -1355,8 +1395,9 @@ export default function PayrollPage() {
     if (!selected || !companyId || isAllCo || selected._isAllCo || bgCalcRef.current || calculating) return
     bgCalcRef.current = true
     try {
-      const { data: emps } = await supabase.from("employees")
-        .select("id").eq("company_id", companyId).eq("is_active", true)
+      const { data: rawEmps } = await supabase.from("employees")
+        .select("id,employee_code,updated_at").eq("company_id", companyId).eq("is_active", true)
+      const emps = dedupeEmployees(rawEmps ?? [])
       if (!emps?.length) return
 
       // ✅ ใช้ bulk API: ส่ง 50 คนต่อ request แทนทีละคน (เร็วขึ้น 5-10x)
@@ -1374,13 +1415,13 @@ export default function PayrollPage() {
       // โหลดข้อมูลใหม่
       const { data } = await supabase.from("payroll_records")
         .select(`*, employee:employees!payroll_records_employee_id_fkey(
-          id,employee_code,first_name_th,last_name_th,nickname,avatar_url,brand,
+          id,employee_code,first_name_th,last_name_th,nickname,avatar_url,brand,updated_at,
           position:positions(name),
           department:departments(id,name),
           company:companies(id,code,name_th))`)
         .eq("payroll_period_id", selected.id)
         .order("created_at")
-      setRecords(data ?? [])
+      setRecords(dedupePayrollRecords(data ?? []))
     } catch {} finally { bgCalcRef.current = false }
   }, [selected, companyId, calculating])
 
@@ -1471,8 +1512,9 @@ export default function PayrollPage() {
 
     // ── คำนวณเงินเดือนทุกพนักงาน (full calc) ─────────────────────
     setCalculating(true)
-    const { data: emps } = await supabase.from("employees")
-      .select("id, employee_code, first_name_th, last_name_th").eq("company_id", companyId).eq("is_active", true)
+    const { data: rawEmps } = await supabase.from("employees")
+      .select("id, employee_code, first_name_th, last_name_th, updated_at").eq("company_id", companyId).eq("is_active", true)
+    const emps = dedupeEmployees(rawEmps ?? [])
     if (!emps || emps.length === 0) { setCalculating(false); return }
     setCalcProgress({ done: 0, total: emps.length })
     let done = 0, success = 0, failed = 0
@@ -1519,8 +1561,9 @@ export default function PayrollPage() {
   const calculateAll = async () => {
     if (!selected || !companyId) return
     setCalculating(true)
-    const { data: emps } = await supabase.from("employees")
-      .select("id, employee_code, first_name_th, last_name_th").eq("company_id", companyId).eq("is_active", true)
+    const { data: rawEmps } = await supabase.from("employees")
+      .select("id, employee_code, first_name_th, last_name_th, updated_at").eq("company_id", companyId).eq("is_active", true)
+    const emps = dedupeEmployees(rawEmps ?? [])
     if (!emps || emps.length === 0) {
       toast.error("ไม่พบพนักงานในบริษัทนี้")
       setCalculating(false)

@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import Link from "next/link"
-import { Target, ChevronLeft, ChevronRight, Loader2, FileCheck, FilePen, FilePlus2 } from "lucide-react"
+import { Target, ChevronLeft, ChevronRight, Loader2, FileCheck, FilePen, FilePlus2, Clock, AlertCircle, CheckCircle2 } from "lucide-react"
 
 const MONTHS = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
 
@@ -55,12 +55,17 @@ export default function ManagerKpiPage() {
   const statusInfo = (form: any) => {
     if (!form) return { label: "ยังไม่ประเมิน", icon: FilePlus2, color: "text-slate-400", bg: "bg-slate-50" }
     if (form.status === "draft") return { label: "แบบร่าง", icon: FilePen, color: "text-amber-600", bg: "bg-amber-50" }
+    if (form.status === "rejected") return { label: "ส่งคืน", icon: AlertCircle, color: "text-red-600", bg: "bg-red-50" }
+    if (form.status === "submitted") return { label: "รอ HR", icon: Clock, color: "text-orange-600", bg: "bg-orange-50" }
+    if (form.status === "approved") return { label: "อนุมัติ", icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50" }
     return { label: "ส่งแล้ว", icon: FileCheck, color: "text-emerald-600", bg: "bg-emerald-50" }
   }
 
-  const submitted = forms.filter(f => f.status === "submitted").length
+  const approvedCount = forms.filter(f => f.status === "approved").length
+  const pendingCount = forms.filter(f => f.status === "submitted").length
+  const rejectedCount = forms.filter(f => f.status === "rejected").length
   const drafted = forms.filter(f => f.status === "draft").length
-  const notDone = members.length - submitted - drafted
+  const notDone = members.length - forms.length
 
   return (
     <div className="p-4 space-y-4">
@@ -90,17 +95,23 @@ export default function ManagerKpiPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         <div className="bg-emerald-50 rounded-2xl p-3 text-center">
-          <p className="text-2xl font-black text-emerald-700">{submitted}</p>
-          <p className="text-[10px] font-bold text-emerald-600 mt-0.5">ส่งแล้ว</p>
+          <p className="text-2xl font-black text-emerald-700">{approvedCount}</p>
+          <p className="text-[10px] font-bold text-emerald-600 mt-0.5">อนุมัติ</p>
         </div>
-        <div className="bg-amber-50 rounded-2xl p-3 text-center">
-          <p className="text-2xl font-black text-amber-700">{drafted}</p>
-          <p className="text-[10px] font-bold text-amber-600 mt-0.5">แบบร่าง</p>
+        <div className="bg-orange-50 rounded-2xl p-3 text-center">
+          <p className="text-2xl font-black text-orange-700">{pendingCount}</p>
+          <p className="text-[10px] font-bold text-orange-600 mt-0.5">รอ HR</p>
         </div>
+        {rejectedCount > 0 && (
+          <div className="bg-red-50 rounded-2xl p-3 text-center">
+            <p className="text-2xl font-black text-red-700">{rejectedCount}</p>
+            <p className="text-[10px] font-bold text-red-600 mt-0.5">ส่งคืน</p>
+          </div>
+        )}
         <div className="bg-slate-100 rounded-2xl p-3 text-center">
-          <p className="text-2xl font-black text-slate-600">{notDone}</p>
+          <p className="text-2xl font-black text-slate-600">{notDone > 0 ? notDone : 0}</p>
           <p className="text-[10px] font-bold text-slate-500 mt-0.5">รอประเมิน</p>
         </div>
       </div>
@@ -138,7 +149,7 @@ export default function ManagerKpiPage() {
 
                 {/* Status / Grade */}
                 <div className="flex items-center gap-2 shrink-0">
-                  {form && form.status === "submitted" && (
+                  {form && ["submitted", "approved", "acknowledged"].includes(form.status) && (
                     <span className={`text-xs font-black px-2 py-1 rounded-lg ring-1 ${GRADE_STYLE[form.grade] || "bg-slate-100 text-slate-600"}`}>
                       {form.grade}
                     </span>

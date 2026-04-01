@@ -92,7 +92,7 @@ export interface User {
 }
 
 // ── KPI ──────────────────────────────────────────────────────────────────────
-export type KpiStatus = "draft" | "submitted" | "acknowledged"
+export type KpiStatus = "draft" | "submitted" | "approved" | "rejected" | "acknowledged"
 export type KpiGrade = "A" | "B" | "C" | "D"
 
 export interface KpiForm {
@@ -100,8 +100,9 @@ export interface KpiForm {
   year: number; month: number
   total_score: number; grade: KpiGrade; status: KpiStatus
   evaluator_note?: string; submitted_at?: string
+  approved_by?: string; approved_at?: string; rejection_note?: string
   created_at: string; updated_at: string
-  employee?: Employee; evaluator?: Employee; items?: KpiItem[]
+  employee?: Employee; evaluator?: Employee; approver?: Employee; items?: KpiItem[]
 }
 
 export interface KpiItem {
@@ -115,4 +116,25 @@ export interface KpiTemplate {
   id: string; company_id: string; item_order: number
   category: string; description?: string
   default_weight: number; is_mandatory: boolean
+}
+
+// ── Probation Evaluation ────────────────────────────────────────────────────
+export type ProbationEvalStatus = "draft" | "submitted" | "approved" | "rejected"
+export type ProbationRound = 1 | 2 | 3
+
+export interface ProbationEvaluation {
+  id: string; company_id: string; employee_id: string; evaluator_id: string
+  round: ProbationRound; due_date: string
+  total_score: number; grade: KpiGrade; status: ProbationEvalStatus
+  evaluator_note?: string; submitted_at?: string
+  approved_by?: string; approved_at?: string; rejection_note?: string
+  created_at: string; updated_at: string
+  employee?: Employee; evaluator?: Employee; items?: ProbationEvaluationItem[]
+}
+
+export interface ProbationEvaluationItem {
+  id: string; evaluation_id: string; order_no: number
+  category: string; description?: string
+  weight_pct: number; actual_score: number; weighted_score: number
+  is_mandatory: boolean; comment?: string
 }

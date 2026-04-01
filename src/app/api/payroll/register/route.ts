@@ -26,7 +26,7 @@ export async function GET(req: Request) {
       *,
       employee:employees(
         id, employee_code, first_name_th, last_name_th, nickname,
-        brand,
+        brand, updated_at,
         position:positions(id, name),
         department:departments(id, name),
         company:companies(id, code, name_th)
@@ -39,7 +39,23 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ records: data ?? [] })
+  // Deduplicate by employee_code: ถ้ามีพนักงาน code เดียวกันหลาย record
+  // เก็บเฉพาะ record ที่ employee.updated_at ใหม่สุด (ข้อมูลจาก import ใหม่)
+  const byCode = new Map<string, any>()
+  for (const r of (data ?? [])) {
+    const code = r.employee?.employee_code
+    if (!code) { byCode.set(r.id, r); continue }
+    const existing = byCode.get(code)
+    if (!existing) {
+      byCode.set(code, r)
+    } else {
+      const existDate = existing.employee?.updated_at || existing.updated_at || ''
+      const newDate = r.employee?.updated_at || r.updated_at || ''
+      if (newDate > existDate) byCode.set(code, r)
+    }
+  }
+
+  return NextResponse.json({ records: Array.from(byCode.values()) })
 }
 
 /**

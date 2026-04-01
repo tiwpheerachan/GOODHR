@@ -24,6 +24,7 @@ const NAV = [
 const FLOAT_MENU = [
   { href: "/app/schedule",          icon: CalendarClock, label: "ตารางกะ",     color: "from-violet-500 to-purple-500" },
   { href: "/app/kpi",               icon: Target,        label: "KPI",         color: "from-amber-500 to-orange-500" },
+  { href: "/app/probation-eval",   icon: Shield,        label: "ทดลองงาน",   color: "from-rose-500 to-pink-500" },
   { href: "/app/payslip",           icon: FileText,      label: "สลิป",        color: "from-emerald-500 to-green-500" },
 ]
 

@@ -5,7 +5,10 @@ import { createClient } from "@/lib/supabase/client"
 import {
   Target, Search, ChevronDown, ChevronUp, Loader2, BarChart3,
   Award, MessageSquare, Eye, TrendingUp, Users, Building2, Filter,
+  CheckCircle2, XCircle, Clock, AlertCircle, Pencil,
 } from "lucide-react"
+import toast from "react-hot-toast"
+import Link from "next/link"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
@@ -66,6 +69,11 @@ export default function AdminKpiPage() {
   const [detail, setDetail] = useState<any>(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
+  // Approve/Reject
+  const [showRejectModal, setShowRejectModal] = useState<string | null>(null)
+  const [rejectNote, setRejectNote] = useState("")
+  const [actionLoading, setActionLoading] = useState(false)
+
   // Load companies (for super_admin)
   useEffect(() => {
     if (!user) return
@@ -102,6 +110,49 @@ export default function AdminKpiPage() {
     setDetailLoading(false)
   }
 
+  // ── Approve / Reject handlers ──
+  const handleApprove = async (formId: string) => {
+    if (!confirm("ยืนยันอนุมัติผลประเมิน KPI นี้?")) return
+    setActionLoading(true)
+    try {
+      const res = await fetch("/api/kpi", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "approve", form_id: formId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast.success("อนุมัติสำเร็จ")
+        load()
+        setExpanded(null)
+      } else {
+        toast.error(data.error || "เกิดข้อผิดพลาด")
+      }
+    } catch { toast.error("เกิดข้อผิดพลาด") }
+    setActionLoading(false)
+  }
+
+  const handleReject = async () => {
+    if (!showRejectModal) return
+    setActionLoading(true)
+    try {
+      const res = await fetch("/api/kpi", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject", form_id: showRejectModal, rejection_note: rejectNote }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast.success("ส่งคืนสำเร็จ")
+        setShowRejectModal(null)
+        setRejectNote("")
+        load()
+        setExpanded(null)
+      } else {
+        toast.error(data.error || "เกิดข้อผิดพลาด")
+      }
+    } catch { toast.error("เกิดข้อผิดพลาด") }
+    setActionLoading(false)
+  }
+
   // Derived filter options
   const departments = Array.from(new Set(forms.map((f: any) => f.employee?.department?.name).filter(Boolean)))
   const evaluators = Array.from(new Set(forms.map((f: any) => {
@@ -127,12 +178,14 @@ export default function AdminKpiPage() {
   const gradeCount: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 }
   filtered.forEach(f => { if (gradeCount[f.grade] !== undefined) gradeCount[f.grade]++ })
   const avgScore = filtered.length > 0 ? filtered.reduce((s: number, f: any) => s + f.total_score, 0) / filtered.length : 0
-  const submittedCount = filtered.filter(f => f.status === "submitted").length
+  const pendingCount = filtered.filter(f => f.status === "submitted").length
+  const approvedCount = filtered.filter(f => f.status === "approved").length
+  const rejectedCount = filtered.filter(f => f.status === "rejected").length
   const draftCount = filtered.filter(f => f.status === "draft").length
 
   // Department averages
   const deptAvg: Record<string, { sum: number; count: number }> = {}
-  filtered.filter(f => f.status === "submitted").forEach(f => {
+  filtered.filter(f => ["submitted", "approved", "acknowledged"].includes(f.status)).forEach(f => {
     const dept = f.employee?.department?.name || "ไม่ระบุ"
     if (!deptAvg[dept]) deptAvg[dept] = { sum: 0, count: 0 }
     deptAvg[dept].sum += f.total_score
@@ -190,7 +243,9 @@ export default function AdminKpiPage() {
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={inp}>
           <option value="">ทุกสถานะ</option>
-          <option value="submitted">ส่งแล้ว</option>
+          <option value="submitted">รอ HR อนุมัติ</option>
+          <option value="approved">อนุมัติแล้ว</option>
+          <option value="rejected">ส่งคืน</option>
           <option value="draft">แบบร่าง</option>
         </select>
         {evaluators.length > 0 && (
@@ -247,12 +302,20 @@ export default function AdminKpiPage() {
               <span className="text-sm font-black text-slate-700">{filtered.length} ฟอร์ม</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">ส่งแล้ว</span>
-              <span className="text-sm font-bold text-emerald-600">{submittedCount}</span>
+              <span className="text-sm text-slate-500">รอ HR อนุมัติ</span>
+              <span className="text-sm font-bold text-amber-600">{pendingCount}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-500">อนุมัติแล้ว</span>
+              <span className="text-sm font-bold text-emerald-600">{approvedCount}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-500">ส่งคืน</span>
+              <span className="text-sm font-bold text-red-500">{rejectedCount}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-slate-500">แบบร่าง</span>
-              <span className="text-sm font-bold text-amber-600">{draftCount}</span>
+              <span className="text-sm font-bold text-slate-400">{draftCount}</span>
             </div>
           </div>
         </div>
@@ -294,8 +357,34 @@ export default function AdminKpiPage() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+          {/* Bulk approve bar */}
+          {pendingCount > 0 && (
+            <div className="flex items-center justify-between px-4 py-3 bg-amber-50 border-b border-amber-100">
+              <p className="text-sm font-bold text-amber-700">มี {pendingCount} รายการรอ HR อนุมัติ</p>
+              <button onClick={async () => {
+                if (!confirm(`อนุมัติทั้งหมด ${pendingCount} รายการ?`)) return
+                setActionLoading(true)
+                const pending = filtered.filter(f => f.status === "submitted")
+                let ok = 0
+                for (const f of pending) {
+                  try {
+                    const res = await fetch("/api/kpi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", form_id: f.id }) })
+                    const d = await res.json()
+                    if (d.success) ok++
+                  } catch {}
+                }
+                toast.success(`อนุมัติสำเร็จ ${ok} รายการ`)
+                setActionLoading(false)
+                load()
+              }} disabled={actionLoading}
+                className="text-xs font-bold bg-emerald-600 text-white px-4 py-2 rounded-xl hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5">
+                <CheckCircle2 size={14} /> อนุมัติทั้งหมด
+              </button>
+            </div>
+          )}
+
           {/* Table header */}
-          <div className="hidden lg:grid grid-cols-[2fr_1fr_0.7fr_0.7fr_0.5fr_0.7fr_0.5fr_40px] gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500">
+          <div className="hidden lg:grid grid-cols-[2fr_1fr_0.7fr_0.7fr_0.5fr_0.7fr_120px_40px] gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500">
             <span>พนักงาน</span>
             <span>แผนก</span>
             <span>เดือน</span>
@@ -314,8 +403,7 @@ export default function AdminKpiPage() {
 
             return (
               <div key={form.id} className="border-b border-slate-50 last:border-0">
-                <button onClick={() => loadDetail(form.id)}
-                  className="w-full lg:grid lg:grid-cols-[2fr_1fr_0.7fr_0.7fr_0.5fr_0.7fr_0.5fr_40px] gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors text-left flex flex-wrap items-center">
+                <div className="w-full lg:grid lg:grid-cols-[2fr_1fr_0.7fr_0.7fr_0.5fr_0.7fr_120px_40px] gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors text-left flex flex-wrap items-center">
                   {/* Employee */}
                   <div className="flex items-center gap-3 min-w-0 w-full lg:w-auto mb-2 lg:mb-0">
                     <div className="w-9 h-9 rounded-xl overflow-hidden bg-indigo-100 flex items-center justify-center shrink-0">
@@ -335,13 +423,33 @@ export default function AdminKpiPage() {
                   <span className="text-xs text-slate-500 hidden lg:block truncate">
                     {form.evaluator?.first_name_th} {form.evaluator?.last_name_th}
                   </span>
-                  <span className={`text-xs font-bold ${form.status === "submitted" ? "text-emerald-600" : "text-amber-600"}`}>
-                    {form.status === "submitted" ? "ส่งแล้ว" : "ร่าง"}
-                  </span>
-                  <div className="shrink-0">
-                    {isOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                  {/* Quick action buttons */}
+                  <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                    {form.status === "submitted" ? (
+                      <>
+                        <button onClick={() => handleApprove(form.id)} disabled={actionLoading}
+                          className="text-[11px] font-bold bg-emerald-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+                          อนุมัติ
+                        </button>
+                        <button onClick={() => { setShowRejectModal(form.id); setRejectNote("") }} disabled={actionLoading}
+                          className="text-[11px] font-bold text-red-600 bg-red-50 px-2.5 py-1.5 rounded-lg hover:bg-red-100 border border-red-200 disabled:opacity-50">
+                          ส่งคืน
+                        </button>
+                      </>
+                    ) : (
+                      <span className={`text-xs font-bold ${
+                        form.status === "approved" ? "text-emerald-600" :
+                        form.status === "rejected" ? "text-red-500" : "text-slate-400"
+                      }`}>
+                        {form.status === "approved" ? "อนุมัติแล้ว" :
+                         form.status === "rejected" ? "ส่งคืน" : "ร่าง"}
+                      </span>
+                    )}
                   </div>
-                </button>
+                  <button onClick={() => loadDetail(form.id)} className="shrink-0">
+                    {isOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                  </button>
+                </div>
 
                 {/* Expanded detail */}
                 {isOpen && (
@@ -389,6 +497,51 @@ export default function AdminKpiPage() {
                             <p className="text-sm text-slate-600">{detail.evaluator_note}</p>
                           </div>
                         )}
+
+                        {/* Rejection note (if rejected) */}
+                        {detail?.rejection_note && detail?.status === "rejected" && (
+                          <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                            <p className="text-xs font-bold text-red-600 mb-1">เหตุผลที่ส่งคืน</p>
+                            <p className="text-sm text-red-700">{detail.rejection_note}</p>
+                          </div>
+                        )}
+
+                        {/* Approve / Reject / Edit buttons (for submitted forms) */}
+                        {form.status === "submitted" && (
+                          <div className="flex items-center gap-3 pt-2">
+                            <button onClick={() => handleApprove(form.id)} disabled={actionLoading}
+                              className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 text-white font-bold text-sm py-2.5 rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50">
+                              <CheckCircle2 size={16} /> อนุมัติ
+                            </button>
+                            <button onClick={() => { setShowRejectModal(form.id); setRejectNote("") }} disabled={actionLoading}
+                              className="flex-1 flex items-center justify-center gap-2 bg-red-50 text-red-600 font-bold text-sm py-2.5 rounded-xl hover:bg-red-100 transition-colors border border-red-200 disabled:opacity-50">
+                              <XCircle size={16} /> ส่งคืน
+                            </button>
+                            <Link href={`/manager/kpi/${form.employee_id}?year=${form.year}&month=${form.month}`}
+                              className="flex items-center justify-center gap-2 bg-slate-100 text-slate-700 font-bold text-sm py-2.5 px-4 rounded-xl hover:bg-slate-200 transition-colors">
+                              <Pencil size={14} /> แก้ไข
+                            </Link>
+                          </div>
+                        )}
+
+                        {/* Approved badge + edit button */}
+                        {form.status === "approved" && (
+                          <div className="flex items-center justify-between pt-2">
+                            <div className="flex items-center gap-2 text-emerald-600">
+                              <CheckCircle2 size={16} />
+                              <span className="text-sm font-bold">อนุมัติแล้ว</span>
+                              {detail?.approved_at && (
+                                <span className="text-xs text-slate-400">
+                                  · {format(new Date(detail.approved_at), "d MMM yyyy HH:mm", { locale: th })}
+                                </span>
+                              )}
+                            </div>
+                            <Link href={`/manager/kpi/${form.employee_id}?year=${form.year}&month=${form.month}`}
+                              className="flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 font-bold px-3 py-1.5 rounded-lg hover:bg-slate-200 transition-colors">
+                              <Pencil size={12} /> แก้ไข
+                            </Link>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -396,6 +549,35 @@ export default function AdminKpiPage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Reject Modal */}
+      {showRejectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowRejectModal(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 text-red-600">
+              <XCircle size={20} />
+              <h3 className="text-lg font-black">ส่งคืนผลประเมิน KPI</h3>
+            </div>
+            <p className="text-sm text-slate-500">กรุณาระบุเหตุผลที่ส่งคืน เพื่อให้หัวหน้าแก้ไขและส่งใหม่</p>
+            <textarea
+              value={rejectNote} onChange={e => setRejectNote(e.target.value)}
+              placeholder="เหตุผลที่ส่งคืน..."
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm min-h-[80px] outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/10"
+              rows={3}
+            />
+            <div className="flex gap-3">
+              <button onClick={() => setShowRejectModal(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                ยกเลิก
+              </button>
+              <button onClick={handleReject} disabled={actionLoading}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 disabled:opacity-50">
+                {actionLoading ? "กำลังส่ง..." : "ยืนยันส่งคืน"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

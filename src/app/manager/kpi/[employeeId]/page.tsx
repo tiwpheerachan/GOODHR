@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import {
   ChevronLeft, Plus, Trash2, Save, Send, Loader2, Target, AlertCircle,
-  CheckCircle2, GripVertical, MessageSquare, Info,
+  CheckCircle2, GripVertical, MessageSquare, Info, Clock,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -75,6 +75,7 @@ export default function KpiFormPage() {
   const [showSuccess, setShowSuccess] = useState(false)
   const [submitResult, setSubmitResult] = useState<{ grade: string; score: number } | null>(null)
   const [expandedComment, setExpandedComment] = useState<number | null>(null)
+  const [rejectionNote, setRejectionNote] = useState("")
   const mountedRef = useRef(true)
 
   // Load existing form
@@ -94,8 +95,12 @@ export default function KpiFormPage() {
         const form = (data.forms ?? []).find((f: any) => f.employee_id === employeeId)
         if (form) {
           setExistingFormId(form.id)
-          if (form.status === "submitted") {
+          // rejected → กลับมาแก้ไขได้, submitted/approved → ล็อค
+          if (form.status === "submitted" || form.status === "approved") {
             setIsSubmitted(true)
+          }
+          if (form.rejection_note && mountedRef.current) {
+            setRejectionNote(form.rejection_note)
           }
           // Load full form with items
           const fRes = await fetch(`/api/kpi?mode=single&form_id=${form.id}`)
@@ -259,9 +264,25 @@ export default function KpiFormPage() {
       </div>
 
       {isSubmitted && (
-        <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 text-sm font-bold px-4 py-3 rounded-2xl ring-1 ring-emerald-200">
-          <CheckCircle2 size={16} />
-          ฟอร์มนี้ถูกส่งแล้ว (ไม่สามารถแก้ไข)
+        <div className="flex items-center justify-between bg-orange-50 text-orange-700 text-sm font-bold px-4 py-3 rounded-2xl ring-1 ring-orange-200">
+          <div className="flex items-center gap-2">
+            <Clock size={16} />
+            ฟอร์มนี้ถูกส่งแล้ว
+          </div>
+          <button onClick={() => setIsSubmitted(false)}
+            className="text-xs bg-white text-orange-600 font-bold px-3 py-1.5 rounded-xl hover:bg-orange-100 transition-colors border border-orange-200">
+            แก้ไข
+          </button>
+        </div>
+      )}
+
+      {rejectionNote && !isSubmitted && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 space-y-1">
+          <div className="flex items-center gap-2 text-red-600 font-bold text-sm">
+            <AlertCircle size={16} />
+            HR ส่งคืน — กรุณาแก้ไขและส่งใหม่
+          </div>
+          <p className="text-sm text-red-700 ml-6">{rejectionNote}</p>
         </div>
       )}
 
@@ -489,7 +510,7 @@ export default function KpiFormPage() {
                 <AlertCircle size={16} className="text-amber-500 shrink-0 mt-0.5" />
                 <div>
                   <p className="text-xs font-bold text-amber-700">เมื่อส่งแล้วไม่สามารถแก้ไขได้</p>
-                  <p className="text-[11px] text-amber-600 mt-0.5">ข้อมูลจะส่งถึงพนักงานและ HR ทันที</p>
+                  <p className="text-[11px] text-amber-600 mt-0.5">ข้อมูลจะส่งให้ HR ตรวจสอบก่อนแจ้งพนักงาน</p>
                 </div>
               </div>
             </div>
@@ -553,9 +574,9 @@ export default function KpiFormPage() {
                 <div className="flex items-start gap-2">
                   <Send size={13} className="text-blue-500 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-xs font-bold text-blue-700">ข้อมูลถูกส่งไปยัง</p>
+                    <p className="text-xs font-bold text-blue-700">ข้อมูลถูกส่งให้ HR ตรวจสอบ</p>
                     <p className="text-[11px] text-blue-600 mt-0.5">
-                      {employee?.first_name_th} {employee?.last_name_th} (พนักงาน) และ HR
+                      เมื่อ HR อนุมัติแล้ว {employee?.first_name_th} {employee?.last_name_th} จะเห็นผลประเมิน
                     </p>
                   </div>
                 </div>
