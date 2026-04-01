@@ -40,7 +40,7 @@ const MANDATORY_ITEMS: EvalRow[] = [
   },
 ]
 
-const inp = "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-400/10 transition-all"
+const inp = "bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all disabled:bg-slate-50 disabled:text-slate-400"
 
 export default function ProbationEvalFormPage() {
   const { user } = useAuth()
@@ -161,7 +161,7 @@ export default function ProbationEvalFormPage() {
   if (loading) return <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-slate-300" /></div>
 
   return (
-    <div className="p-4 pb-28 space-y-4">
+    <div className="p-4 pb-36 space-y-4">
       {/* Header */}
       <div className="flex items-center gap-2">
         <Link href="/manager/probation-eval" className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center">
@@ -317,17 +317,19 @@ export default function ProbationEvalFormPage() {
         </div>
       </div>
 
-      {/* Action buttons */}
+      {/* Action buttons — อยู่เหนือ bottom nav */}
       {!isSubmitted && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur border-t border-slate-100 p-4 flex gap-3 z-40">
-          <button onClick={() => handleSave("save_draft")} disabled={saving}
-            className="flex-1 py-3 rounded-2xl bg-slate-100 text-slate-700 font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-200 disabled:opacity-50">
-            <Save size={16} /> บันทึกร่าง
-          </button>
-          <button onClick={() => handleSave("submit")} disabled={saving || !weightValid}
-            className="flex-[1.5] py-3 rounded-2xl bg-rose-600 text-white font-bold text-sm flex items-center justify-center gap-2 hover:bg-rose-700 shadow-lg shadow-rose-200 disabled:opacity-50">
-            <Send size={16} /> {saving ? "กำลังส่ง..." : "ส่งประเมิน"}
-          </button>
+        <div className="fixed bottom-[60px] left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white/95 backdrop-blur-sm border-t border-slate-100 px-4 py-3 z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+          <div className="flex gap-3">
+            <button onClick={() => handleSave("save_draft")} disabled={saving}
+              className="flex-1 py-3 rounded-2xl bg-slate-100 text-slate-700 font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-200 active:scale-[0.97] transition-all disabled:opacity-50">
+              <Save size={15} /> บันทึกร่าง
+            </button>
+            <button onClick={() => handleSave("submit")} disabled={saving || !weightValid}
+              className="flex-[1.5] py-3 rounded-2xl bg-rose-600 text-white font-bold text-sm flex items-center justify-center gap-2 hover:bg-rose-700 active:scale-[0.97] transition-all shadow-lg shadow-rose-200 disabled:opacity-50">
+              <Send size={15} /> {saving ? "กำลังส่ง..." : "ส่งประเมิน"}
+            </button>
+          </div>
         </div>
       )}
 

@@ -6,7 +6,7 @@ import {
   Download, RefreshCw, AlertCircle, Check, X,
   Clock, Users, TrendingUp, AlertTriangle,
   Search, ChevronLeft, ChevronRight,
-  Building2, GitBranch, BarChart2, List, Camera, FileSpreadsheet,
+  Building2, GitBranch, BarChart2, List, Camera, FileSpreadsheet, MapPin,
 } from "lucide-react"
 import Link from "next/link"
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns"
@@ -652,15 +652,15 @@ export default function AdminAttendancePage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-slate-100 bg-slate-50/70">
-                  {["วันที่","พนักงาน","แผนก","เข้างาน","ออกงาน","สาย","OT","สถานะ"].map(h=>(
+                  {["วันที่","พนักงาน","แผนก","เข้างาน","ออกงาน","สาย","OT","สถานะ","พิกัด"].map(h=>(
                     <th key={h} className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wide text-slate-500 whitespace-nowrap">{h}</th>
                   ))}
                 </tr></thead>
                 <tbody className="divide-y divide-slate-50">
                   {loadingList?(
-                    <tr><td colSpan={8} className="px-4 py-14 text-center"><RefreshCw size={18} className="animate-spin text-slate-300 mx-auto mb-2"/><p className="text-sm text-slate-400">กำลังโหลด…</p></td></tr>
+                    <tr><td colSpan={9} className="px-4 py-14 text-center"><RefreshCw size={18} className="animate-spin text-slate-300 mx-auto mb-2"/><p className="text-sm text-slate-400">กำลังโหลด…</p></td></tr>
                   ):records.length===0?(
-                    <tr><td colSpan={8} className="px-4 py-14 text-center text-slate-400 text-sm">ไม่พบข้อมูลในช่วงวันที่เลือก</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-14 text-center text-slate-400 text-sm">ไม่พบข้อมูลในช่วงวันที่เลือก</td></tr>
                   ):records.map((r: any)=>(
                     <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap font-medium">{safeFmt(r.work_date+"T00:00:00","d MMM")}</td>
@@ -693,6 +693,18 @@ export default function AdminAttendancePage() {
                       <td className="px-4 py-3.5">{(r.late_minutes??0)>0?<span className="font-black text-amber-600 tabular-nums">{r.late_minutes}<span className="text-[10px] font-normal">น.</span></span>:<span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5">{(r.ot_minutes??0)>0?<span className="font-bold text-blue-600 tabular-nums">{r.ot_minutes}<span className="text-[10px] font-normal">น.</span></span>:<span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5"><StatusBadge status={r.status}/></td>
+                      <td className="px-4 py-3.5">
+                        {r.clock_in_lat && r.clock_in_lng ? (
+                          <a href={`https://www.google.com/maps?q=${r.clock_in_lat},${r.clock_in_lng}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg hover:bg-indigo-100 transition-colors"
+                            title={`${Number(r.clock_in_lat).toFixed(5)}, ${Number(r.clock_in_lng).toFixed(5)}${r.clock_in_distance_m ? ` (${r.clock_in_distance_m}m)` : ""}`}>
+                            <MapPin size={10}/> ดูแผนที่
+                          </a>
+                        ) : (
+                          <span className="text-slate-300 text-xs">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

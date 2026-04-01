@@ -212,10 +212,18 @@ export default function OffsiteReviewPage() {
                         {format(new Date(req.checked_at), "HH:mm:ss")}
                       </span>
                     </div>
-                    {req.location_name && (
+                    {(req.location_name || (req.latitude && req.longitude)) && (
                       <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                        <MapPin size={10} />
-                        <span className="truncate">{req.location_name}</span>
+                        <MapPin size={10} className="shrink-0" />
+                        {req.latitude && req.longitude ? (
+                          <a href={`https://www.google.com/maps?q=${req.latitude},${req.longitude}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="text-indigo-600 hover:underline truncate">
+                            {req.location_name || `${Number(req.latitude).toFixed(4)}, ${Number(req.longitude).toFixed(4)}`}
+                          </a>
+                        ) : (
+                          <span className="truncate">{req.location_name}</span>
+                        )}
                       </div>
                     )}
                     {req.note && (

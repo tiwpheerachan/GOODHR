@@ -156,6 +156,7 @@ export default function EmployeeDetailPage() {
       hire_date: form.hire_date,
       probation_end_date: form.probation_end_date || null,
       resign_date: form.resign_date || null,
+      is_attendance_exempt: !!form.is_attendance_exempt,
     }).eq("id", id as string)
     if (error) toast.error("เกิดข้อผิดพลาด"); else {
       toast.success("บันทึกสำเร็จ")
@@ -455,6 +456,19 @@ export default function EmployeeDetailPage() {
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">วันเริ่มงาน</label><input type="date" value={form.hire_date||""} onChange={e => set("hire_date",e.target.value)} className={inp}/></div>
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สิ้นสุดทดลองงาน</label><input type="date" value={form.probation_end_date||""} onChange={e => set("probation_end_date",e.target.value)} className={inp}/></div>
           </div>
+
+          {/* ── ยกเว้นเช็คอิน ── */}
+          <div className="mt-6">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input type="checkbox" checked={!!form.is_attendance_exempt} onChange={e => set("is_attendance_exempt", e.target.checked)}
+                className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              <div>
+                <span className="text-sm font-medium text-slate-700">ยกเว้นเช็คอิน/เช็คเอาท์</span>
+                <p className="text-xs text-slate-400">ไม่หักมาสาย / ขาดงาน / ออกก่อน</p>
+              </div>
+            </label>
+          </div>
+
           <button onClick={saveEmployment} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>
         </>}
 
