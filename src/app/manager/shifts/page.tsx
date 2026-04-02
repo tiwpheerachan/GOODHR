@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ChevronLeft, ChevronRight, Save, Clock, Moon, Calendar, Wand2, Copy, Users, AlertCircle,
-  CheckCircle2, X as XIcon, Trash2, CalendarDays
+  CheckCircle2, X as XIcon, Trash2, CalendarDays, Plus
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -25,6 +25,7 @@ const SHIFT_COLORS: Record<string, { bg: string; text: string; short: string }> 
   "10:00": { bg: "bg-cyan-200", text: "text-cyan-800", short: "10" },
   "10:30": { bg: "bg-teal-200", text: "text-teal-800", short: "10½" },
   "11:00": { bg: "bg-purple-200", text: "text-purple-800", short: "11" },
+  "11:30": { bg: "bg-violet-200", text: "text-violet-800", short: "11½" },
   "12:00": { bg: "bg-amber-200", text: "text-amber-800", short: "12" },
   "12:30": { bg: "bg-orange-200", text: "text-orange-800", short: "12½" },
   "13:00": { bg: "bg-rose-200", text: "text-rose-800", short: "13" },
@@ -32,9 +33,21 @@ const SHIFT_COLORS: Record<string, { bg: string; text: string; short: string }> 
   "16:00": { bg: "bg-fuchsia-200", text: "text-fuchsia-800", short: "16" },
 }
 
+const FALLBACK_COLORS = [
+  { bg: "bg-lime-200", text: "text-lime-800" },
+  { bg: "bg-sky-200", text: "text-sky-800" },
+  { bg: "bg-pink-200", text: "text-pink-800" },
+  { bg: "bg-yellow-200", text: "text-yellow-800" },
+]
+
 function shiftStyle(startTime: string | null | undefined) {
   if (!startTime) return { bg: "bg-slate-100", text: "text-slate-500", short: "-" }
-  return SHIFT_COLORS[startTime.substring(0, 5)] ?? { bg: "bg-slate-100", text: "text-slate-600", short: startTime.substring(0, 5) }
+  const key = startTime.substring(0, 5)
+  if (SHIFT_COLORS[key]) return SHIFT_COLORS[key]
+  const hash = key.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
+  const fb = FALLBACK_COLORS[hash % FALLBACK_COLORS.length]
+  const h = key.replace(":", ""); const short = h.includes("30") ? h.substring(0, h.length - 2) + "½" : String(Number(h) || key)
+  return { ...fb, short }
 }
 
 const TH_DAYS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
@@ -450,6 +463,12 @@ export default function ManagerShiftsPage() {
                   </button>
                 )
               })}
+
+              {/* เพิ่มกะใหม่ */}
+              <a href="/admin/shifts/settings"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors mb-1">
+                <Plus size={18} /> เพิ่มกะใหม่...
+              </a>
 
               {/* ลบกะ (Clear Shift) — เฉพาะเมื่อมี assignment อยู่ */}
               {pickerAssignment && (

@@ -68,6 +68,14 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  if (user && pathname.startsWith("/equipment")) {
+    const { data: u } = await supabase
+      .from("users").select("role").eq("id", user.id).maybeSingle()
+    if (!u || !["super_admin", "hr_admin", "equipment_admin"].includes(u.role)) {
+      return NextResponse.redirect(new URL("/app/dashboard", request.url))
+    }
+  }
+
   return res
 }
 

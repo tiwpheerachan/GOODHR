@@ -1,4 +1,4 @@
-export type UserRole = "super_admin" | "hr_admin" | "manager" | "employee"
+export type UserRole = "super_admin" | "hr_admin" | "manager" | "employee" | "equipment_admin"
 export type EmploymentStatus = "active" | "probation" | "resigned" | "terminated" | "on_leave" | "suspended"
 export type AttendanceStatus = "present" | "absent" | "late" | "early_out" | "leave" | "holiday" | "day_off" | "wfh"
 export type LeaveStatus = "pending" | "approved" | "rejected" | "cancelled"
@@ -137,4 +137,31 @@ export interface ProbationEvaluationItem {
   category: string; description?: string
   weight_pct: number; actual_score: number; weighted_score: number
   is_mandatory: boolean; comment?: string
+}
+
+// ── Equipment Borrowing ─────────────────────────────────────────────────────
+export type EquipmentRequestStatus = "pending" | "approved" | "borrowed" | "returned" | "rejected" | "cancelled"
+
+export interface EquipmentCategory {
+  id: string; company_id: string; name: string; description?: string
+  icon?: string; sort_order: number; is_active: boolean
+  created_by?: string; created_at: string; updated_at: string
+}
+
+export interface EquipmentItem {
+  id: string; company_id: string; category_id: string
+  name: string; description?: string; image_url?: string
+  total_qty: number; available_qty: number; unit: string
+  is_active: boolean; created_by?: string
+  created_at: string; updated_at: string
+  category?: EquipmentCategory
+}
+
+export interface EquipmentRequest {
+  id: string; company_id: string; employee_id: string; item_id: string
+  qty: number; reason?: string; status: EquipmentRequestStatus
+  reviewed_by?: string; reviewed_at?: string; reject_reason?: string
+  borrow_date?: string; expected_return?: string; return_date?: string; return_note?: string
+  created_at: string; updated_at: string
+  item?: EquipmentItem; employee?: Employee
 }

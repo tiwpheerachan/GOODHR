@@ -1876,10 +1876,11 @@ function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; e
   const [resetResult, setResetResult] = useState<{ password: string; email_sent: boolean } | null>(null)
 
   const ROLES = [
-    { value: "employee",    label: "พนักงาน",      desc: "เข้าถึงได้เฉพาะหน้าพนักงาน (เช็คอิน, ดูตาราง, ลา)",                        color: "bg-slate-100 text-slate-700 border-slate-200",    icon: "👤" },
-    { value: "manager",     label: "หัวหน้าทีม",    desc: "อนุมัติคำขอ, จัดกะ, ดูข้อมูลลูกทีม + สิทธิ์พนักงาน",                        color: "bg-violet-100 text-violet-700 border-violet-200", icon: "👥" },
-    { value: "hr_admin",    label: "HR Admin",      desc: "จัดการพนักงาน, เงินเดือน, รายงาน, ตั้งค่าทั้งหมดในบริษัท",                   color: "bg-blue-100 text-blue-700 border-blue-200",       icon: "🛡️" },
-    { value: "super_admin", label: "Super Admin",   desc: "สิทธิ์สูงสุด — จัดการทุกบริษัท, ดูข้อมูลข้ามบริษัท",                         color: "bg-amber-100 text-amber-700 border-amber-200",    icon: "⚡" },
+    { value: "employee",        label: "พนักงาน",         desc: "เข้าถึงได้เฉพาะหน้าพนักงาน (เช็คอิน, ดูตาราง, ลา)",                        color: "bg-slate-100 text-slate-700 border-slate-200",    icon: "👤" },
+    { value: "manager",         label: "หัวหน้าทีม",       desc: "อนุมัติคำขอ, จัดกะ, ดูข้อมูลลูกทีม + สิทธิ์พนักงาน",                        color: "bg-violet-100 text-violet-700 border-violet-200", icon: "👥" },
+    { value: "equipment_admin", label: "ผู้ดูแลอุปกรณ์",   desc: "จัดการอุปกรณ์, สต๊อก, อนุมัติคำขอยืม-คืนอุปกรณ์",                           color: "bg-cyan-100 text-cyan-700 border-cyan-200",       icon: "📦" },
+    { value: "hr_admin",        label: "HR Admin",         desc: "จัดการพนักงาน, เงินเดือน, รายงาน, ตั้งค่าทั้งหมดในบริษัท",                   color: "bg-blue-100 text-blue-700 border-blue-200",       icon: "🛡️" },
+    { value: "super_admin",     label: "Super Admin",      desc: "สิทธิ์สูงสุด — จัดการทุกบริษัท, ดูข้อมูลข้ามบริษัท",                         color: "bg-amber-100 text-amber-700 border-amber-200",    icon: "⚡" },
   ]
 
   useEffect(() => {

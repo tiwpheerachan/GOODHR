@@ -3,7 +3,7 @@ import { usePathname } from "next/navigation"
 import Link from "next/link"
 import {
   Home, Clock, Calendar, CalendarDays, CalendarClock, User, Bell, Users, Shield, Target,
-  Megaphone, FileText, Grip, X, MessageCircle,
+  Megaphone, FileText, Grip, X, MessageCircle, Package,
 } from "lucide-react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useEffect, useState, useRef, useCallback } from "react"
@@ -25,6 +25,7 @@ const FLOAT_MENU = [
   { href: "/app/schedule",          icon: CalendarClock, label: "ตารางกะ",     color: "from-violet-500 to-purple-500" },
   { href: "/app/kpi",               icon: Target,        label: "KPI",         color: "from-amber-500 to-orange-500" },
   { href: "/app/probation-eval",   icon: Shield,        label: "ทดลองงาน",   color: "from-rose-500 to-pink-500" },
+  { href: "/app/equipment",         icon: Package,       label: "ยืมอุปกรณ์",  color: "from-cyan-500 to-teal-500" },
   { href: "/app/payslip",           icon: FileText,      label: "สลิป",        color: "from-emerald-500 to-green-500" },
 ]
 

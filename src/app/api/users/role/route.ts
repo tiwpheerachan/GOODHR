@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "employee_id and role required" })
   }
 
-  const validRoles = ["employee", "manager", "hr_admin", "super_admin"]
+  const validRoles = ["employee", "manager", "hr_admin", "super_admin", "equipment_admin"]
   if (!validRoles.includes(role)) {
     return NextResponse.json({ success: false, error: `Invalid role: ${role}` })
   }

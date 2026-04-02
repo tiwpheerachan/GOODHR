@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
 
   const supa = createServiceClient()
   const { data: userData } = await supa.from("users")
-    .select("role, employee:employees(company_id)")
+    .select("role")
     .eq("id", user.id).single()
 
   if (!userData || !["super_admin", "hr_admin"].includes(userData.role)) {
@@ -18,10 +18,10 @@ export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams
   const action = url.get("action") || ""
   const entityType = url.get("entity_type") || ""
-  const companyId = url.get("company_id") || (userData.employee as any)?.company_id
   const limit = Math.min(parseInt(url.get("limit") || "50"), 200)
   const offset = parseInt(url.get("offset") || "0")
 
+  // ไม่กรอง company_id → แสดง audit log ทุกคนทุกบริษัทรวมกัน
   let query = supa.from("audit_logs")
     .select("*")
     .order("created_at", { ascending: false })
@@ -29,7 +29,6 @@ export async function GET(req: NextRequest) {
 
   if (action) query = query.eq("action", action)
   if (entityType) query = query.eq("entity_type", entityType)
-  if (companyId && userData.role !== "super_admin") query = query.eq("company_id", companyId)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -38,7 +37,6 @@ export async function GET(req: NextRequest) {
   let countQuery = supa.from("audit_logs").select("id", { count: "exact", head: true })
   if (action) countQuery = countQuery.eq("action", action)
   if (entityType) countQuery = countQuery.eq("entity_type", entityType)
-  if (companyId && userData.role !== "super_admin") countQuery = countQuery.eq("company_id", companyId)
   const { count } = await countQuery
 
   return NextResponse.json({ logs: data ?? [], total: count ?? 0 })

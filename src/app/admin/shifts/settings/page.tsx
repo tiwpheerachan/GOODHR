@@ -21,6 +21,7 @@ const COLORS: Record<string, string> = {
   "10:00": "bg-cyan-50 text-cyan-700 border-cyan-200",
   "10:30": "bg-teal-50 text-teal-700 border-teal-200",
   "11:00": "bg-violet-50 text-violet-700 border-violet-200",
+  "11:30": "bg-purple-50 text-purple-700 border-purple-200",
   "12:00": "bg-amber-50 text-amber-700 border-amber-200",
   "12:30": "bg-orange-50 text-orange-700 border-orange-200",
   "13:00": "bg-rose-50 text-rose-700 border-rose-200",
@@ -28,9 +29,18 @@ const COLORS: Record<string, string> = {
   "16:00": "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200",
 }
 
+const FALLBACK_STYLES = [
+  "bg-lime-50 text-lime-700 border-lime-200",
+  "bg-sky-50 text-sky-700 border-sky-200",
+  "bg-pink-50 text-pink-700 border-pink-200",
+  "bg-yellow-50 text-yellow-700 border-yellow-200",
+]
+
 function getColor(start: string): string {
   const key = start?.substring(0, 5) ?? ""
-  return COLORS[key] ?? "bg-slate-50 text-slate-700 border-slate-200"
+  if (COLORS[key]) return COLORS[key]
+  const hash = key.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
+  return FALLBACK_STYLES[hash % FALLBACK_STYLES.length]
 }
 
 export default function ShiftSettingsPage() {

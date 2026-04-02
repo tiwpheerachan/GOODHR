@@ -9,13 +9,18 @@ const TH_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "�
 const SHIFT_COLORS: Record<string, string> = {
   "07:00": "bg-emerald-500",
   "09:00": "bg-blue-500", "10:00": "bg-cyan-500", "10:30": "bg-teal-500",
-  "11:00": "bg-purple-500", "12:00": "bg-amber-500", "12:30": "bg-orange-500",
+  "11:00": "bg-purple-500", "11:30": "bg-violet-500", "12:00": "bg-amber-500", "12:30": "bg-orange-500",
   "13:00": "bg-rose-500", "15:30": "bg-indigo-500", "16:00": "bg-fuchsia-500",
 }
 
+const FALLBACK_BG = ["bg-lime-500", "bg-sky-500", "bg-pink-500", "bg-yellow-500"]
+
 function getShiftColor(start: string | null) {
   if (!start) return "bg-slate-400"
-  return SHIFT_COLORS[start.substring(0, 5)] ?? "bg-slate-500"
+  const key = start.substring(0, 5)
+  if (SHIFT_COLORS[key]) return SHIFT_COLORS[key]
+  const hash = key.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
+  return FALLBACK_BG[hash % FALLBACK_BG.length]
 }
 
 interface DaySummary {

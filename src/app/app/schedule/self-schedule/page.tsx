@@ -62,9 +62,18 @@ const SHIFT_COLORS: Record<string, { bg: string; text: string }> = {
   "16": { bg: "bg-fuchsia-100", text: "text-fuchsia-700" },
 }
 
+const FALLBACK_SC = [
+  { bg: "bg-lime-100", text: "text-lime-700" },
+  { bg: "bg-sky-100", text: "text-sky-700" },
+  { bg: "bg-pink-100", text: "text-pink-700" },
+]
+
 function shiftColor(start: string | undefined) {
   if (!start) return { bg: "bg-slate-100", text: "text-slate-500" }
-  return SHIFT_COLORS[start.substring(0, 2)] ?? { bg: "bg-slate-100", text: "text-slate-600" }
+  const key = start.substring(0, 2)
+  if (SHIFT_COLORS[key]) return SHIFT_COLORS[key]
+  const hash = key.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
+  return FALLBACK_SC[hash % FALLBACK_SC.length]
 }
 
 export default function SelfSchedulePage() {
