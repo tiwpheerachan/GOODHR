@@ -130,8 +130,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase  = useRef(createClient()).current
   const emp       = user?.employee as any
   const role      = (user as any)?.role || ""
-  const isManager = ["manager","hr_admin","super_admin"].includes(role)
-  const isAdmin   = ["hr_admin","super_admin"].includes(role)
+  const isManager        = ["manager","hr_admin","super_admin"].includes(role)
+  const isAdmin          = ["hr_admin","super_admin"].includes(role)
+  const isEquipmentAdmin = ["equipment_admin","hr_admin","super_admin"].includes(role)
   const empId     = (user as any)?.employee_id ?? emp?.id
   const [unread, setUnread] = useState(0)
   const [unreadAnn, setUnreadAnn] = useState(0)
@@ -182,17 +183,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </Link>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {isAdmin ? (
+          {isAdmin && (
             <Link href="/admin/dashboard"
               className="flex items-center gap-1.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-[10px] font-black px-3 py-1.5 rounded-xl shadow-sm shadow-blue-200 hover:shadow-md hover:scale-105 transition-all active:scale-95">
               <Shield size={10}/><span>Admin</span>
             </Link>
-          ) : isManager ? (
+          )}
+          {!isAdmin && isManager && (
             <Link href="/manager/dashboard"
               className="flex items-center gap-1.5 bg-gradient-to-r from-violet-500 to-purple-500 text-white text-[10px] font-black px-3 py-1.5 rounded-xl shadow-sm shadow-violet-200 hover:shadow-md hover:scale-105 transition-all active:scale-95">
               <Users size={10}/><span>TL</span>
             </Link>
-          ) : null}
+          )}
+          {isEquipmentAdmin && (
+            <Link href="/equipment/dashboard"
+              className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-black px-3 py-1.5 rounded-xl shadow-sm shadow-amber-200 hover:shadow-md hover:scale-105 transition-all active:scale-95">
+              <Package size={10}/><span>อุปกรณ์</span>
+            </Link>
+          )}
           <Link href="/app/notifications" className="relative w-9 h-9 flex items-center justify-center rounded-2xl hover:bg-slate-100 transition-colors">
             <Bell size={18} className="text-slate-500"/>
             {unread > 0 && (
