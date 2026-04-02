@@ -54,13 +54,18 @@ export async function GET(req: NextRequest) {
       .eq("manager_id", managerId)
       .is("effective_to", null)
 
-    // เอาเฉพาะพนักงานที่ยังอยู่ในช่วงทดลองงาน (อายุงาน ≤ 121 วัน)
+    // เอาเฉพาะพนักงานที่ยังอยู่ในช่วงทดลองงาน
+    // เงื่อนไข: อายุงาน ≤ 150 วัน (เผื่อเลยกำหนดรอบ 3) AND ยังไม่ผ่านโปรฯ
+    // ถ้า employment_status = "probation" หรือ มี probation_end_date หรือ อายุงาน ≤ 121 วัน (ยังไม่ครบทดลอง)
     const allMembers = (history ?? []).map((h: any) => h.employee).filter(Boolean)
     const today = new Date()
     const members = allMembers.filter((m: any) => {
       if (!m.hire_date) return false
       const daysSinceHire = Math.ceil((today.getTime() - new Date(m.hire_date).getTime()) / 86400000)
-      return daysSinceHire <= 121 && (m.employment_status === "probation" || m.probation_end_date)
+      // แสดงถ้า: สถานะเป็น probation, หรือ มี probation_end_date, หรือ อายุงาน ≤ 150 วัน (ยังไม่เกินรอบ 3 + buffer)
+      if (m.employment_status === "probation") return true
+      if (m.probation_end_date) return daysSinceHire <= 150
+      return daysSinceHire <= 150
     })
 
     // ดึง evaluations ที่มีอยู่

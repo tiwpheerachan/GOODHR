@@ -22,6 +22,7 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
   const empId     = user?.employee_id ?? emp?.id
   const avatarUrl = emp?.avatar_url
   const [pendingCount, setPendingCount] = useState(0)
+  const [probationCount, setProbationCount] = useState(0)
 
   useEffect(() => {
     if (!empId) return
@@ -71,6 +72,25 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
       }
 
       setPendingCount((lv.count ?? 0) + (adj.count ?? 0) + (ot.count ?? 0) + (sc.count ?? 0) + resCount)
+
+      // ── นับจำนวนทดลองงานที่ต้องประเมิน ──
+      try {
+        const pRes = await fetch("/api/probation-evaluation?mode=manager")
+        const pData = await pRes.json()
+        const ROUND_DAYS: Record<number, number> = { 1: 60, 2: 90, 3: 119 }
+        const today = new Date().toISOString().split("T")[0]
+        let pCount = 0
+        for (const m of (pData.members ?? [])) {
+          const daysFromHire = Math.ceil((new Date(today).getTime() - new Date(m.hire_date).getTime()) / 86400000)
+          const empForms = (pData.forms ?? []).filter((f: any) => f.employee_id === m.id)
+          for (const round of [1, 2, 3]) {
+            const form = empForms.find((f: any) => f.round === round)
+            const dueDays = ROUND_DAYS[round]
+            if (daysFromHire >= dueDays - 14 && !form) pCount++
+          }
+        }
+        setProbationCount(pCount)
+      } catch {}
     }
     load()
     const iv = setInterval(load, 30_000)
@@ -134,6 +154,11 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
                 {label === "อนุมัติ" && pendingCount > 0 && (
                   <span className="absolute top-1.5 right-4 min-w-[15px] h-[15px] bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1">
                     {pendingCount}
+                  </span>
+                )}
+                {label === "ทดลองงาน" && probationCount > 0 && (
+                  <span className="absolute top-1.5 right-4 min-w-[15px] h-[15px] bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1">
+                    {probationCount}
                   </span>
                 )}
               </Link>

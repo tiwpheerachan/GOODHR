@@ -6,7 +6,7 @@ import { useLeaveBalance } from "@/lib/hooks/useLeave"
 import { formatTime } from "@/lib/utils/attendance"
 import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
-import { Clock, ChevronRight, CalendarDays, TrendingUp, AlertCircle, Banknote, ArrowRight, CheckCircle2, XCircle, FileText, Zap, Building2, Users } from "lucide-react"
+import { Clock, ChevronRight, CalendarDays, TrendingUp, AlertCircle, Banknote, ArrowRight, CheckCircle2, XCircle, FileText, Zap, Building2, Users, Shield, AlertTriangle } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
@@ -17,6 +17,8 @@ export default function DashboardPage() {
   const { balances } = useLeaveBalance(empId)
   const [pendingDates, setPendingDates] = useState<Set<string>>(new Set())
   const [netSalary, setNetSalary]       = useState<number | null>(null)
+  const [probationAlerts, setProbationAlerts] = useState<any[]>([])
+  const [probationLoading, setProbationLoading] = useState(true)
 
   useEffect(() => {
     if (!empId) return
@@ -26,6 +28,63 @@ export default function DashboardPage() {
     supabase.from("time_adjustment_requests")
       .select("work_date").eq("employee_id", empId).eq("status", "pending")
       .then(({ data }) => setPendingDates(new Set((data ?? []).map((r: any) => r.work_date))))
+    // ดึงข้อมูลทดลองงาน
+    fetch("/api/probation-evaluation?mode=manager")
+      .then(r => r.json())
+      .then(data => {
+        const ROUND_DAYS: Record<number, number> = { 1: 60, 2: 90, 3: 119 }
+        const today = new Date().toISOString().split("T")[0]
+        const alerts: any[] = []
+        for (const m of (data.members ?? [])) {
+          const daysFromHire = Math.ceil((new Date(today).getTime() - new Date(m.hire_date).getTime()) / 86400000)
+          const empForms = (data.forms ?? []).filter((f: any) => f.employee_id === m.id)
+
+          // หา round ที่ใกล้ที่สุดที่ต้องทำ
+          let nextRound: number | null = null
+          let nextStatus: "overdue" | "due_soon" | "upcoming" | null = null
+          for (const round of [1, 2, 3]) {
+            const form = empForms.find((f: any) => f.round === round)
+            if (form && (form.status === "approved" || form.status === "submitted")) continue // รอบนี้ทำแล้ว
+            const dueDays = ROUND_DAYS[round]
+            const opensAt = dueDays - 14
+            if (daysFromHire > dueDays && !form) {
+              nextRound = round
+              nextStatus = "overdue"
+              break // เลยกำหนด → ต้องทำรอบนี้ก่อน
+            } else if (daysFromHire >= opensAt && daysFromHire <= dueDays) {
+              nextRound = round
+              nextStatus = "due_soon"
+              break
+            } else if (daysFromHire < opensAt) {
+              nextRound = round
+              nextStatus = "upcoming"
+              break
+            }
+          }
+
+          alerts.push({
+            employee: m,
+            daysFromHire,
+            nextRound,
+            nextStatus,
+            nextDueDays: nextRound ? ROUND_DAYS[nextRound] : null,
+            daysLeft: nextRound ? ROUND_DAYS[nextRound] - daysFromHire : null,
+            forms: empForms,
+          })
+        }
+        // เรียง: เลยกำหนดก่อน → ใกล้ครบ → ยังไม่ถึง
+        const statusOrder = { overdue: 0, due_soon: 1, upcoming: 2 }
+        alerts.sort((a, b) => {
+          const sa = statusOrder[a.nextStatus as keyof typeof statusOrder] ?? 3
+          const sb = statusOrder[b.nextStatus as keyof typeof statusOrder] ?? 3
+          if (sa !== sb) return sa - sb
+          return (a.daysLeft ?? 999) - (b.daysLeft ?? 999)
+        })
+        setProbationAlerts(alerts)
+      })
+      .catch(() => {})
+      .finally(() => setProbationLoading(false))
+
     // เงินเดือนล่าสุด
     supabase.from("payroll_records")
       .select("net_salary, year, month")
@@ -154,6 +213,178 @@ export default function DashboardPage() {
             </div>
             <ArrowRight size={14} className="text-violet-400" />
           </Link>
+        )}
+
+        {/* ── Probation Alerts — Dark Sparkle Theme V2 ──── */}
+        {probationAlerts.length > 0 && (
+          <div className="rounded-2xl overflow-hidden shadow-lg shadow-slate-900/20 relative" style={{ background: "linear-gradient(145deg, #0f172a 0%, #1a1f3a 40%, #1e293b 100%)" }}>
+            <style>{`
+              @keyframes sparkle { 0%,100% { opacity:0.15; transform:scale(0.6); } 50% { opacity:1; transform:scale(1.3); } }
+              @keyframes pulse-glow { 0%,100% { box-shadow:0 0 8px rgba(139,92,246,0.3); } 50% { box-shadow:0 0 16px rgba(139,92,246,0.6), 0 0 32px rgba(139,92,246,0.2); } }
+              .pk-star { position:absolute; border-radius:50%; background:white; pointer-events:none; }
+              .pk-star::after { content:''; position:absolute; inset:-2px; background:radial-gradient(circle,rgba(255,255,255,0.6) 0%,transparent 70%); border-radius:50%; }
+              .pk-s1{width:2px;height:2px;top:12%;left:8%;animation:sparkle 2.4s ease-in-out infinite}
+              .pk-s2{width:3px;height:3px;top:8%;left:32%;animation:sparkle 3s ease-in-out .4s infinite}
+              .pk-s3{width:2px;height:2px;top:5%;right:22%;animation:sparkle 2s ease-in-out .8s infinite}
+              .pk-s4{width:2px;height:2px;top:18%;right:10%;animation:sparkle 2.6s ease-in-out 1.2s infinite}
+              .pk-s5{width:3px;height:3px;top:14%;left:55%;animation:sparkle 3.4s ease-in-out .2s infinite}
+              .pk-s6{width:2px;height:2px;top:6%;left:78%;animation:sparkle 2.8s ease-in-out .6s infinite}
+              .pk-bar { background:rgba(255,255,255,0.08); }
+              .pk-fill { background:linear-gradient(90deg,#818cf8,#a78bfa,#c084fc,#f0abfc); box-shadow:0 0 10px rgba(167,139,250,0.4); }
+              .pk-fill-warn { background:linear-gradient(90deg,#fbbf24,#f59e0b,#ef4444); box-shadow:0 0 10px rgba(245,158,11,0.4); }
+              .pk-fill-danger { background:linear-gradient(90deg,#f87171,#ef4444,#dc2626); box-shadow:0 0 12px rgba(239,68,68,0.5); }
+            `}</style>
+
+            {/* Stars */}
+            <div className="pk-star pk-s1"/><div className="pk-star pk-s2"/><div className="pk-star pk-s3"/>
+            <div className="pk-star pk-s4"/><div className="pk-star pk-s5"/><div className="pk-star pk-s6"/>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 pt-4 pb-2 relative z-10">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "linear-gradient(135deg,#7c3aed,#6366f1)", boxShadow: "0 0 12px rgba(124,58,237,0.4)" }}>
+                  <Shield size={14} className="text-white" />
+                </div>
+                <div>
+                  <p className="text-[13px] font-black text-white leading-none">ทดลองงาน</p>
+                  <p className="text-[10px] mt-0.5" style={{ color: "rgba(196,181,253,0.6)" }}>{probationAlerts.length} คนในทีม</p>
+                </div>
+              </div>
+              <Link href="/manager/probation-eval" className="text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all hover:brightness-125" style={{ background: "rgba(167,139,250,0.15)", color: "#c4b5fd", border: "1px solid rgba(167,139,250,0.2)" }}>ดูทั้งหมด →</Link>
+            </div>
+
+            {/* Cards */}
+            <div className="px-4 pb-4 space-y-2.5 relative z-10">
+              {probationAlerts.slice(0, 5).map((a, idx) => {
+                const TOTAL_DAYS = 119
+                const pct = Math.min((a.daysFromHire / TOTAL_DAYS) * 100, 100)
+                const daysRemain = Math.max(0, TOTAL_DAYS - a.daysFromHire)
+                const barClass = pct >= 100 ? "pk-fill-danger" : pct >= 75 ? "pk-fill-warn" : "pk-fill"
+                const ROUNDS = [
+                  { round: 1, day: 60, label: "60d" },
+                  { round: 2, day: 90, label: "90d" },
+                  { round: 3, day: 119, label: "119d" },
+                ]
+
+                return (
+                  <Link key={`${a.employee.id}-${idx}`}
+                    href={`/manager/probation-eval/${a.employee.id}${a.nextRound ? `?round=${a.nextRound}` : ""}`}
+                    className="block rounded-xl p-3.5 active:scale-[0.98] transition-all hover:brightness-110"
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
+
+                    {/* Row 1: avatar + name + countdown */}
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center shrink-0" style={{ background: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.15)" }}>
+                        {a.employee.avatar_url
+                          ? <img src={a.employee.avatar_url} alt="" className="w-full h-full object-cover" />
+                          : <span style={{ color: "#c4b5fd" }} className="text-sm font-bold">{a.employee.first_name_th?.[0]}</span>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-bold text-white truncate">{a.employee.first_name_th} {a.employee.last_name_th}</p>
+                        <p className="text-[10px] truncate" style={{ color: "rgba(148,163,184,0.7)" }}>{a.employee.position?.name}</p>
+                      </div>
+                      <div className="text-center shrink-0 px-3 py-1.5 rounded-xl" style={{
+                        background: daysRemain === 0 ? "rgba(239,68,68,0.15)" : daysRemain <= 29 ? "rgba(245,158,11,0.15)" : "rgba(139,92,246,0.12)",
+                        border: `1px solid ${daysRemain === 0 ? "rgba(239,68,68,0.25)" : daysRemain <= 29 ? "rgba(245,158,11,0.25)" : "rgba(139,92,246,0.2)"}`,
+                        animation: daysRemain <= 14 ? "pulse-glow 2s ease-in-out infinite" : "none"
+                      }}>
+                        <p className="text-lg font-black leading-none tabular-nums" style={{ color: daysRemain === 0 ? "#fca5a5" : daysRemain <= 29 ? "#fcd34d" : "#c4b5fd" }}>{daysRemain}</p>
+                        <p className="text-[7px] font-bold mt-0.5" style={{ color: "rgba(148,163,184,0.5)" }}>วันเหลือ</p>
+                      </div>
+                    </div>
+
+                    {/* Row 2: Progress bar with round markers */}
+                    <div className="relative mb-1">
+                      {/* Bar track */}
+                      <div className="pk-bar h-[10px] rounded-full overflow-hidden relative">
+                        <div className={`h-full rounded-full ${barClass} transition-all duration-700`} style={{ width: `${pct}%` }}>
+                          <div className="h-[4px] rounded-full mx-1 mt-[2px]" style={{ background: "linear-gradient(90deg,transparent,rgba(255,255,255,0.35),transparent)" }} />
+                        </div>
+                      </div>
+
+                      {/* Round dot markers ON the bar */}
+                      {ROUNDS.map(r => {
+                        const pos = (r.day / TOTAL_DAYS) * 100
+                        const form = (a.forms ?? []).find((f: any) => f.round === r.round)
+                        const done = form && (form.status === "approved" || form.status === "submitted")
+                        const isOver = a.daysFromHire > r.day && !form
+                        const isCurrent = a.daysFromHire >= r.day - 14 && a.daysFromHire <= r.day && !form
+                        const dotBg = done ? "#34d399" : isOver ? "#f87171" : isCurrent ? "#fbbf24" : "rgba(148,163,184,0.35)"
+                        const dotShadow = done ? "0 0 6px rgba(52,211,153,0.6)" : isOver ? "0 0 6px rgba(248,113,113,0.6)" : isCurrent ? "0 0 6px rgba(251,191,36,0.5)" : "none"
+                        return (
+                          <div key={r.round} className="absolute top-1/2" style={{ left: `${pos}%`, transform: "translate(-50%,-50%)" }}>
+                            <div className={`w-4 h-4 rounded-full flex items-center justify-center ${isOver && !done ? "animate-pulse" : ""}`}
+                              style={{ background: dotBg, boxShadow: dotShadow, border: "2px solid rgba(15,23,42,0.8)" }}>
+                              {done && <CheckCircle2 size={8} style={{ color: "#064e3b" }} />}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Row 3: Round status cards */}
+                    <div className="grid grid-cols-3 gap-1.5 mt-2">
+                      {ROUNDS.map(r => {
+                        const form = (a.forms ?? []).find((f: any) => f.round === r.round)
+                        const done = form && (form.status === "approved" || form.status === "submitted")
+                        const isDraft = form && form.status === "draft"
+                        const isRejected = form && form.status === "rejected"
+                        const isOver = a.daysFromHire > r.day && !form
+                        const isCurrent = a.daysFromHire >= r.day - 14 && a.daysFromHire <= r.day && !form
+                        const isUpcoming = a.daysFromHire < r.day - 14
+                        const daysUntil = r.day - a.daysFromHire
+
+                        // Card style
+                        const cardBg = done ? "rgba(52,211,153,0.08)" : isOver ? "rgba(248,113,113,0.1)" : isCurrent ? "rgba(251,191,36,0.08)" : "rgba(148,163,184,0.04)"
+                        const cardBorder = done ? "rgba(52,211,153,0.2)" : isOver ? "rgba(248,113,113,0.2)" : isCurrent ? "rgba(251,191,36,0.2)" : "rgba(148,163,184,0.08)"
+                        const labelColor = done ? "#6ee7b7" : isOver ? "#fca5a5" : isCurrent ? "#fcd34d" : "rgba(148,163,184,0.5)"
+
+                        return (
+                          <div key={r.round} className="rounded-lg p-2 text-center" style={{ background: cardBg, border: `1px solid ${cardBorder}` }}>
+                            {/* Round label */}
+                            <p className="text-[10px] font-black tracking-wide" style={{ color: labelColor }}>R{r.round}</p>
+
+                            {/* Status indicator */}
+                            {done ? (
+                              <div className="flex items-center justify-center gap-0.5 mt-1">
+                                <CheckCircle2 size={9} style={{ color: "#34d399" }} />
+                                <span className="text-[8px] font-bold" style={{ color: "#6ee7b7" }}>ประเมินแล้ว</span>
+                              </div>
+                            ) : isDraft ? (
+                              <p className="text-[8px] font-bold mt-1" style={{ color: "#fcd34d" }}>ร่างอยู่</p>
+                            ) : isRejected ? (
+                              <p className="text-[8px] font-bold mt-1" style={{ color: "#fca5a5" }}>ส่งคืนแก้ไข</p>
+                            ) : isOver ? (
+                              <p className="text-[8px] font-bold mt-1 animate-pulse" style={{ color: "#fca5a5" }}>เลยกำหนด!</p>
+                            ) : isCurrent ? (
+                              <p className="text-[8px] font-bold mt-1" style={{ color: "#fcd34d" }}>ถึงเวลาแล้ว</p>
+                            ) : (
+                              <p className="text-[8px] font-bold mt-1" style={{ color: "rgba(148,163,184,0.4)" }}>รอ</p>
+                            )}
+
+                            {/* Days until this round */}
+                            {!done && daysUntil > 0 && (
+                              <p className="text-[8px] font-bold mt-0.5" style={{ color: isCurrent ? "rgba(251,191,36,0.7)" : "rgba(148,163,184,0.35)" }}>
+                                อีก {daysUntil} วัน
+                              </p>
+                            )}
+                            {done && form?.grade && (
+                              <span className="inline-block mt-1 text-[9px] font-black px-1.5 py-0.5 rounded" style={{
+                                background: form.grade === "A" ? "rgba(52,211,153,0.15)" : form.grade === "B" ? "rgba(96,165,250,0.15)" : form.grade === "C" ? "rgba(251,191,36,0.15)" : "rgba(248,113,113,0.15)",
+                                color: form.grade === "A" ? "#6ee7b7" : form.grade === "B" ? "#93c5fd" : form.grade === "C" ? "#fcd34d" : "#fca5a5"
+                              }}>
+                                เกรด {form.grade}
+                              </span>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
         )}
 
         {/* ── Stats ─────────────────────────────────────────── */}
