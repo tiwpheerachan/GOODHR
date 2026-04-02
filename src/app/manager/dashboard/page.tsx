@@ -261,9 +261,9 @@ export default function DashboardPage() {
                 const daysRemain = Math.max(0, TOTAL_DAYS - a.daysFromHire)
                 const barClass = pct >= 100 ? "pk-fill-danger" : pct >= 75 ? "pk-fill-warn" : "pk-fill"
                 const ROUNDS = [
-                  { round: 1, day: 60, label: "60d" },
-                  { round: 2, day: 90, label: "90d" },
-                  { round: 3, day: 119, label: "119d" },
+                  { round: 1, day: 60, label: "ครั้งที่ 1" },
+                  { round: 2, day: 90, label: "ครั้งที่ 2" },
+                  { round: 3, day: 119, label: "ครั้งที่ 3" },
                 ]
 
                 return (
@@ -342,7 +342,7 @@ export default function DashboardPage() {
                         return (
                           <div key={r.round} className="rounded-lg p-2 text-center" style={{ background: cardBg, border: `1px solid ${cardBorder}` }}>
                             {/* Round label */}
-                            <p className="text-[10px] font-black tracking-wide" style={{ color: labelColor }}>R{r.round}</p>
+                            <p className="text-[10px] font-black tracking-wide" style={{ color: labelColor }}>{r.label}</p>
 
                             {/* Status indicator */}
                             {done ? (
