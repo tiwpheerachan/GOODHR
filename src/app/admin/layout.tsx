@@ -27,7 +27,7 @@ const SIDEBAR = [
   { href: "/equipment/dashboard",       icon: Package,         label: "อุปกรณ์",        badge: null as string|null },
   { href: "/admin/payroll",              icon: CreditCard,      label: "เงินเดือน",      badge: null as string|null },
   { href: "/admin/payroll-rules",        icon: BookOpen,        label: "สูตรคำนวณ",     badge: null as string|null },
-  { href: "/admin/audit-logs",            icon: ScrollText,      label: "Audit Log",      badge: null as string|null },
+  { href: "/admin/audit-logs",            icon: ScrollText,      label: "บันทึกกิจกรรม",  badge: null as string|null },
   { href: "/admin/settings",             icon: Settings,        label: "ตั้งค่า",        badge: null as string|null },
 ]
 

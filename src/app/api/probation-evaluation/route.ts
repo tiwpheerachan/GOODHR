@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
+import { logAudit } from "@/lib/auditLog"
 
 function calcGrade(score: number): string {
   if (score >= 91) return "A"
@@ -163,6 +164,19 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // ดึงชื่อ actor
+    const { data: actorEmpApprove } = dbUser.employee_id
+      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      : { data: null }
+    const actorNameApprove = actorEmpApprove ? `${actorEmpApprove.first_name_th} ${actorEmpApprove.last_name_th}` : "Admin"
+
+    logAudit(svc, {
+      actorId: user.id, actorName: actorNameApprove, action: "approved_probation_eval",
+      entityType: "probation_evaluation", entityId: form_id,
+      description: `อนุมัติประเมินทดลองงาน ${empName} ${ROUND_LABELS[form.round]} — เกรด ${form.grade} โดย ${actorNameApprove}`,
+      companyId: form.company_id,
+    })
+
     return NextResponse.json({ success: true })
   }
 
@@ -199,6 +213,18 @@ export async function POST(req: NextRequest) {
         ref_table: "probation_evaluations", ref_id: form_id, is_read: false,
       })
     }
+
+    const { data: actorEmpReject } = dbUser.employee_id
+      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      : { data: null }
+    const actorNameReject = actorEmpReject ? `${actorEmpReject.first_name_th} ${actorEmpReject.last_name_th}` : "Admin"
+
+    logAudit(svc, {
+      actorId: user.id, actorName: actorNameReject, action: "rejected_probation_eval",
+      entityType: "probation_evaluation", entityId: form_id,
+      description: `ส่งคืนประเมินทดลองงาน ${empName} ${ROUND_LABELS[form.round]}${rejection_note ? ` — ${rejection_note}` : ""} โดย ${actorNameReject}`,
+      companyId: form.company_id,
+    })
 
     return NextResponse.json({ success: true })
   }
@@ -316,6 +342,22 @@ export async function POST(req: NextRequest) {
         })
       }
     }
+  }
+
+  if (action === "submit") {
+    const { data: empInfo2 } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", employee_id).single()
+    const empN = empInfo2 ? `${empInfo2.first_name_th} ${empInfo2.last_name_th}` : "พนักงาน"
+    const { data: actorEmpSubmit } = dbUser.employee_id
+      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      : { data: null }
+    const actorNameSubmit = actorEmpSubmit ? `${actorEmpSubmit.first_name_th} ${actorEmpSubmit.last_name_th}` : "หัวหน้า"
+
+    logAudit(svc, {
+      actorId: user.id, actorName: actorNameSubmit, action: "submit_probation_eval",
+      entityType: "probation_evaluation", entityId: formId!,
+      description: `ส่งประเมินทดลองงาน ${empN} ${ROUND_LABELS[round]} — เกรด ${grade} (${totalScore}%) โดย ${actorNameSubmit}`,
+      companyId: emp!.company_id,
+    })
   }
 
   return NextResponse.json({ success: true, form_id: formId, total_score: totalScore, grade })

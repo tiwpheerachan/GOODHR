@@ -1,5 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { logAudit } from "@/lib/auditLog"
 
 // GET — ดึงรายการกะทั้งหมดของบริษัท
 export async function GET() {
@@ -57,6 +58,18 @@ export async function POST(request: Request) {
       .eq("id", id)
       .eq("company_id", companyId)
     if (error) return NextResponse.json({ success: false, error: error.message })
+
+    // ดึงชื่อ actor
+    const { data: actorEmpShiftU } = userData?.employee_id
+      ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", userData.employee_id).single()
+      : { data: null }
+    const actorNameShiftU = actorEmpShiftU ? `${actorEmpShiftU.first_name_th} ${actorEmpShiftU.last_name_th}` : "Admin"
+    logAudit(supa, {
+      actorId: user.id, actorName: actorNameShiftU, action: "update_shift_template",
+      entityType: "shift_template", entityId: id,
+      description: `แก้ไขกะ "${name}" (${work_start}–${work_end}) โดย ${actorNameShiftU}`,
+      companyId,
+    })
   } else {
     // Create new
     const { error } = await supa
@@ -72,6 +85,17 @@ export async function POST(request: Request) {
         ot_start_after_minutes: 0,
       })
     if (error) return NextResponse.json({ success: false, error: error.message })
+
+    const { data: actorEmpShiftC } = userData?.employee_id
+      ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", userData.employee_id).single()
+      : { data: null }
+    const actorNameShiftC = actorEmpShiftC ? `${actorEmpShiftC.first_name_th} ${actorEmpShiftC.last_name_th}` : "Admin"
+    logAudit(supa, {
+      actorId: user.id, actorName: actorNameShiftC, action: "create_shift_template",
+      entityType: "shift_template",
+      description: `สร้างกะใหม่ "${name}" (${work_start}–${work_end}) โดย ${actorNameShiftC}`,
+      companyId,
+    })
   }
 
   return NextResponse.json({ success: true })

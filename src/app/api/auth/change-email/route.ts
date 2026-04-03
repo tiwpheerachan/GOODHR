@@ -2,6 +2,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import type { User } from "@supabase/supabase-js"
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { logAudit } from "@/lib/auditLog"
 
 // ── helper: ดึง auth users ทั้งหมด (pagination) ──
 async function getAllAuthUsers(supa: SupabaseClient): Promise<User[]> {
@@ -193,6 +194,25 @@ export async function POST(req: Request) {
   if (targetEmployeeId) {
     await supa.from("employees").update({ email: normalizedEmail }).eq("id", targetEmployeeId)
   }
+
+  // Audit log
+  const { data: empInfo } = await supa.from("employees").select("first_name_th, last_name_th, company_id").eq("id", targetEmployeeId).maybeSingle()
+  const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : targetEmployeeId
+  // ดึงชื่อ actor (admin ที่ทำรายการ)
+  const { data: actorUser } = await supa.from("users").select("employee_id").eq("id", user.id).single()
+  const { data: actorEmpInfo } = actorUser?.employee_id
+    ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", actorUser.employee_id).single()
+    : { data: null }
+  const actorName = actorEmpInfo ? `${actorEmpInfo.first_name_th} ${actorEmpInfo.last_name_th}` : "Admin"
+  logAudit(supa, {
+    actorId: user.id, actorName,
+    action: "change_email",
+    entityType: "employee",
+    entityId: targetEmployeeId,
+    description: `เปลี่ยนอีเมลล็อกอิน ${empName}: ${oldEmail} → ${normalizedEmail} โดย ${actorName}`,
+    metadata: { changes: { email: { old: oldEmail, new: normalizedEmail } } },
+    companyId: empInfo?.company_id,
+  })
 
   return NextResponse.json({
     success: true,

@@ -129,6 +129,15 @@ export async function PATCH(req: NextRequest) {
 
     // If supervisor changed, update employee_manager_history too
     if (payload.supervisor_id !== undefined) {
+      // ดึงข้อมูลหัวหน้าเก่า
+      const { data: oldHistory } = await supa.from("employee_manager_history")
+        .select("manager_id, manager:employees!manager_id(first_name_th, last_name_th)")
+        .eq("employee_id", employee_id)
+        .is("effective_to", null)
+        .maybeSingle()
+      const oldManager = oldHistory?.manager as any
+      const oldManagerName = oldManager ? `${oldManager.first_name_th} ${oldManager.last_name_th}` : "ไม่มี"
+
       // Close old records
       await supa.from("employee_manager_history")
         .update({ effective_to: new Date().toISOString().split("T")[0] })
@@ -143,14 +152,31 @@ export async function PATCH(req: NextRequest) {
           effective_from: new Date().toISOString().split("T")[0],
         })
       }
-    }
 
-    // Audit log
-    logEmployeeChange(supa, {
-      actorId, actorName, action: payload.supervisor_id !== undefined ? "update_supervisor" : "update",
-      employeeId: employee_id, companyId: actorEmp?.company_id,
-      changes: Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, { old: null, new: v }])),
-    })
+      // ดึงชื่อหัวหน้าใหม่ + ชื่อพนักงาน สำหรับ audit log
+      const { data: newManager } = payload.supervisor_id
+        ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", payload.supervisor_id).single()
+        : { data: null }
+      const newManagerName = newManager ? `${newManager.first_name_th} ${newManager.last_name_th}` : "ไม่มี"
+      const { data: empData } = await supa.from("employees").select("first_name_th, last_name_th").eq("id", employee_id).single()
+      const empName = empData ? `${empData.first_name_th} ${empData.last_name_th}` : employee_id
+
+      logEmployeeChange(supa, {
+        actorId, actorName, action: "update_supervisor",
+        employeeId: employee_id, employeeName: empName, companyId: actorEmp?.company_id,
+        changes: { supervisor: { old: oldManagerName, new: newManagerName } },
+      })
+    } else {
+      // Audit log สำหรับการแก้ไขอื่นๆ
+      const { data: empData } = await supa.from("employees").select("first_name_th, last_name_th").eq("id", employee_id).single()
+      const empName = empData ? `${empData.first_name_th} ${empData.last_name_th}` : employee_id
+
+      logEmployeeChange(supa, {
+        actorId, actorName, action: "update",
+        employeeId: employee_id, employeeName: empName, companyId: actorEmp?.company_id,
+        changes: Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, { old: null, new: v }])),
+      })
+    }
 
     return NextResponse.json({ success: true })
   }

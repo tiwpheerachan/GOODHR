@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
+import { logAudit } from "@/lib/auditLog"
 
 const REACTIONS = ["like", "love", "laugh", "wow", "sad"] as const
 
@@ -129,6 +130,15 @@ export async function POST(req: NextRequest) {
     }).select("id").single()
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const { data: actorEmpAnnC } = userData?.employee_id
+      ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", userData.employee_id).single()
+      : { data: null }
+    const actorNameAnnC = actorEmpAnnC ? `${actorEmpAnnC.first_name_th} ${actorEmpAnnC.last_name_th}` : "Admin"
+    logAudit(supa, {
+      actorId: user.id, actorName: actorNameAnnC, action: "create_announcement",
+      entityType: "announcement", entityId: data.id,
+      description: `สร้างประกาศ "${title}" โดย ${actorNameAnnC}`,
+    })
     return NextResponse.json({ success: true, id: data.id })
   }
 
@@ -144,6 +154,15 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     }).eq("id", id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const { data: actorEmpAnnU } = userData?.employee_id
+      ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", userData.employee_id).single()
+      : { data: null }
+    const actorNameAnnU = actorEmpAnnU ? `${actorEmpAnnU.first_name_th} ${actorEmpAnnU.last_name_th}` : "Admin"
+    logAudit(supa, {
+      actorId: user.id, actorName: actorNameAnnU, action: "update_announcement",
+      entityType: "announcement", entityId: id,
+      description: `แก้ไขประกาศ "${title}" โดย ${actorNameAnnU}`,
+    })
     return NextResponse.json({ success: true })
   }
 
@@ -152,6 +171,15 @@ export async function POST(req: NextRequest) {
     if (!isAdmin) return NextResponse.json({ error: "Admin only" }, { status: 403 })
     const { error } = await supa.from("announcements").delete().eq("id", body.id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const { data: actorEmpAnnD } = userData?.employee_id
+      ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", userData.employee_id).single()
+      : { data: null }
+    const actorNameAnnD = actorEmpAnnD ? `${actorEmpAnnD.first_name_th} ${actorEmpAnnD.last_name_th}` : "Admin"
+    logAudit(supa, {
+      actorId: user.id, actorName: actorNameAnnD, action: "delete_announcement",
+      entityType: "announcement", entityId: body.id,
+      description: `ลบประกาศ โดย ${actorNameAnnD}`,
+    })
     return NextResponse.json({ success: true })
   }
 

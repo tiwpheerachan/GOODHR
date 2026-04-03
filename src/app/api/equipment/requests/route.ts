@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
+import { logAudit } from "@/lib/auditLog"
 
 const ADMIN_ROLES = ["super_admin", "hr_admin", "equipment_admin"]
 
@@ -140,6 +141,14 @@ export async function POST(req: NextRequest) {
       body: `คำขอยืมของคุณได้รับอนุมัติแล้ว กรุณามารับอุปกรณ์`,
       ref_table: "equipment_requests", ref_id: request_id, is_read: false,
     })
+    const actorEmpEq = dbUser.employee as any
+    const actorNameEq = actorEmpEq ? `${actorEmpEq.first_name_th} ${actorEmpEq.last_name_th}` : "Admin"
+    logAudit(svc, {
+      actorId: user.id, actorName: actorNameEq, action: "approved_equipment",
+      entityType: "equipment_request", entityId: request_id,
+      description: `อนุมัติคำขอยืม ${itemInfo?.name || "อุปกรณ์"} จำนวน ${req_data.qty} โดย ${actorNameEq}`,
+      companyId,
+    })
     return NextResponse.json({ success: true })
   }
 
@@ -165,6 +174,14 @@ export async function POST(req: NextRequest) {
       title: `คำขอยืม ${itemInfo?.name || "อุปกรณ์"} ไม่ได้รับอนุมัติ`,
       body: reject_reason ? `เหตุผล: ${reject_reason}` : "คำขอยืมของคุณไม่ได้รับอนุมัติ",
       ref_table: "equipment_requests", ref_id: request_id, is_read: false,
+    })
+    const actorEmpEqR = dbUser.employee as any
+    const actorNameEqR = actorEmpEqR ? `${actorEmpEqR.first_name_th} ${actorEmpEqR.last_name_th}` : "Admin"
+    logAudit(svc, {
+      actorId: user.id, actorName: actorNameEqR, action: "rejected_equipment",
+      entityType: "equipment_request", entityId: request_id,
+      description: `ปฏิเสธคำขอยืม ${itemInfo?.name || "อุปกรณ์"}${reject_reason ? ` — ${reject_reason}` : ""} โดย ${actorNameEqR}`,
+      companyId,
     })
     return NextResponse.json({ success: true })
   }

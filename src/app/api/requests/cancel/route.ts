@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
+import { logAudit } from "@/lib/auditLog"
 
 const TABLES: Record<string, string> = {
   leave: "leave_requests",
@@ -49,6 +50,16 @@ export async function POST(req: NextRequest) {
       .eq("id", request_id)
 
     if (error) return NextResponse.json({ error: `update review_note: ${error.message}` }, { status: 500 })
+    // ดึงชื่อ actor
+    const { data: actorEmpCancel } = userData?.employee_id
+      ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", userData.employee_id).single()
+      : { data: null }
+    const actorNameCancel = actorEmpCancel ? `${actorEmpCancel.first_name_th} ${actorEmpCancel.last_name_th}` : "พนักงาน"
+    logAudit(supa, {
+      actorId: user.id, actorName: actorNameCancel, action: "request_cancel",
+      entityType: `${request_type}_request`, entityId: request_id,
+      description: `ขอยกเลิก${request_type === "leave" ? "คำขอลา" : request_type === "overtime" ? "คำขอ OT" : "คำขอแก้เวลา"}${reason ? ` — ${reason}` : ""} โดย ${actorNameCancel}`,
+    })
     return NextResponse.json({ success: true, message: "ส่งคำขอยกเลิกไป HR แล้ว" })
   }
 
@@ -88,6 +99,15 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
+    const { data: actorEmpAppCancel } = userData?.employee_id
+      ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", userData.employee_id).single()
+      : { data: null }
+    const actorNameAppCancel = actorEmpAppCancel ? `${actorEmpAppCancel.first_name_th} ${actorEmpAppCancel.last_name_th}` : "HR"
+    logAudit(supa, {
+      actorId: user.id, actorName: actorNameAppCancel, action: "approve_cancel_request",
+      entityType: `${request_type}_request`, entityId: request_id,
+      description: `HR อนุมัติยกเลิก${request_type === "leave" ? "คำขอลา" : request_type === "overtime" ? "คำขอ OT" : "คำขอแก้เวลา"} โดย ${actorNameAppCancel}`,
+    })
     return NextResponse.json({ success: true, message: "ยกเลิกคำขอแล้ว" })
   }
 
@@ -119,6 +139,16 @@ export async function POST(req: NextRequest) {
       .eq("id", request_id)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    const { data: actorEmpForce } = userData?.employee_id
+      ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", userData.employee_id).single()
+      : { data: null }
+    const actorNameForce = actorEmpForce ? `${actorEmpForce.first_name_th} ${actorEmpForce.last_name_th}` : "HR"
+    logAudit(supa, {
+      actorId: user.id, actorName: actorNameForce, action: "force_cancel_request",
+      entityType: `${request_type}_request`, entityId: request_id,
+      description: `HR ยกเลิกโดยตรง${request_type === "leave" ? "คำขอลา" : request_type === "overtime" ? "คำขอ OT" : "คำขอแก้เวลา"}${reason ? ` — ${reason}` : ""} โดย ${actorNameForce}`,
+    })
 
     if (request_type === "leave" && reqData?.leave_type_id && reqData?.total_days && reqData?.status === "approved") {
       try {

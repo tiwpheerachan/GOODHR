@@ -1,5 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { logAudit } from "@/lib/auditLog"
 
 // ── GET: ดึงรายการ offsite check-in requests (สำหรับ HR/Admin) ────────
 export async function GET(request: Request) {
@@ -146,6 +147,23 @@ export async function PATCH(request: Request) {
       .update(updateFields)
       .eq("id", req.attendance_id)
   }
+
+  // Audit log
+  const { data: empInfo } = await supa.from("employees").select("first_name_th, last_name_th").eq("id", req.employee_id).maybeSingle()
+  const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : ""
+  const actionLabel = action === "approve" ? "อนุมัติ" : "ปฏิเสธ"
+  // ดึงชื่อ actor
+  const { data: actorUserOffsite } = await supa.from("users").select("employee_id").eq("id", user.id).single()
+  const { data: actorEmpOffsite } = actorUserOffsite?.employee_id
+    ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", actorUserOffsite.employee_id).single()
+    : { data: null }
+  const actorNameOffsite = actorEmpOffsite ? `${actorEmpOffsite.first_name_th} ${actorEmpOffsite.last_name_th}` : "Admin"
+  logAudit(supa, {
+    actorId: user.id, actorName: actorNameOffsite, action: `${newStatus}_offsite_checkin`,
+    entityType: "offsite_checkin_request", entityId: request_id,
+    description: `${actionLabel}เช็คอินนอกสถานที่ ${empName} โดย ${actorNameOffsite}`,
+    companyId: req.company_id,
+  })
 
   return NextResponse.json({
     success: true,

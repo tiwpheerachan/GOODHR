@@ -1,5 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextRequest, NextResponse } from "next/server"
+import { logAudit } from "@/lib/auditLog"
 
 // ── GET: ดึงรายการเบิกค่าเดินทาง ──────────────────────────────────
 // ?employee_id=xxx  → รายการของพนักงานคนนั้น (employee view)
@@ -171,5 +172,22 @@ export async function PATCH(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Audit log
+  const { data: empInfo } = await supa.from("employees").select("first_name_th, last_name_th").eq("id", data.employee_id).maybeSingle()
+  const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : ""
+  const actionLabel = newStatus === "approved" ? "อนุมัติ" : "ปฏิเสธ"
+  // ดึงชื่อ actor
+  const { data: actorEmpTC } = userData.employee_id
+    ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", userData.employee_id).single()
+    : { data: null }
+  const actorNameTC = actorEmpTC ? `${actorEmpTC.first_name_th} ${actorEmpTC.last_name_th}` : "Admin"
+  logAudit(supa, {
+    actorId: user.id, actorName: actorNameTC, action: `${newStatus}_transport_claim`,
+    entityType: "transport_claim", entityId: id,
+    description: `${actionLabel}เบิกค่าเดินทาง ${empName} ฿${data.amount}${reject_reason ? ` — ${reject_reason}` : ""} โดย ${actorNameTC}`,
+    companyId: data.company_id,
+  })
+
   return NextResponse.json({ data })
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
+import { logAudit } from "@/lib/auditLog"
 
 function calcGrade(score: number): string {
   if (score >= 91) return "A"
@@ -153,6 +154,18 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    const { data: actorEmpKpiA } = dbUser.employee_id
+      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      : { data: null }
+    const actorNameKpiA = actorEmpKpiA ? `${actorEmpKpiA.first_name_th} ${actorEmpKpiA.last_name_th}` : "Admin"
+
+    logAudit(svc, {
+      actorId: user.id, actorName: actorNameKpiA, action: "approved_kpi",
+      entityType: "kpi_form", entityId: form_id,
+      description: `อนุมัติ KPI ${empName} ${MONTH_NAMES[form.month]} ${form.year} — เกรด ${form.grade} โดย ${actorNameKpiA}`,
+      companyId: form.company_id,
+    })
+
     return NextResponse.json({ success: true })
   }
 
@@ -191,6 +204,18 @@ export async function POST(req: NextRequest) {
         ref_table: "kpi_forms", ref_id: form_id, is_read: false,
       })
     }
+
+    const { data: actorEmpKpiR } = dbUser.employee_id
+      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      : { data: null }
+    const actorNameKpiR = actorEmpKpiR ? `${actorEmpKpiR.first_name_th} ${actorEmpKpiR.last_name_th}` : "Admin"
+
+    logAudit(svc, {
+      actorId: user.id, actorName: actorNameKpiR, action: "rejected_kpi",
+      entityType: "kpi_form", entityId: form_id,
+      description: `ส่งคืน KPI ${empName} ${MONTH_NAMES[form.month]} ${form.year}${rejection_note ? ` — ${rejection_note}` : ""} โดย ${actorNameKpiR}`,
+      companyId: form.company_id,
+    })
 
     return NextResponse.json({ success: true })
   }

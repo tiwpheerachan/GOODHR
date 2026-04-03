@@ -44,13 +44,14 @@ export function logApproval(supa: any, opts: {
     leave: "คำขอลา", overtime: "คำขอ OT", time_adjustment: "คำขอแก้เวลา",
     resignation: "คำขอลาออก", shift_change: "คำขอเปลี่ยนกะ",
   }
+  const byWho = opts.actorName ? ` โดย ${opts.actorName}` : ""
   logAudit(supa, {
     actorId: opts.actorId,
     actorName: opts.actorName,
     action: `${opts.action}_${opts.requestType}`,
     entityType: `${opts.requestType}_request`,
     entityId: opts.requestId,
-    description: `${actionLabel}${typeLabel[opts.requestType]}${opts.employeeName ? ` ของ ${opts.employeeName}` : ""}${opts.details ? ` (${opts.details})` : ""}`,
+    description: `${actionLabel}${typeLabel[opts.requestType]}${opts.employeeName ? ` ของ ${opts.employeeName}` : ""}${byWho}${opts.details ? ` (${opts.details})` : ""}`,
     companyId: opts.companyId,
   })
 }
@@ -64,12 +65,13 @@ export function logPayroll(supa: any, opts: {
     calculate: "คำนวณเงินเดือน", bulk_calculate: "คำนวณเงินเดือนแบบ batch",
     approve: "อนุมัติจ่ายเงินเดือน", edit: "แก้ไขเงินเดือน",
   }
+  const byWho = opts.actorName ? ` โดย ${opts.actorName}` : ""
   logAudit(supa, {
     actorId: opts.actorId,
     actorName: opts.actorName,
     action: `payroll_${opts.action}`,
     entityType: "payroll",
-    description: `${labels[opts.action]}${opts.periodName ? ` รอบ ${opts.periodName}` : ""}${opts.count ? ` (${opts.count} คน)` : ""}`,
+    description: `${labels[opts.action]}${opts.periodName ? ` รอบ ${opts.periodName}` : ""}${opts.count ? ` (${opts.count} คน)` : ""}${byWho}`,
     companyId: opts.companyId,
   })
 }
@@ -85,13 +87,14 @@ export function logEmployeeChange(supa: any, opts: {
     deactivate: "ปิดการใช้งานพนักงาน", update_salary: "แก้ไขเงินเดือน",
     update_supervisor: "เปลี่ยนหัวหน้า",
   }
+  const byWho = opts.actorName ? ` โดย ${opts.actorName}` : ""
   logAudit(supa, {
     actorId: opts.actorId,
     actorName: opts.actorName,
     action: `employee_${opts.action}`,
     entityType: "employee",
     entityId: opts.employeeId,
-    description: `${labels[opts.action]}${opts.employeeName ? `: ${opts.employeeName}` : ""}`,
+    description: `${labels[opts.action]}${opts.employeeName ? `: ${opts.employeeName}` : ""}${byWho}`,
     metadata: opts.changes ? { changes: opts.changes } : {},
     companyId: opts.companyId,
   })

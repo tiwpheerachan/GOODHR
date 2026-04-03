@@ -1,5 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { logAudit } from "@/lib/auditLog"
 
 // GET — ดึง role ของพนักงาน (by employee_id)
 export async function GET(request: Request) {
@@ -72,6 +73,22 @@ export async function POST(request: Request) {
     .eq("id", existingUser.id)
 
   if (updateErr) return NextResponse.json({ success: false, error: updateErr.message })
+
+  // ดึงชื่อพนักงานเพื่อบันทึก audit log
+  const { data: empInfo } = await supa.from("employees").select("first_name_th, last_name_th, company_id").eq("id", employee_id).maybeSingle()
+  const { data: actorInfo } = await supa.from("employees").select("first_name_th, last_name_th").eq("id", (await supa.from("users").select("employee_id").eq("id", user.id).single()).data?.employee_id).maybeSingle()
+  const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : employee_id
+  const actorName = actorInfo ? `${actorInfo.first_name_th} ${actorInfo.last_name_th}` : user.id
+
+  logAudit(supa, {
+    actorId: user.id, actorName,
+    action: "update_role",
+    entityType: "user",
+    entityId: existingUser.id,
+    description: `เปลี่ยนสิทธิ์ ${empName} เป็น ${role} โดย ${actorName}`,
+    metadata: { changes: { role: { old: "unknown", new: role } }, employee_name: empName },
+    companyId: empInfo?.company_id,
+  })
 
   return NextResponse.json({ success: true, message: `อัปเดตสิทธิ์เป็น ${role} สำเร็จ` })
 }

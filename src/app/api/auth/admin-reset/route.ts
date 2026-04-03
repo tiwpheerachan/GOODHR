@@ -1,6 +1,7 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { getResend, adminResetNotifyEmail } from "@/lib/resend"
 import { NextResponse } from "next/server"
+import { logAudit } from "@/lib/auditLog"
 
 // ── POST: Admin รีเซ็ตรหัสผ่านให้พนักงาน ───────────────────────
 export async function POST(req: Request) {
@@ -73,6 +74,24 @@ export async function POST(req: Request) {
       // ไม่ throw — reset สำเร็จแล้ว แค่ส่ง email ไม่ได้
     }
   }
+
+  // ดึงชื่อ actor (admin)
+  const { data: actorUser } = await supa.from("users").select("employee_id").eq("id", user.id).single()
+  const { data: actorEmp } = actorUser?.employee_id
+    ? await supa.from("employees").select("first_name_th, last_name_th, company_id").eq("id", actorUser.employee_id).single()
+    : { data: null }
+  const actorName = actorEmp ? `${actorEmp.first_name_th} ${actorEmp.last_name_th}` : "Admin"
+
+  // Audit log
+  logAudit(supa, {
+    actorId: user.id, actorName,
+    action: "admin_reset_password",
+    entityType: "employee",
+    entityId: employee_id,
+    description: `รีเซ็ตรหัสผ่าน ${empName} โดย ${actorName}`,
+    metadata: { email_sent: !!empEmail },
+    companyId: actorEmp?.company_id,
+  })
 
   return NextResponse.json({
     success: true,
