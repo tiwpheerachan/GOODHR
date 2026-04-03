@@ -8,6 +8,7 @@ import {
   ArrowLeft, Loader2, CalendarClock, FileEdit, Timer, Send, AlertCircle,
   UserX, Sparkles, CheckCircle2, ChevronLeft, ChevronRight, Info,
   FileText, AlertTriangle, ClipboardList, PackageCheck,
+  Paperclip, X as XIcon, FileImage, Upload,
 } from "lucide-react"
 import Link from "next/link"
 import { format } from "date-fns"
@@ -104,6 +105,32 @@ function LeaveNewInner() {
   const [loading, setLoading] = useState(false)
   const [submitErr, setSubmitErr] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  // ── Attachment state ──
+  const [attachment, setAttachment] = useState<{ url: string; name: string } | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) { setSubmitErr("ไฟล์ใหญ่เกินไป (สูงสุด 10 MB)"); return }
+    setUploading(true)
+    setSubmitErr(null)
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      const res = await fetch("/api/leave/upload", { method: "POST", body: fd })
+      const json = await res.json()
+      if (!res.ok || json.error) throw new Error(json.error || "อัปโหลดไม่สำเร็จ")
+      setAttachment({ url: json.url, name: json.name })
+    } catch (err: any) {
+      setSubmitErr(err.message || "อัปโหลดไฟล์ไม่สำเร็จ")
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
   const [form, setForm] = useState({
     leave_type_id: "", start_date: defaultDate, end_date: defaultDate,
     is_half_day: false, half_day_period: "morning", reason: "",
@@ -161,6 +188,8 @@ function LeaveNewInner() {
           total_days: days, is_half_day: form.is_half_day,
           half_day_period: form.is_half_day ? form.half_day_period : null,
           reason: form.reason, status: "pending",
+          attachment_url: attachment?.url || null,
+          attachment_name: attachment?.name || null,
         })
         if (error) throw error
         setSuccess(true)
@@ -685,6 +714,51 @@ function LeaveNewInner() {
                     <textarea value={form.reason} onChange={e => set("reason", e.target.value)}
                       placeholder="ระบุเหตุผล..." className={`${inputCls} h-28 resize-none`} required />
                   </div>
+
+                  {/* แนบไฟล์ (ไม่บังคับ) — แสดงเฉพาะฟอร์มใบลา */}
+                  {formType === "leave" && (
+                    <div>
+                      <label className={labelCls}>
+                        <span className="flex items-center gap-1.5">
+                          <Paperclip size={13} className="text-slate-400" />
+                          แนบเอกสาร <span className="text-slate-400 font-normal text-xs">(ไม่บังคับ)</span>
+                        </span>
+                      </label>
+                      {!attachment ? (
+                        <label className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-200 rounded-2xl py-5 cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-all group">
+                          <input ref={fileInputRef} type="file"
+                            accept="image/*,.pdf,.doc,.docx"
+                            onChange={handleFileUpload} className="hidden" />
+                          {uploading ? (
+                            <span className="flex items-center gap-2 text-sm text-blue-500 font-semibold">
+                              <Loader2 size={16} className="animate-spin" /> กำลังอัปโหลด...
+                            </span>
+                          ) : (
+                            <span className="flex flex-col items-center gap-1.5">
+                              <Upload size={20} className="text-slate-300 group-hover:text-blue-400 transition-colors" />
+                              <span className="text-xs text-slate-400 group-hover:text-blue-500 font-semibold transition-colors">
+                                แตะเพื่อแนบไฟล์ (รูป, PDF, Word · สูงสุด 10 MB)
+                              </span>
+                            </span>
+                          )}
+                        </label>
+                      ) : (
+                        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3">
+                          <FileImage size={18} className="text-blue-500 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-blue-700 truncate">{attachment.name}</p>
+                            <a href={attachment.url} target="_blank" rel="noopener noreferrer"
+                              className="text-[11px] text-blue-500 underline">ดูไฟล์</a>
+                          </div>
+                          <button type="button" onClick={() => setAttachment(null)}
+                            className="w-7 h-7 flex items-center justify-center rounded-full bg-white border border-blue-200 hover:bg-red-50 hover:border-red-300 transition-colors">
+                            <XIcon size={13} className="text-slate-400 hover:text-red-500" />
+                          </button>
+                        </div>
+                      )}
+                      <p className="text-[10px] text-slate-400 mt-1.5">เช่น ใบรับรองแพทย์, เอกสารประกอบการลา</p>
+                    </div>
+                  )}
 
                   <button type="submit" disabled={loading || !empId}
                     className="w-full py-3.5 disabled:opacity-50 text-white font-black text-sm rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.97]"

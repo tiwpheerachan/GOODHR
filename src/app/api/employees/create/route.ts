@@ -32,6 +32,8 @@ export async function POST(req: Request) {
       post_position_id, post_kpi_amount,
       supervisor_id,
       role,
+      // schedule
+      schedule_type, default_shift_id, fixed_dayoffs, can_self_schedule,
     } = body
 
     // 1. สร้าง auth user (ต้องใช้ service role)
@@ -45,7 +47,23 @@ export async function POST(req: Request) {
 
     const authId = authData.user.id
 
-    // 2. สร้าง employee record
+    // 2. ตรวจสอบรหัสพนักงานซ้ำก่อน insert
+    if (employee_code) {
+      const { data: existingEmp } = await supabase
+        .from("employees")
+        .select("id, first_name_th, last_name_th")
+        .eq("company_id", company_id)
+        .eq("employee_code", employee_code)
+        .maybeSingle()
+      if (existingEmp) {
+        await supabase.auth.admin.deleteUser(authId)
+        return NextResponse.json({
+          error: `รหัสพนักงาน "${employee_code}" ถูกใช้งานแล้วโดย ${existingEmp.first_name_th} ${existingEmp.last_name_th} — กรุณาใช้รหัสอื่น`,
+        }, { status: 409 })
+      }
+    }
+
+    // 3. สร้าง employee record
     const { data: emp, error: empErr } = await supabase.from("employees").insert({
       company_id, branch_id: branch_id || null,
       department_id: department_id || null,
@@ -66,7 +84,12 @@ export async function POST(req: Request) {
     }).select().single()
     if (empErr) {
       await supabase.auth.admin.deleteUser(authId)
-      return NextResponse.json({ error: empErr.message }, { status: 400 })
+      const isDuplicate = empErr.message?.includes("employees_company_id_employee_code_key")
+      return NextResponse.json({
+        error: isDuplicate
+          ? `รหัสพนักงาน "${employee_code}" ซ้ำในระบบ — กรุณาใช้รหัสอื่น`
+          : empErr.message,
+      }, { status: isDuplicate ? 409 : 400 })
     }
 
     // 3. สร้าง users record
@@ -155,6 +178,20 @@ export async function POST(req: Request) {
         effective_from: hire_date,
         is_active: true,
       })
+    }
+
+    // 7. สร้าง schedule profile + can_self_schedule
+    if (schedule_type) {
+      await supabase.from("employee_schedule_profiles").upsert({
+        employee_id: emp.id,
+        company_id,
+        schedule_type: schedule_type || "fixed",
+        default_shift_id: default_shift_id || null,
+        fixed_dayoffs: Array.isArray(fixed_dayoffs) ? fixed_dayoffs : [],
+      }, { onConflict: "employee_id" })
+    }
+    if (can_self_schedule) {
+      await supabase.from("employees").update({ can_self_schedule: true }).eq("id", emp.id)
     }
 
     // Audit log

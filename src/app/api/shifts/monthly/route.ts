@@ -197,7 +197,7 @@ export async function POST(request: Request) {
   // ACTION: generate — สร้างตาราง fixed อัตโนมัติ
   // ═══════════════════════════════════════════════════════════════
   if (action === "generate") {
-    const { month, target_company_ids } = body // e.g. "2026-03"
+    const { month, target_company_ids, employee_id: genEmployeeId } = body // e.g. "2026-03"
     if (!month) return NextResponse.json({ success: false, error: "month required" })
 
     const [yearStr, monthStr] = month.split("-")
@@ -215,22 +215,27 @@ export async function POST(request: Request) {
 
     for (const coId of targetCompanies) {
       // ดึง fixed profiles + default shift
-      const { data: profiles } = await supa
+      let fixedQuery = supa
         .from("employee_schedule_profiles")
         .select("*, default_shift:shift_templates(id)")
         .eq("company_id", coId)
         .eq("schedule_type", "fixed")
+      if (genEmployeeId) fixedQuery = fixedQuery.eq("employee_id", genEmployeeId)
 
-      if (!profiles?.length) continue
+      const { data: profiles } = await fixedQuery
 
       // ดึง variable profiles ที่มี default_shift ด้วย (ถ้ามี)
-      const { data: varProfiles } = await supa
+      let varQuery = supa
         .from("employee_schedule_profiles")
         .select("*, default_shift:shift_templates(id)")
         .eq("company_id", coId)
         .eq("schedule_type", "variable")
+      if (genEmployeeId) varQuery = varQuery.eq("employee_id", genEmployeeId)
 
-      const allProfiles = [...profiles, ...(varProfiles || [])]
+      const { data: varProfiles } = await varQuery
+
+      const allProfiles = [...(profiles || []), ...(varProfiles || [])]
+      if (!allProfiles.length) continue
 
       const rows: any[] = []
       for (const p of allProfiles) {

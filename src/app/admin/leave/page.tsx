@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
   Check, X, Search, Filter, ChevronLeft, ChevronRight,
-  Calendar, Download, MessageSquare, UserX, ChevronDown, ChevronUp, Eye,
+  Calendar, Download, MessageSquare, UserX, ChevronDown, ChevronUp, Eye, Paperclip,
 } from "lucide-react"
 import { format, startOfMonth, endOfMonth } from "date-fns"
 import { th } from "date-fns/locale"
@@ -148,7 +148,7 @@ export default function AdminLeavePage() {
       let q=fc(supabase.from("leave_requests")
         .select(`id,employee_id,leave_type_id,company_id,
           start_date,end_date,total_days,is_half_day,half_day_period,
-          reason,status,requested_at,reviewed_at,review_note,created_at,
+          reason,status,requested_at,reviewed_at,review_note,created_at,attachment_url,attachment_name,
           employee:employees!leave_requests_employee_id_fkey(
             id,first_name_th,last_name_th,employee_code,avatar_url,
             position:positions(name),department:departments(name)),
@@ -448,6 +448,7 @@ export default function AdminLeavePage() {
                         <td className="px-4 py-3 max-w-40">
                           <p className="text-xs text-slate-500 truncate">{r.reason||<span className="text-slate-300">—</span>}</p>
                           {r.review_note&&<p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5"><MessageSquare size={9}/> {r.review_note}</p>}
+                          {r.attachment_url&&<a href={r.attachment_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-0.5 text-[10px] text-blue-500 hover:text-blue-700 font-semibold"><Paperclip size={9}/>{r.attachment_name||"ไฟล์แนบ"}</a>}
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
                           {format(new Date(r.requested_at||r.created_at),"d MMM yyyy",{locale:th})}

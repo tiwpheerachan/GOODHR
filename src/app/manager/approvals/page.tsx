@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
-import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp, Bell, ArrowRightLeft } from "lucide-react"
+import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp, Bell, ArrowRightLeft, Paperclip } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -532,6 +532,14 @@ export default function ApprovalsPage() {
                   <p className="text-gray-400 mb-0.5">เหตุผล</p>
                   <p className="text-gray-700">{item.reason}</p>
                 </div>
+              )}
+              {item.attachment_url && (
+                <a href={item.attachment_url} target="_blank" rel="noopener noreferrer"
+                  className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5 text-xs hover:bg-blue-100 transition-colors">
+                  <Paperclip size={13} className="text-blue-500 flex-shrink-0" />
+                  <span className="text-blue-700 font-semibold truncate">{item.attachment_name || "ไฟล์แนบ"}</span>
+                  <span className="text-blue-400 text-[10px] ml-auto flex-shrink-0">ดูไฟล์</span>
+                </a>
               )}
 
               <input placeholder="หมายเหตุ (ไม่บังคับ)" value={notes[item.id] || ""}

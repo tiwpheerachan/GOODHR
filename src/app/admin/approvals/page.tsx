@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   Check, X, Clock, Calendar, Timer, FileEdit, Search, Filter,
   ChevronLeft, ChevronRight, Loader2, AlertCircle, Building2,
-  Download, Users, Ban, ArrowRightLeft,
+  Download, Users, Ban, ArrowRightLeft, Paperclip,
 } from "lucide-react"
 import { format, startOfMonth, endOfMonth } from "date-fns"
 import { th } from "date-fns/locale"
@@ -297,8 +297,16 @@ export default function AdminApprovalsPage() {
                       {/* Date */}
                       <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{safeFmt(r.date_label?.split(" → ")[0])}</td>
 
-                      {/* Reason */}
-                      <td className="px-3 py-3 text-slate-500 max-w-[150px] truncate">{r.reason || "-"}</td>
+                      {/* Reason + Attachment */}
+                      <td className="px-3 py-3 text-slate-500 max-w-[150px]">
+                        <span className="truncate block">{r.reason || "-"}</span>
+                        {r.attachment_url && (
+                          <a href={r.attachment_url} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 mt-1 text-[10px] text-blue-500 hover:text-blue-700 font-semibold">
+                            <Paperclip size={10}/> {r.attachment_name || "ไฟล์แนบ"}
+                          </a>
+                        )}
+                      </td>
 
                       {/* Status */}
                       <td className="px-3 py-3 text-center">

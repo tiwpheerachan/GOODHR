@@ -47,12 +47,13 @@ export async function POST(request: Request) {
 
   const { data: userData } = await supa
     .from("users")
-    .select("employee_id, employees(company_id)")
+    .select("employee_id, role, employees(company_id)")
     .eq("id", user.id)
     .single()
 
-  const companyId = (userData?.employees as any)?.company_id
-  if (!companyId) return NextResponse.json({ success: false, error: "No company" })
+  const isSA = userData?.role === "super_admin" || userData?.role === "hr_admin"
+  const userCompanyId = (userData?.employees as any)?.company_id
+  if (!userCompanyId) return NextResponse.json({ success: false, error: "No company" })
 
   // Support bulk upsert
   const items = Array.isArray(body) ? body : [body]
@@ -60,11 +61,22 @@ export async function POST(request: Request) {
   for (const item of items) {
     const { employee_id, schedule_type, default_shift_id, fixed_dayoffs, work_code } = item
 
+    // ดึง company_id จากพนักงานจริง (กรณี super_admin จัดกะให้พนักงานต่างบริษัท)
+    let targetCompanyId = userCompanyId
+    if (isSA && employee_id) {
+      const { data: empData } = await supa
+        .from("employees")
+        .select("company_id")
+        .eq("id", employee_id)
+        .single()
+      if (empData?.company_id) targetCompanyId = empData.company_id
+    }
+
     const { error } = await supa
       .from("employee_schedule_profiles")
       .upsert({
         employee_id,
-        company_id: companyId,
+        company_id: targetCompanyId,
         schedule_type: schedule_type ?? "fixed",
         default_shift_id: default_shift_id ?? null,
         fixed_dayoffs: fixed_dayoffs ?? [],

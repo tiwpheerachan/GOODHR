@@ -90,6 +90,14 @@ export default function ShiftSchedulingPage() {
   // ── Shift picker ───────────────────────────────────────────────
   const [picker, setPicker] = useState<{ empId: string; date: string; x: number; y: number } | null>(null)
 
+  // ── Profile editor modal ────────────────────────────────────
+  const [profileEditor, setProfileEditor] = useState<{
+    empId: string; empName: string; empCode: string
+    scheduleType: string; defaultShiftId: string; fixedDayoffs: string[]
+    canSelfSchedule: boolean
+  } | null>(null)
+  const [savingProfile, setSavingProfile] = useState(false)
+
   // ── Copy-from-employee modal ─────────────────────────────────
   const [showCopyModal, setShowCopyModal] = useState(false)
   const [copySource, setCopySource] = useState("")
@@ -258,6 +266,67 @@ export default function ShiftSchedulingPage() {
       load() // reload grid
     } else toast.error(data.error)
     setPicker(null)
+  }
+
+  // ── Open profile editor ─────────────────────────────────────────
+  const openProfileEditor = (row: EmpRow) => {
+    setProfileEditor({
+      empId: row.employee.id,
+      empName: `${row.employee.first_name_th} ${row.employee.last_name_th}`,
+      empCode: row.employee.employee_code,
+      scheduleType: row.profile?.schedule_type || "fixed",
+      defaultShiftId: row.profile?.default_shift_id || "",
+      fixedDayoffs: row.profile?.fixed_dayoffs || ["sat", "sun"],
+      canSelfSchedule: !!(row.employee as any).can_self_schedule,
+    })
+  }
+
+  // ── Save profile ──────────────────────────────────────────────
+  const saveProfile = async () => {
+    if (!profileEditor) return
+    setSavingProfile(true)
+    try {
+      // 1. upsert schedule profile
+      const res = await fetch("/api/shifts/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employee_id: profileEditor.empId,
+          schedule_type: profileEditor.scheduleType,
+          default_shift_id: profileEditor.defaultShiftId || null,
+          fixed_dayoffs: profileEditor.fixedDayoffs,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok && !data.success) throw new Error(data.error || "บันทึกล้มเหลว")
+
+      // 2. update can_self_schedule on employee
+      const supa = createClient()
+      await supa.from("employees").update({
+        can_self_schedule: profileEditor.canSelfSchedule,
+      }).eq("id", profileEditor.empId)
+
+      // 3. สร้างตารางกะของเดือนนี้ให้อัตโนมัติ (ใช้ generate ทั้งบริษัท — upsert ไม่ซ้ำ)
+      const genPayload: any = { action: "generate", month: monthStr }
+      if (isSA && selectedCo) genPayload.company_id = selectedCo
+      const genRes = await fetch("/api/shifts/monthly", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(genPayload),
+      })
+      const genData = await genRes.json()
+
+      if (genData.error) {
+        toast.error(`สร้างตารางล้มเหลว: ${genData.error}`)
+      } else {
+        toast.success(`บันทึกกะของ ${profileEditor.empName} แล้ว (สร้าง ${genData.generated ?? 0} วัน)`)
+      }
+      setProfileEditor(null)
+      load()
+    } catch (e: any) {
+      toast.error(e.message || "เกิดข้อผิดพลาด")
+    }
+    setSavingProfile(false)
   }
 
   // ── Auto-generate for selected company ──────────────────────────
@@ -556,8 +625,9 @@ export default function ShiftSchedulingPage() {
                   const canSelfSched = (row.employee as any).can_self_schedule
                   return (
                     <tr key={row.employee.id} className={idx % 2 === 0 ? "" : "bg-slate-50/40"}>
-                      {/* Employee name */}
-                      <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-3 py-2">
+                      {/* Employee name — click to edit profile */}
+                      <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-3 py-2 cursor-pointer hover:bg-indigo-50/50 transition-colors"
+                        onClick={() => openProfileEditor(row)} title="คลิกเพื่อตั้งค่ากะของพนักงาน">
                         <div className="flex items-center gap-2">
                           <div className={`relative w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black flex-shrink-0 ${isVariable ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-indigo-400 to-violet-500"}`}>
                             {row.employee.first_name_th?.[0]}
@@ -802,6 +872,127 @@ export default function ShiftSchedulingPage() {
       })()}
 
       {/* ═══ Copy From Employee Modal ═══════════════════════════════ */}
+      {/* ═══ Profile Editor Modal ═══════════════════════════════════ */}
+      {profileEditor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 mx-4">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center">
+                  <Clock size={18} className="text-teal-600"/>
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-800">ตั้งค่ากะการทำงาน</h3>
+                  <p className="text-xs text-slate-400">{profileEditor.empCode} — {profileEditor.empName}</p>
+                </div>
+              </div>
+              <button onClick={() => setProfileEditor(null)} className="p-2 hover:bg-slate-100 rounded-xl"><X size={16}/></button>
+            </div>
+
+            {/* ประเภทตารางงาน */}
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-slate-600 mb-2">ประเภทตารางงาน</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setProfileEditor(p => p && ({ ...p, scheduleType: "fixed" }))}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${profileEditor.scheduleType === "fixed" ? "border-teal-500 bg-teal-50 ring-2 ring-teal-400/20" : "border-slate-200 bg-white hover:border-teal-300"}`}>
+                  <p className={`text-sm font-bold ${profileEditor.scheduleType === "fixed" ? "text-teal-700" : "text-slate-700"}`}>กะแน่นอน</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">เข้างานเวลาเดิมทุกวัน</p>
+                </button>
+                <button type="button" onClick={() => setProfileEditor(p => p && ({ ...p, scheduleType: "variable" }))}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${profileEditor.scheduleType === "variable" ? "border-teal-500 bg-teal-50 ring-2 ring-teal-400/20" : "border-slate-200 bg-white hover:border-teal-300"}`}>
+                  <p className={`text-sm font-bold ${profileEditor.scheduleType === "variable" ? "text-teal-700" : "text-slate-700"}`}>วางกะเอง</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">จัดกะรายเดือน</p>
+                </button>
+              </div>
+            </div>
+
+            {/* เลือกกะ */}
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">
+                {profileEditor.scheduleType === "fixed" ? "กะประจำ" : "กะเริ่มต้น"}
+              </label>
+              <select
+                value={profileEditor.defaultShiftId}
+                onChange={e => setProfileEditor(p => p && ({ ...p, defaultShiftId: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-teal-400"
+              >
+                <option value="">— เลือกกะ —</option>
+                {shifts.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name || `${s.work_start}-${s.work_end}`} ({s.work_start}-{s.work_end})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* วันหยุดประจำ — เฉพาะ fixed */}
+            {profileEditor.scheduleType === "fixed" && (
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-slate-600 mb-2">วันหยุดประจำสัปดาห์</label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { key: "mon", label: "จ." },
+                    { key: "tue", label: "อ." },
+                    { key: "wed", label: "พ." },
+                    { key: "thu", label: "พฤ." },
+                    { key: "fri", label: "ศ." },
+                    { key: "sat", label: "ส." },
+                    { key: "sun", label: "อา." },
+                  ].map(d => {
+                    const active = profileEditor.fixedDayoffs.includes(d.key)
+                    return (
+                      <button key={d.key} type="button"
+                        onClick={() => {
+                          setProfileEditor(p => {
+                            if (!p) return p
+                            const dayoffs = active
+                              ? p.fixedDayoffs.filter(x => x !== d.key)
+                              : [...p.fixedDayoffs, d.key]
+                            return { ...p, fixedDayoffs: dayoffs }
+                          })
+                        }}
+                        className={`w-11 h-11 rounded-xl text-xs font-bold transition-all ${active ? "bg-red-100 text-red-700 border-2 border-red-300" : "bg-slate-50 text-slate-500 border border-slate-200 hover:border-teal-300"}`}>
+                        {d.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* สิทธิ์วางกะเอง — เฉพาะ variable */}
+            {profileEditor.scheduleType === "variable" && (
+              <div className="mb-4">
+                <label className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer">
+                  <input type="checkbox" checked={profileEditor.canSelfSchedule}
+                    onChange={e => setProfileEditor(p => p && ({ ...p, canSelfSchedule: e.target.checked }))}
+                    className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"/>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">อนุญาตให้พนักงานเสนอกะเอง</p>
+                    <p className="text-[11px] text-slate-400">พนักงานเสนอกะที่ต้องการ รอหัวหน้าอนุมัติ</p>
+                  </div>
+                </label>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-3 border-t border-slate-100">
+              <button onClick={() => setProfileEditor(null)} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">
+                ยกเลิก
+              </button>
+              <button
+                onClick={saveProfile}
+                disabled={savingProfile}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {savingProfile ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save size={14}/>}
+                บันทึก
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showCopyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-6 mx-4 max-h-[80vh] flex flex-col">

@@ -1529,7 +1529,7 @@ export default function UserChatPage() {
                     <button key={r.id} onClick={() => { setShowMsgSearch(false); /* TODO: scroll to message */ }}
                       className="w-full text-left px-3 py-2 rounded-xl hover:bg-gray-50 transition">
                       <p className="text-xs text-gray-500 truncate">{r.message}</p>
-                      <p className="text-[10px] text-gray-400">{r.sender?.first_name_th || ""} · {new Date(r.created_at).toLocaleDateString("th-TH", { day:"numeric", month:"short" })}</p>
+                      <p className="text-[10px] text-gray-400">{convType === "hr" && r.sender_role !== "user" ? "HR" : (r.sender?.first_name_th || "")} · {new Date(r.created_at).toLocaleDateString("th-TH", { day:"numeric", month:"short" })}</p>
                     </button>
                   ))}
                 </div>
@@ -1594,7 +1594,8 @@ export default function UserChatPage() {
 
                       {g.msgs.map((m: any, mi: number) => {
                         const isMe = convType === "hr" ? m.sender_role === "user" : m.sender_id === myEmpId
-                        const senderName = m.sender ? (m.sender.nickname || m.sender.first_name_th) : "HR"
+                        const isHrSender = convType === "hr" && m.sender_role !== "user"
+                        const senderName = isHrSender ? "HR" : (m.sender ? (m.sender.nickname || m.sender.first_name_th) : "HR")
                         const allMedia = m.images || []
                         const imgUrls = allMedia.filter((u: string) => isImageUrl(u))
                         const fileUrls = allMedia.filter((u: string) => !isImageUrl(u))
@@ -1631,10 +1632,12 @@ export default function UserChatPage() {
                             {!isMe && (
                               <div className="w-7 flex-shrink-0 mt-auto">
                                 {showAvatar ? (
-                                  <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center overflow-hidden shadow-sm">
-                                    {m.sender?.avatar_url
-                                      ? <img src={m.sender.avatar_url} alt="" className="w-full h-full object-cover" />
-                                      : <span className="text-[8px] font-black text-green-600">{senderName?.[0] || "?"}</span>}
+                                  <div className={`w-7 h-7 rounded-full flex items-center justify-center overflow-hidden shadow-sm ${isHrSender ? "bg-indigo-500" : "bg-white"}`}>
+                                    {isHrSender
+                                      ? <span className="text-[8px] font-black text-white">HR</span>
+                                      : m.sender?.avatar_url
+                                        ? <img src={m.sender.avatar_url} alt="" className="w-full h-full object-cover" />
+                                        : <span className="text-[8px] font-black text-green-600">{senderName?.[0] || "?"}</span>}
                                   </div>
                                 ) : <div className="w-7" />}
                               </div>
@@ -1679,7 +1682,7 @@ export default function UserChatPage() {
                               {/* Reply quote */}
                               {m.reply_to && m.reply_to.message && (
                                 <div className={`px-3 py-1.5 mb-0.5 rounded-xl text-[11px] border-l-2 ${isMe ? "bg-green-600/30 border-white/40 text-white/80" : "bg-gray-100 border-indigo-300 text-gray-500"}`}>
-                                  <span className="font-bold">{m.reply_to.sender?.nickname || m.reply_to.sender?.first_name_th || ""}</span>
+                                  <span className="font-bold">{convType === "hr" && m.reply_to.sender_role !== "user" ? "HR" : (m.reply_to.sender?.nickname || m.reply_to.sender?.first_name_th || "")}</span>
                                   <p className="truncate">{m.reply_to.message}</p>
                                 </div>
                               )}
@@ -1721,7 +1724,7 @@ export default function UserChatPage() {
                               {/* Quick action: reply + react (show on hover/tap) */}
                               {!m._sending && (
                                 <div className={`flex gap-1 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity ${isMe ? "justify-end" : "justify-start"}`}>
-                                  <button onClick={() => setReplyTo({ id: m.id, message: m.message || "📷", senderName: m.sender?.nickname || m.sender?.first_name_th || "" })}
+                                  <button onClick={() => setReplyTo({ id: m.id, message: m.message || "📷", senderName: isHrSender ? "HR" : (m.sender?.nickname || m.sender?.first_name_th || "") })}
                                     className="text-[9px] text-gray-400 hover:text-indigo-500 px-1.5 py-0.5 rounded bg-white/80">ตอบ</button>
                                   <button onClick={() => setShowReactionPicker(showReactionPicker === m.id ? null : m.id)}
                                     className="text-[9px] text-gray-400 hover:text-indigo-500 px-1.5 py-0.5 rounded bg-white/80">😊</button>

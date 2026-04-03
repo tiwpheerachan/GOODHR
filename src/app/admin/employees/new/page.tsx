@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, Save, Loader2, User, Briefcase, Banknote, ChevronRight,
   Key, Copy, Check, Eye, EyeOff, RefreshCw, Sparkles, Search, X, Building2,
+  Clock, CalendarDays,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -72,6 +73,8 @@ export default function NewEmployeePage() {
   const [created, setCreated]         = useState<{ email: string; password: string; name: string } | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState("")
   const [hasPostPromo, setHasPostPromo] = useState(false)
+  const [generatingCode, setGeneratingCode] = useState(false)
+  const [shiftTemplates, setShiftTemplates] = useState<any[]>([])
 
   const [f, setF] = useState<any>({
     // personal
@@ -92,6 +95,11 @@ export default function NewEmployeePage() {
     post_allowance_food: "", post_allowance_phone: "", post_allowance_housing: "",
     post_ot_rate_normal: "", post_ot_rate_holiday: "", post_tax_withholding_pct: "",
     post_position_id: "", post_kpi_amount: "",
+    // schedule
+    schedule_type: "fixed", // fixed | variable
+    default_shift_id: "",
+    fixed_dayoffs: ["sat", "sun"] as string[],
+    can_self_schedule: false,
     // auth
     password: generatePassword(),
   })
@@ -119,11 +127,18 @@ export default function NewEmployeePage() {
       supabase.from("positions").select("id,name").eq("company_id", selectedCompanyId).order("name"),
       supabase.from("branches").select("id,name").eq("company_id", selectedCompanyId).order("name"),
       supabase.from("employees").select("id,first_name_th,last_name_th,nickname,employee_code,position:positions(name)").eq("company_id", selectedCompanyId).eq("is_active", true).order("first_name_th"),
-    ]).then(([d, p, b, e]) => {
+      supabase.from("shift_templates").select("id,name,work_start,work_end,is_overnight,break_minutes").eq("company_id", selectedCompanyId).order("work_start"),
+    ]).then(([d, p, b, e, s]) => {
       setDepartments(d.data ?? [])
       setPositions(p.data ?? [])
       setBranches(b.data ?? [])
       setAllEmployees(e.data ?? [])
+      setShiftTemplates(s.data ?? [])
+      // ถ้ามีกะเริ่มต้น 09:00-18:00 ให้เลือกอัตโนมัติ
+      if (!f.default_shift_id && s.data?.length) {
+        const defaultShift = s.data.find((sh: any) => sh.work_start === "09:00" && sh.work_end === "18:00") || s.data[0]
+        if (defaultShift) set("default_shift_id", defaultShift.id)
+      }
     })
   }, [selectedCompanyId]) // eslint-disable-line
 
@@ -165,6 +180,21 @@ export default function NewEmployeePage() {
     const err = validateStep()
     if (err) { toast.error(err); return }
     setStep(s => s + 1)
+  }
+
+  const generateCode = async () => {
+    if (!selectedCompanyId) { toast.error("กรุณาเลือกบริษัทก่อน"); return }
+    setGeneratingCode(true)
+    try {
+      const res = await fetch(`/api/employees/next-code?company_id=${selectedCompanyId}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      set("employee_code", data.code)
+      toast.success(`สร้างรหัส ${data.code} แล้ว`)
+    } catch (e: any) {
+      toast.error(e.message || "ไม่สามารถสร้างรหัสอัตโนมัติได้")
+    }
+    setGeneratingCode(false)
   }
 
   const submit = async () => {
@@ -414,7 +444,15 @@ export default function NewEmployeePage() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <Field label="รหัสพนักงาน" required><Input value={f.employee_code} onChange={(e:any) => set("employee_code", e.target.value)} placeholder="67000XXX" /></Field>
+              <Field label="รหัสพนักงาน" required>
+                <div className="flex gap-2">
+                  <Input value={f.employee_code} onChange={(e:any) => set("employee_code", e.target.value)} placeholder="690001" className="flex-1" />
+                  <button type="button" onClick={generateCode} disabled={generatingCode} className="px-3 py-2 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors disabled:opacity-50 whitespace-nowrap flex items-center gap-1.5" title="สร้างรหัสอัตโนมัติ">
+                    {generatingCode ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    สร้างรหัส
+                  </button>
+                </div>
+              </Field>
               <Field label="สิทธิ์การเข้าถึง">
                 <Select value={f.role} onChange={(e:any) => set("role", e.target.value)}>
                   <option value="employee">พนักงาน</option>
@@ -538,6 +576,103 @@ export default function NewEmployeePage() {
                   )}
                 </div>
               </Field>
+            </div>
+
+            {/* ── กะการทำงาน ──────────────────────────────────── */}
+            <div className="border-2 border-teal-200 bg-teal-50/50 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Clock size={16} className="text-teal-600"/>
+                <h4 className="font-bold text-teal-800 text-sm">กะการทำงาน</h4>
+              </div>
+
+              {/* ประเภทกะ */}
+              <Field label="ประเภทตารางงาน">
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => set("schedule_type", "fixed")}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${f.schedule_type === "fixed" ? "border-teal-500 bg-teal-50 ring-2 ring-teal-400/20" : "border-slate-200 bg-white hover:border-teal-300"}`}>
+                    <p className={`text-sm font-bold ${f.schedule_type === "fixed" ? "text-teal-700" : "text-slate-700"}`}>กะแน่นอน</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">เข้างานเวลาเดิมทุกวัน</p>
+                  </button>
+                  <button type="button" onClick={() => set("schedule_type", "variable")}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${f.schedule_type === "variable" ? "border-teal-500 bg-teal-50 ring-2 ring-teal-400/20" : "border-slate-200 bg-white hover:border-teal-300"}`}>
+                    <p className={`text-sm font-bold ${f.schedule_type === "variable" ? "text-teal-700" : "text-slate-700"}`}>วางกะเอง</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">แอดมิน/หัวหน้าจัดกะรายเดือน</p>
+                  </button>
+                </div>
+              </Field>
+
+              {/* เลือกกะเริ่มต้น */}
+              <Field label={f.schedule_type === "fixed" ? "กะประจำ" : "กะเริ่มต้น (ค่าเริ่มต้น)"} hint={shiftTemplates.length === 0 ? "ยังไม่มีกะในบริษัทนี้ — ไปเพิ่มที่หน้า ตั้งค่ากะ ก่อน" : undefined}>
+                <Select value={f.default_shift_id} onChange={(e:any) => set("default_shift_id", e.target.value)}>
+                  <option value="">— เลือกกะ —</option>
+                  {shiftTemplates.map((s: any) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name || `${s.work_start}-${s.work_end}`} ({s.work_start}-{s.work_end}){s.is_overnight ? " [ข้ามคืน]" : ""}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+
+              {/* แสดงเวลาทำงานของกะที่เลือก */}
+              {f.default_shift_id && (() => {
+                const sel = shiftTemplates.find((s: any) => s.id === f.default_shift_id)
+                if (!sel) return null
+                return (
+                  <div className="bg-white border border-teal-200 rounded-xl p-3 flex items-center gap-3">
+                    <CalendarDays size={18} className="text-teal-500 shrink-0"/>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">{sel.name || `กะ ${sel.work_start}-${sel.work_end}`}</p>
+                      <p className="text-xs text-slate-400">เวลา {sel.work_start} - {sel.work_end} {sel.is_overnight ? "(ข้ามคืน)" : ""} · พัก {sel.break_minutes} นาที</p>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* วันหยุดประจำ (สำหรับกะแน่นอน) */}
+              {f.schedule_type === "fixed" && (
+                <Field label="วันหยุดประจำสัปดาห์" hint="เลือกวันที่หยุดเป็นประจำ">
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { key: "mon", label: "จ." },
+                      { key: "tue", label: "อ." },
+                      { key: "wed", label: "พ." },
+                      { key: "thu", label: "พฤ." },
+                      { key: "fri", label: "ศ." },
+                      { key: "sat", label: "ส." },
+                      { key: "sun", label: "อา." },
+                    ].map(d => {
+                      const active = (f.fixed_dayoffs as string[]).includes(d.key)
+                      return (
+                        <button key={d.key} type="button"
+                          onClick={() => {
+                            const current = f.fixed_dayoffs as string[]
+                            if (active) {
+                              setF((p: any) => ({ ...p, fixed_dayoffs: current.filter((x: string) => x !== d.key) }))
+                            } else {
+                              setF((p: any) => ({ ...p, fixed_dayoffs: [...current, d.key] }))
+                            }
+                          }}
+                          className={`w-10 h-10 rounded-xl text-xs font-bold transition-all ${active ? "bg-red-100 text-red-700 border-2 border-red-300" : "bg-slate-50 text-slate-500 border border-slate-200 hover:border-teal-300"}`}>
+                          {d.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </Field>
+              )}
+
+              {/* สิทธิ์วางกะเอง */}
+              {f.schedule_type === "variable" && (
+                <div className="flex items-center gap-3 bg-white border border-teal-200 rounded-xl p-3">
+                  <input type="checkbox" checked={f.can_self_schedule}
+                    onChange={(e) => set("can_self_schedule", e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"/>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">อนุญาตให้พนักงานเสนอกะเอง</p>
+                    <p className="text-[11px] text-slate-400">พนักงานสามารถเสนอกะที่ต้องการ แล้วรอหัวหน้าอนุมัติ</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ── Email & Password ─────────────────────────────── */}

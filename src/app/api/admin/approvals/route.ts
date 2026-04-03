@@ -219,7 +219,7 @@ export async function GET(req: NextRequest) {
   // ── Leave requests ──
   if (shouldFetch("leave")) {
     let q = supa.from("leave_requests")
-      .select(`id,employee_id,company_id,leave_type_id,start_date,end_date,total_days,is_half_day,half_day_period,reason,status,requested_at,reviewed_at,review_note,created_at,${empSelect},leave_type:leave_types(id,name,color_hex)`)
+      .select(`id,employee_id,company_id,leave_type_id,start_date,end_date,total_days,is_half_day,half_day_period,reason,status,requested_at,reviewed_at,review_note,created_at,attachment_url,attachment_name,${empSelect},leave_type:leave_types(id,name,color_hex)`)
       .order("created_at", { ascending: false }).limit(200)
     q = applyFilters(q, "start_date", status)
     const { data } = await q

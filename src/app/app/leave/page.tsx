@@ -10,7 +10,7 @@ import { th } from "date-fns/locale"
 import {
   Plus, Clock, FileEdit, Timer, CalendarCheck,
   X, AlertCircle, CheckCircle2, XCircle, Loader2,
-  CalendarClock, RefreshCw, UserX,
+  CalendarClock, RefreshCw, UserX, Paperclip,
   ChevronRight, CalendarDays,
 } from "lucide-react"
 
@@ -19,6 +19,7 @@ type AnyReq = {
   id: string; kind: ReqKind; title: string; subtitle: string
   dateLabel: string; reason?: string; status: string
   created_at: string; can_cancel: boolean; can_request_cancel?: boolean; is_cancel_requested?: boolean
+  attachment_url?: string; attachment_name?: string
 }
 
 function safeFmt(ts: string | null | undefined, fmt: string): string {
@@ -127,7 +128,7 @@ export default function LeavePage() {
     try {
       const [lv, adj, ot] = await Promise.all([
         supabase.from("leave_requests")
-          .select("id,status,start_date,end_date,total_days,reason,review_note,created_at,leave_type:leave_types(name,color_hex)")
+          .select("id,status,start_date,end_date,total_days,reason,review_note,created_at,attachment_url,attachment_name,leave_type:leave_types(name,color_hex)")
           .eq("employee_id", empId).is("deleted_at", null)
           .order("created_at", { ascending: false }),
         supabase.from("time_adjustment_requests")
@@ -154,7 +155,9 @@ export default function LeavePage() {
             created_at: r.created_at,
             can_cancel: r.status === "pending",
             can_request_cancel: r.status === "approved" && !((r as any).review_note || "").includes("CANCEL_REQ"),
-            is_cancel_requested: r.status === "approved" && ((r as any).review_note || "").includes("CANCEL_REQ") })
+            is_cancel_requested: r.status === "approved" && ((r as any).review_note || "").includes("CANCEL_REQ"),
+            attachment_url: (r as any).attachment_url ?? undefined,
+            attachment_name: (r as any).attachment_name ?? undefined })
         } catch { /* skip malformed */ }
       }
       for (const r of (adj.data ?? [])) {
@@ -439,6 +442,12 @@ export default function LeavePage() {
                           <p className="font-bold text-slate-800 text-[13px]">{r.title}</p>
                           <p className="text-xs text-slate-400 mt-0.5">{r.dateLabel} · {r.subtitle}</p>
                           {r.reason && <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{r.reason}</p>}
+                          {r.attachment_url && (
+                            <a href={r.attachment_url} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 mt-1 text-[11px] text-blue-500 font-semibold hover:text-blue-700">
+                              <Paperclip size={10} /> {r.attachment_name || "ไฟล์แนบ"}
+                            </a>
+                          )}
                         </div>
                         <StatusBadge status={r.status} />
                       </div>
