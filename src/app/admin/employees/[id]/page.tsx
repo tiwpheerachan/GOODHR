@@ -62,8 +62,28 @@ export default function EmployeeDetailPage() {
   const [departments, setDepartments] = useState<any[]>([])
   const [positions, setPositions] = useState<any[]>([])
   const [branches, setBranches] = useState<any[]>([])
+  const [newPositionName, setNewPositionName] = useState("")
+  const [creatingPosition, setCreatingPosition] = useState(false)
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }))
+
+  const createPosition = async () => {
+    const cid = form?.company_id || emp?.company_id
+    if (!newPositionName.trim()) { toast.error("กรุณากรอกชื่อตำแหน่ง"); return }
+    if (!cid) { toast.error("ไม่พบบริษัท"); return }
+    setCreatingPosition(true)
+    try {
+      const { data, error } = await supabase.from("positions").insert({
+        name: newPositionName.trim(), company_id: cid,
+      }).select("id, name").single()
+      if (error) throw error
+      setPositions((prev: any[]) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+      set("position_id", data.id)
+      setNewPositionName("")
+      toast.success(`เพิ่มตำแหน่ง "${data.name}" แล้ว`)
+    } catch (e: any) { toast.error(e.message || "ไม่สามารถสร้างตำแหน่งได้") }
+    setCreatingPosition(false)
+  }
 
   useEffect(() => {
     if (!id) return
@@ -447,7 +467,19 @@ export default function EmployeeDetailPage() {
               <select value={form.position_id||""} onChange={e => set("position_id",e.target.value)} className={inp}>
                 <option value="">ไม่ระบุ</option>
                 {positions.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select></div>
+              </select>
+              <div className="flex gap-1.5 mt-1.5">
+                <input value={newPositionName} onChange={e => setNewPositionName(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), createPosition())}
+                  placeholder="+ พิมพ์ตำแหน่งใหม่..." className="flex-1 bg-white border border-dashed border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-indigo-400 placeholder-slate-300"/>
+                {newPositionName.trim() && (
+                  <button type="button" onClick={createPosition} disabled={creatingPosition}
+                    className="px-2.5 py-1.5 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg text-xs font-bold hover:bg-indigo-100 disabled:opacity-50 whitespace-nowrap">
+                    {creatingPosition ? <Loader2 size={12} className="animate-spin"/> : "เพิ่ม"}
+                  </button>
+                )}
+              </div>
+            </div>
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สาขา</label>
               <select value={form.branch_id||""} onChange={e => set("branch_id",e.target.value)} className={inp}>
                 <option value="">ไม่ระบุ</option>

@@ -34,6 +34,9 @@ export async function POST(req: Request) {
       role,
       // schedule
       schedule_type, default_shift_id, fixed_dayoffs, can_self_schedule,
+      // checkin settings
+      checkin_anywhere, is_attendance_exempt,
+      allowed_branch_ids,
     } = body
 
     // 1. สร้าง auth user (ต้องใช้ service role)
@@ -81,6 +84,9 @@ export async function POST(req: Request) {
       employment_type: employment_type || "full_time",
       employment_status: employment_status || "probation",
       is_active: true,
+      checkin_anywhere: !!checkin_anywhere,
+      is_attendance_exempt: !!is_attendance_exempt,
+      can_self_schedule: !!can_self_schedule,
     }).select().single()
     if (empErr) {
       await supabase.auth.admin.deleteUser(authId)
@@ -190,8 +196,16 @@ export async function POST(req: Request) {
         fixed_dayoffs: Array.isArray(fixed_dayoffs) ? fixed_dayoffs : [],
       }, { onConflict: "employee_id" })
     }
-    if (can_self_schedule) {
-      await supabase.from("employees").update({ can_self_schedule: true }).eq("id", emp.id)
+    // 8. สร้าง employee_allowed_locations สำหรับเช็คอิน
+    if (Array.isArray(allowed_branch_ids) && allowed_branch_ids.length > 0) {
+      const callerUser2 = await supabase.from("users").select("employee_id").eq("id", caller.id).maybeSingle()
+      await supabase.from("employee_allowed_locations").insert(
+        allowed_branch_ids.map((bid: string) => ({
+          employee_id: emp.id,
+          branch_id: bid,
+          created_by: callerUser2?.data?.employee_id ?? null,
+        }))
+      )
     }
 
     // Audit log

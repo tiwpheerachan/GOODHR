@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, Save, Loader2, User, Briefcase, Banknote, ChevronRight,
   Key, Copy, Check, Eye, EyeOff, RefreshCw, Sparkles, Search, X, Building2,
-  Clock, CalendarDays,
+  Clock, CalendarDays, MapPin, Shield,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -75,6 +75,8 @@ export default function NewEmployeePage() {
   const [hasPostPromo, setHasPostPromo] = useState(false)
   const [generatingCode, setGeneratingCode] = useState(false)
   const [shiftTemplates, setShiftTemplates] = useState<any[]>([])
+  const [newPositionName, setNewPositionName] = useState("")
+  const [creatingPosition, setCreatingPosition] = useState(false)
 
   const [f, setF] = useState<any>({
     // personal
@@ -100,6 +102,10 @@ export default function NewEmployeePage() {
     default_shift_id: "",
     fixed_dayoffs: ["sat", "sun"] as string[],
     can_self_schedule: false,
+    // checkin settings
+    checkin_anywhere: false,
+    is_attendance_exempt: false,
+    allowed_branch_ids: [] as string[],
     // auth
     password: generatePassword(),
   })
@@ -195,6 +201,26 @@ export default function NewEmployeePage() {
       toast.error(e.message || "ไม่สามารถสร้างรหัสอัตโนมัติได้")
     }
     setGeneratingCode(false)
+  }
+
+  const createPosition = async () => {
+    if (!newPositionName.trim()) { toast.error("กรุณากรอกชื่อตำแหน่ง"); return }
+    if (!selectedCompanyId) { toast.error("กรุณาเลือกบริษัทก่อน"); return }
+    setCreatingPosition(true)
+    try {
+      const { data, error } = await supabase.from("positions").insert({
+        name: newPositionName.trim(),
+        company_id: selectedCompanyId,
+      }).select("id, name").single()
+      if (error) throw error
+      setPositions(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+      set("position_id", data.id)
+      setNewPositionName("")
+      toast.success(`เพิ่มตำแหน่ง "${data.name}" แล้ว`)
+    } catch (e: any) {
+      toast.error(e.message || "ไม่สามารถสร้างตำแหน่งได้")
+    }
+    setCreatingPosition(false)
   }
 
   const submit = async () => {
@@ -472,6 +498,21 @@ export default function NewEmployeePage() {
                   <option value="">ไม่ระบุ</option>
                   {positions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </Select>
+                <div className="flex gap-1.5 mt-1.5">
+                  <input
+                    value={newPositionName}
+                    onChange={(e) => setNewPositionName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), createPosition())}
+                    placeholder="+ พิมพ์ตำแหน่งใหม่..."
+                    className="flex-1 bg-white border border-dashed border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-indigo-400 placeholder-slate-300"
+                  />
+                  {newPositionName.trim() && (
+                    <button type="button" onClick={createPosition} disabled={creatingPosition}
+                      className="px-2.5 py-1.5 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg text-xs font-bold hover:bg-indigo-100 disabled:opacity-50 whitespace-nowrap">
+                      {creatingPosition ? <Loader2 size={12} className="animate-spin"/> : "เพิ่ม"}
+                    </button>
+                  )}
+                </div>
               </Field>
               <Field label="สาขา">
                 <Select value={f.branch_id} onChange={(e:any) => set("branch_id", e.target.value)}>
@@ -673,6 +714,81 @@ export default function NewEmployeePage() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* ── สิทธิ์การเช็คอิน ──────────────────────────────── */}
+            <div className="border-2 border-blue-200 bg-blue-50/30 rounded-2xl p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <MapPin size={16} className="text-blue-600"/>
+                <h4 className="font-bold text-blue-800 text-sm">สิทธิ์การเช็คอิน</h4>
+              </div>
+
+              {/* เลือกสาขาที่เช็คอินได้ (หลายที่) */}
+              <Field label="สาขาที่อนุญาตให้เช็คอิน" hint="เลือกได้หลายสาขา — ระบบตรวจพิกัด GPS ตามรัศมีของแต่ละสาขา">
+                {branches.length === 0 ? (
+                  <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                    ยังไม่มีสาขาในบริษัทนี้ — เพิ่มได้ที่หน้าตั้งค่าองค์กร
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {/* เลือกทั้งหมด / ยกเลิกทั้งหมด */}
+                    <div className="flex gap-2 mb-1">
+                      <button type="button" onClick={() => setF((p: any) => ({ ...p, allowed_branch_ids: branches.map((b: any) => b.id) }))}
+                        className="text-[10px] font-bold px-2.5 py-1 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100">
+                        เลือกทั้งหมด
+                      </button>
+                      {(f.allowed_branch_ids as string[]).length > 0 && (
+                        <button type="button" onClick={() => setF((p: any) => ({ ...p, allowed_branch_ids: [] }))}
+                          className="text-[10px] font-bold px-2.5 py-1 bg-red-50 text-red-500 rounded-lg hover:bg-red-100">
+                          ยกเลิกทั้งหมด
+                        </button>
+                      )}
+                    </div>
+                    {branches.map((b: any) => {
+                      const checked = (f.allowed_branch_ids as string[]).includes(b.id)
+                      return (
+                        <label key={b.id} className={`flex items-center gap-3 bg-white border rounded-xl p-2.5 cursor-pointer transition-all ${checked ? "border-blue-400 ring-1 ring-blue-200" : "border-slate-200 hover:border-blue-300"}`}>
+                          <input type="checkbox" checked={checked}
+                            onChange={() => {
+                              const ids = f.allowed_branch_ids as string[]
+                              setF((p: any) => ({
+                                ...p,
+                                allowed_branch_ids: checked ? ids.filter(x => x !== b.id) : [...ids, b.id],
+                              }))
+                            }}
+                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"/>
+                          <div className="flex-1">
+                            <p className={`text-sm font-medium ${checked ? "text-blue-700" : "text-slate-700"}`}>{b.name}</p>
+                          </div>
+                          {checked && <MapPin size={14} className="text-blue-400"/>}
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
+              </Field>
+
+              {/* เช็คอินได้ทุกที่ */}
+              <div className="flex items-center gap-3 bg-white border border-blue-200 rounded-xl p-3">
+                <input type="checkbox" checked={f.checkin_anywhere}
+                  onChange={(e) => set("checkin_anywhere", e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"/>
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">เช็คอินได้ทุกที่ (ไม่ต้องอยู่ในรัศมีสาขา)</p>
+                  <p className="text-[11px] text-slate-400">สำหรับพนักงานที่ทำงานนอกสถานที่เป็นประจำ เช่น พนักงานขาย, ช่างซ่อม</p>
+                </div>
+              </div>
+
+              {/* ยกเว้นบันทึกเวลา */}
+              <div className="flex items-center gap-3 bg-white border border-blue-200 rounded-xl p-3">
+                <input type="checkbox" checked={f.is_attendance_exempt}
+                  onChange={(e) => set("is_attendance_exempt", e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"/>
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">ยกเว้นการบันทึกเวลา (ไม่คิดมาสาย/ออกก่อน)</p>
+                  <p className="text-[11px] text-slate-400">สำหรับผู้บริหาร, หัวหน้างาน ที่เวลาทำงานยืดหยุ่น ไม่ต้องคิดค่าปรับสาย</p>
+                </div>
+              </div>
             </div>
 
             {/* ── Email & Password ─────────────────────────────── */}
