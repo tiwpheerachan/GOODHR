@@ -662,20 +662,25 @@ export async function POST(req: NextRequest) {
         const otMinutes = Math.max(0, Math.round((endMs - startMs) / 60000))
 
         // หา attendance record ของวันนั้น
-        const { data: attRec } = await supa.from("attendance_records")
+        const { data: attRec, error: attErr } = await supa.from("attendance_records")
           .select("id, ot_minutes")
           .eq("employee_id", otReq.employee_id)
           .eq("work_date", otReq.work_date)
           .maybeSingle()
 
+        if (attErr) {
+          console.error("OT approval: error finding attendance record:", attErr.message)
+        }
+
         if (attRec) {
           // มี record อยู่แล้ว → อัปเดต ot_minutes (บวกเพิ่มกรณีมีหลาย OT request ในวันเดียวกัน)
-          await supa.from("attendance_records").update({
+          const { error: updErr } = await supa.from("attendance_records").update({
             ot_minutes: (attRec.ot_minutes || 0) + otMinutes,
           }).eq("id", attRec.id)
+          if (updErr) console.error("OT approval: error updating ot_minutes:", updErr.message)
         } else {
           // ไม่มี attendance record (เช่น OT วันหยุด) → สร้างใหม่
-          await supa.from("attendance_records").insert({
+          const { error: insErr } = await supa.from("attendance_records").insert({
             employee_id: otReq.employee_id,
             company_id: otReq.company_id,
             work_date: otReq.work_date,
@@ -686,7 +691,8 @@ export async function POST(req: NextRequest) {
             work_minutes: 0,
             is_manual: true,
             note: `OT อนุมัติ ${otMinutes} นาที`,
-          }).select("id").maybeSingle()
+          })
+          if (insErr) console.error("OT approval: error creating attendance record:", insErr.message)
         }
 
         // ── recalculate payroll_records อัตโนมัติ ──

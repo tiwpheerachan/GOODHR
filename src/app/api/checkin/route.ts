@@ -312,9 +312,9 @@ export async function POST(request: Request) {
     const isExemptOut = !!emp.is_attendance_exempt
     const earlyOutMin = isExemptOut ? 0 : Math.max(earlyOutRaw, 0)
 
-    // ✅ ไม่คิด OT อัตโนมัติ — ถ้าออกหลัง expected_end ก็แค่บันทึก = 0
-    // พนักงานต้องยื่นขอ OT/bonus ผ่านระบบด้วยตัวเองเท่านั้น
-    const otMin = 0
+    // ✅ ไม่คิด OT อัตโนมัติ — พนักงานต้องยื่นขอ OT ผ่านระบบ
+    // ใช้ค่า ot_minutes เดิมที่อนุมัติไว้แล้ว (ไม่เขียนทับเป็น 0)
+    const otMin = rec.ot_minutes || 0
 
     // status: exempt → present เสมอ / ปกติ → ถ้าเคย late ให้คง late ไว้
     const newStatus = isExemptOut
