@@ -576,12 +576,33 @@ export default function OrgMapPage() {
               </p>
               <select
                 value={e.department_id || ""}
-                onChange={ev => changeDepartment(e.id, ev.target.value)}
+                onChange={async ev => {
+                  if (ev.target.value === "__new_dept__") {
+                    const name = prompt("ชื่อแผนกใหม่:")
+                    if (!name) { ev.target.value = e.department_id || ""; return }
+                    setSaving(true)
+                    const res = await fetch("/api/org", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "create_department", name, company_id: e.company_id }),
+                    })
+                    const data = await res.json()
+                    setSaving(false)
+                    if (data.department_id) {
+                      await changeDepartment(e.id, data.department_id)
+                    } else {
+                      toast.error(data.error || "สร้างแผนกไม่สำเร็จ")
+                    }
+                  } else {
+                    changeDepartment(e.id, ev.target.value)
+                  }
+                }}
                 disabled={saving}
                 className="w-full bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 text-[10px] font-bold text-blue-800 outline-none focus:border-blue-400"
               >
                 <option value="">— ไม่ระบุ —</option>
                 {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                <option value="__new_dept__">+ เพิ่มแผนกใหม่...</option>
               </select>
             </div>
             <div>

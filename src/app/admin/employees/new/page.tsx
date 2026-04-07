@@ -77,6 +77,8 @@ export default function NewEmployeePage() {
   const [shiftTemplates, setShiftTemplates] = useState<any[]>([])
   const [newPositionName, setNewPositionName] = useState("")
   const [creatingPosition, setCreatingPosition] = useState(false)
+  const [newDeptName, setNewDeptName] = useState("")
+  const [creatingDept, setCreatingDept] = useState(false)
 
   const [f, setF] = useState<any>({
     // personal
@@ -201,6 +203,29 @@ export default function NewEmployeePage() {
       toast.error(e.message || "ไม่สามารถสร้างรหัสอัตโนมัติได้")
     }
     setGeneratingCode(false)
+  }
+
+  const createDepartment = async () => {
+    if (!newDeptName.trim()) { toast.error("กรุณากรอกชื่อแผนก"); return }
+    if (!selectedCompanyId) { toast.error("กรุณาเลือกบริษัทก่อน"); return }
+    setCreatingDept(true)
+    try {
+      const res = await fetch("/api/org", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create_department", name: newDeptName.trim(), company_id: selectedCompanyId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "สร้างแผนกไม่สำเร็จ")
+      const newDept = { id: data.department_id, name: newDeptName.trim() }
+      setDepartments(prev => [...prev, newDept].sort((a: any, b: any) => a.name.localeCompare(b.name)))
+      set("department_id", data.department_id)
+      setNewDeptName("")
+      toast.success(`เพิ่มแผนก "${newDeptName.trim()}" แล้ว`)
+    } catch (e: any) {
+      toast.error(e.message || "ไม่สามารถสร้างแผนกได้")
+    }
+    setCreatingDept(false)
   }
 
   const createPosition = async () => {
@@ -492,6 +517,21 @@ export default function NewEmployeePage() {
                   <option value="">ไม่ระบุ</option>
                   {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </Select>
+                <div className="flex gap-1.5 mt-1.5">
+                  <input
+                    value={newDeptName}
+                    onChange={(e) => setNewDeptName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), createDepartment())}
+                    placeholder="+ พิมพ์แผนกใหม่..."
+                    className="flex-1 bg-white border border-dashed border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-400 placeholder-slate-300"
+                  />
+                  {newDeptName.trim() && (
+                    <button type="button" onClick={createDepartment} disabled={creatingDept}
+                      className="px-2.5 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-100 disabled:opacity-50 whitespace-nowrap">
+                      {creatingDept ? <Loader2 size={12} className="animate-spin"/> : "เพิ่ม"}
+                    </button>
+                  )}
+                </div>
               </Field>
               <Field label="ตำแหน่ง">
                 <Select value={f.position_id} onChange={(e:any) => set("position_id", e.target.value)}>

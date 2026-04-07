@@ -243,5 +243,28 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ position_id: created.id, success: true })
   }
 
+  // ── สร้างแผนกใหม่ ──
+  if (action === "create_department") {
+    const { name, company_id } = body
+    if (!name) return NextResponse.json({ error: "Missing department name" }, { status: 400 })
+
+    // Check if already exists
+    const { data: existing } = await supa.from("departments")
+      .select("id").eq("name", name).eq("company_id", company_id).maybeSingle()
+    if (existing) return NextResponse.json({ department_id: existing.id, message: "Already exists" })
+
+    const code = name.replace(/[^a-zA-Z0-9ก-๙]/g, "_").slice(0, 20) + "_" + Date.now().toString(36).slice(-4)
+    const { data: created, error } = await supa.from("departments")
+      .insert({ name, code, company_id }).select("id").single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    logAudit(supa, {
+      actorId, actorName, action: "create_department", entityType: "department", entityId: created.id,
+      description: `สร้างแผนกใหม่: ${name}`,
+      companyId: company_id,
+    })
+    return NextResponse.json({ department_id: created.id, success: true })
+  }
+
   return NextResponse.json({ error: "Unknown action" }, { status: 400 })
 }
