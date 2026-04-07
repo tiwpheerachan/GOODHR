@@ -79,13 +79,17 @@ export async function POST(req: Request) {
   // ── Lookup 1: users table → employee_id ──
   const { data: targetUser } = await supa
     .from("users")
-    .select("id, email")
+    .select("id")
     .eq("employee_id", employee_id)
     .maybeSingle()
 
   if (targetUser) {
     targetAuthId = targetUser.id
-    oldEmail = targetUser.email || ""
+    // ดึง email จาก Supabase Auth
+    try {
+      const { data: authU } = await supa.auth.admin.getUserById(targetUser.id)
+      oldEmail = authU?.user?.email || ""
+    } catch { oldEmail = "" }
   } else {
     // ── ดึง email จาก employees table ──
     const { data: empData } = await supa
@@ -97,39 +101,20 @@ export async function POST(req: Request) {
     if (empData?.email) {
       const empEmailLower = empData.email.trim().toLowerCase()
 
-      // ── Lookup 2: users table → email (case-insensitive) ──
-      const { data: usersMatchList } = await supa
-        .from("users")
-        .select("id, email")
+      // ── Lookup 2: ค้นหาใน Supabase Auth โดยตรง (case-insensitive) ──
+      const authMatch0 = await findAuthUserByEmail(supa, empData.email)
 
-      const userByEmail = (usersMatchList ?? []).find(
-        u => u.email?.toLowerCase() === empEmailLower
-      )
-
-      if (userByEmail) {
-        targetAuthId = userByEmail.id
-        oldEmail = userByEmail.email || empData.email
-        // เชื่อม employee_id ให้ด้วย
-        await supa.from("users").update({ employee_id }).eq("id", userByEmail.id)
+      if (authMatch0) {
+        targetAuthId = authMatch0.id
+        oldEmail = authMatch0.email || empData.email
+        // เชื่อม users table
+        await supa.from("users").upsert({
+          id: authMatch0.id, employee_id, role: "employee",
+        }, { onConflict: "id" })
       } else {
-        // ── Lookup 3: ค้นหาใน Supabase Auth โดยตรง (ทุก page) ──
-        const authMatch = await findAuthUserByEmail(supa, empData.email)
-
-        if (authMatch) {
-          targetAuthId = authMatch.id
-          oldEmail = authMatch.email || empData.email
-          // สร้าง record ใน users table เชื่อมกับ employee
-          await supa.from("users").upsert({
-            id: authMatch.id,
-            email: authMatch.email,
-            employee_id,
-            role: "employee",
-          }, { onConflict: "id" })
-        } else {
-          return NextResponse.json({
-            error: `ไม่พบบัญชีล็อกอินของพนักงานนี้ (อีเมลใน employees: ${empData.email}) — กรุณาสร้างบัญชีล็อกอินให้พนักงานก่อน`,
-          }, { status: 404 })
-        }
+        return NextResponse.json({
+          error: `ไม่พบบัญชีล็อกอินของพนักงานนี้ (อีเมลใน employees: ${empData.email}) — กรุณาสร้างบัญชีล็อกอินให้พนักงานก่อน`,
+        }, { status: 404 })
       }
     } else {
       // employees ไม่มี email → ลอง match ด้วย user_metadata
@@ -142,7 +127,6 @@ export async function POST(req: Request) {
         oldEmail = authMatch2.email || ""
         await supa.from("users").upsert({
           id: authMatch2.id,
-          email: authMatch2.email,
           employee_id,
           role: "employee",
         }, { onConflict: "id" })
@@ -154,19 +138,7 @@ export async function POST(req: Request) {
     }
   }
 
-  // ── ตรวจว่าอีเมลใหม่ไม่ซ้ำ (ทั้ง users table + Supabase Auth) ──
-  const { data: existing } = await supa
-    .from("users")
-    .select("id")
-    .eq("email", normalizedEmail)
-    .neq("id", targetAuthId)
-    .maybeSingle()
-
-  if (existing) {
-    return NextResponse.json({ error: "อีเมลนี้ถูกใช้งานในระบบแล้ว" }, { status: 409 })
-  }
-
-  // ตรวจใน Supabase Auth ด้วย (ทุก page)
+  // ── ตรวจว่าอีเมลใหม่ไม่ซ้ำ (ใน Supabase Auth) ──
   const allAuthForDupCheck = await getAllAuthUsers(supa)
   const authDup = allAuthForDupCheck.find(
     u => u.email?.toLowerCase() === normalizedEmail && u.id !== targetAuthId
@@ -184,13 +156,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Auth error: ${authErr.message}` }, { status: 500 })
   }
 
-  // ── Step 2: อัพเดท users table ──
-  await supa
-    .from("users")
-    .update({ email: normalizedEmail })
-    .eq("id", targetAuthId)
-
-  // ── Step 3: อัพเดท employees table (ถ้ามี employee_id) ──
+  // ── Step 2: อัพเดท employees table (ถ้ามี employee_id) ──
   if (targetEmployeeId) {
     await supa.from("employees").update({ email: normalizedEmail }).eq("id", targetEmployeeId)
   }

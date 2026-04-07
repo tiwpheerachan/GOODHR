@@ -36,15 +36,29 @@ export async function POST(req: Request) {
   }
 
   // ── หา auth user จาก employee ──
-  const { data: userData } = await supa
+  const { data: userData, error: findErr } = await supa
     .from("users")
-    .select("id, email, employee:employees!employee_id(first_name_th, last_name_th, email)")
+    .select("id, employee_id")
     .eq("employee_id", employee_id)
     .maybeSingle()
 
-  if (!userData) {
+  if (findErr || !userData) {
     return NextResponse.json({ error: "ไม่พบ user ของพนักงานนี้" }, { status: 404 })
   }
+
+  // ── ดึงข้อมูลพนักงาน ──
+  const { data: empData } = await supa
+    .from("employees")
+    .select("first_name_th, last_name_th, email")
+    .eq("id", employee_id)
+    .maybeSingle()
+
+  // ── ดึง email จาก Supabase Auth ──
+  let authEmail: string | null = null
+  try {
+    const { data: authUser } = await supa.auth.admin.getUserById(userData.id)
+    authEmail = authUser?.user?.email ?? null
+  } catch (e) { /* ignore */ }
 
   // ── รีเซ็ตรหัส ──
   const { error: resetErr } = await supa.auth.admin.updateUserById(userData.id, {
@@ -56,9 +70,8 @@ export async function POST(req: Request) {
   }
 
   // ── ส่ง email แจ้งพนักงาน (optional) ──
-  const emp = userData.employee as any
-  const empName = emp ? `${emp.first_name_th} ${emp.last_name_th}` : "พนักงาน"
-  const empEmail = userData.email || emp?.email
+  const empName = empData ? `${empData.first_name_th} ${empData.last_name_th}` : "พนักงาน"
+  const empEmail = authEmail || empData?.email
 
   if (send_email !== false && empEmail) {
     try {

@@ -14,13 +14,24 @@ export async function GET(request: Request) {
 
   if (!employeeId) return NextResponse.json({ success: false, error: "employee_id required" })
 
-  const { data: userData } = await supa
+  const { data: userData, error: userErr } = await supa
     .from("users")
     .select("id, role, is_active, employee_id")
     .eq("employee_id", employeeId)
     .maybeSingle()
 
-  return NextResponse.json({ success: true, user: userData })
+  // ดึง email จาก Supabase Auth ถ้าพบ user (ครอบ try-catch เพื่อไม่ให้พัง)
+  let email: string | null = null
+  if (userData?.id) {
+    try {
+      const { data: authUser } = await supa.auth.admin.getUserById(userData.id)
+      email = authUser?.user?.email ?? null
+    } catch (e) {
+      // ไม่เป็นไร — แค่ไม่แสดง email
+    }
+  }
+
+  return NextResponse.json({ success: true, user: userData ? { ...userData, email } : null })
 }
 
 // POST — อัปเดต role ของพนักงาน

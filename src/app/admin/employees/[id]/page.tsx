@@ -215,9 +215,19 @@ export default function EmployeeDetailPage() {
 
   const addMgr = async () => {
     if (!newMgr) return toast.error("กรุณาเลือกหัวหน้า")
-    await supabase.from("employee_manager_history").update({ effective_to:newMgrDate }).eq("employee_id",id as string).is("effective_to",null)
-    const { error } = await supabase.from("employee_manager_history").insert({ employee_id:id, manager_id:newMgr, effective_from:newMgrDate, created_by:user?.employee_id })
-    if (error) toast.error(error.message); else { toast.success("อัปเดตหัวหน้าสำเร็จ"); window.location.reload() }
+    try {
+      const res = await fetch("/api/employees/manager", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_id: id, manager_id: newMgr, effective_from: newMgrDate }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "อัปเดตหัวหน้าไม่สำเร็จ")
+      toast.success("อัปเดตหัวหน้าสำเร็จ")
+      window.location.reload()
+    } catch (e: any) {
+      toast.error(e.message)
+    }
   }
 
   const handleResign = async () => {
@@ -1375,7 +1385,7 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
       ) : (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-5 flex items-center gap-3">
           <AlertTriangle size={15} className="text-amber-500"/>
-          <p className="text-sm text-amber-800 font-medium">ยังไม่ได้กำหนดกะทำงาน กรุณากด "+ เพิ่มกะ"</p>
+          <p className="text-sm text-amber-800 font-medium">ยังไม่ได้กำหนดกะทำงาน กรุณากด &quot;+ เพิ่มกะ&quot;</p>
         </div>
       )}
 
@@ -1906,6 +1916,13 @@ function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; e
   const [hasAccount, setHasAccount] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [resetResult, setResetResult] = useState<{ password: string; email_sent: boolean } | null>(null)
+  // ── Password & Email management ──
+  const [customPassword, setCustomPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [currentEmail, setCurrentEmail] = useState("")
+  const [newEmail, setNewEmail] = useState("")
+  const [changingEmail, setChangingEmail] = useState(false)
+  const [emailResult, setEmailResult] = useState<{ old_email: string; new_email: string } | null>(null)
 
   const ROLES = [
     { value: "employee",        label: "พนักงาน",         desc: "เข้าถึงได้เฉพาะหน้าพนักงาน (เช็คอิน, ดูตาราง, ลา)",                        color: "bg-slate-100 text-slate-700 border-slate-200",    icon: "👤" },
@@ -1923,6 +1940,7 @@ function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; e
           setCurrentRole(data.user.role)
           setSelectedRole(data.user.role)
           setHasAccount(true)
+          if (data.user.email) setCurrentEmail(data.user.email)
         } else {
           setHasAccount(false)
         }
@@ -2042,14 +2060,81 @@ function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; e
         </div>
       )}
 
-      {/* ── Reset Password Section ── */}
+      {/* ── Change Email Section ── */}
       <div className="mt-8 pt-6 border-t border-slate-100">
         <div className="flex items-center gap-2 mb-3">
-          <AlertTriangle size={16} className="text-amber-500" />
+          <Globe size={16} className="text-blue-500" />
+          <h3 className="font-bold text-slate-800 text-sm">อีเมลล็อกอิน</h3>
+        </div>
+
+        {currentEmail && (
+          <div className="bg-slate-50 rounded-xl px-4 py-3 mb-4">
+            <p className="text-xs text-slate-400 mb-0.5">อีเมลปัจจุบัน</p>
+            <p className="text-sm font-semibold text-slate-700 select-all">{currentEmail}</p>
+          </div>
+        )}
+
+        {emailResult ? (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-3">
+            <div className="flex items-center gap-2 mb-2">
+              <CheckCircle2 size={16} className="text-green-500" />
+              <p className="text-sm font-bold text-green-800">เปลี่ยนอีเมลสำเร็จ</p>
+            </div>
+            <p className="text-xs text-slate-600">
+              {emailResult.old_email} → <span className="font-bold text-green-700">{emailResult.new_email}</span>
+            </p>
+            <button onClick={() => { setEmailResult(null); setNewEmail("") }}
+              className="mt-2 text-xs text-slate-400 hover:text-slate-600 underline">ซ่อน</button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              type="email"
+              value={newEmail}
+              onChange={e => setNewEmail(e.target.value)}
+              placeholder="อีเมลใหม่..."
+              className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+            />
+            <button
+              onClick={async () => {
+                if (!newEmail.trim()) { toast.error("กรุณากรอกอีเมลใหม่"); return }
+                if (!confirm(`เปลี่ยนอีเมลล็อกอินของ ${employeeName}\nจาก: ${currentEmail}\nเป็น: ${newEmail.trim()} ?`)) return
+                setChangingEmail(true)
+                try {
+                  const res = await fetch("/api/auth/change-email", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ employee_id: employeeId, new_email: newEmail.trim() }),
+                  })
+                  const data = await res.json()
+                  if (!res.ok) throw new Error(data.error || "เปลี่ยนอีเมลไม่สำเร็จ")
+                  setEmailResult({ old_email: data.old_email, new_email: data.new_email })
+                  setCurrentEmail(data.new_email)
+                  toast.success(data.message)
+                } catch (e: any) {
+                  toast.error(e.message)
+                } finally {
+                  setChangingEmail(false)
+                }
+              }}
+              disabled={changingEmail || !newEmail.trim()}
+              className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+            >
+              {changingEmail ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />}
+              {changingEmail ? "กำลังเปลี่ยน..." : "เปลี่ยนอีเมล"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Reset Password Section ── */}
+      <div className="mt-6 pt-6 border-t border-slate-100">
+        <div className="flex items-center gap-2 mb-3">
+          <ShieldAlert size={16} className="text-amber-500" />
           <h3 className="font-bold text-slate-800 text-sm">รีเซ็ตรหัสผ่าน</h3>
         </div>
         <p className="text-xs text-slate-400 mb-4">
-          สร้างรหัสผ่านใหม่ให้พนักงาน ระบบจะส่งอีเมลแจ้งรหัสผ่านใหม่อัตโนมัติ
+          กรอกรหัสผ่านใหม่เอง หรือเว้นว่างเพื่อให้ระบบสุ่มรหัสอัตโนมัติ
         </p>
 
         {resetResult ? (
@@ -2063,40 +2148,71 @@ function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; e
               <p className="text-lg font-mono font-bold text-slate-800 tracking-wider select-all">{resetResult.password}</p>
             </div>
             <p className="text-xs text-green-600">
-              {resetResult.email_sent ? "✅ ส่งอีเมลแจ้งพนักงานแล้ว" : "⚠️ ไม่สามารถส่งอีเมลได้ กรุณาแจ้งรหัสผ่านให้พนักงานด้วยตนเอง"}
+              {resetResult.email_sent ? "ส่งอีเมลแจ้งพนักงานแล้ว" : "ไม่สามารถส่งอีเมลได้ กรุณาแจ้งรหัสผ่านให้พนักงานด้วยตนเอง"}
             </p>
-            <button onClick={() => setResetResult(null)}
-              className="mt-2 text-xs text-slate-400 hover:text-slate-600 underline">
-              ซ่อน
-            </button>
+            <button onClick={() => { setResetResult(null); setCustomPassword("") }}
+              className="mt-2 text-xs text-slate-400 hover:text-slate-600 underline">ซ่อน</button>
           </div>
         ) : (
-          <button
-            onClick={async () => {
-              if (!confirm(`ต้องการรีเซ็ตรหัสผ่านของ ${employeeName} ?`)) return
-              setResetting(true)
-              try {
-                const res = await fetch("/api/auth/admin-reset", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ employee_id: employeeId }),
-                })
-                const data = await res.json()
-                if (!res.ok) throw new Error(data.error || "รีเซ็ตไม่สำเร็จ")
-                setResetResult({ password: data.password, email_sent: data.email_sent })
-                toast.success(data.message)
-              } catch (e: any) {
-                toast.error(e.message)
-              } finally {
-                setResetting(false)
-              }
-            }}
-            disabled={resetting}
-            className="flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 transition-colors disabled:opacity-50"
-          >
-            {resetting ? <Loader2 size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
-            {resetting ? "กำลังรีเซ็ต..." : "รีเซ็ตรหัสผ่าน"}
-          </button>
+          <div className="space-y-3">
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={customPassword}
+                onChange={e => setCustomPassword(e.target.value)}
+                placeholder="กรอกรหัสผ่านใหม่ (เว้นว่าง = สุ่มอัตโนมัติ)"
+                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm pr-10 focus:ring-2 focus:ring-amber-200 focus:border-amber-400 outline-none font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showPassword ? <X size={16} /> : <Globe size={16} />}
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  const pw = customPassword.trim()
+                  if (pw && pw.length < 6) { toast.error("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร"); return }
+                  const msg = pw
+                    ? `ตั้งรหัสผ่านใหม่ของ ${employeeName} เป็น "${pw}" ?`
+                    : `สุ่มรหัสผ่านใหม่ให้ ${employeeName} ?`
+                  if (!confirm(msg)) return
+                  setResetting(true)
+                  try {
+                    const body: any = { employee_id: employeeId }
+                    if (pw) body.new_password = pw
+                    const res = await fetch("/api/auth/admin-reset", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(body),
+                    })
+                    const data = await res.json()
+                    if (!res.ok) throw new Error(data.error || "รีเซ็ตไม่สำเร็จ")
+                    setResetResult({ password: data.password, email_sent: data.email_sent })
+                    toast.success(data.message)
+                  } catch (e: any) {
+                    toast.error(e.message)
+                  } finally {
+                    setResetting(false)
+                  }
+                }}
+                disabled={resetting}
+                className="flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 transition-colors disabled:opacity-50"
+              >
+                {resetting ? <Loader2 size={14} className="animate-spin" /> : <ShieldAlert size={14} />}
+                {resetting ? "กำลังรีเซ็ต..." : customPassword.trim() ? "ตั้งรหัสผ่านนี้" : "สุ่มรหัสผ่านใหม่"}
+              </button>
+              {customPassword.trim() && (
+                <p className="text-xs text-slate-400">จะตั้งเป็นรหัสที่กรอก</p>
+              )}
+              {!customPassword.trim() && (
+                <p className="text-xs text-slate-400">ระบบจะสุ่มรหัสให้อัตโนมัติ</p>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>
