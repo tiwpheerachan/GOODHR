@@ -707,14 +707,51 @@ function LeaveNewInner() {
 
                   {/* ── แก้ไขเวลา ──────────────────── */}
                   {formType === "adjustment" && <>
-                    <div><label className={labelCls}>วันที่</label>
-                      <input type="date" value={form.work_date} onChange={e => set("work_date", e.target.value)} className={inputCls} required /></div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><label className={labelCls}>เวลาเข้างาน</label>
-                        <input type="time" value={form.requested_clock_in} onChange={e => set("requested_clock_in", e.target.value)} className={inputCls} /></div>
-                      <div><label className={labelCls}>เวลาออกงาน</label>
-                        <input type="time" value={form.requested_clock_out} onChange={e => set("requested_clock_out", e.target.value)} className={inputCls} /></div>
+                    {/* วันที่ + เวลาเข้า */}
+                    <div>
+                      <label className={labelCls}>วันที่ + เวลาเข้างาน</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input type="date" value={form.work_date} onChange={e => set("work_date", e.target.value)} className={inputCls} required />
+                        <input type="time" value={form.requested_clock_in} onChange={e => {
+                          set("requested_clock_in", e.target.value)
+                          // auto-detect ข้ามคืน
+                          if (form.requested_clock_out && e.target.value && form.requested_clock_out < e.target.value) {
+                            const nd = new Date(form.work_date + "T00:00:00"); nd.setDate(nd.getDate() + 1)
+                            setForm(f => ({ ...f, requested_clock_in: e.target.value, clock_out_date: format(nd, "yyyy-MM-dd") }))
+                          }
+                        }} className={inputCls} />
+                      </div>
                     </div>
+
+                    {/* วันที่ + เวลาออก (รองรับข้ามคืน) */}
+                    <div>
+                      <label className={labelCls}>วันที่ + เวลาออกงาน</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input type="date"
+                          value={(form as any).clock_out_date || form.work_date}
+                          min={form.work_date}
+                          max={(() => { const d = new Date(form.work_date + "T00:00:00"); d.setDate(d.getDate() + 1); return format(d, "yyyy-MM-dd") })()}
+                          onChange={e => setForm(f => ({ ...f, clock_out_date: e.target.value }))}
+                          className={inputCls} />
+                        <input type="time" value={form.requested_clock_out} onChange={e => {
+                          const v = e.target.value
+                          set("requested_clock_out", v)
+                          // auto-detect ข้ามคืน
+                          if (form.requested_clock_in && v && v < form.requested_clock_in) {
+                            const nd = new Date(form.work_date + "T00:00:00"); nd.setDate(nd.getDate() + 1)
+                            setForm(f => ({ ...f, requested_clock_out: v, clock_out_date: format(nd, "yyyy-MM-dd") }))
+                          } else {
+                            setForm(f => ({ ...f, requested_clock_out: v, clock_out_date: form.work_date }))
+                          }
+                        }} className={inputCls} />
+                      </div>
+                      {(form as any).clock_out_date && (form as any).clock_out_date !== form.work_date && (
+                        <p className="text-[10px] text-amber-600 font-bold mt-1.5 flex items-center gap-1">
+                          <AlertCircle size={10} /> กะข้ามคืน — ออกงานวันถัดไป
+                        </p>
+                      )}
+                    </div>
+
                     <div className="rounded-2xl px-4 py-3 flex items-start gap-2.5"
                       style={{ background: "linear-gradient(135deg,#eef2ff,#e0e7ff)", border: "1px solid #c7d2fe" }}>
                       <Sparkles size={13} className="text-indigo-500 mt-0.5 flex-shrink-0" />
