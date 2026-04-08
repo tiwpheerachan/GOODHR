@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   Check, X, Clock, Calendar, Timer, FileEdit, Search, Filter,
   ChevronLeft, ChevronRight, Loader2, AlertCircle, Building2,
-  Download, Users, Ban, ArrowRightLeft, Paperclip,
+  Download, Users, Ban, ArrowRightLeft, Paperclip, Pencil,
 } from "lucide-react"
 import { format, startOfMonth, endOfMonth } from "date-fns"
 import { th } from "date-fns/locale"
@@ -64,6 +64,8 @@ export default function AdminApprovalsPage() {
   const [rejectItem, setRejectItem] = useState<any>(null)
   const [rejectNote, setRejectNote] = useState("")
   const [showExport, setShowExport] = useState(false)
+  const [editAdj, setEditAdj] = useState<any>(null)
+  const [editAdjSaving, setEditAdjSaving] = useState(false)
 
   // Load companies
   useEffect(() => {
@@ -328,6 +330,18 @@ export default function AdminApprovalsPage() {
                                 className="px-2.5 py-1.5 bg-red-50 text-red-600 rounded-lg text-[10px] font-bold hover:bg-red-100 disabled:opacity-50">
                                 <X size={10} className="inline mr-0.5"/> ปฏิเสธ
                               </button>
+                              {r.request_type === "adjustment" && (
+                                <button onClick={() => {
+                                  const ci = r.requested_clock_in ? new Date(r.requested_clock_in).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : ""
+                                  const co = r.requested_clock_out ? new Date(r.requested_clock_out).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : ""
+                                  const ciDate = r.work_date || ""
+                                  const coDate = r.requested_clock_out ? new Date(r.requested_clock_out).toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" }) : ciDate
+                                  setEditAdj({ ...r, edit_clock_in: ci, edit_clock_out: co, edit_clock_in_date: ciDate, edit_clock_out_date: coDate })
+                                }}
+                                  className="px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold hover:bg-indigo-100 disabled:opacity-50">
+                                  <Pencil size={10} className="inline mr-0.5"/> แก้ไข
+                                </button>
+                              )}
                               <button onClick={() => handleAction("approve", r)}
                                 disabled={isProc}
                                 className="px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[10px] font-bold hover:bg-green-700 disabled:opacity-50">
@@ -413,6 +427,69 @@ export default function AdminApprovalsPage() {
                 className="flex-1 py-2.5 bg-red-500 text-white rounded-xl text-sm font-bold hover:bg-red-600 disabled:opacity-50">
                 {processing === rejectItem.id ? <Loader2 size={14} className="inline animate-spin mr-1"/> : null}
                 ปฏิเสธ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Edit Adjustment Modal ═══ */}
+      {editAdj && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditAdj(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-indigo-600 px-5 py-4">
+              <h3 className="text-white font-bold">แก้ไขเวลาก่อนอนุมัติ</h3>
+              <p className="text-indigo-200 text-xs mt-0.5">{editAdj.employee_name} · {editAdj.work_date || editAdj.date_label}</p>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">วันที่ + เวลาเข้างาน</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={editAdj.edit_clock_in_date}
+                    onChange={e => setEditAdj((p: any) => ({ ...p, edit_clock_in_date: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400" />
+                  <input type="time" value={editAdj.edit_clock_in}
+                    onChange={e => setEditAdj((p: any) => ({ ...p, edit_clock_in: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400 font-semibold" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">วันที่ + เวลาออกงาน</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={editAdj.edit_clock_out_date}
+                    onChange={e => setEditAdj((p: any) => ({ ...p, edit_clock_out_date: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400" />
+                  <input type="time" value={editAdj.edit_clock_out}
+                    onChange={e => setEditAdj((p: any) => ({ ...p, edit_clock_out: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400 font-semibold" />
+                </div>
+                {editAdj.edit_clock_out_date && editAdj.edit_clock_out_date !== editAdj.edit_clock_in_date && (
+                  <p className="text-[10px] text-amber-600 font-bold mt-1">กะข้ามคืน — ออกงานคนละวัน</p>
+                )}
+              </div>
+            </div>
+            <div className="px-5 pb-5 flex gap-3">
+              <button onClick={() => setEditAdj(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+              <button onClick={async () => {
+                setEditAdjSaving(true)
+                try {
+                  // อัพเดท requested_clock_in/out ใน time_adjustment_requests ก่อน
+                  const supabase = createClient()
+                  const updates: any = {}
+                  if (editAdj.edit_clock_in) updates.requested_clock_in = `${editAdj.edit_clock_in_date}T${editAdj.edit_clock_in}:00+07:00`
+                  if (editAdj.edit_clock_out) updates.requested_clock_out = `${editAdj.edit_clock_out_date}T${editAdj.edit_clock_out}:00+07:00`
+                  await supabase.from("time_adjustment_requests").update(updates).eq("id", editAdj.id)
+
+                  // แล้ว approve เลย
+                  await handleAction("approve", editAdj)
+                  setEditAdj(null)
+                  toast.success("แก้ไขและอนุมัติสำเร็จ")
+                } catch { toast.error("เกิดข้อผิดพลาด") }
+                setEditAdjSaving(false)
+              }} disabled={editAdjSaving}
+                className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 disabled:opacity-50">
+                {editAdjSaving ? "กำลังบันทึก..." : "แก้ไขและอนุมัติ"}
               </button>
             </div>
           </div>

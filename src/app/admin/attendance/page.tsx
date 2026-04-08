@@ -6,7 +6,7 @@ import {
   Download, RefreshCw, AlertCircle, Check, X,
   Clock, Users, TrendingUp, AlertTriangle,
   Search, ChevronLeft, ChevronRight,
-  Building2, GitBranch, BarChart2, List, Camera, FileSpreadsheet, MapPin,
+  Building2, GitBranch, BarChart2, List, Camera, FileSpreadsheet, MapPin, Pencil,
 } from "lucide-react"
 import Link from "next/link"
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns"
@@ -270,6 +270,11 @@ export default function AdminAttendancePage() {
   const [loadingList,  setLoadingList]  = useState(false)
   const [errList,      setErrList]      = useState<string|null>(null)
   const [total,        setTotal]        = useState(0)
+
+  // ── edit attendance modal ────────────────────────────────────
+  const [editRec, setEditRec] = useState<any>(null)
+  const [editForm, setEditForm] = useState({ clock_in: "", clock_out: "", clock_in_date: "", clock_out_date: "" })
+  const [editSaving, setEditSaving] = useState(false)
   const [page,         setPage]         = useState(0)
   const [adjReqs,      setAdjReqs]      = useState<any[]>([])
   const [kpi,          setKpi]          = useState({present:0,late:0,absent:0,leave:0})
@@ -652,15 +657,15 @@ export default function AdminAttendancePage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-slate-100 bg-slate-50/70">
-                  {["วันที่","พนักงาน","แผนก","เข้างาน","ออกงาน","สาย","OT","สถานะ","พิกัด"].map(h=>(
+                  {["วันที่","พนักงาน","แผนก","เข้างาน","ออกงาน","สาย","OT","สถานะ","พิกัด",""].map(h=>(
                     <th key={h} className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wide text-slate-500 whitespace-nowrap">{h}</th>
                   ))}
                 </tr></thead>
                 <tbody className="divide-y divide-slate-50">
                   {loadingList?(
-                    <tr><td colSpan={9} className="px-4 py-14 text-center"><RefreshCw size={18} className="animate-spin text-slate-300 mx-auto mb-2"/><p className="text-sm text-slate-400">กำลังโหลด…</p></td></tr>
+                    <tr><td colSpan={10} className="px-4 py-14 text-center"><RefreshCw size={18} className="animate-spin text-slate-300 mx-auto mb-2"/><p className="text-sm text-slate-400">กำลังโหลด…</p></td></tr>
                   ):records.length===0?(
-                    <tr><td colSpan={9} className="px-4 py-14 text-center text-slate-400 text-sm">ไม่พบข้อมูลในช่วงวันที่เลือก</td></tr>
+                    <tr><td colSpan={10} className="px-4 py-14 text-center text-slate-400 text-sm">ไม่พบข้อมูลในช่วงวันที่เลือก</td></tr>
                   ):records.map((r: any)=>(
                     <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap font-medium">{safeFmt(r.work_date+"T00:00:00","d MMM")}</td>
@@ -704,6 +709,18 @@ export default function AdminAttendancePage() {
                         ) : (
                           <span className="text-slate-300 text-xs">—</span>
                         )}
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <button onClick={() => {
+                          const ci = r.clock_in ? new Date(r.clock_in).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : ""
+                          const co = r.clock_out ? new Date(r.clock_out).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : ""
+                          const ciDate = r.work_date
+                          const coDate = r.clock_out ? new Date(r.clock_out).toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" }) : r.work_date
+                          setEditRec(r)
+                          setEditForm({ clock_in: ci, clock_out: co, clock_in_date: ciDate, clock_out_date: coDate })
+                        }} className="text-slate-400 hover:text-indigo-600 transition-colors" title="แก้ไขเวลา">
+                          <Pencil size={13} />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -862,7 +879,7 @@ export default function AdminAttendancePage() {
                 </tr></thead>
                 <tbody className="divide-y divide-slate-50">
                   {loadingSum?(
-                    <tr><td colSpan={9} className="text-center py-12 text-slate-400 text-sm"><RefreshCw size={18} className="animate-spin inline mr-2"/>กำลังโหลด…</td></tr>
+                    <tr><td colSpan={10} className="text-center py-12 text-slate-400 text-sm"><RefreshCw size={18} className="animate-spin inline mr-2"/>กำลังโหลด…</td></tr>
                   ):filteredEmps.slice(0,100).map((r,i)=>(
                     <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-4 py-3 text-xs text-slate-400 font-mono">{r.employee_code}</td>
@@ -876,7 +893,7 @@ export default function AdminAttendancePage() {
                       <td className="text-center px-3 py-3 tabular-nums"><span className={r.lateMinutes>0?"text-orange-600 font-bold":"text-slate-300"}>{r.lateMinutes>0?r.lateMinutes+"น.":"—"}</span></td>
                     </tr>
                   ))}
-                  {filteredEmps.length>100&&<tr><td colSpan={9} className="text-center py-3 text-xs text-slate-400">แสดง 100 จาก {filteredEmps.length} คน — ใช้ Export Excel เพื่อดูทั้งหมด</td></tr>}
+                  {filteredEmps.length>100&&<tr><td colSpan={10} className="text-center py-3 text-xs text-slate-400">แสดง 100 จาก {filteredEmps.length} คน — ใช้ Export Excel เพื่อดูทั้งหมด</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -1005,6 +1022,72 @@ export default function AdminAttendancePage() {
               }}
                 className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2">
                 {exporting ? <><RefreshCw size={13} className="animate-spin"/> กำลัง Export…</> : <><Download size={13}/> Download XLSX</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ═══ Edit Attendance Modal ═══ */}
+      {editRec && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditRec(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-indigo-600 px-5 py-4">
+              <h3 className="text-white font-bold">แก้ไขเวลาเข้า-ออก</h3>
+              <p className="text-indigo-200 text-xs mt-0.5">
+                {editRec.employee?.first_name_th} {editRec.employee?.last_name_th} · {editRec.work_date}
+              </p>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">วันที่ + เวลาเข้างาน</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={editForm.clock_in_date}
+                    onChange={e => setEditForm(f => ({ ...f, clock_in_date: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400" />
+                  <input type="time" value={editForm.clock_in}
+                    onChange={e => setEditForm(f => ({ ...f, clock_in: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400 font-semibold" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">วันที่ + เวลาออกงาน</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={editForm.clock_out_date}
+                    onChange={e => setEditForm(f => ({ ...f, clock_out_date: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400" />
+                  <input type="time" value={editForm.clock_out}
+                    onChange={e => setEditForm(f => ({ ...f, clock_out: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400 font-semibold" />
+                </div>
+                {editForm.clock_out_date && editForm.clock_out_date !== editForm.clock_in_date && (
+                  <p className="text-[10px] text-amber-600 font-bold mt-1">กะข้ามคืน — ออกงานคนละวัน</p>
+                )}
+              </div>
+            </div>
+            <div className="px-5 pb-5 flex gap-3">
+              <button onClick={() => setEditRec(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+              <button onClick={async () => {
+                setEditSaving(true)
+                try {
+                  const res = await fetch("/api/attendance/admin-edit", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      record_id: editRec.id,
+                      clock_in: editForm.clock_in || null,
+                      clock_out: editForm.clock_out || null,
+                      clock_in_date: editForm.clock_in_date || editRec.work_date,
+                      clock_out_date: editForm.clock_out_date || editRec.work_date,
+                    }),
+                  })
+                  const data = await res.json()
+                  if (data.success) { toast.success("แก้ไขเวลาสำเร็จ"); setEditRec(null); loadList() }
+                  else toast.error(data.error || "เกิดข้อผิดพลาด")
+                } catch { toast.error("เกิดข้อผิดพลาด") }
+                setEditSaving(false)
+              }} disabled={editSaving}
+                className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
+                {editSaving ? "กำลังบันทึก..." : "บันทึก"}
               </button>
             </div>
           </div>

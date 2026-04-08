@@ -194,9 +194,21 @@ export async function GET(req: NextRequest) {
   const dateTo = url.get("date_to")
   const search = url.get("search")
 
-  const empSelect = `employee:employees!employee_id(id,employee_code,first_name_th,last_name_th,nickname,avatar_url,department:departments(name),position:positions(name),company:companies(code))`
-
   const results: any[] = []
+
+  // Helper: enrich records with employee data (batch query)
+  const enrichEmployee = async (records: any[]) => {
+    const missing = records.filter(r => !r.employee && r.employee_id)
+    if (missing.length === 0) return
+    const ids = Array.from(new Set(missing.map(r => r.employee_id)))
+    const { data: emps } = await supa.from("employees")
+      .select("id,employee_code,first_name_th,last_name_th,nickname,avatar_url,department:departments(name),position:positions(name),company:companies(code)")
+      .in("id", ids)
+    const empMap = new Map((emps ?? []).map(e => [e.id, e]))
+    for (const r of missing) {
+      r.employee = empMap.get(r.employee_id) || null
+    }
+  }
 
   // Helper: build company + date + status filters
   const applyFilters = (q: any, dateCol: string, statusVal: string | null) => {
@@ -208,9 +220,7 @@ export async function GET(req: NextRequest) {
     }
     if (dateFrom) q = q.gte(dateCol, dateFrom)
     if (dateTo) q = q.lte(dateCol, dateTo)
-    if (search) {
-      q = q.or(`first_name_th.ilike.%${search}%,last_name_th.ilike.%${search}%,employee_code.ilike.%${search}%`, { referencedTable: "employees" })
-    }
+    // search จะ filter ที่ client-side แทน เพราะ referencedTable อาจ FK ไม่ตรง
     return q
   }
 
@@ -219,10 +229,11 @@ export async function GET(req: NextRequest) {
   // ── Leave requests ──
   if (shouldFetch("leave")) {
     let q = supa.from("leave_requests")
-      .select(`id,employee_id,company_id,leave_type_id,start_date,end_date,total_days,is_half_day,half_day_period,reason,status,requested_at,reviewed_at,review_note,created_at,attachment_url,attachment_name,${empSelect},leave_type:leave_types(id,name,color_hex)`)
+      .select(`id,employee_id,company_id,leave_type_id,start_date,end_date,total_days,is_half_day,half_day_period,reason,status,requested_at,reviewed_at,review_note,created_at,attachment_url,attachment_name,leave_type:leave_types(id,name,color_hex)`)
       .order("created_at", { ascending: false }).limit(200)
     q = applyFilters(q, "start_date", status)
     const { data } = await q
+    await enrichEmployee(data || [])
     for (const r of (data || [])) {
       results.push({
         ...r, request_type: "leave",
@@ -236,10 +247,11 @@ export async function GET(req: NextRequest) {
   // ── Time adjustment requests ──
   if (shouldFetch("adjustment")) {
     let q = supa.from("time_adjustment_requests")
-      .select(`id,employee_id,company_id,work_date,requested_clock_in,requested_clock_out,reason,status,reviewed_at,review_note,created_at,${empSelect}`)
+      .select(`id,employee_id,company_id,work_date,requested_clock_in,requested_clock_out,reason,status,reviewed_at,review_note,created_at`)
       .order("created_at", { ascending: false }).limit(200)
     q = applyFilters(q, "work_date", status)
     const { data } = await q
+    await enrichEmployee(data || [])
     for (const r of (data || [])) {
       const cin = r.requested_clock_in ? new Date(r.requested_clock_in).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" }) : "-"
       const cout = r.requested_clock_out ? new Date(r.requested_clock_out).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" }) : "-"
@@ -255,13 +267,14 @@ export async function GET(req: NextRequest) {
   // ── Overtime requests ──
   if (shouldFetch("overtime")) {
     let q = supa.from("overtime_requests")
-      .select(`id,employee_id,company_id,work_date,ot_start,ot_end,reason,status,reviewed_at,review_note,created_at,${empSelect}`)
+      .select(`id,employee_id,company_id,work_date,ot_start,ot_end,reason,status,reviewed_at,review_note,created_at`)
       .order("created_at", { ascending: false }).limit(200)
     q = applyFilters(q, "work_date", status)
     const { data } = await q
+    await enrichEmployee(data || [])
     for (const r of (data || [])) {
-      const s = r.ot_start ? new Date(r.ot_start).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-"
-      const e = r.ot_end ? new Date(r.ot_end).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-"
+      const s = r.ot_start ? new Date(r.ot_start).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : "-"
+      const e = r.ot_end ? new Date(r.ot_end).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : "-"
       results.push({
         ...r, request_type: "overtime",
         date_label: r.work_date,
@@ -274,11 +287,12 @@ export async function GET(req: NextRequest) {
   // ── Shift change requests ──
   if (shouldFetch("shift_change")) {
     let q = supa.from("shift_change_requests")
-      .select(`id,employee_id,company_id,work_date,current_shift_id,current_assignment_type,requested_shift_id,requested_assignment_type,reason,status,submitted_at,reviewed_at,review_note,created_at,${empSelect},current_shift:shift_templates!shift_change_requests_current_shift_id_fkey(id,name,work_start,work_end),requested_shift:shift_templates!shift_change_requests_requested_shift_id_fkey(id,name,work_start,work_end)`)
+      .select(`id,employee_id,company_id,work_date,current_shift_id,current_assignment_type,requested_shift_id,requested_assignment_type,reason,status,submitted_at,reviewed_at,review_note,created_at,current_shift:shift_templates!shift_change_requests_current_shift_id_fkey(id,name,work_start,work_end),requested_shift:shift_templates!shift_change_requests_requested_shift_id_fkey(id,name,work_start,work_end)`)
       .order("created_at", { ascending: false }).limit(200)
     q = applyFilters(q, "work_date", status)
     const { data, error: scErr } = await q
     if (!scErr) {
+      await enrichEmployee(data || [])
       for (const r of (data || [])) {
         const curLabel = r.current_assignment_type === "dayoff" ? "วันหยุด" :
           (r as any).current_shift ? `${(r as any).current_shift.work_start?.substring(0,5)}-${(r as any).current_shift.work_end?.substring(0,5)}` : "-"
@@ -297,14 +311,25 @@ export async function GET(req: NextRequest) {
   // Sort all by created_at desc
   results.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-  // Counts
+  // Search filter (server-side after enrichment)
+  let filtered = results
+  if (search) {
+    const s = search.toLowerCase()
+    filtered = results.filter(r => {
+      const emp = r.employee
+      if (!emp) return false
+      return `${emp.first_name_th || ""} ${emp.last_name_th || ""} ${emp.employee_code || ""}`.toLowerCase().includes(s)
+    })
+  }
+
+  // Counts (based on all results, not filtered)
   const counts: Record<string, number> = { all: results.length }
   for (const r of results) {
     const st = r.is_cancel_requested ? "cancel_requested" : r.status
     counts[st] = (counts[st] || 0) + 1
   }
 
-  return NextResponse.json({ requests: results, counts })
+  return NextResponse.json({ requests: filtered, counts })
 }
 
 // ── Helper: อนุมัติ time adjustment (inline จาก correction route เพื่อหลีกเลี่ยง internal fetch deadlock) ──

@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, Save, Loader2, Plus, MapPin, Check, X, Building2, Trash2,
   Clock, Calendar, DollarSign, BarChart2, User2, ChevronRight, CalendarClock,
-  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History, Globe, ShieldAlert
+  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History, Globe, ShieldAlert, Pencil
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -885,6 +885,11 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
   const [recent,    setRecent]    = useState<any[]>([])
   const [loading,   setLoading]   = useState(true)
 
+  // Edit attendance modal
+  const [editAttRec,  setEditAttRec]  = useState<any>(null)
+  const [editAttForm, setEditAttForm] = useState({ clock_in: "", clock_out: "", clock_in_date: "", clock_out_date: "" })
+  const [editAttSaving, setEditAttSaving] = useState(false)
+
   useEffect(() => {
     const today = new Date()
     const firstOfMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-01`
@@ -908,7 +913,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
         .eq("employee_id", employeeId),
       // recent 5 attendance
       supabase.from("attendance_records")
-        .select("work_date, clock_in, clock_out, status, late_minutes, early_out_minutes")
+        .select("id, work_date, clock_in, clock_out, status, late_minutes, early_out_minutes, shift_template_id")
         .eq("employee_id", employeeId)
         .order("work_date", { ascending: false }).limit(7),
     ]).then(([att, sch, loc, rec]) => {
@@ -1102,9 +1107,9 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
               </div>
               <div className="flex-1 grid grid-cols-2 gap-x-2">
                 <p className="text-xs text-slate-500">
-                  <span className="font-bold text-slate-700">{r.clock_in ? new Date(r.clock_in).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit",hour12:false}) : "--:--"}</span>
+                  <span className="font-bold text-slate-700">{r.clock_in ? new Date(r.clock_in).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit",hour12:false,timeZone:"Asia/Bangkok"}) : "--:--"}</span>
                   <span className="text-slate-300 mx-1">→</span>
-                  <span className="font-bold text-slate-700">{r.clock_out ? new Date(r.clock_out).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit",hour12:false}) : "--:--"}</span>
+                  <span className="font-bold text-slate-700">{r.clock_out ? new Date(r.clock_out).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit",hour12:false,timeZone:"Asia/Bangkok"}) : "--:--"}</span>
                 </p>
                 <div className="flex items-center gap-1.5">
                   {r.late_minutes > 0 && <span className="text-[10px] text-amber-600 font-bold">สาย {r.late_minutes}น.</span>}
@@ -1114,10 +1119,87 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
               <span className={`text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${statusClr[r.status]??""}`}>
                 {statusIcon[r.status]} {statusLabel[r.status]??r.status}
               </span>
+              <button onClick={() => {
+                const ci = r.clock_in ? new Date(r.clock_in).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Bangkok"}) : ""
+                const co = r.clock_out ? new Date(r.clock_out).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Bangkok"}) : ""
+                const coDate = r.clock_out ? new Date(r.clock_out).toLocaleDateString("sv-SE",{timeZone:"Asia/Bangkok"}) : r.work_date
+                setEditAttRec(r)
+                setEditAttForm({ clock_in: ci, clock_out: co, clock_in_date: r.work_date, clock_out_date: coDate })
+              }} className="text-slate-300 hover:text-indigo-600 flex-shrink-0" title="แก้ไขเวลา">
+                <Pencil size={12}/>
+              </button>
             </div>
           ))}
         </div>
       </div>
+
+      {/* ═══ Edit Attendance Modal ═══ */}
+      {editAttRec && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditAttRec(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-indigo-600 px-5 py-4">
+              <h3 className="text-white font-bold">แก้ไขเวลาเข้า-ออก</h3>
+              <p className="text-indigo-200 text-xs mt-0.5">{emp?.first_name_th} {emp?.last_name_th} · {editAttRec.work_date}</p>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">วันที่ + เวลาเข้างาน</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={editAttForm.clock_in_date} onChange={e => setEditAttForm(f => ({ ...f, clock_in_date: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400"/>
+                  <input type="time" value={editAttForm.clock_in} onChange={e => setEditAttForm(f => ({ ...f, clock_in: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400 font-semibold"/>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">วันที่ + เวลาออกงาน</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={editAttForm.clock_out_date} onChange={e => setEditAttForm(f => ({ ...f, clock_out_date: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400"/>
+                  <input type="time" value={editAttForm.clock_out} onChange={e => setEditAttForm(f => ({ ...f, clock_out: e.target.value }))}
+                    className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400 font-semibold"/>
+                </div>
+                {editAttForm.clock_out_date && editAttForm.clock_out_date !== editAttForm.clock_in_date && (
+                  <p className="text-[10px] text-amber-600 font-bold mt-1">กะข้ามคืน — ออกงานคนละวัน</p>
+                )}
+              </div>
+            </div>
+            <div className="px-5 pb-5 flex gap-3">
+              <button onClick={() => setEditAttRec(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+              <button onClick={async () => {
+                setEditAttSaving(true)
+                try {
+                  const res = await fetch("/api/attendance/admin-edit", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      record_id: editAttRec.id,
+                      clock_in: editAttForm.clock_in || null,
+                      clock_out: editAttForm.clock_out || null,
+                      clock_in_date: editAttForm.clock_in_date || editAttRec.work_date,
+                      clock_out_date: editAttForm.clock_out_date || editAttRec.work_date,
+                    }),
+                  })
+                  const data = await res.json()
+                  if (data.success) {
+                    toast.success("แก้ไขเวลาสำเร็จ")
+                    setEditAttRec(null)
+                    // reload recent attendance
+                    const { data: newRec } = await supabase.from("attendance_records")
+                      .select("id, work_date, clock_in, clock_out, status, late_minutes, early_out_minutes, shift_template_id")
+                      .eq("employee_id", employeeId).order("work_date", { ascending: false }).limit(7)
+                    setRecent(newRec ?? [])
+                  } else toast.error(data.error || "เกิดข้อผิดพลาด")
+                } catch { toast.error("เกิดข้อผิดพลาด") }
+                setEditAttSaving(false)
+              }} disabled={editAttSaving}
+                className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
+                {editAttSaving ? "กำลังบันทึก..." : "บันทึก"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
