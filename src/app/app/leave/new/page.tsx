@@ -1,5 +1,5 @@
 "use client"
-import { useState, Suspense, useRef } from "react"
+import { useState, useEffect, Suspense, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useLeaveTypes } from "@/lib/hooks/useLeave"
 import { createClient } from "@/lib/supabase/client"
@@ -105,24 +105,31 @@ function LeaveNewInner() {
   const [loading, setLoading] = useState(false)
   const [submitErr, setSubmitErr] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  // ── Attachment state ──
-  const [attachment, setAttachment] = useState<{ url: string; name: string } | null>(null)
+  // ── Attachment state (multi-file) ──
+  const [attachments, setAttachments] = useState<{ url: string; name: string }[]>([])
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // ── Team quota state ──
+  const [quota, setQuota] = useState<{ team_size: number; working: number; on_leave: number; pending_leave: number; quota_pct: number; quota_ok: boolean } | null>(null)
+  const [quotaLoading, setQuotaLoading] = useState(false)
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 10 * 1024 * 1024) { setSubmitErr("ไฟล์ใหญ่เกินไป (สูงสุด 10 MB)"); return }
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    if (attachments.length + files.length > 10) { setSubmitErr("แนบไฟล์ได้สูงสุด 10 ไฟล์"); return }
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].size > 10 * 1024 * 1024) { setSubmitErr(`ไฟล์ ${files[i].name} ใหญ่เกินไป (สูงสุด 10 MB)`); return }
+    }
     setUploading(true)
     setSubmitErr(null)
     try {
       const fd = new FormData()
-      fd.append("file", file)
+      for (let i = 0; i < files.length; i++) fd.append("files", files[i])
       const res = await fetch("/api/leave/upload", { method: "POST", body: fd })
       const json = await res.json()
       if (!res.ok || json.error) throw new Error(json.error || "อัปโหลดไม่สำเร็จ")
-      setAttachment({ url: json.url, name: json.name })
+      const newFiles = (json.files ?? [{ url: json.url, name: json.name }]).map((f: any) => ({ url: f.url, name: f.name }))
+      setAttachments(prev => [...prev, ...newFiles])
     } catch (err: any) {
       setSubmitErr(err.message || "อัปโหลดไฟล์ไม่สำเร็จ")
     } finally {
@@ -131,6 +138,8 @@ function LeaveNewInner() {
     }
   }
 
+  const removeAttachment = (idx: number) => setAttachments(prev => prev.filter((_, i) => i !== idx))
+
   const [form, setForm] = useState({
     leave_type_id: "", start_date: defaultDate, end_date: defaultDate,
     is_half_day: false, half_day_period: "morning", reason: "",
@@ -138,6 +147,26 @@ function LeaveNewInner() {
     ot_start: "", ot_end: "",
   })
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
+
+  // ── Fetch team quota when leave dates change ──
+  useEffect(() => {
+    if (formType !== "leave" || !form.start_date) { setQuota(null); return }
+    const fetchQuota = async () => {
+      setQuotaLoading(true)
+      try {
+        const res = await fetch("/api/leave/team-quota", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: form.start_date }),
+        })
+        const json = await res.json()
+        if (res.ok && !json.error) setQuota(json)
+        else setQuota(null)
+      } catch { setQuota(null) }
+      finally { setQuotaLoading(false) }
+    }
+    fetchQuota()
+  }, [formType, form.start_date]) // eslint-disable-line
 
   // ── Resignation state ──
   const [resignStep, setResignStep] = useState(1)
@@ -188,8 +217,10 @@ function LeaveNewInner() {
           total_days: days, is_half_day: form.is_half_day,
           half_day_period: form.is_half_day ? form.half_day_period : null,
           reason: form.reason, status: "pending",
-          attachment_url: attachment?.url || null,
-          attachment_name: attachment?.name || null,
+          attachment_url: attachments[0]?.url || null,
+          attachment_name: attachments[0]?.name || null,
+          attachment_urls: attachments.map(a => a.url),
+          attachment_names: attachments.map(a => a.name),
         })
         if (error) throw error
         setSuccess(true)
@@ -715,18 +746,70 @@ function LeaveNewInner() {
                       placeholder="ระบุเหตุผล..." className={`${inputCls} h-28 resize-none`} required />
                   </div>
 
-                  {/* แนบไฟล์ (ไม่บังคับ) — แสดงเฉพาะฟอร์มใบลา */}
+                  {/* Team Quota Info — แสดงเฉพาะฟอร์มใบลา */}
+                  {formType === "leave" && quota && (
+                    <div className={`rounded-2xl px-4 py-3 flex items-start gap-2.5 border ${
+                      quota.quota_ok
+                        ? "bg-emerald-50 border-emerald-200"
+                        : "bg-amber-50 border-amber-200"
+                    }`}>
+                      <Info size={14} className={`mt-0.5 flex-shrink-0 ${quota.quota_ok ? "text-emerald-500" : "text-amber-500"}`} />
+                      <div className="text-xs leading-relaxed">
+                        <p className={`font-bold ${quota.quota_ok ? "text-emerald-700" : "text-amber-700"}`}>
+                          โควต้าทีมวันที่ {form.start_date}
+                        </p>
+                        <p className={quota.quota_ok ? "text-emerald-600" : "text-amber-600"}>
+                          ทีม {quota.team_size} คน · ทำงาน {quota.working} · ลา {quota.on_leave} · รอ {quota.pending_leave} ·
+                          <span className="font-bold"> {quota.quota_pct}% พร้อมทำงาน</span>
+                        </p>
+                        {!quota.quota_ok && (
+                          <p className="text-amber-600 mt-0.5 font-semibold">
+                            ⚠️ โควต้าทีมต่ำกว่า 60% — คุณยังสามารถยื่นลาได้ แต่หัวหน้าอาจพิจารณาเพิ่มเติม
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {formType === "leave" && quotaLoading && (
+                    <div className="flex items-center gap-2 text-xs text-slate-400 px-1">
+                      <Loader2 size={12} className="animate-spin" /> กำลังตรวจสอบโควต้าทีม...
+                    </div>
+                  )}
+
+                  {/* แนบไฟล์ (ไม่บังคับ, หลายไฟล์) — แสดงเฉพาะฟอร์มใบลา */}
                   {formType === "leave" && (
                     <div>
                       <label className={labelCls}>
                         <span className="flex items-center gap-1.5">
                           <Paperclip size={13} className="text-slate-400" />
-                          แนบเอกสาร <span className="text-slate-400 font-normal text-xs">(ไม่บังคับ)</span>
+                          แนบเอกสาร <span className="text-slate-400 font-normal text-xs">(ไม่บังคับ · สูงสุด 10 ไฟล์)</span>
                         </span>
                       </label>
-                      {!attachment ? (
-                        <label className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-200 rounded-2xl py-5 cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-all group">
-                          <input ref={fileInputRef} type="file"
+
+                      {/* Uploaded files list */}
+                      {attachments.length > 0 && (
+                        <div className="space-y-2 mb-2">
+                          {attachments.map((att, idx) => (
+                            <div key={idx} className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-2xl px-4 py-2.5">
+                              <FileImage size={16} className="text-blue-500 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-blue-700 truncate">{att.name}</p>
+                                <a href={att.url} target="_blank" rel="noopener noreferrer"
+                                  className="text-[10px] text-blue-500 underline">ดูไฟล์</a>
+                              </div>
+                              <button type="button" onClick={() => removeAttachment(idx)}
+                                className="w-6 h-6 flex items-center justify-center rounded-full bg-white border border-blue-200 hover:bg-red-50 hover:border-red-300 transition-colors">
+                                <XIcon size={11} className="text-slate-400 hover:text-red-500" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Upload button */}
+                      {attachments.length < 10 && (
+                        <label className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-200 rounded-2xl py-4 cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-all group">
+                          <input ref={fileInputRef} type="file" multiple
                             accept="image/*,.pdf,.doc,.docx"
                             onChange={handleFileUpload} className="hidden" />
                           {uploading ? (
@@ -734,27 +817,14 @@ function LeaveNewInner() {
                               <Loader2 size={16} className="animate-spin" /> กำลังอัปโหลด...
                             </span>
                           ) : (
-                            <span className="flex flex-col items-center gap-1.5">
-                              <Upload size={20} className="text-slate-300 group-hover:text-blue-400 transition-colors" />
-                              <span className="text-xs text-slate-400 group-hover:text-blue-500 font-semibold transition-colors">
-                                แตะเพื่อแนบไฟล์ (รูป, PDF, Word · สูงสุด 10 MB)
+                            <span className="flex flex-col items-center gap-1">
+                              <Upload size={18} className="text-slate-300 group-hover:text-blue-400 transition-colors" />
+                              <span className="text-[11px] text-slate-400 group-hover:text-blue-500 font-semibold transition-colors">
+                                {attachments.length > 0 ? "แตะเพื่อเพิ่มไฟล์" : "แตะเพื่อแนบไฟล์ (รูป, PDF, Word · สูงสุด 10 MB)"}
                               </span>
                             </span>
                           )}
                         </label>
-                      ) : (
-                        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3">
-                          <FileImage size={18} className="text-blue-500 flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-blue-700 truncate">{attachment.name}</p>
-                            <a href={attachment.url} target="_blank" rel="noopener noreferrer"
-                              className="text-[11px] text-blue-500 underline">ดูไฟล์</a>
-                          </div>
-                          <button type="button" onClick={() => setAttachment(null)}
-                            className="w-7 h-7 flex items-center justify-center rounded-full bg-white border border-blue-200 hover:bg-red-50 hover:border-red-300 transition-colors">
-                            <XIcon size={13} className="text-slate-400 hover:text-red-500" />
-                          </button>
-                        </div>
                       )}
                       <p className="text-[10px] text-slate-400 mt-1.5">เช่น ใบรับรองแพทย์, เอกสารประกอบการลา</p>
                     </div>

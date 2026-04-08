@@ -16,47 +16,66 @@ export async function POST(req: NextRequest) {
 
   const supa = createServiceClient()
   const formData = await req.formData()
-  const file = formData.get("file") as File | null
-  if (!file) return NextResponse.json({ error: "ไม่พบไฟล์" }, { status: 400 })
 
-  // Validate size
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: "ไฟล์ใหญ่เกินไป (สูงสุด 10 MB)" }, { status: 400 })
-  }
+  // Support both single "file" and multiple "files"
+  const files: File[] = []
+  const singleFile = formData.get("file") as File | null
+  if (singleFile) files.push(singleFile)
+  const multiFiles = formData.getAll("files") as File[]
+  if (multiFiles.length > 0) files.push(...multiFiles)
 
-  // Validate type
-  if (!ALLOWED_TYPES.includes(file.type)) {
-    return NextResponse.json({ error: "รองรับเฉพาะไฟล์ รูปภาพ, PDF, Word" }, { status: 400 })
-  }
+  if (files.length === 0) return NextResponse.json({ error: "ไม่พบไฟล์" }, { status: 400 })
+  if (files.length > 10) return NextResponse.json({ error: "สูงสุด 10 ไฟล์" }, { status: 400 })
 
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
-  const path = `leave/${Date.now()}_${Math.random().toString(36).slice(2)}_${safeName}`
-  const arrayBuffer = await file.arrayBuffer()
-  const buffer = Buffer.from(arrayBuffer)
+  const results: { url: string; name: string; size: number; type: string }[] = []
+  const errors: string[] = []
 
-  // Try leave-attachments bucket, fallback to employee-avatars
-  let publicUrl = ""
-  const { error: upErr } = await supa.storage
-    .from("leave-attachments")
-    .upload(path, buffer, { contentType: file.type, upsert: true })
+  for (const file of files) {
+    if (file.size > MAX_SIZE) {
+      errors.push(`${file.name}: ไฟล์ใหญ่เกินไป (สูงสุด 10 MB)`)
+      continue
+    }
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      errors.push(`${file.name}: รองรับเฉพาะ รูปภาพ, PDF, Word`)
+      continue
+    }
 
-  if (upErr) {
-    // fallback bucket
-    const { error: upErr2 } = await supa.storage
-      .from("employee-avatars")
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
+    const path = `leave/${Date.now()}_${Math.random().toString(36).slice(2)}_${safeName}`
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
+    let publicUrl = ""
+    const { error: upErr } = await supa.storage
+      .from("leave-attachments")
       .upload(path, buffer, { contentType: file.type, upsert: true })
-    if (upErr2) return NextResponse.json({ error: `Upload failed: ${upErr2.message}` }, { status: 500 })
-    const { data: { publicUrl: url } } = supa.storage.from("employee-avatars").getPublicUrl(path)
-    publicUrl = url
-  } else {
-    const { data: { publicUrl: url } } = supa.storage.from("leave-attachments").getPublicUrl(path)
-    publicUrl = url
+
+    if (upErr) {
+      const { error: upErr2 } = await supa.storage
+        .from("employee-avatars")
+        .upload(path, buffer, { contentType: file.type, upsert: true })
+      if (upErr2) { errors.push(`${file.name}: Upload failed`); continue }
+      const { data: { publicUrl: url } } = supa.storage.from("employee-avatars").getPublicUrl(path)
+      publicUrl = url
+    } else {
+      const { data: { publicUrl: url } } = supa.storage.from("leave-attachments").getPublicUrl(path)
+      publicUrl = url
+    }
+
+    results.push({ url: publicUrl, name: file.name, size: file.size, type: file.type })
   }
 
+  if (results.length === 0 && errors.length > 0) {
+    return NextResponse.json({ error: errors.join("; ") }, { status: 500 })
+  }
+
+  // Backward compatible
   return NextResponse.json({
-    url: publicUrl,
-    name: file.name,
-    size: file.size,
-    type: file.type,
+    url: results[0]?.url || null,
+    name: results[0]?.name || null,
+    size: results[0]?.size || null,
+    type: results[0]?.type || null,
+    files: results,
+    errors: errors.length > 0 ? errors : undefined,
   })
 }

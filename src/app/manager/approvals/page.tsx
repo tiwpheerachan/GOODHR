@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
-import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp, Bell, ArrowRightLeft, Paperclip } from "lucide-react"
+import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp, Bell, ArrowRightLeft, Paperclip, AlertTriangle, Users } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -32,6 +32,22 @@ export default function ApprovalsPage() {
   // ── super_admin toggle: "myteam" = เฉพาะทีม, "company" = ทั้งบริษัท ──
   const isSuperAdmin = (user as any)?.role === "super_admin"
   const [viewMode, setViewMode] = useState<"myteam" | "company">("myteam")
+  // ── Team quota cache for leave items ──
+  const [quotaCache, setQuotaCache] = useState<Record<string, { team_size: number; working: number; on_leave: number; pending_leave: number; quota_pct: number; quota_ok: boolean }>>({})
+
+  const fetchQuotaForDate = useCallback(async (date: string) => {
+    if (quotaCache[date]) return
+    try {
+      const res = await fetch("/api/leave/team-quota", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date }),
+      })
+      const json = await res.json()
+      if (res.ok && !json.error) {
+        setQuotaCache(prev => ({ ...prev, [date]: json }))
+      }
+    } catch {}
+  }, [quotaCache])
 
   // ── helpers ──────────────────────────────────────────────────────────────
   const fmtTime = (iso?: string | null) => {
@@ -226,6 +242,13 @@ export default function ApprovalsPage() {
     loadItems()
     loadCounts()
   }, [tab, user?.role, (user as any)?.employee_id, (user as any)?.employee?.id, viewMode])
+
+  // ── Fetch quota for visible leave items ──
+  useEffect(() => {
+    if (tab !== "leave" || items.length === 0) return
+    const dates = Array.from(new Set(items.map((i: any) => i.start_date).filter(Boolean)))
+    dates.forEach(d => fetchQuotaForDate(d))
+  }, [tab, items]) // eslint-disable-line
 
   // ── Realtime: ลูกน้องส่งคำร้องใหม่ → แสดง alert + auto reload ──
   useEffect(() => {
@@ -533,14 +556,34 @@ export default function ApprovalsPage() {
                   <p className="text-gray-700">{item.reason}</p>
                 </div>
               )}
-              {item.attachment_url && (
-                <a href={item.attachment_url} target="_blank" rel="noopener noreferrer"
+              {/* Quota warning banner */}
+              {item.start_date && quotaCache[item.start_date] && !quotaCache[item.start_date].quota_ok && (
+                <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-xs">
+                  <AlertTriangle size={13} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="font-bold text-amber-700">โควต้าทีมต่ำ ({quotaCache[item.start_date].quota_pct}%)</p>
+                    <p className="text-amber-600">ทีม {quotaCache[item.start_date].team_size} คน · ทำงาน {quotaCache[item.start_date].working} · ลา {quotaCache[item.start_date].on_leave} · รอ {quotaCache[item.start_date].pending_leave}</p>
+                  </div>
+                </div>
+              )}
+              {item.start_date && quotaCache[item.start_date] && quotaCache[item.start_date].quota_ok && (
+                <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-xs">
+                  <Users size={12} className="text-emerald-500 flex-shrink-0" />
+                  <span className="text-emerald-700">โควต้าทีม {quotaCache[item.start_date].quota_pct}% · ทำงาน {quotaCache[item.start_date].working}/{quotaCache[item.start_date].team_size}</span>
+                </div>
+              )}
+
+              {/* Multi-file attachments */}
+              {(item.attachment_urls?.length > 0 ? item.attachment_urls : item.attachment_url ? [item.attachment_url] : []).map((url: string, idx: number) => (
+                <a key={idx} href={url} target="_blank" rel="noopener noreferrer"
                   className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5 text-xs hover:bg-blue-100 transition-colors">
                   <Paperclip size={13} className="text-blue-500 flex-shrink-0" />
-                  <span className="text-blue-700 font-semibold truncate">{item.attachment_name || "ไฟล์แนบ"}</span>
+                  <span className="text-blue-700 font-semibold truncate">
+                    {(item.attachment_names?.[idx]) || (item.attachment_name) || `ไฟล์แนบ ${idx + 1}`}
+                  </span>
                   <span className="text-blue-400 text-[10px] ml-auto flex-shrink-0">ดูไฟล์</span>
                 </a>
-              )}
+              ))}
 
               <input placeholder="หมายเหตุ (ไม่บังคับ)" value={notes[item.id] || ""}
                 onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
@@ -778,7 +821,7 @@ export default function ApprovalsPage() {
                   <p className="font-semibold text-gray-700">
                     {(item.reasons ?? []).map((k: string) => RESIGN_REASONS_MAP[k] || k).join("  ·  ") || "-"}
                   </p>
-                  {item.other_reason && <p className="text-gray-400 italic mt-1">"{item.other_reason}"</p>}
+                  {item.other_reason && <p className="text-gray-400 italic mt-1">&ldquo;{item.other_reason}&rdquo;</p>}
                 </div>
 
                 <button onClick={() => setExpanded(isExpanded ? null : item.id)}
