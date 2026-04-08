@@ -779,14 +779,22 @@ export default function CheckInPage() {
   // ── Fetch branches + checkin_anywhere ──
   useEffect(() => {
     if (!user?.employee_id) return
-    // ดึง branches
+    // ดึง branches + custom GPS locations
     supabase.from("employee_allowed_locations")
-      .select("branch:branches(id,name,latitude,longitude,geo_radius_m)")
+      .select("branch_id, custom_name, custom_lat, custom_lng, custom_radius_m, branch:branches(id,name,latitude,longitude,geo_radius_m)")
       .eq("employee_id", user.employee_id)
       .then(({ data }) => {
-        const list: Branch[] = (data ?? []).map((r: any) => r.branch)
-          .filter((b: any) => b?.latitude && b?.longitude)
-          .map((b: any) => ({ id: b.id, name: b.name, latitude: Number(b.latitude), longitude: Number(b.longitude), geo_radius_m: Number(b.geo_radius_m) || 200 }))
+        const list: Branch[] = (data ?? []).flatMap((r: any) => {
+          // สาขาปกติ
+          if (r.branch_id && r.branch?.latitude && r.branch?.longitude) {
+            return [{ id: r.branch.id, name: r.branch.name, latitude: Number(r.branch.latitude), longitude: Number(r.branch.longitude), geo_radius_m: Number(r.branch.geo_radius_m) || 200 }]
+          }
+          // พิกัดที่กำหนดเอง (custom GPS)
+          if (!r.branch_id && r.custom_lat && r.custom_lng) {
+            return [{ id: `custom_${r.custom_lat}_${r.custom_lng}`, name: r.custom_name || "จุดเช็คอิน", latitude: Number(r.custom_lat), longitude: Number(r.custom_lng), geo_radius_m: Number(r.custom_radius_m) || 200 }]
+          }
+          return []
+        })
         setBranches(list)
       })
     // ดึง checkin_anywhere flag
