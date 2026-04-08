@@ -118,14 +118,21 @@ export async function POST(req: NextRequest) {
   // ── Admin: create ──
   if (action === "create") {
     if (!isAdmin) return NextResponse.json({ error: "Admin only" }, { status: 403 })
-    const { title, body: content, company_id, department_id, priority, is_pinned, expires_at, image_url } = body
+    const { title, body: content, company_id, department_id, priority, is_pinned, expires_at, image_url, image_urls } = body
     if (!title) return NextResponse.json({ error: "Title required" }, { status: 400 })
+
+    // Support both old image_url and new image_urls
+    const finalImageUrls: string[] = image_urls && image_urls.length > 0
+      ? image_urls
+      : image_url ? [image_url] : []
 
     const { data, error } = await supa.from("announcements").insert({
       title, body: content || null,
       company_id: company_id || null, department_id: department_id || null,
       priority: priority || "normal", is_pinned: is_pinned || false,
-      expires_at: expires_at || null, image_url: image_url || null,
+      expires_at: expires_at || null,
+      image_url: finalImageUrls[0] || null,
+      image_urls: finalImageUrls,
       created_by: userData?.employee_id,
     }).select("id").single()
 
@@ -145,12 +152,19 @@ export async function POST(req: NextRequest) {
   // ── Admin: update ──
   if (action === "update") {
     if (!isAdmin) return NextResponse.json({ error: "Admin only" }, { status: 403 })
-    const { id, title, body: content, company_id, department_id, priority, is_pinned, expires_at, image_url } = body
+    const { id, title, body: content, company_id, department_id, priority, is_pinned, expires_at, image_url, image_urls } = body
+
+    const finalImageUrls: string[] = image_urls && image_urls.length > 0
+      ? image_urls
+      : image_url ? [image_url] : []
+
     const { error } = await supa.from("announcements").update({
       title, body: content,
       company_id: company_id || null, department_id: department_id || null,
       priority: priority || "normal", is_pinned: is_pinned || false,
-      expires_at: expires_at || null, image_url: image_url || null,
+      expires_at: expires_at || null,
+      image_url: finalImageUrls[0] || null,
+      image_urls: finalImageUrls,
       updated_at: new Date().toISOString(),
     }).eq("id", id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

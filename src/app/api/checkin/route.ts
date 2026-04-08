@@ -128,9 +128,13 @@ export async function POST(request: Request) {
     }
   }
 
+  // ── Bangkok hour (ใช้หลายจุด) ────────────────────────────────
+  const bkkHour = parseInt(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hour12: false }))
+
   // ── Shift template ─────────────────────────────────────────────
   let shift: any = null
   let schedule: any = null
+  let useNextDayShift = false
 
   if (monthlyAssignment?.shift) {
     shift = monthlyAssignment.shift
@@ -142,10 +146,31 @@ export async function POST(request: Request) {
     shift = (schedule as any)?.shift ?? null
   }
 
+  // ── กะข้ามเที่ยงคืน: ถ้าเช็คอินหลัง 22:00 และกะพรุ่งนี้เริ่ม 00:00-02:00
+  //    ให้ใช้กะพรุ่งนี้แทน (เช่น เช็คอิน 23:30 สำหรับกะ 00:00-09:00)
+  if (action === "clock_in" && bkkHour >= 22) {
+    const tomorrow = new Date(now.getTime() + 86_400_000)
+      .toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
+    const { data: tomorrowShift } = await supa.from("monthly_shift_assignments")
+      .select("*, shift:shift_templates(*)")
+      .eq("employee_id", emp.id)
+      .eq("work_date", tomorrow)
+      .maybeSingle()
+
+    if (tomorrowShift?.shift) {
+      const startHour = parseInt(tomorrowShift.shift.work_start?.substring(0, 2) ?? "99")
+      // ถ้ากะพรุ่งนี้เริ่ม 00:00-02:00 → ใช้กะพรุ่งนี้
+      if (startHour <= 2 && tomorrowShift.assignment_type === "work") {
+        shift = tomorrowShift.shift
+        useNextDayShift = true
+        console.log(`[checkin] using tomorrow's shift ${tomorrow} (${shift.work_start}) for late-night checkin`)
+      }
+    }
+  }
+
   // ── สำหรับ clock_out ข้ามคืน: ถ้าเวลาปัจจุบัน < 12:00 (เช้ามืด)
   //    ให้ลองดูว่ามี attendance record ของเมื่อวานที่ยังไม่ได้ clock_out อยู่ไหม
   //    ถ้ามี → ถือว่าเป็น clock_out ของกะข้ามคืน ไม่ต้องตรวจ is_overnight flag
-  const bkkHour = parseInt(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hour12: false }))
   let useYesterday = false
   let yesterdayDate: string | null = null
 
@@ -203,11 +228,14 @@ export async function POST(request: Request) {
 
   // work_date: overnight shift ให้นับวันก่อนหน้า
   // ถ้า clock_out ข้ามคืน (useYesterday) → ใช้ yesterdayDate โดยตรง
+  // ถ้า useNextDayShift → ใช้วันพรุ่งนี้ (เช็คอิน 23:30 สำหรับกะ 00:00 พรุ่งนี้)
   const workDate = useYesterday
     ? yesterdayDate!
-    : shift?.is_overnight
-      ? calcWorkDate(now, true, "Asia/Bangkok")
-      : today
+    : useNextDayShift
+      ? new Date(now.getTime() + 86_400_000).toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
+      : shift?.is_overnight
+        ? calcWorkDate(now, true, "Asia/Bangkok")
+        : today
 
   // grace period ตามบริษัท+แผนก (หรือจาก work_schedule ถ้ามี override)
   const lateThreshold: number =

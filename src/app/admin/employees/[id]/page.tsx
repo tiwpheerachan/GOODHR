@@ -42,6 +42,8 @@ export default function EmployeeDetailPage() {
   const [sf,         setSf]         = useState<any>({})
   const [newMgr,     setNewMgr]     = useState("")
   const [newMgrDate, setNewMgrDate] = useState(format(new Date(),"yyyy-MM-dd"))
+  const [mgrSearch, setMgrSearch] = useState<string | null>(null)
+  const [showMgrDropdown, setShowMgrDropdown] = useState(false)
   // resign modal
   const [kpiSetting, setKpiSetting] = useState<any>(null)
   const [kpiAmount,  setKpiAmount]  = useState<string>("")
@@ -132,10 +134,8 @@ export default function EmployeeDetailPage() {
     // ดึงรายชื่อบริษัท
     supabase.from("companies").select("id,name_th,code").eq("is_active", true).order("name_th")
       .then(({ data }) => setCompanies(data ?? []))
-    if (user?.employee?.company_id) {
-      supabase.from("employees").select("id,first_name_th,last_name_th,employee_code").eq("company_id",user.employee.company_id).neq("id",id as string)
-        .then(({ data }) => setAllEmps(data ?? []))
-    }
+    supabase.from("employees").select("id,first_name_th,last_name_th,employee_code").eq("is_active",true).neq("id",id as string).order("first_name_th")
+      .then(({ data }) => setAllEmps(data ?? []))
   }, [id, user])
 
   // โหลดแผนก/ตำแหน่ง/สาขา ตาม company ของพนักงาน
@@ -640,13 +640,49 @@ export default function EmployeeDetailPage() {
         {/* ── Tab 7: ประวัติหัวหน้า ── */}
         {tab === 7 && <>
           <h3 className="font-bold text-slate-800 mb-4">ประวัติหัวหน้างาน</h3>
-          <div className="flex gap-3 mb-5">
-            <select value={newMgr} onChange={e => setNewMgr(e.target.value)} className={inp + " flex-1"}>
-              <option value="">เลือกหัวหน้าใหม่</option>
-              {allEmps.map(e => <option key={e.id} value={e.id}>{e.first_name_th} {e.last_name_th} ({e.employee_code})</option>)}
-            </select>
+          <div className="flex gap-3 mb-5 items-end">
+            <div className="flex-1 relative">
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">เลือกหัวหน้าใหม่</label>
+              <input
+                type="text"
+                value={mgrSearch ?? (newMgr ? allEmps.find(e => e.id === newMgr)?.first_name_th + " " + allEmps.find(e => e.id === newMgr)?.last_name_th : "")}
+                onChange={e => { setMgrSearch(e.target.value); setNewMgr(""); setShowMgrDropdown(true) }}
+                onFocus={() => setShowMgrDropdown(true)}
+                placeholder="ค้นหาชื่อ หรือ รหัสพนักงาน..."
+                className={inp}
+              />
+              {showMgrDropdown && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowMgrDropdown(false)} />
+                  <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-[240px] overflow-y-auto">
+                    {allEmps
+                      .filter(e => {
+                        const s = (mgrSearch || "").toLowerCase()
+                        if (!s) return true
+                        return `${e.first_name_th} ${e.last_name_th} ${e.employee_code}`.toLowerCase().includes(s)
+                      })
+                      .slice(0, 30)
+                      .map(e => (
+                        <button key={e.id} type="button"
+                          onClick={() => { setNewMgr(e.id); setMgrSearch(`${e.first_name_th} ${e.last_name_th} (${e.employee_code})`); setShowMgrDropdown(false) }}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex items-center gap-2 transition-colors">
+                          <span className="font-bold text-slate-800">{e.first_name_th} {e.last_name_th}</span>
+                          <span className="text-xs text-slate-400">{e.employee_code}</span>
+                        </button>
+                      ))}
+                    {allEmps.filter(e => {
+                      const s = (mgrSearch || "").toLowerCase()
+                      if (!s) return true
+                      return `${e.first_name_th} ${e.last_name_th} ${e.employee_code}`.toLowerCase().includes(s)
+                    }).length === 0 && (
+                      <p className="px-3 py-4 text-sm text-slate-400 text-center">ไม่พบพนักงาน</p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
             <input type="date" value={newMgrDate} onChange={e => setNewMgrDate(e.target.value)} className={inp + " w-40"}/>
-            <button onClick={addMgr} className="btn-primary px-4 py-2 flex items-center gap-1"><Plus size={14}/>เพิ่ม</button>
+            <button onClick={() => { addMgr(); setMgrSearch("") }} disabled={!newMgr} className="btn-primary px-4 py-2 flex items-center gap-1 disabled:opacity-50"><Plus size={14}/>เพิ่ม</button>
           </div>
           <div className="space-y-3">
             {mgrHistory.map(h => (

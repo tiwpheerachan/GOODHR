@@ -164,7 +164,7 @@ export default function EmployeeEquipmentPage() {
         <div className="space-y-2">
           {myRequests.length === 0 ? (
             <div className="text-center py-12">
-              <ClipboardList size={32} className="text-slate-200 mx-auto mb-2" />
+              <Package size={32} className="text-slate-200 mx-auto mb-2" />
               <p className="text-sm text-slate-400">ยังไม่มีประวัติการยืม</p>
             </div>
           ) : (
@@ -246,8 +246,4 @@ export default function EmployeeEquipmentPage() {
       )}
     </div>
   )
-}
-
-function ClipboardList(props: any) {
-  return <Package {...props} />
 }
