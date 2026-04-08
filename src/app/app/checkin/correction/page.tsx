@@ -37,11 +37,26 @@ export default function CorrectionPage() {
   const [history, setHistory]   = useState<any[]>([])
   const [histLoading, setHistLoading] = useState(true)
 
-  const [form, setForm] = useState({ requested_clock_in: "", requested_clock_out: "", reason: "" })
+  const [form, setForm] = useState({ requested_clock_in: "", requested_clock_out: "", clock_out_date: "", reason: "" })
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted]   = useState(false)
 
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+  const set = (k: string, v: string) => {
+    setForm(f => {
+      const next = { ...f, [k]: v }
+      // auto-detect ข้ามคืน: ถ้าเวลาออก < เวลาเข้า → วันที่ออก +1
+      if ((k === "requested_clock_out" || k === "requested_clock_in") && next.requested_clock_in && next.requested_clock_out) {
+        if (next.requested_clock_out < next.requested_clock_in) {
+          const nextDay = new Date(selectedDate + "T00:00:00")
+          nextDay.setDate(nextDay.getDate() + 1)
+          next.clock_out_date = format(nextDay, "yyyy-MM-dd")
+        } else {
+          next.clock_out_date = selectedDate
+        }
+      }
+      return next
+    })
+  }
 
   // โหลด attendance record เมื่อเปลี่ยนวัน
   useEffect(() => {
@@ -49,7 +64,7 @@ export default function CorrectionPage() {
     if (!empId || !selectedDate) return
     setRecLoading(true)
     setRecord(null)
-    setForm({ requested_clock_in: "", requested_clock_out: "", reason: "" })
+    setForm({ requested_clock_in: "", requested_clock_out: "", clock_out_date: selectedDate, reason: "" })
     supabase
       .from("attendance_records")
       .select("*")
@@ -96,20 +111,21 @@ export default function CorrectionPage() {
 
     setSubmitting(true)
     try {
+      const outDate = form.clock_out_date || selectedDate
       const { error } = await supabase.from("time_adjustment_requests").insert({
         employee_id: empId,
         company_id:  companyId,
         work_date:   selectedDate,
         request_type: "time_adjustment",
         requested_clock_in:  form.requested_clock_in  ? selectedDate + "T" + form.requested_clock_in  + ":00+07:00" : null,
-        requested_clock_out: form.requested_clock_out ? selectedDate + "T" + form.requested_clock_out + ":00+07:00" : null,
+        requested_clock_out: form.requested_clock_out ? outDate      + "T" + form.requested_clock_out + ":00+07:00" : null,
         reason: form.reason.trim(),
         status: "pending",
       })
       if (error) throw error
       toast.success("ส่งคำขอแก้ไขเวลาสำเร็จ!")
       setSubmitted(s => !s)
-      setForm({ requested_clock_in: "", requested_clock_out: "", reason: "" })
+      setForm({ requested_clock_in: "", requested_clock_out: "", clock_out_date: selectedDate, reason: "" })
     } catch (err: any) {
       toast.error(err.message || "เกิดข้อผิดพลาด")
     }
@@ -205,35 +221,59 @@ export default function CorrectionPage() {
               <p className="text-white text-[11px] font-bold tracking-widest uppercase">เวลาที่ต้องการขอแก้ไข</p>
             </div>
             <div className="p-4 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">เวลาเข้างาน</label>
+              {/* เวลาเข้า */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5">วันที่ + เวลาเข้างาน</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    disabled
+                    className="px-3 py-3 text-sm border border-slate-100 rounded-xl bg-slate-50 tabular-nums font-semibold text-slate-500"
+                  />
                   <input
                     type="time"
                     value={form.requested_clock_in}
                     onChange={e => set("requested_clock_in", e.target.value)}
-                    className="w-full px-3 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 tabular-nums font-semibold text-slate-800"
+                    className="px-3 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 tabular-nums font-semibold text-slate-800"
                   />
-                  {record.clock_in && form.requested_clock_in && toInput(record.clock_in) !== form.requested_clock_in && (
-                    <p className="text-[10px] text-slate-400 mt-1 text-center">
-                      เดิม {toDisplay(record.clock_in)} → <span className="text-indigo-600 font-semibold">{form.requested_clock_in}</span>
-                    </p>
-                  )}
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">เวลาออกงาน</label>
+                {record.clock_in && form.requested_clock_in && toInput(record.clock_in) !== form.requested_clock_in && (
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    เดิม {toDisplay(record.clock_in)} → <span className="text-indigo-600 font-semibold">{form.requested_clock_in}</span>
+                  </p>
+                )}
+              </div>
+
+              {/* เวลาออก + วันที่ออก (รองรับข้ามคืน) */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5">วันที่ + เวลาออกงาน</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="date"
+                    value={form.clock_out_date || selectedDate}
+                    min={selectedDate}
+                    max={format(new Date(new Date(selectedDate + "T00:00:00").getTime() + 86400000), "yyyy-MM-dd")}
+                    onChange={e => setForm(f => ({ ...f, clock_out_date: e.target.value }))}
+                    className="px-3 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 tabular-nums font-semibold text-slate-800"
+                  />
                   <input
                     type="time"
                     value={form.requested_clock_out}
                     onChange={e => set("requested_clock_out", e.target.value)}
-                    className="w-full px-3 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 tabular-nums font-semibold text-slate-800"
+                    className="px-3 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 tabular-nums font-semibold text-slate-800"
                   />
-                  {record.clock_out && form.requested_clock_out && toInput(record.clock_out) !== form.requested_clock_out && (
-                    <p className="text-[10px] text-slate-400 mt-1 text-center">
-                      เดิม {toDisplay(record.clock_out)} → <span className="text-indigo-600 font-semibold">{form.requested_clock_out}</span>
-                    </p>
-                  )}
                 </div>
+                {(form.clock_out_date && form.clock_out_date !== selectedDate) && (
+                  <p className="text-[10px] text-amber-600 font-bold mt-1 flex items-center gap-1">
+                    <AlertCircle size={10} /> กะข้ามคืน — ออกงานวันถัดไป
+                  </p>
+                )}
+                {record.clock_out && form.requested_clock_out && toInput(record.clock_out) !== form.requested_clock_out && (
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    เดิม {toDisplay(record.clock_out)} → <span className="text-indigo-600 font-semibold">{form.requested_clock_out}</span>
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1.5">

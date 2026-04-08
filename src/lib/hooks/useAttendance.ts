@@ -91,7 +91,24 @@ export function useAttendance(employeeId?: string, month = new Date()) {
 
     setRecords(attRes.data ?? [])
     setPeriodRecords(periodRes.data ?? [])
-    setToday(todayRes.data)
+
+    // ── กะข้ามคืน: ถ้าวันนี้ไม่มี record หรือยังไม่ clock_in
+    //    ให้เช็คว่าเมื่อวานมี record ที่ยังไม่ clock_out อยู่หรือไม่
+    //    ถ้ามี → ใช้ record เมื่อวานเป็น todayRecord (เพื่อแสดงปุ่ม clock_out)
+    let todayData = todayRes.data
+    const bkkHourNow = new Date().toLocaleTimeString("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hour12: false })
+    if ((!todayData || !todayData.clock_in) && parseInt(bkkHourNow) < 12) {
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      const yesterdayStr = format(yesterday, "yyyy-MM-dd")
+      const { data: yRec } = await supabase.from("attendance_records").select("*")
+        .eq("employee_id", employeeId).eq("work_date", yesterdayStr).maybeSingle()
+      if (yRec?.clock_in && !yRec.clock_out) {
+        todayData = yRec // ใช้ record เมื่อวานที่ยังไม่ clock_out
+      }
+    }
+
+    setToday(todayData)
     setHolidays((holRes as any).data ?? [])
     setLeaveMap(lm)
     setLoading(false)

@@ -231,7 +231,7 @@ function LeaveNewInner() {
           employee_id: empId, company_id: companyId,
           work_date: form.work_date, request_type: "time_adjustment",
           requested_clock_in:  form.requested_clock_in  ? `${form.work_date}T${form.requested_clock_in}:00+07:00`  : null,
-          requested_clock_out: form.requested_clock_out ? `${form.work_date}T${form.requested_clock_out}:00+07:00` : null,
+          requested_clock_out: form.requested_clock_out ? `${(form as any).clock_out_date || form.work_date}T${form.requested_clock_out}:00+07:00` : null,
           reason: form.reason, status: "pending",
         })
         if (error) throw error

@@ -32,12 +32,15 @@ export async function POST(request: Request) {
   // ACTION: submit
   // ──────────────────────────────────────────────────────────────
   if (action === "submit") {
-    const { work_date, requested_clock_in, requested_clock_out, reason } = payload
+    const { work_date, requested_clock_in, requested_clock_out, clock_out_date, reason } = payload
 
     if (!work_date || !reason?.trim())
       return NextResponse.json({ success: false, error: "กรุณากรอกข้อมูลให้ครบ" })
     if (!requested_clock_in && !requested_clock_out)
       return NextResponse.json({ success: false, error: "กรุณาระบุเวลาที่ต้องการแก้ไขอย่างน้อย 1 รายการ" })
+
+    // วันที่ออก: ใช้ clock_out_date ถ้ามี (กะข้ามคืน) ไม่งั้นใช้ work_date
+    const outDate = clock_out_date || work_date
 
     let { data: rec } = await supa
       .from("attendance_records")
@@ -81,7 +84,7 @@ export async function POST(request: Request) {
       work_date,
       request_type:         "time_adjustment",
       requested_clock_in:   requested_clock_in  ? work_date + "T" + requested_clock_in  + ":00+07:00" : null,
-      requested_clock_out:  requested_clock_out ? work_date + "T" + requested_clock_out + ":00+07:00" : null,
+      requested_clock_out:  requested_clock_out ? outDate   + "T" + requested_clock_out + ":00+07:00" : null,
       reason:               reason.trim(),
       status:               "pending",
     })
