@@ -241,8 +241,8 @@ export async function GET(req: NextRequest) {
     q = applyFilters(q, "work_date", status)
     const { data } = await q
     for (const r of (data || [])) {
-      const cin = r.requested_clock_in ? new Date(r.requested_clock_in).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-"
-      const cout = r.requested_clock_out ? new Date(r.requested_clock_out).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-"
+      const cin = r.requested_clock_in ? new Date(r.requested_clock_in).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" }) : "-"
+      const cout = r.requested_clock_out ? new Date(r.requested_clock_out).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" }) : "-"
       results.push({
         ...r, request_type: "adjustment",
         date_label: r.work_date,

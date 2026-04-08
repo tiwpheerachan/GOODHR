@@ -25,7 +25,7 @@ const STATUS_LABELS: Record<string, string> = {
 const fmtDate  = (d: string | null | undefined) => d ? format(new Date(d), "yyyy-MM-dd") : ""
 const fmtTime  = (ts: string | null | undefined) => {
   if (!ts) return ""
-  try { return format(new Date(ts), "HH:mm") } catch { return "" }
+  try { return new Date(ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" }) } catch { return "" }
 }
 const fmtTs    = (ts: string | null | undefined) =>
   ts ? format(new Date(ts), "d MMM yyyy HH:mm", { locale: th }) : ""

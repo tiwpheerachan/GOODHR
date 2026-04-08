@@ -186,9 +186,10 @@ export default function SupervisorOverviewPage() {
         const lt = (r.leave_type as any)?.name ?? "ลา"
         return `${lt} ${r.start_date ? format(new Date(r.start_date), "d MMM", { locale: th }) : ""}${r.end_date && r.end_date !== r.start_date ? ` – ${format(new Date(r.end_date), "d MMM", { locale: th })}` : ""} (${r.total_days ?? "?"} วัน)`
       })
-      addReqs(adjustments ?? [], "adjustment", (r) =>
-        `แก้ไขเวลา ${r.work_date ? format(new Date(r.work_date), "d MMM yy", { locale: th }) : ""} → เข้า ${r.requested_clock_in?.slice(0, 5) ?? "?"} ออก ${r.requested_clock_out?.slice(0, 5) ?? "?"}`
-      )
+      addReqs(adjustments ?? [], "adjustment", (r) => {
+        const fmtAdj = (ts: string | null) => ts ? new Date(ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" }) : "?"
+        return `แก้ไขเวลา ${r.work_date ? format(new Date(r.work_date), "d MMM yy", { locale: th }) : ""} → เข้า ${fmtAdj(r.requested_clock_in)} ออก ${fmtAdj(r.requested_clock_out)}`
+      })
       addReqs(overtimes ?? [], "overtime", (r) =>
         `OT ${r.work_date ? format(new Date(r.work_date), "d MMM yy", { locale: th }) : ""} ${r.ot_start?.slice(0, 5) ?? "?"} – ${r.ot_end?.slice(0, 5) ?? "?"}`
       )

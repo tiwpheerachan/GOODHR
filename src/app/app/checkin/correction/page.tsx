@@ -14,11 +14,11 @@ const supabase = createClient()
 
 function toDisplay(iso?: string | null) {
   if (!iso) return "--:--"
-  return new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false })
+  return new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" })
 }
 function toInput(iso?: string | null) {
   if (!iso) return ""
-  return new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false })
+  return new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" })
 }
 
 export default function CorrectionPage() {

@@ -52,7 +52,7 @@ export default function ApprovalsPage() {
   // ── helpers ──────────────────────────────────────────────────────────────
   const fmtTime = (iso?: string | null) => {
     if (!iso) return "--:--"
-    return new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false })
+    return new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" })
   }
 
   const fmtDate = (dateStr?: string | null, fmt = "d MMM") => {
