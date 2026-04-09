@@ -25,6 +25,7 @@ export function useAttendance(employeeId?: string, month = new Date()) {
   const [holidays,     setHolidays]     = useState<any[]>([])
   const [leaveMap,     setLeaveMap]     = useState<Record<string, { type: string; status: string }>>({})
   const [today,        setToday]        = useState<any>(null)
+  const [forgotCheckout, setForgotCheckout] = useState<any>(null) // record เมื่อวานที่ลืมเช็คเอ้า
   const [loading,      setLoading]      = useState(true)
 
   // calendar month (สำหรับแสดง calendar)
@@ -94,21 +95,32 @@ export function useAttendance(employeeId?: string, month = new Date()) {
 
     // ── กะข้ามคืน: ถ้าวันนี้ไม่มี record หรือยังไม่ clock_in
     //    ให้เช็คว่าเมื่อวานมี record ที่ยังไม่ clock_out อยู่หรือไม่
-    //    ถ้ามี → ใช้ record เมื่อวานเป็น todayRecord (เพื่อแสดงปุ่ม clock_out)
+    //    ⚠️ ตัดรอบที่ตี 5: ก่อนตี 5 = อาจเป็นกะข้ามคืน ให้แสดงปุ่ม clock_out
+    //                      หลังตี 5 = ถือว่าลืมเช็คเอ้า ให้เริ่มวันใหม่
     let todayData = todayRes.data
-    const bkkHourNow = new Date().toLocaleTimeString("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hour12: false })
-    if ((!todayData || !todayData.clock_in) && parseInt(bkkHourNow) < 12) {
+    const bkkHourNow = parseInt(new Date().toLocaleTimeString("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hour12: false }))
+    let forgotYesterday: any = null
+
+    if (!todayData || !todayData.clock_in) {
       const yesterday = new Date()
       yesterday.setDate(yesterday.getDate() - 1)
       const yesterdayStr = format(yesterday, "yyyy-MM-dd")
       const { data: yRec } = await supabase.from("attendance_records").select("*")
         .eq("employee_id", employeeId).eq("work_date", yesterdayStr).maybeSingle()
+
       if (yRec?.clock_in && !yRec.clock_out) {
-        todayData = yRec // ใช้ record เมื่อวานที่ยังไม่ clock_out
+        if (bkkHourNow < 5) {
+          // ก่อนตี 5: อาจเป็นกะข้ามคืน → แสดงปุ่ม clock_out
+          todayData = yRec
+        } else {
+          // หลังตี 5: ลืมเช็คเอ้า → เริ่มวันใหม่ + แจ้งเตือน
+          forgotYesterday = yRec
+        }
       }
     }
 
     setToday(todayData)
+    setForgotCheckout(forgotYesterday)
     setHolidays((holRes as any).data ?? [])
     setLeaveMap(lm)
     setLoading(false)
@@ -131,6 +143,7 @@ export function useAttendance(employeeId?: string, month = new Date()) {
     leaveMap,         // วันลาที่ approved/pending — ใช้แสดง "ลา" แทน "ขาดงาน"
     today,
     todayRecord: today,
+    forgotCheckout,   // record เมื่อวานที่ลืมเช็คเอ้า (หลังตี 5) — ใช้แสดงเตือนใน UI
     loading,
     refetch,
   }

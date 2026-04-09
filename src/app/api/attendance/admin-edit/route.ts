@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
+import { getLateThreshold } from "@/lib/utils/payroll"
 import { logAudit } from "@/lib/auditLog"
 
 /**
@@ -36,7 +37,14 @@ export async function POST(req: NextRequest) {
     shift = s
   }
   const { data: empData } = await svc.from("employees")
-    .select("first_name_th, last_name_th, company_id").eq("id", rec.employee_id).single()
+    .select("first_name_th, last_name_th, company_id, department:departments(name), company:companies(code)")
+    .eq("id", rec.employee_id).single()
+
+  // ── ดึง grace period ตามแผนก/บริษัท (ไม่ hardcode 5 อีกต่อไป) ──
+  const adminDeptName    = (empData?.department as any)?.name as string | undefined
+  const adminCompanyCode = (empData?.company as any)?.code as string | undefined
+  const graceMinutes     = getLateThreshold(adminDeptName, adminCompanyCode)
+
   const updates: any = { is_manual: true, updated_at: new Date().toISOString() }
 
   // แปลงเวลา — รับเป็น "HH:mm" + optional date
@@ -44,12 +52,12 @@ export async function POST(req: NextRequest) {
     const clockInDate = body.clock_in_date || rec.work_date
     updates.clock_in = `${clockInDate}T${clock_in}:00+07:00`
 
-    // คำนวณสายใหม่
+    // คำนวณสายใหม่ — ใช้ grace period จากแผนก/บริษัท
     if (shift?.work_start) {
       const expectedStart = new Date(`${rec.work_date}T${shift.work_start}+07:00`)
       const newClockIn = new Date(updates.clock_in)
       const lateMins = calcLateMinutes(newClockIn, expectedStart)
-      updates.late_minutes = Math.max(lateMins - 5, 0) // grace 5 min
+      updates.late_minutes = Math.max(lateMins - graceMinutes, 0)
       updates.status = updates.late_minutes > 0 ? "late" : "present"
     }
   }

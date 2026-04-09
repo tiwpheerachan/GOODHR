@@ -16,9 +16,11 @@ export async function GET(req: NextRequest) {
   const isAdmin = userData.role === "super_admin" || userData.role === "hr_admin"
   const params = req.nextUrl.searchParams
   const month = params.get("month") // "2026-04"
-  const companyId = params.get("company_id") || (userData.employee as any)?.company_id
+  const rawCompanyId = params.get("company_id") // "all" = ทุกบริษัท
+  const companyId = rawCompanyId === "all" ? null : (rawCompanyId || (userData.employee as any)?.company_id)
   const departmentId = params.get("department_id")
   const managerId = params.get("manager_id")
+  const search = params.get("search")?.trim().toLowerCase() || ""
 
   if (!month) return NextResponse.json({ error: "month required (YYYY-MM)" }, { status: 400 })
 
@@ -39,11 +41,13 @@ export async function GET(req: NextRequest) {
       .eq("manager_id", managerId)
       .is("effective_to", null)
     teamEmployeeIds = (teamRows ?? []).map((r: any) => r.employee_id)
-  } else if (isAdmin && companyId) {
-    // Admin: filter by company + optional department
-    let q = supa.from("employees").select("id").eq("company_id", companyId).eq("is_active", true)
+  } else if (isAdmin) {
+    // Admin: filter by company (optional) + department (optional)
+    // ถ้า companyId = null → ดึงทุกบริษัท
+    let q = supa.from("employees").select("id").eq("is_active", true)
+    if (companyId) q = q.eq("company_id", companyId)
     if (departmentId) q = q.eq("department_id", departmentId)
-    const { data: emps } = await q.limit(500)
+    const { data: emps } = await q.limit(1000)
     teamEmployeeIds = (emps ?? []).map((e: any) => e.id)
   } else if (userData.employee_id) {
     // Manager: own team
@@ -79,6 +83,16 @@ export async function GET(req: NextRequest) {
 
   const empMap: Record<string, any> = {}
   for (const e of (employees ?? [])) empMap[e.id] = e
+
+  // ── Search filter: กรองตามชื่อ/รหัสพนักงาน ──
+  if (search) {
+    teamEmployeeIds = teamEmployeeIds.filter(id => {
+      const e = empMap[id]
+      if (!e) return false
+      const fullName = `${e.first_name_th ?? ""} ${e.last_name_th ?? ""} ${e.nickname ?? ""} ${e.employee_code ?? ""}`.toLowerCase()
+      return fullName.includes(search)
+    })
+  }
 
   // Build day-by-day data
   const days: Record<string, any> = {}
@@ -134,17 +148,20 @@ export async function GET(req: NextRequest) {
     } : null
   }).filter(Boolean)
 
-  // Format balances
-  const balanceList = (balances ?? []).map((b: any) => ({
-    employee_id: b.employee_id,
-    leave_type: (b.leave_type as any)?.name || null,
-    color: (b.leave_type as any)?.color_hex || null,
-    entitled_days: b.entitled_days,
-    used_days: b.used_days,
-    pending_days: b.pending_days,
-    remaining_days: b.remaining_days,
-    carried_over: b.carried_over,
-  }))
+  // Format balances (เฉพาะพนักงานที่ผ่าน filter/search)
+  const filteredIdSet = new Set(teamEmployeeIds)
+  const balanceList = (balances ?? [])
+    .filter((b: any) => filteredIdSet.has(b.employee_id))
+    .map((b: any) => ({
+      employee_id: b.employee_id,
+      leave_type: (b.leave_type as any)?.name || null,
+      color: (b.leave_type as any)?.color_hex || null,
+      entitled_days: b.entitled_days,
+      used_days: b.used_days,
+      pending_days: b.pending_days,
+      remaining_days: b.remaining_days,
+      carried_over: b.carried_over,
+    }))
 
   return NextResponse.json({ days, employees: employeeList, balances: balanceList })
 }

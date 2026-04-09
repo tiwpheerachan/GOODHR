@@ -577,7 +577,7 @@ function OffsiteModal({ action, pos, onClose, onSuccess }: {
           <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-slate-50 rounded-xl mb-4 border border-slate-100">
             <ShieldCheck size={14} className="text-slate-400 shrink-0" />
             <p className="text-[11px] text-slate-600">
-              {isIn ? "เช็คอิน" : "เช็คเอ้าท์"}จะถูกบันทึกทันที แต่สถานะจะเป็น <b>"รออนุมัติ"</b> จนกว่า HR จะตรวจสอบ
+              {isIn ? "เช็คอิน" : "เช็คเอ้าท์"}จะถูกบันทึกทันที แต่สถานะจะเป็น <b>&ldquo;รออนุมัติ&rdquo;</b> จนกว่า HR จะตรวจสอบ
             </p>
           </div>
 
@@ -718,7 +718,7 @@ function AdjustModal({ record, onClose }: { record: any; onClose: () => void }) 
 export default function CheckInPage() {
   const { user } = useAuth()
   const supabase = createClient()
-  const { todayRecord, refetch } = useAttendance(user?.employee_id)
+  const { todayRecord, forgotCheckout, refetch } = useAttendance(user?.employee_id)
   const { clockIn, clockOut, loading } = useCheckin()
 
   const mapRef = useRef<HTMLDivElement>(null)
@@ -1346,6 +1346,20 @@ export default function CheckInPage() {
                 <div>
                   <p className="text-[11px] font-bold text-gray-700">ยังไม่ได้รับสิทธิ์เช็คอิน</p>
                   <p className="text-[9px] text-gray-400">กรุณาติดต่อ HR เพื่อกำหนดสาขา</p>
+                </div>
+              </div>
+            )}
+
+            {/* ⚠️ Forgot checkout warning */}
+            {forgotCheckout && (
+              <div className="mb-3 flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-2xl px-3.5 py-3">
+                <AlertCircle size={14} className="text-amber-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-[11px] font-bold text-amber-700">ลืมเช็คเอ้าท์เมื่อวาน ({forgotCheckout.work_date})</p>
+                  <p className="text-[10px] text-amber-600 mt-0.5">
+                    เช็คอินเมื่อ {new Date(forgotCheckout.clock_in).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })} น.
+                    — ระบบจะสร้างคำขอแก้ไขเวลาอัตโนมัติ
+                  </p>
                 </div>
               </div>
             )}

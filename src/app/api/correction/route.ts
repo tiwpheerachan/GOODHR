@@ -1,6 +1,7 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
+import { getLateThreshold } from "@/lib/utils/payroll"
 import { logApproval } from "@/lib/auditLog"
 
 export async function POST(request: Request) {
@@ -149,8 +150,17 @@ export async function POST(request: Request) {
     const newClockIn  = req.requested_clock_in  ? new Date(req.requested_clock_in)  : (rec.clock_in  ? new Date(rec.clock_in)  : null)
     const newClockOut = req.requested_clock_out ? new Date(req.requested_clock_out) : (rec.clock_out ? new Date(rec.clock_out) : null)
 
-    const shift        = rec.shift as any
-    const lateThreshold = 5
+    const shift = rec.shift as any
+
+    // ── ดึงชื่อแผนก + รหัสบริษัทของพนักงาน เพื่อคำนวณ grace period ──
+    const { data: corrEmpInfo } = await supa
+      .from("employees")
+      .select("department:departments(name), company:companies(code)")
+      .eq("id", req.employee_id)
+      .single()
+    const corrDeptName   = (corrEmpInfo?.department as any)?.name as string | undefined
+    const corrCompanyCode = (corrEmpInfo?.company as any)?.code as string | undefined
+    const lateThreshold  = getLateThreshold(corrDeptName, corrCompanyCode)
 
     let newLateMin = 0
     let newStatus  = rec.status as string
@@ -160,8 +170,10 @@ export async function POST(request: Request) {
       newLateMin = calcLateMinutes(newClockIn, expectedStart)
     }
 
+    // ใช้ grace threshold: ถ้าสายไม่เกิน grace → ไม่นับสาย
     if (newLateMin > lateThreshold) {
       newStatus  = "late"
+      newLateMin = Math.max(newLateMin - lateThreshold, 0)  // หัก grace แล้วเก็บ
     } else {
       newStatus  = "present"
       newLateMin = 0
@@ -182,7 +194,7 @@ export async function POST(request: Request) {
 
     // ถ้าแก้ clock_out ให้ถูก → status ต้องไม่เป็น early_out อีก
     if (newEarlyMin <= 0 && newStatus === "early_out") {
-      newStatus = newLateMin > 5 ? "late" : "present"
+      newStatus = newLateMin > 0 ? "late" : "present"
     }
 
     // ── 1. อัปเดต attendance_records ────────────────────────────

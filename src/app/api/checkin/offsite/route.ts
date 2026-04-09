@@ -218,7 +218,7 @@ export async function POST(request: Request) {
         clock_out_distance_m: 0,
         clock_out_valid:      true,
         work_minutes:         workMin,
-        ot_minutes:           0,
+        ot_minutes:           rec.ot_minutes ?? 0,  // ✅ เก็บ OT เดิมไว้ ไม่เขียนทับเป็น 0
         early_out_minutes:    earlyOutMin,
         expected_end:         expectedEndAdj?.toISOString() ?? null,
         status:               newStatus,

@@ -1,6 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
-import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
+import { calculatePayrollSummary, type OTBreakdown } from "@/lib/utils/payroll"
 import { logPayroll } from "@/lib/auditLog"
 
 // ── Date helpers (pure string — ไม่มี timezone conversion) ───────────
@@ -459,13 +459,14 @@ async function calcAndSave(
     r.status === "early_out" || (Number(r.early_out_minutes) || 0) > 0
   ).length
 
-  // ── นาทีสาย: หัก grace period ตามแผนก/บริษัท ──
-  const graceMinutes = getLateThreshold(emp.department?.name, emp.company?.code)
+  // ── นาทีสาย: ใช้ค่าจาก attendance ตรงๆ (หัก grace แล้วตอนเช็คอิน) ──
+  // ⚠️ late_minutes ที่เก็บใน attendance_records ถูกหัก grace period ไว้แล้วตั้งแต่ตอนเช็คอิน
+  //    เช่น สาย 8 นาที grace 5 → late_minutes = 3 (หักแล้ว)
+  //    ดังนั้น payroll ต้องนำมาใช้ตรงๆ ไม่ต้องหัก grace ซ้ำอีก
   const totalLateMin = records.reduce(
     (s: number, r: any) => {
       const raw = Number(r.late_minutes) || 0
-      // หักเฉพาะส่วนที่เกิน grace period
-      return s + Math.max(0, raw - graceMinutes)
+      return s + raw
     }, 0
   )
   const totalEarlyMin = records.reduce(
