@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
 import {
   Users, Search, X, Edit2, Save, MapPin, Clock, Phone, Mail, Plus, Trash2,
-  Shield, User, Building2, Check, Loader2, ChevronDown, Network, ExternalLink,
+  Shield, User, Building2, Check, Loader2, ChevronDown, Network, ExternalLink, DollarSign, CalendarDays,
 } from "lucide-react"
 import toast from "react-hot-toast"
 
@@ -18,6 +18,7 @@ interface Emp {
   department: { id: string; name: string } | null
   position: { id: string; name: string } | null
   branch: { id: string; name: string } | null
+  hire_date?: string; base_salary?: number | null
   schedule_profile: any; allowed_locations: any[]
 }
 interface Dept { id: string; name: string }
@@ -690,7 +691,32 @@ export default function OrgMapPage() {
             </div>
           </div>
 
-          {/* ── 4. ข้อมูลติดต่อ ── */}
+          {/* ── 4. รายได้ + อายุงาน ── */}
+          <div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {e.base_salary && (
+                <div className="bg-emerald-50 rounded-lg px-2 py-1.5">
+                  <p className="text-[8px] font-bold text-emerald-500 flex items-center gap-0.5"><DollarSign size={8}/>รายได้</p>
+                  <p className="text-[10px] font-black text-emerald-700">฿{Number(e.base_salary).toLocaleString()}</p>
+                </div>
+              )}
+              {e.hire_date && (
+                <div className="bg-blue-50 rounded-lg px-2 py-1.5">
+                  <p className="text-[8px] font-bold text-blue-500 flex items-center gap-0.5"><CalendarDays size={8}/>อายุงาน</p>
+                  <p className="text-[10px] font-black text-blue-700">
+                    {(() => {
+                      const days = Math.floor((Date.now() - new Date(e.hire_date).getTime()) / 86400000)
+                      if (days < 30) return `${days} วัน`
+                      if (days < 365) return `${Math.floor(days / 30)} เดือน ${days % 30} วัน`
+                      return `${Math.floor(days / 365)} ปี ${Math.floor((days % 365) / 30)} เดือน`
+                    })()}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── 5. ข้อมูลติดต่อ ── */}
           <div>
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5">ข้อมูลติดต่อ</p>
             <div className="grid grid-cols-2 gap-1.5">

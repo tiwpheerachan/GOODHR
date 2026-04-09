@@ -34,6 +34,8 @@ export async function GET(req: NextRequest) {
   let schedProfiles: any[] = []
   let allowedLocs: any[] = []
 
+  let salaryMap: Record<string, number> = {}
+
   if (empIds.length > 0) {
     const { data: sp } = await supa.from("employee_schedule_profiles")
       .select("employee_id, schedule_type, default_shift:shift_templates(name, work_start, work_end)")
@@ -44,6 +46,15 @@ export async function GET(req: NextRequest) {
       .select("employee_id, branch_id, branch:branches(id, name)")
       .in("employee_id", empIds)
     allowedLocs = al ?? []
+
+    // ดึงเงินเดือนปัจจุบัน (effective_to IS NULL)
+    const { data: sals } = await supa.from("salary_structures")
+      .select("employee_id, base_salary")
+      .in("employee_id", empIds)
+      .is("effective_to", null)
+    for (const s of (sals ?? [])) {
+      salaryMap[s.employee_id] = s.base_salary
+    }
   }
 
   const spMap: Record<string, any> = {}
@@ -58,6 +69,7 @@ export async function GET(req: NextRequest) {
     ...e,
     schedule_profile: spMap[e.id] || null,
     allowed_locations: alMap[e.id] || [],
+    base_salary: salaryMap[e.id] || null,
   }))
 
   // Departments
