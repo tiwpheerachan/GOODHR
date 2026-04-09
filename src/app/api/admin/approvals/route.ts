@@ -649,7 +649,9 @@ export async function POST(req: NextRequest) {
 
     // Update leave balance if leave
     if (request_type === "leave") {
-      const { data: lr } = await supa.from("leave_requests").select("employee_id,leave_type_id,total_days").eq("id", request_id).single()
+      const { data: lr } = await supa.from("leave_requests")
+        .select("employee_id,leave_type_id,total_days,start_date,end_date,is_half_day")
+        .eq("id", request_id).single()
       if (lr) {
         const { data: bal } = await supa.from("leave_balances")
           .select("id,used_days,pending_days")
@@ -659,6 +661,29 @@ export async function POST(req: NextRequest) {
             used_days: (bal.used_days || 0) + lr.total_days,
             pending_days: Math.max(0, (bal.pending_days || 0) - lr.total_days),
           }).eq("id", bal.id)
+        }
+
+        // ── อนุมัติลาแล้ว → เคลียร์ early_out / late ใน attendance record ──
+        // เพื่อไม่ให้พนักงานเห็นว่า "ออกก่อน 500 นาที" ทั้งที่ลาอนุมัติแล้ว
+        const startD = new Date(lr.start_date)
+        const endD = new Date(lr.end_date)
+        const leaveDates: string[] = []
+        for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+          leaveDates.push(d.toISOString().slice(0, 10))
+        }
+
+        for (const ld of leaveDates) {
+          const updateFields: Record<string, unknown> = {
+            status: "leave",
+            early_out_minutes: 0,
+          }
+          // ลาเต็มวัน → เคลียร์ late_minutes ด้วย
+          if (!lr.is_half_day) {
+            updateFields.late_minutes = 0
+          }
+          await supa.from("attendance_records").update(updateFields)
+            .eq("employee_id", lr.employee_id)
+            .eq("work_date", ld)
         }
       }
     }

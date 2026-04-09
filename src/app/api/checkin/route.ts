@@ -404,9 +404,8 @@ export async function POST(request: Request) {
     const isExemptOut = !!emp.is_attendance_exempt
     const earlyOutMin = isExemptOut ? 0 : Math.max(earlyOutRaw, 0)
 
-    // ✅ ไม่คิด OT อัตโนมัติ — พนักงานต้องยื่นขอ OT ผ่านระบบ
-    // ใช้ค่า ot_minutes เดิมที่อนุมัติไว้แล้ว (ไม่เขียนทับเป็น 0)
-    const otMin = rec.ot_minutes || 0
+    // ✅ ไม่แตะ ot_minutes ตอน checkout — ค่านี้ถูกเขียนโดย OT approval เท่านั้น
+    // เพื่อป้องกัน race condition ที่ checkout อ่านค่าเก่าแล้วเขียนทับ OT ที่เพิ่งอนุมัติ
 
     // status: exempt → present เสมอ / ปกติ → ถ้าเคย late ให้คง late ไว้
     const newStatus = isExemptOut
@@ -425,7 +424,7 @@ export async function POST(request: Request) {
         clock_out_distance_m: nearest ? Math.round(minDist) : null,
         clock_out_valid:      true,
         work_minutes:         workMin,
-        ot_minutes:           otMin,
+        // ไม่เขียน ot_minutes ตอน checkout — ป้องกันทับค่า OT ที่อนุมัติแล้ว
         early_out_minutes:    earlyOutMin,   // ✅ บันทึกนาทีออกก่อน
         expected_end:         expectedEndAdj?.toISOString() ?? null,
         status:               newStatus,
@@ -437,7 +436,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success:           true,
       work_minutes:      workMin,
-      ot_minutes:        otMin,
+      ot_minutes:        rec.ot_minutes || 0,  // ส่งค่าเดิมจาก DB กลับไปแสดง (ไม่ได้แก้)
       early_out_minutes: earlyOutMin,
       is_early_out:      earlyOutMin > 0,
     })
