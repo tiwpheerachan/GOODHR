@@ -696,7 +696,7 @@ export default function EmployeeDetailPage() {
         </>}
 
         {/* ── Tab 8: บทบาท (Role Management) ── */}
-        {tab === 8 && <RoleManagementTab employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`}/>}
+        {tab === 8 && <RoleManagementTab employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`} employeeEmail={emp?.email || ""}/>}
 
       </div>
 
@@ -2062,7 +2062,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
 }
 
 // ─── RoleManagementTab ───────────────────────────────────────────────────────
-function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
+function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employeeId: string; employeeName: string; employeeEmail: string }) {
   const [currentRole, setCurrentRole] = useState<string | null>(null)
   const [selectedRole, setSelectedRole] = useState("")
   const [loading, setLoading] = useState(true)
@@ -2076,6 +2076,12 @@ function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; e
   const [currentEmail, setCurrentEmail] = useState("")
   const [newEmail, setNewEmail] = useState("")
   const [changingEmail, setChangingEmail] = useState(false)
+  // ── State สำหรับสร้างบัญชีใหม่ ──
+  const [createEmail, setCreateEmail] = useState(employeeEmail)
+  const [createPassword, setCreatePassword] = useState("")
+  const [showCreatePw, setShowCreatePw] = useState(false)
+  const [createRole, setCreateRole] = useState("employee")
+  const [creating, setCreating] = useState(false)
   const [emailResult, setEmailResult] = useState<{ old_email: string; new_email: string } | null>(null)
 
   const ROLES = [
@@ -2130,12 +2136,119 @@ function RoleManagementTab({ employeeId, employeeName }: { employeeId: string; e
 
   if (!hasAccount) {
     return (
-      <div className="text-center py-12">
-        <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-4">
-          <AlertTriangle size={28} className="text-amber-400" />
+      <div className="space-y-6">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
+              <AlertTriangle size={20} className="text-amber-500" />
+            </div>
+            <div>
+              <p className="font-bold text-amber-800">พนักงานนี้ยังไม่มีบัญชีล็อกอิน</p>
+              <p className="text-xs text-amber-600">สร้างบัญชีด้านล่างเพื่อให้พนักงานเข้าสู่ระบบได้</p>
+            </div>
+          </div>
         </div>
-        <p className="font-bold text-slate-700">พนักงานนี้ยังไม่มี Account</p>
-        <p className="text-sm text-slate-400 mt-1">ต้องสร้าง Account ให้พนักงานก่อนจึงจะกำหนดบทบาทได้</p>
+
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
+          <h3 className="font-bold text-slate-800 flex items-center gap-2">
+            <UserCheck size={18} className="text-indigo-500" />
+            สร้างบัญชีล็อกอิน
+          </h3>
+
+          {/* อีเมล */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">อีเมล (ใช้เข้าสู่ระบบ)</label>
+            <input
+              type="email"
+              value={createEmail}
+              onChange={e => setCreateEmail(e.target.value)}
+              placeholder="example@company.com"
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none"
+            />
+          </div>
+
+          {/* รหัสผ่าน */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">รหัสผ่าน</label>
+            <div className="relative">
+              <input
+                type={showCreatePw ? "text" : "password"}
+                value={createPassword}
+                onChange={e => setCreatePassword(e.target.value)}
+                placeholder="อย่างน้อย 6 ตัวอักษร"
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none pr-20"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCreatePw(!showCreatePw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+              >
+                {showCreatePw ? "ซ่อน" : "แสดง"}
+              </button>
+            </div>
+            {createPassword.length > 0 && createPassword.length < 6 && (
+              <p className="text-xs text-red-500 mt-1">รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร</p>
+            )}
+          </div>
+
+          {/* บทบาท */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">บทบาท</label>
+            <select
+              value={createRole}
+              onChange={e => setCreateRole(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none"
+            >
+              <option value="employee">👤 พนักงาน</option>
+              <option value="manager">👥 หัวหน้าทีม</option>
+              <option value="equipment_admin">📦 ผู้ดูแลอุปกรณ์</option>
+              <option value="hr_admin">🛡️ HR Admin</option>
+              <option value="super_admin">⚡ Super Admin</option>
+            </select>
+          </div>
+
+          {/* ปุ่มสร้าง */}
+          <button
+            onClick={async () => {
+              if (!createEmail.trim()) { toast.error("กรุณากรอกอีเมล"); return }
+              if (createPassword.length < 6) { toast.error("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร"); return }
+              setCreating(true)
+              try {
+                const res = await fetch("/api/auth/create-account", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    employee_id: employeeId,
+                    email: createEmail.trim(),
+                    password: createPassword,
+                    role: createRole,
+                  }),
+                })
+                const data = await res.json()
+                if (data.success) {
+                  toast.success(data.message)
+                  setHasAccount(true)
+                  setCurrentRole(createRole)
+                  setSelectedRole(createRole)
+                  setCurrentEmail(createEmail.trim().toLowerCase())
+                } else {
+                  toast.error(data.error || "เกิดข้อผิดพลาด")
+                }
+              } catch {
+                toast.error("เกิดข้อผิดพลาดในการเชื่อมต่อ")
+              }
+              setCreating(false)
+            }}
+            disabled={creating || !createEmail.trim() || createPassword.length < 6}
+            className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+          >
+            {creating ? (
+              <><Loader2 size={16} className="animate-spin" /> กำลังสร้างบัญชี...</>
+            ) : (
+              <><UserCheck size={16} /> สร้างบัญชีล็อกอิน</>
+            )}
+          </button>
+        </div>
       </div>
     )
   }
