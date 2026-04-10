@@ -1,8 +1,8 @@
 import type { Config } from "@netlify/functions"
 
 // ── Netlify Scheduled Function ─────────────────────────────────────────────
-// รันทุกวัน เวลา 04:00 น. Bangkok (UTC+7) = 21:00 UTC วันก่อนหน้า
-// cron: "0 21 * * *"
+// รันทุกวัน เวลา 05:00 น. Bangkok (UTC+7) = 22:00 UTC วันก่อนหน้า
+// cron: "0 22 * * *"
 //
 // ต้องตั้งค่า Environment Variable:
 //   CRON_SECRET  = secret string (ตรงกับใน Next.js API route)
@@ -25,5 +25,5 @@ export default async function handler() {
 }
 
 export const config: Config = {
-  schedule: "0 21 * * *", // 21:00 UTC = 04:00 Bangkok (UTC+7)
+  schedule: "0 22 * * *", // 22:00 UTC = 05:00 Bangkok (UTC+7)
 }

@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   const supa = createServiceClient()
 
-  // วันที่ไทยปัจจุบัน (ตี 4 ของวันนี้ = ยังเป็นวันใหม่ที่เพิ่งเริ่ม)
+  // วันที่ไทยปัจจุบัน (ตี 5 ของวันนี้ = ตัดรอบวันก่อนหน้า → วันใหม่เริ่ม)
   const nowBKK = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
 
   // หา attendance_records ที่:
@@ -80,40 +80,18 @@ export async function POST(req: NextRequest) {
       )
       const workMin = Math.max(0, Math.round((estimatedOut.getTime() - clockIn.getTime()) / 60_000) - 60)
 
-      // ── 1. ปิด attendance record ด้วย estimated clock_out ──────────────
+      // ── ปิด attendance record ด้วย estimated clock_out ──────────────────
       // ใส่ note ไว้ให้รู้ว่าระบบปิดอัตโนมัติ
+      // ไม่สร้าง time_adjustment_request → ให้พนักงานยื่นคำขอแก้ไขเวลาเอง
       await supa.from("attendance_records").update({
         clock_out:          estimatedOut.toISOString(),
-        clock_out_valid:    false,                      // ไม่ valid → ต้องการ adjustment
+        clock_out_valid:    false,                      // ไม่ valid → พนักงานต้องยื่นแก้ไขเอง
         work_minutes:       workMin,
         early_out_minutes:  0,
         note:               (rec as any).note
-          ? (rec as any).note + " | ระบบปิดอัตโนมัติตี 4"
-          : "ระบบปิดอัตโนมัติตี 4 (ลืมเช็คเอ้า)",
+          ? (rec as any).note + " | ระบบปิดอัตโนมัติตี 5 (ลืมเช็คเอ้า)"
+          : "ระบบปิดอัตโนมัติตี 5 (ลืมเช็คเอ้า — กรุณายื่นแก้ไขเวลาด้วยตนเอง)",
       }).eq("id", rec.id as string)
-
-      // ── 2. ตรวจว่ามี time_adjustment_request pending อยู่แล้วหรือเปล่า ──
-      const { data: existing } = await supa
-        .from("time_adjustment_requests")
-        .select("id")
-        .eq("employee_id", rec.employee_id as string)
-        .eq("work_date", rec.work_date as string)
-        .eq("status", "pending")
-        .maybeSingle()
-
-      if (!existing) {
-        // ── 3. สร้าง time_adjustment_request อัตโนมัติ ──────────────────
-        await supa.from("time_adjustment_requests").insert({
-          employee_id:         rec.employee_id,
-          company_id:          rec.company_id,
-          work_date:           rec.work_date,
-          request_type:        "time_adjustment",
-          requested_clock_in:  rec.clock_in,            // เวลาเข้างานจริง
-          requested_clock_out: null,                     // ไม่ทราบ → พนักงาน/admin กรอกเอง
-          reason:              "ลืมเช็คเอ้า (ระบบสร้างคำขอแก้ไขอัตโนมัติ กรุณาระบุเวลาออกที่ถูกต้อง)",
-          status:              "pending",
-        })
-      }
 
       processed++
     } catch (e: any) {
