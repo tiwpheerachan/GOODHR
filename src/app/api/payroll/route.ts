@@ -368,7 +368,7 @@ async function calcAndSave(
   // ── ข้อมูลการเข้างานในงวด ──────────────────────────────────────
   const { data: attData, error: attErr } = await supa
     .from("attendance_records")
-    .select("work_date, status, late_minutes, early_out_minutes, ot_minutes, work_minutes")
+    .select("work_date, status, late_minutes, early_out_minutes, ot_minutes, work_minutes, half_day_leave")
     .eq("employee_id", employee_id)
     .gte("work_date", periodStart)
     .lte("work_date", periodEnd)
@@ -451,26 +451,32 @@ async function calcAndSave(
   ).length
 
   // ✅ นับครั้งสาย: status=late หรือ late_minutes > 0 (Number() เพราะ Supabase อาจ return string)
+  // ⚠️ ไม่นับครั้งที่มีลาครึ่งวัน (half_day_leave) เป็นสาย/ออกก่อน
   const lateCount = records.filter((r: any) =>
-    r.status === "late" || (Number(r.late_minutes) || 0) > 0
+    (r.status === "late" || (Number(r.late_minutes) || 0) > 0) && r.half_day_leave !== "morning"
   ).length
 
   const earlyCount = records.filter((r: any) =>
-    r.status === "early_out" || (Number(r.early_out_minutes) || 0) > 0
+    (r.status === "early_out" || (Number(r.early_out_minutes) || 0) > 0) && r.half_day_leave !== "afternoon"
   ).length
 
   // ── นาทีสาย: ใช้ค่าจาก attendance ตรงๆ (หัก grace แล้วตอนเช็คอิน) ──
   // ⚠️ late_minutes ที่เก็บใน attendance_records ถูกหัก grace period ไว้แล้วตั้งแต่ตอนเช็คอิน
   //    เช่น สาย 8 นาที grace 5 → late_minutes = 3 (หักแล้ว)
   //    ดังนั้น payroll ต้องนำมาใช้ตรงๆ ไม่ต้องหัก grace ซ้ำอีก
+  // ⚠️ ลาครึ่งวันเช้า → ไม่นับนาทีสาย / ลาครึ่งวันบ่าย → ไม่นับนาทีออกก่อน
   const totalLateMin = records.reduce(
     (s: number, r: any) => {
+      if (r.half_day_leave === "morning") return s  // ลาเช้า → ไม่หักสาย
       const raw = Number(r.late_minutes) || 0
       return s + raw
     }, 0
   )
   const totalEarlyMin = records.reduce(
-    (s: number, r: any) => s + (Number(r.early_out_minutes) || 0), 0
+    (s: number, r: any) => {
+      if (r.half_day_leave === "afternoon") return s  // ลาบ่าย → ไม่หักออกก่อน
+      return s + (Number(r.early_out_minutes) || 0)
+    }, 0
   )
 
   // ── OT แยกประเภท (weekday 1.5x / holiday_regular 1.0x / holiday_ot 3.0x) ──

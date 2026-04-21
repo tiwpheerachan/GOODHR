@@ -65,7 +65,7 @@ function isWeekend(ds: string) {
 function buildDisplayList(
   records: any[], month: Date, todayStr: string,
   holidayMap: Record<string, string>,
-  leaveMap: Record<string, { type: string; status: string }>,
+  leaveMap: Record<string, { type: string; status: string; isHalf?: boolean; halfPeriod?: string }>,
 ): any[] {
   const existMap = new Map<string, any>(records.map(r => [r.work_date as string, r]))
   const virtual: any[] = []
@@ -117,22 +117,22 @@ export default function AttendancePage() {
     leave:         records.filter((r: any) => r.status === "leave").length + displayList.filter((r: any) => r.status === "leave" && r._virtual).length,
     wfh:           records.filter((r: any) => r.status === "wfh").length,
     holidays:      Object.keys(holidayMap).filter(d => d.startsWith(monthPfx)).length,
-    totalLateMin:  records.reduce((s: number, r: any) => s + (r.late_minutes || 0), 0),
-    totalEarlyMin: records.reduce((s: number, r: any) => s + (r.early_out_minutes || 0), 0),
+    totalLateMin:  records.reduce((s: number, r: any) => s + (r.half_day_leave === "morning" ? 0 : (r.late_minutes || 0)), 0),
+    totalEarlyMin: records.reduce((s: number, r: any) => s + (r.half_day_leave === "afternoon" ? 0 : (r.early_out_minutes || 0)), 0),
   }
   const periodStats = {
-    late:          periodRecords.filter((r: any) => r.status === "late" || (r.late_minutes || 0) > 0).length,
-    earlyOut:      periodRecords.filter((r: any) => r.status === "early_out" || (r.early_out_minutes || 0) > 0).length,
+    late:          periodRecords.filter((r: any) => (r.status === "late" || (r.late_minutes || 0) > 0) && r.half_day_leave !== "morning").length,
+    earlyOut:      periodRecords.filter((r: any) => (r.status === "early_out" || (r.early_out_minutes || 0) > 0) && r.half_day_leave !== "afternoon").length,
     absent:        periodRecords.filter((r: any) => r.status === "absent").length,
-    totalLateMin:  periodRecords.reduce((s: number, r: any) => s + (r.late_minutes || 0), 0),
-    totalEarlyMin: periodRecords.reduce((s: number, r: any) => s + (r.early_out_minutes || 0), 0),
+    totalLateMin:  periodRecords.reduce((s: number, r: any) => s + (r.half_day_leave === "morning" ? 0 : (r.late_minutes || 0)), 0),
+    totalEarlyMin: periodRecords.reduce((s: number, r: any) => s + (r.half_day_leave === "afternoon" ? 0 : (r.early_out_minutes || 0)), 0),
   }
   // ── Grace period: คำนวณนาทีสายหลังหัก grace ──
   const emp = (user as any)?.employee
   const isExempt = !!emp?.is_attendance_exempt
   const graceMinutes = getLateThreshold(emp?.department?.name, emp?.company?.code)
   const graceAdjustedLateMin = periodRecords.reduce(
-    (s: number, r: any) => s + Math.max(0, (Number(r.late_minutes) || 0) - graceMinutes), 0
+    (s: number, r: any) => s + (r.half_day_leave === "morning" ? 0 : Math.max(0, (Number(r.late_minutes) || 0) - graceMinutes)), 0
   )
   // ถ้า graceAdjustedLateMin === 0 หรือ exempt → ไม่หัก
   const lateWithinGrace = periodStats.late > 0 && (graceAdjustedLateMin === 0 || isExempt)
@@ -168,7 +168,9 @@ export default function AttendancePage() {
     const sorted = [...records].sort((a: any, b: any) => b.work_date.localeCompare(a.work_date))
     let count = 0
     for (const r of sorted as any[]) {
-      if (r.status === "present" && (r.late_minutes || 0) === 0 && (r.early_out_minutes || 0) === 0) count++
+      const effectiveLate = r.half_day_leave === "morning" ? 0 : (r.late_minutes || 0)
+      const effectiveEarly = r.half_day_leave === "afternoon" ? 0 : (r.early_out_minutes || 0)
+      if (r.status === "present" && effectiveLate === 0 && effectiveEarly === 0) count++
       else break
     }
     return count
@@ -181,8 +183,9 @@ export default function AttendancePage() {
     for (const r of records as any[]) {
       const dow = getDay(new Date(r.work_date + "T00:00:00"))
       counts[dow].total++
-      if (r.status === "present" && (r.late_minutes || 0) === 0) counts[dow].onTime++
-      if (r.status === "late" || (r.late_minutes || 0) > 0) counts[dow].late++
+      const wLate = r.half_day_leave === "morning" ? 0 : (r.late_minutes || 0)
+      if (r.status === "present" && wLate === 0) counts[dow].onTime++
+      if ((r.status === "late" || wLate > 0) && r.half_day_leave !== "morning") counts[dow].late++
     }
     return days.map((name, i) => ({
       name, total: counts[i].total, onTime: counts[i].onTime, late: counts[i].late,
@@ -524,10 +527,13 @@ export default function AttendancePage() {
             </div>
           ) : displayList.map((r: any, idx: number) => {
             const hol = holidayMap[r.work_date]
+            const halfLeave = r.half_day_leave || leaveMap[r.work_date]?.halfPeriod || null
             const lateMin = r.late_minutes || 0
             const earlyOutMin = r.early_out_minutes || 0
-            const isLate = r.status === "late" || lateMin > 0
-            const isEarlyOut = r.status === "early_out" || earlyOutMin > 0
+            const isHalfMorning = halfLeave === "morning"
+            const isHalfAfternoon = halfLeave === "afternoon"
+            const isLate = (r.status === "late" || lateMin > 0) && !isHalfMorning
+            const isEarlyOut = (r.status === "early_out" || earlyOutMin > 0) && !isHalfAfternoon
             const isAbsent = r.status === "absent"
             const isLeave = r.status === "leave"
             const isVirtual = !!r._virtual
@@ -601,19 +607,21 @@ export default function AttendancePage() {
 
                   {/* badges */}
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    {lateMin > 0 && <span className="flex items-center gap-1 text-[10px] font-black text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full"><Clock size={8} />สาย {lateMin}น.</span>}
-                    {earlyOutMin > 0 && <span className="flex items-center gap-1 text-[10px] font-black text-orange-700 bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full"><LogOut size={8} />ออกก่อน {earlyOutMin}น.</span>}
+                    {isHalfMorning && <span className="flex items-center gap-1 text-[10px] font-black text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full"><Plane size={8} />ลาเช้า</span>}
+                    {isHalfAfternoon && <span className="flex items-center gap-1 text-[10px] font-black text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full"><Plane size={8} />ลาบ่าย</span>}
+                    {lateMin > 0 && !isHalfMorning && <span className="flex items-center gap-1 text-[10px] font-black text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full"><Clock size={8} />สาย {lateMin}น.</span>}
+                    {earlyOutMin > 0 && !isHalfAfternoon && <span className="flex items-center gap-1 text-[10px] font-black text-orange-700 bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full"><LogOut size={8} />ออกก่อน {earlyOutMin}น.</span>}
                     {isAbsent && !lateMin && !earlyOutMin && <span className="flex items-center gap-1 text-[10px] font-black text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full"><XCircle size={8} />ขาดงาน</span>}
                     {isLeave && isVirtual && <span className="flex items-center gap-1 text-[10px] font-black text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-full"><Plane size={8} />{r.leave_type_name || "ลา"}</span>}
                     {(r.ot_minutes || 0) > 0 && <span className="text-[10px] font-black text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-full">OT {r.ot_minutes}น.</span>}
                   </div>
                 </div>
 
-                {/* deduction bar */}
-                {(lateMin > 0 || earlyOutMin > 0) && (
+                {/* deduction bar — ไม่แสดงถ้ามีลาครึ่งวัน */}
+                {((lateMin > 0 && !isHalfMorning) || (earlyOutMin > 0 && !isHalfAfternoon)) && (
                   <div className="flex deduct-bar">
-                    {lateMin > 0 && <div className="flex-1 flex items-center gap-1.5 px-4 py-2 text-[10px] text-amber-700"><TrendingDown size={9} /><span>หักสาย: <strong>{lateMin} นาที</strong></span></div>}
-                    {earlyOutMin > 0 && <div className="flex-1 flex items-center gap-1.5 px-4 py-2 text-[10px] text-orange-700 border-l border-dashed border-amber-100"><TrendingDown size={9} /><span>หักออกก่อน: <strong>{earlyOutMin} นาที</strong></span></div>}
+                    {lateMin > 0 && !isHalfMorning && <div className="flex-1 flex items-center gap-1.5 px-4 py-2 text-[10px] text-amber-700"><TrendingDown size={9} /><span>หักสาย: <strong>{lateMin} นาที</strong></span></div>}
+                    {earlyOutMin > 0 && !isHalfAfternoon && <div className="flex-1 flex items-center gap-1.5 px-4 py-2 text-[10px] text-orange-700 border-l border-dashed border-amber-100"><TrendingDown size={9} /><span>หักออกก่อน: <strong>{earlyOutMin} นาที</strong></span></div>}
                   </div>
                 )}
 

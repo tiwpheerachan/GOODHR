@@ -325,14 +325,39 @@ export async function POST(request: Request) {
     // ── ถ้า exempt → ไม่บันทึกมาสายเลย ────────────────────────
     const isExempt = !!emp.is_attendance_exempt
 
-    // คำนวณนาทีสาย
-    const expectedStart = shift
+    // ── เช็คลาครึ่งวัน (approved) วันนี้ ────────────────────────
+    const { data: halfLeaveData } = await supa
+      .from("leave_requests")
+      .select("is_half_day, half_day_period")
+      .eq("employee_id", emp.id)
+      .eq("status", "approved")
+      .eq("is_half_day", true)
+      .lte("start_date", workDate)
+      .gte("end_date", workDate)
+      .limit(1)
+      .maybeSingle()
+
+    const halfDayLeave: string | null = halfLeaveData?.half_day_period || null
+    // ถ้าลาเช้า → เลื่อน expected_start ไปกลางกะ
+    // ถ้าลาบ่าย → expected_start ไม่เปลี่ยน (เช็คอินตอนเช้าปกติ)
+
+    // คำนวณ expected_start (ปกติ vs ลาเช้า)
+    let expectedStart = shift
       ? new Date(`${workDate}T${shift.work_start}+07:00`)
       : null
 
+    if (halfDayLeave === "morning" && shift && expectedStart) {
+      // ลาเช้า: เลื่อน expected_start ไปกลางกะ
+      const shiftStart = new Date(`${workDate}T${shift.work_start}+07:00`)
+      let shiftEnd   = new Date(`${workDate}T${shift.work_end}+07:00`)
+      if (shift.is_overnight) shiftEnd = new Date(shiftEnd.getTime() + 86_400_000)
+      const midMs = shiftStart.getTime() + (shiftEnd.getTime() - shiftStart.getTime()) / 2
+      expectedStart = new Date(midMs)
+    }
+
     // rawLateMin = นาทีที่มาช้ากว่าเวลาเริ่มงาน (0 ถ้ามาก่อน/ตรงเวลา)
     const rawLateMin     = expectedStart ? calcLateMinutes(now, expectedStart) : 0
-    // effectiveLate = exempt → 0 เสมอ / ปกติ → หัก grace period
+    // effectiveLate = exempt/ลาเช้า(ไม่สาย) → 0 / ปกติ → หัก grace period
     const effectiveLate  = isExempt ? 0 : Math.max(rawLateMin - lateThreshold, 0)
     // isLate = exempt → false เสมอ
     const isLate         = isExempt ? false : effectiveLate > 0
@@ -350,10 +375,11 @@ export async function POST(request: Request) {
         clock_in_distance_m: nearest ? Math.round(minDist) : null,
         clock_in_valid:      true,
         expected_start:      expectedStart?.toISOString() ?? null,
-        late_minutes:        effectiveLate,    // ✅ หักจริง (หลัง grace period)
+        late_minutes:        effectiveLate,    // ✅ หักจริง (หลัง grace period + ลาครึ่งวัน)
         early_out_minutes:   0,
         status:              isLate ? "late" : "present",
         shift_template_id:   shift?.id ?? null,
+        half_day_leave:      halfDayLeave,     // ✅ บันทึกว่าลาครึ่งวันอะไร
       }, { onConflict: "employee_id,work_date" })
 
     if (insErr) return NextResponse.json({ success: false, error: insErr.message })
@@ -366,6 +392,7 @@ export async function POST(request: Request) {
       threshold_minutes: lateThreshold,
       location_name:     isAnywhereAllowed ? (nearest?.name ?? "Anywhere") : (nearest?.name ?? "สาขา"),
       checkin_anywhere:  isAnywhereAllowed,
+      half_day_leave:    halfDayLeave,
     })
   }
 
@@ -387,14 +414,39 @@ export async function POST(request: Request) {
     const breakMin   = shift?.break_minutes ?? 60
     const workMin    = calcWorkMinutes(clockIn, now, breakMin)
 
+    // ── เช็คลาครึ่งวัน (ดึงจาก record ที่บันทึกตอน clock_in หรือ query ใหม่) ──
+    let halfDayLeaveOut: string | null = (rec as any).half_day_leave || null
+    if (!halfDayLeaveOut) {
+      const { data: halfLeaveOut } = await supa
+        .from("leave_requests")
+        .select("is_half_day, half_day_period")
+        .eq("employee_id", emp.id)
+        .eq("status", "approved")
+        .eq("is_half_day", true)
+        .lte("start_date", workDate)
+        .gte("end_date", workDate)
+        .limit(1)
+        .maybeSingle()
+      halfDayLeaveOut = halfLeaveOut?.half_day_period || null
+    }
+
     // expected_end คือเวลาเลิกงาน (overnight ต้องบวก 1 วัน)
-    const expectedEnd = shift
+    let expectedEnd = shift
       ? new Date(`${workDate}T${shift.work_end}+07:00`)
       : null
 
-    const expectedEndAdj = (shift?.is_overnight && expectedEnd)
+    let expectedEndAdj = (shift?.is_overnight && expectedEnd)
       ? new Date(expectedEnd.getTime() + 86_400_000)
       : expectedEnd
+
+    // ── ลาบ่าย: เลื่อน expected_end ไปกลางกะ ──
+    if (halfDayLeaveOut === "afternoon" && shift && expectedEndAdj) {
+      const shiftStart = new Date(`${workDate}T${shift.work_start}+07:00`)
+      let shiftEnd   = new Date(`${workDate}T${shift.work_end}+07:00`)
+      if (shift.is_overnight) shiftEnd = new Date(shiftEnd.getTime() + 86_400_000)
+      const midMs = shiftStart.getTime() + (shiftEnd.getTime() - shiftStart.getTime()) / 2
+      expectedEndAdj = new Date(midMs)
+    }
 
     // earlyOutMin > 0 = ออกก่อนเวลาเลิกงาน → หักเงินตามนาที
     const earlyOutRaw = expectedEndAdj
@@ -405,7 +457,6 @@ export async function POST(request: Request) {
     const earlyOutMin = isExemptOut ? 0 : Math.max(earlyOutRaw, 0)
 
     // ✅ ไม่แตะ ot_minutes ตอน checkout — ค่านี้ถูกเขียนโดย OT approval เท่านั้น
-    // เพื่อป้องกัน race condition ที่ checkout อ่านค่าเก่าแล้วเขียนทับ OT ที่เพิ่งอนุมัติ
 
     // status: exempt → present เสมอ / ปกติ → ถ้าเคย late ให้คง late ไว้
     const newStatus = isExemptOut
@@ -425,9 +476,10 @@ export async function POST(request: Request) {
         clock_out_valid:      true,
         work_minutes:         workMin,
         // ไม่เขียน ot_minutes ตอน checkout — ป้องกันทับค่า OT ที่อนุมัติแล้ว
-        early_out_minutes:    earlyOutMin,   // ✅ บันทึกนาทีออกก่อน
+        early_out_minutes:    earlyOutMin,   // ✅ บันทึกนาทีออกก่อน (หลังเทียบลาครึ่งวัน)
         expected_end:         expectedEndAdj?.toISOString() ?? null,
         status:               newStatus,
+        half_day_leave:       halfDayLeaveOut,  // ✅ บันทึกลาครึ่งวัน
       })
       .eq("id", rec.id as string)
 
@@ -436,9 +488,10 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success:           true,
       work_minutes:      workMin,
-      ot_minutes:        rec.ot_minutes || 0,  // ส่งค่าเดิมจาก DB กลับไปแสดง (ไม่ได้แก้)
+      ot_minutes:        rec.ot_minutes || 0,
       early_out_minutes: earlyOutMin,
       is_early_out:      earlyOutMin > 0,
+      half_day_leave:    halfDayLeaveOut,
     })
   }
 

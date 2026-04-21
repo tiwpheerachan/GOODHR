@@ -80,7 +80,7 @@ function exportRecordsXLSX(records: any[], dateFrom: string, dateTo: string) {
   ]
 
   // ── Column headers ──
-  const headers = ["วันที่","รหัสพนักงาน","ชื่อ-สกุล","แผนก","ตำแหน่ง","เข้างาน","ออกงาน","สาย (นาที)","OT (นาที)","ชั่วโมงทำงาน","สถานะ"]
+  const headers = ["วันที่","รหัสพนักงาน","ชื่อ-สกุล","แผนก","ตำแหน่ง","เข้างาน","ออกงาน","สาย (นาที)","OT (นาที)","ชั่วโมงทำงาน","สถานะ","ลาครึ่งวัน"]
 
   // ── Data rows ──
   const dataRows = records.map(r => {
@@ -101,10 +101,11 @@ function exportRecordsXLSX(records: any[], dateFrom: string, dateTo: string) {
       r.employee?.position?.name || "-",
       clockIn ? safeFmt(r.clock_in,"HH:mm") : "-",
       clockOut ? safeFmt(r.clock_out,"HH:mm") : "-",
-      r.late_minutes > 0 ? r.late_minutes : 0,
+      r.half_day_leave === "morning" ? 0 : (r.late_minutes > 0 ? r.late_minutes : 0),
       r.ot_minutes > 0 ? r.ot_minutes : 0,
       workHours || "-",
       statusToTH(r.status),
+      r.half_day_leave === "morning" ? "ลาเช้า" : r.half_day_leave === "afternoon" ? "ลาบ่าย" : "-",
     ]
   })
 
@@ -124,6 +125,7 @@ function exportRecordsXLSX(records: any[], dateFrom: string, dateTo: string) {
     { wch: 12 },  // OT
     { wch: 12 },  // ชั่วโมงทำงาน
     { wch: 12 },  // สถานะ
+    { wch: 12 },  // ลาครึ่งวัน
   ]
 
   // ── Auto-filter on header row (row index 4 = 5th row) ──
@@ -414,7 +416,7 @@ export default function AdminAttendancePage() {
       const addCo2 = (q: any) => activeCid !== "all" ? q.eq("company_id", activeCid) : q
       const [{data:emps},{data:atts},{data:leaves}]=await Promise.all([
         addCo2(supabase.from("employees").select("id,employee_code,first_name_th,last_name_th,department:departments(name),branch:branches(name)").eq("is_active",true)) as any,
-        addCo2(supabase.from("attendance_records").select("employee_id,status,late_minutes").gte("work_date",sumFrom).lte("work_date",sumTo)),
+        addCo2(supabase.from("attendance_records").select("employee_id,status,late_minutes,half_day_leave").gte("work_date",sumFrom).lte("work_date",sumTo)),
         addCo2(supabase.from("leave_requests").select("employee_id,total_days").eq("status","approved").gte("start_date",sumFrom).lte("end_date",sumTo)),
       ])
       const attByEmp=new Map<string,any[]>()
@@ -430,7 +432,7 @@ export default function AdminAttendancePage() {
           late:ea.filter(a=>a.status==="late").length,
           absent:ea.filter(a=>a.status==="absent").length,
           leave:lvByEmp.get(e.id)??0,
-          lateMinutes:ea.reduce((s:number,a:any)=>s+(a.late_minutes||0),0)}
+          lateMinutes:ea.reduce((s:number,a:any)=>s+(a.half_day_leave==="morning"?0:(a.late_minutes||0)),0)}
       })
 
       const groupKey=(e:any)=>viewMode==="department"?(e.department?.name||"ไม่ระบุแผนก"):viewMode==="branch"?(e.branch?.name||"ไม่ระบุสาขา"):"ภาพรวมทั้งบริษัท"
@@ -476,7 +478,7 @@ export default function AdminAttendancePage() {
     if(!activeCid) return; setExporting(true)
     try {
       let eq = supabase.from("attendance_records")
-        .select(`work_date,clock_in,clock_out,status,late_minutes,ot_minutes,
+        .select(`work_date,clock_in,clock_out,status,late_minutes,ot_minutes,half_day_leave,
           employee:employees!attendance_records_employee_id_fkey(employee_code,first_name_th,last_name_th,department:departments(name),position:positions(name))`)
         .gte("work_date",listFilters.start).lte("work_date",listFilters.end).order("work_date",{ascending:false})
       if (activeCid !== "all") eq = eq.eq("company_id",activeCid) as any
@@ -695,7 +697,11 @@ export default function AdminAttendancePage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3.5">{(r.late_minutes??0)>0?<span className="font-black text-amber-600 tabular-nums">{r.late_minutes}<span className="text-[10px] font-normal">น.</span></span>:<span className="text-slate-300">—</span>}</td>
+                      <td className="px-4 py-3.5">
+                        {r.half_day_leave === "morning" ? <span className="font-black text-blue-600 text-[10px]">ลาเช้า</span>
+                          : r.half_day_leave === "afternoon" ? <><span className="font-black text-blue-600 text-[10px] mr-1">ลาบ่าย</span>{(r.late_minutes??0)>0&&<span className="font-black text-amber-600 tabular-nums">{r.late_minutes}<span className="text-[10px] font-normal">น.</span></span>}</>
+                          : (r.late_minutes??0)>0?<span className="font-black text-amber-600 tabular-nums">{r.late_minutes}<span className="text-[10px] font-normal">น.</span></span>:<span className="text-slate-300">—</span>}
+                      </td>
                       <td className="px-4 py-3.5">{(r.ot_minutes??0)>0?<span className="font-bold text-blue-600 tabular-nums">{r.ot_minutes}<span className="text-[10px] font-normal">น.</span></span>:<span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5"><StatusBadge status={r.status}/></td>
                       <td className="px-4 py-3.5">
@@ -1000,7 +1006,7 @@ export default function AdminAttendancePage() {
                 setShowExportModal(false)
                 try {
                   let eq = supabase.from("attendance_records")
-                    .select(`work_date,clock_in,clock_out,status,late_minutes,ot_minutes,
+                    .select(`work_date,clock_in,clock_out,status,late_minutes,ot_minutes,half_day_leave,
                       employee:employees!attendance_records_employee_id_fkey(employee_code,first_name_th,last_name_th,department:departments(id,name),position:positions(name))`)
                     .gte("work_date", exportFilters.dateFrom).lte("work_date", exportFilters.dateTo)
                     .order("work_date", { ascending: false })

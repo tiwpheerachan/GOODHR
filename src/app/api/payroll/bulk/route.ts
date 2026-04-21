@@ -139,7 +139,7 @@ export async function POST(req: Request) {
   // ── Pre-fetch attendance records ทุกคนในงวดนี้ (1 query แทน 500) ─
   const { data: allAtt } = await supa
     .from("attendance_records")
-    .select("employee_id, work_date, status, late_minutes, early_out_minutes, ot_minutes, work_minutes")
+    .select("employee_id, work_date, status, late_minutes, early_out_minutes, ot_minutes, work_minutes, half_day_leave")
     .in("employee_id", employee_ids)
     .gte("work_date", periodStart)
     .lte("work_date", periodEnd)
@@ -280,8 +280,14 @@ export async function POST(req: Request) {
 
           // Late & early
           const graceMinutes = getLateThreshold(emp.department?.name, emp.company?.code)
-          const totalLateMin = records.reduce((s: number, r: any) => s + Math.max(0, (Number(r.late_minutes) || 0) - graceMinutes), 0)
-          const totalEarlyMin = records.reduce((s: number, r: any) => s + (Number(r.early_out_minutes) || 0), 0)
+          const totalLateMin = records.reduce((s: number, r: any) => {
+            if (r.half_day_leave === "morning") return s  // ลาเช้า → ไม่หักสาย
+            return s + Math.max(0, (Number(r.late_minutes) || 0) - graceMinutes)
+          }, 0)
+          const totalEarlyMin = records.reduce((s: number, r: any) => {
+            if (r.half_day_leave === "afternoon") return s  // ลาบ่าย → ไม่หักออกก่อน
+            return s + (Number(r.early_out_minutes) || 0)
+          }, 0)
 
           // OT แยกประเภท (weekday 1.5x / holiday_regular 1.0x / holiday_ot 3.0x)
           let weekdayOtMin  = 0
@@ -374,7 +380,7 @@ export async function POST(req: Request) {
             total_deductions: result.totalDeduct + deductUnpaidLeave,
             net_salary: Math.max(result.net - deductUnpaidLeave, 0),
             working_days: pastWorkDays.length, present_days: presentDays,
-            absent_days: absentDays, late_count: records.filter((r: any) => r.status === "late" || (Number(r.late_minutes) || 0) > 0).length,
+            absent_days: absentDays, late_count: records.filter((r: any) => (r.status === "late" || (Number(r.late_minutes) || 0) > 0) && r.half_day_leave !== "morning").length,
             leave_paid_days: leavePaidDays, leave_unpaid_days: leaveUnpaidDays,
             status: "draft", updated_at: new Date().toISOString(),
           }

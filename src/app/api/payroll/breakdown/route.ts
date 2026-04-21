@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   const [attRes, leaveRes, holRes] = await Promise.all([
     // 1. Attendance records — ได้ ขาด/สาย/ออกก่อน/OT ทั้งหมด
     supa.from("attendance_records")
-      .select("work_date, status, clock_in, clock_out, late_minutes, early_out_minutes, ot_minutes, note")
+      .select("work_date, status, clock_in, clock_out, late_minutes, early_out_minutes, ot_minutes, note, half_day_leave")
       .eq("employee_id", employeeId)
       .gte("work_date", startDate).lte("work_date", endDate)
       .order("work_date"),
@@ -121,11 +121,11 @@ export async function GET(req: NextRequest) {
   for (const rec of records) {
     const wd = rec.work_date
     const lateMin = Number(rec.late_minutes) || 0
-    if (lateMin > 0 || rec.status === "late") {
+    if ((lateMin > 0 || rec.status === "late") && rec.half_day_leave !== "morning") {
       lateDays.push({ date: wd, minutes: lateMin, clock_in: rec.clock_in })
     }
     const earlyMin = Number(rec.early_out_minutes) || 0
-    if (earlyMin > 0 || rec.status === "early_out") {
+    if ((earlyMin > 0 || rec.status === "early_out") && rec.half_day_leave !== "afternoon") {
       earlyOutDays.push({ date: wd, minutes: earlyMin, clock_out: rec.clock_out })
     }
     const otMin = Number(rec.ot_minutes) || 0
