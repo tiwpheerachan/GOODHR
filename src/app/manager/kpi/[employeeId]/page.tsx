@@ -1,6 +1,7 @@
 "use client"
 import { useEffect, useState, useRef, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import {
   ChevronLeft, Plus, Trash2, Save, Send, Loader2, Target, AlertCircle,
@@ -10,7 +11,6 @@ import Link from "next/link"
 import toast from "react-hot-toast"
 
 const MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
-const MONTHS_FULL = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
 
 const GRADE_CONFIG: Record<string, { label: string; range: string; color: string; bg: string; ring: string }> = {
   A: { label: "A", range: "91-100%", color: "text-emerald-700", bg: "bg-emerald-50", ring: "ring-emerald-200" },
@@ -59,6 +59,8 @@ export default function KpiFormPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { user } = useAuth()
+  const { t, T } = useLanguage()
+  const empName = useEmployeeName()
 
   const employeeId = params.employeeId as string
   const year = Number(searchParams.get("year")) || new Date().getFullYear()
@@ -145,22 +147,22 @@ export default function KpiFormPage() {
   }, [])
 
   const addItem = () => {
-    if (items.length >= 7) { toast.error("เพิ่มได้สูงสุด 7 หัวข้อ"); return }
+    if (items.length >= 7) { toast.error(t("kpi.max_items_error")); return }
     setItems(prev => [...prev, { category: "", description: "", is_mandatory: false, weight_pct: 0, actual_score: 0, comment: "" }])
   }
 
   const removeItem = (idx: number) => {
-    if (items[idx].is_mandatory) { toast.error("ไม่สามารถลบข้อบังคับได้"); return }
+    if (items[idx].is_mandatory) { toast.error(t("kpi.cannot_delete_mandatory")); return }
     setItems(prev => prev.filter((_, i) => i !== idx))
   }
 
   const handleSave = async (action: "save_draft" | "submit") => {
     if (action === "submit") {
-      if (!weightValid) { toast.error("ค่าน้ำหนักรวมต้องเท่ากับ 100%"); return }
+      if (!weightValid) { toast.error(t("kpi.weight_error")); return }
       const missing = items.some(i => !i.actual_score || i.actual_score < 1 || i.actual_score > 100)
-      if (missing) { toast.error("กรุณากรอกคะแนน (1-100) ทุกข้อ"); return }
+      if (missing) { toast.error(t("kpi.score_error")); return }
       const emptyCat = items.some(i => !i.category.trim())
-      if (emptyCat) { toast.error("กรุณากรอกชื่อหมวดหมู่ทุกข้อ"); return }
+      if (emptyCat) { toast.error(t("kpi.category_error")); return }
       setShowConfirm(true)
       return
     }
@@ -177,13 +179,13 @@ export default function KpiFormPage() {
         body: JSON.stringify({ employee_id: employeeId, year, month, items, evaluator_note: evaluatorNote, action }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด")
+      if (!res.ok) throw new Error(data.error || t("common.error"))
       if (action === "submit") {
         setSubmitResult({ grade: data.grade, score: data.total_score })
         setShowSuccess(true)
         setIsSubmitted(true)
       } else {
-        toast.success("บันทึกร่างสำเร็จ")
+        toast.success(t("kpi.draft_saved"))
         setExistingFormId(data.form_id)
       }
     } catch (err: any) {
@@ -203,7 +205,7 @@ export default function KpiFormPage() {
       {/* Back */}
       <Link href={`/manager/kpi`}
         className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-600 transition-colors">
-        <ChevronLeft size={16} /> กลับ
+        <ChevronLeft size={16} /> {t("common.back")}
       </Link>
 
       {/* Employee Header */}
@@ -215,13 +217,13 @@ export default function KpiFormPage() {
               : <span className="text-indigo-600 text-lg font-bold">{employee.first_name_th?.[0]}</span>}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-black text-slate-800">{employee.first_name_th} {employee.last_name_th}</p>
+            <p className="font-black text-slate-800">{empName(employee)}</p>
             <p className="text-sm text-indigo-600 font-medium">{employee.position?.name}</p>
             <p className="text-xs text-slate-400">{employee.department?.name} · {employee.employee_code}</p>
           </div>
           <div className="text-right shrink-0">
-            <p className="text-xs text-slate-400">ประเมินเดือน</p>
-            <p className="font-black text-slate-700">{MONTHS[month]} {year}</p>
+            <p className="text-xs text-slate-400">{t("kpi.evaluation_month")}</p>
+            <p className="font-black text-slate-700">{T.months_short?.[month] || MONTHS[month]} {year}</p>
           </div>
         </div>
       )}
@@ -230,7 +232,7 @@ export default function KpiFormPage() {
       <div className={`rounded-2xl p-4 ring-1 ${gradeConf.bg} ${gradeConf.ring} transition-all`}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold text-slate-500 mb-1">คะแนนรวม</p>
+            <p className="text-xs font-bold text-slate-500 mb-1">{t("kpi.total_score")}</p>
             <div className="flex items-baseline gap-2">
               <span className={`text-3xl font-black ${gradeConf.color}`}>{totalScore.toFixed(1)}</span>
               <span className="text-sm text-slate-400">/ 100</span>
@@ -247,7 +249,7 @@ export default function KpiFormPage() {
         {/* Weight bar */}
         <div className="mt-3">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-bold text-slate-500">น้ำหนักรวม</span>
+            <span className="text-[11px] font-bold text-slate-500">{t("kpi.weight_sum")}</span>
             <span className={`text-[11px] font-black ${weightValid ? "text-emerald-600" : "text-red-500"}`}>
               {totalWeight}% / 100%
             </span>
@@ -306,7 +308,7 @@ export default function KpiFormPage() {
                   {item.is_mandatory ? (
                     <div>
                       <div className="flex items-center gap-1.5 mb-1">
-                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">บังคับ</span>
+                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">{t("kpi.mandatory_badge")}</span>
                       </div>
                       <p className="font-bold text-slate-800 text-sm">{item.category}</p>
                     </div>
@@ -418,7 +420,7 @@ export default function KpiFormPage() {
       {!isSubmitted && items.length < 7 && (
         <button onClick={addItem}
           className="w-full card flex items-center justify-center gap-2 py-4 text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors border-dashed border-2 border-indigo-200 bg-transparent shadow-none active:scale-[0.98]">
-          <Plus size={16} /> เพิ่มหัวข้อประเมิน
+          <Plus size={16} /> {t("kpi.add_item")}
         </button>
       )}
 
@@ -461,7 +463,7 @@ export default function KpiFormPage() {
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 transition-all active:scale-95 disabled:opacity-50"
             >
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              บันทึกร่าง
+              {t("kpi.save_draft")}
             </button>
             <button
               onClick={() => handleSave("submit")}
@@ -469,7 +471,7 @@ export default function KpiFormPage() {
               className="flex-[1.5] flex items-center justify-center gap-2 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-95 disabled:opacity-50"
             >
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-              ส่งประเมิน
+              {t("kpi.submit")}
             </button>
           </div>
         </div>
@@ -488,29 +490,29 @@ export default function KpiFormPage() {
               <div className={`w-20 h-20 rounded-2xl ${gradeConf.bg} ring-4 ring-white/30 flex items-center justify-center mx-auto mb-3 shadow-lg`}>
                 <span className={`text-4xl font-black ${gradeConf.color}`}>{grade}</span>
               </div>
-              <h3 className="font-black text-white text-lg">ยืนยันส่งผลประเมิน?</h3>
+              <h3 className="font-black text-white text-lg">{t("kpi.confirm_title")}</h3>
               <p className="text-indigo-200 text-sm mt-1">
-                {employee?.first_name_th} {employee?.last_name_th} — {MONTHS[month]} {year}
+                {empName(employee)} — {T.months_short?.[month] || MONTHS[month]} {year}
               </p>
             </div>
 
             {/* Summary */}
             <div className="px-6 py-4 space-y-3">
               <div className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3">
-                <span className="text-sm text-slate-500">คะแนนรวม</span>
+                <span className="text-sm text-slate-500">{t("kpi.total_score")}</span>
                 <span className="text-lg font-black text-slate-800">{totalScore.toFixed(1)}%</span>
               </div>
               <div className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3">
-                <span className="text-sm text-slate-500">จำนวนหัวข้อ</span>
-                <span className="text-lg font-black text-slate-800">{items.length} ข้อ</span>
+                <span className="text-sm text-slate-500">{t("kpi.items_count")}</span>
+                <span className="text-lg font-black text-slate-800">{items.length} {t("kpi.items_unit")}</span>
               </div>
 
               {/* Warning */}
               <div className="flex items-start gap-2 bg-amber-50 rounded-xl px-4 py-3">
                 <AlertCircle size={16} className="text-amber-500 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs font-bold text-amber-700">เมื่อส่งแล้วไม่สามารถแก้ไขได้</p>
-                  <p className="text-[11px] text-amber-600 mt-0.5">ข้อมูลจะส่งให้ HR ตรวจสอบก่อนแจ้งพนักงาน</p>
+                  <p className="text-xs font-bold text-amber-700">{t("kpi.warning_title")}</p>
+                  <p className="text-[11px] text-amber-600 mt-0.5">{t("kpi.warning_desc")}</p>
                 </div>
               </div>
             </div>
@@ -519,13 +521,13 @@ export default function KpiFormPage() {
             <div className="px-6 pb-6 flex gap-3">
               <button onClick={() => setShowConfirm(false)}
                 className="flex-1 py-3 rounded-2xl border-2 border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">
-                ยกเลิก
+                {t("common.cancel")}
               </button>
               <button onClick={() => doSave("submit")}
                 disabled={saving}
                 className="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-200 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                {saving ? "กำลังส่ง..." : "ยืนยันส่งประเมิน"}
+                {saving ? t("common.sending") : t("kpi.confirm_submit")}
               </button>
             </div>
           </div>
@@ -546,9 +548,9 @@ export default function KpiFormPage() {
               <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle2 size={36} className="text-white" />
               </div>
-              <h3 className="font-black text-white text-xl">ประเมินสำเร็จ!</h3>
+              <h3 className="font-black text-white text-xl">{t("kpi.success_title")}</h3>
               <p className="text-emerald-100 text-sm mt-1">
-                ส่งผลประเมินเรียบร้อยแล้ว
+                {t("kpi.success_desc")}
               </p>
             </div>
 
@@ -556,12 +558,12 @@ export default function KpiFormPage() {
             <div className="px-6 py-5 space-y-3">
               <div className="flex items-center justify-center gap-4">
                 <div className="text-center">
-                  <p className="text-xs text-slate-400 mb-1">คะแนนรวม</p>
+                  <p className="text-xs text-slate-400 mb-1">{t("kpi.total_score")}</p>
                   <p className="text-3xl font-black text-slate-800">{submitResult.score.toFixed(1)}%</p>
                 </div>
                 <div className="w-px h-12 bg-slate-200" />
                 <div className="text-center">
-                  <p className="text-xs text-slate-400 mb-1">เกรด</p>
+                  <p className="text-xs text-slate-400 mb-1">{t("kpi.grade")}</p>
                   <div className={`w-12 h-12 rounded-xl ${GRADE_CONFIG[submitResult.grade]?.bg || "bg-slate-100"} flex items-center justify-center`}>
                     <span className={`text-2xl font-black ${GRADE_CONFIG[submitResult.grade]?.color || "text-slate-600"}`}>
                       {submitResult.grade}
@@ -574,9 +576,9 @@ export default function KpiFormPage() {
                 <div className="flex items-start gap-2">
                   <Send size={13} className="text-blue-500 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-xs font-bold text-blue-700">ข้อมูลถูกส่งให้ HR ตรวจสอบ</p>
+                    <p className="text-xs font-bold text-blue-700">{t("kpi.success_sent_to_hr")}</p>
                     <p className="text-[11px] text-blue-600 mt-0.5">
-                      เมื่อ HR อนุมัติแล้ว {employee?.first_name_th} {employee?.last_name_th} จะเห็นผลประเมิน
+                      {t("kpi.success_when_approved", { name: empName(employee) })}
                     </p>
                   </div>
                 </div>
@@ -587,7 +589,7 @@ export default function KpiFormPage() {
             <div className="px-6 pb-6 flex gap-3">
               <button onClick={() => { setShowSuccess(false); router.push("/manager/kpi") }}
                 className="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">
-                กลับหน้ารายชื่อ
+                {t("kpi.back_to_list")}
               </button>
             </div>
           </div>

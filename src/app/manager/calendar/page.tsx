@@ -1,10 +1,8 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import { ChevronLeft, ChevronRight, Users, Clock, Moon, AlertCircle } from "lucide-react"
-
-const TH_DAYS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
-const TH_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
 const SHIFT_COLORS: Record<string, string> = {
   "07:00": "bg-emerald-500",
@@ -33,6 +31,8 @@ interface DaySummary {
 
 export default function ManagerCalendarPage() {
   const { user } = useAuth()
+  const { t, T } = useLanguage()
+  const empName = useEmployeeName()
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -63,7 +63,7 @@ export default function ManagerCalendarPage() {
           } else if (a.assignment_type === "work") {
             summary.work++
             summary.workers.push({
-              name: `${row.employee.first_name_th} ${row.employee.last_name_th?.[0] ?? ""}.`,
+              name: empName(row.employee),
               shift_start: a.shift?.work_start ?? null,
               type: "work",
             })
@@ -101,8 +101,8 @@ export default function ManagerCalendarPage() {
           <ChevronLeft size={18} />
         </button>
         <div className="text-center">
-          <p className="text-base font-black text-slate-800">{TH_MONTHS[month]} {year + 543}</p>
-          <p className="text-[10px] text-slate-400">ปฏิทินตารางงานทีม · {totalEmployees} คน</p>
+          <p className="text-base font-black text-slate-800">{T.months_short[month]} {year + 543}</p>
+          <p className="text-[10px] text-slate-400">{t("calendar.subtitle")} · {totalEmployees} {t("common.people")}</p>
         </div>
         <button onClick={nextMonth} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200">
           <ChevronRight size={18} />
@@ -119,7 +119,7 @@ export default function ManagerCalendarPage() {
           <div className="rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
             {/* Day headers */}
             <div className="grid grid-cols-7 border-b border-slate-100">
-              {TH_DAYS.map((d, i) => (
+              {T.days_short.map((d, i) => (
                 <div key={d} className={`py-2 text-center text-[10px] font-bold ${i === 0 || i === 6 ? "text-red-400" : "text-slate-400"}`}>
                   {d}
                 </div>
@@ -174,11 +174,11 @@ export default function ManagerCalendarPage() {
 
           {/* Legend */}
           <div className="flex flex-wrap items-center gap-2 text-[10px]">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-200" /> มาครบ</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-50 border border-emerald-100" /> มา &gt;50%</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-50 border border-amber-100" /> มา &lt;50%</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-white border border-slate-200" /> ไม่มีข้อมูล</span>
-            <span className="text-slate-400 ml-auto">ตัวเลข = จำนวนคนทำงาน</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-200" /> {t("calendar.legend_full")}</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-50 border border-emerald-100" /> {t("calendar.legend_over_50")}</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-50 border border-amber-100" /> {t("calendar.legend_under_50")}</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-white border border-slate-200" /> {t("calendar.legend_no_data")}</span>
+            <span className="text-slate-400 ml-auto">{t("calendar.legend_count")}</span>
           </div>
 
           {/* Selected Day Detail */}
@@ -190,14 +190,14 @@ export default function ManagerCalendarPage() {
                 </p>
                 <div className="flex items-center gap-3 mt-1">
                   <span className="flex items-center gap-1 text-xs font-bold text-emerald-600">
-                    <Clock size={11} /> ทำงาน {selectedSummary.work} คน
+                    <Clock size={11} /> {t("calendar.label_working")} {selectedSummary.work} {t("common.people")}
                   </span>
                   <span className="flex items-center gap-1 text-xs font-bold text-slate-400">
-                    <Moon size={11} /> หยุด {selectedSummary.dayoff} คน
+                    <Moon size={11} /> {t("calendar.label_dayoff")} {selectedSummary.dayoff} {t("common.people")}
                   </span>
                   {selectedSummary.empty > 0 && (
                     <span className="flex items-center gap-1 text-xs font-bold text-amber-500">
-                      <AlertCircle size={11} /> ยังไม่จัด {selectedSummary.empty} คน
+                      <AlertCircle size={11} /> {t("calendar.label_unassigned")} {selectedSummary.empty} {t("common.people")}
                     </span>
                   )}
                 </div>
@@ -221,7 +221,7 @@ export default function ManagerCalendarPage() {
                 </div>
               ) : (
                 <div className="px-4 py-6 text-center text-xs text-slate-400">
-                  ไม่มีคนทำงานวันนี้
+                  {t("calendar.no_workers")}
                 </div>
               )}
             </div>

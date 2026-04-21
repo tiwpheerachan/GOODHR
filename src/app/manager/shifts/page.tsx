@@ -1,6 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import {
   ChevronLeft, ChevronRight, Save, Clock, Moon, Calendar, Wand2, Copy, Users, AlertCircle,
   CheckCircle2, X as XIcon, Trash2, CalendarDays, Plus
@@ -14,7 +15,7 @@ interface Assignment {
   assignment_type: string; shift?: Shift
 }
 interface EmpRow {
-  employee: { id: string; employee_code: string; first_name_th: string; last_name_th: string; department: string }
+  employee: { id: string; employee_code: string; first_name_th: string; last_name_th: string; nickname: string; department: string }
   profile: any
   days: Array<{ date: string; assignment: Assignment | null }>
 }
@@ -50,11 +51,10 @@ function shiftStyle(startTime: string | null | undefined) {
   return { ...fb, short }
 }
 
-const TH_DAYS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
-const TH_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
-
 export default function ManagerShiftsPage() {
   const { user } = useAuth()
+  const { t, T } = useLanguage()
+  const empName = useEmployeeName()
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -98,7 +98,7 @@ export default function ManagerShiftsPage() {
     })
     const data = await res.json()
     if (data.success) {
-      toast.success(action === "approve" ? "อนุมัติแล้ว" : "ปฏิเสธแล้ว")
+      toast.success(action === "approve" ? t("common.approved") : t("common.rejected"))
       load()
     } else toast.error(data.error)
     setPicker(null)
@@ -113,7 +113,7 @@ export default function ManagerShiftsPage() {
     })
     const data = await res.json()
     if (data.success) {
-      toast.success("ลบกะสำเร็จ")
+      toast.success(t("shifts.shift_deleted"))
       setGrid(prev => prev.map(row => {
         if (row.employee.id !== empId) return row
         return { ...row, days: row.days.map((d: any) => d.date === date ? { ...d, assignment: null, pending_request: null } : d) }
@@ -154,7 +154,7 @@ export default function ManagerShiftsPage() {
     setSaving(true)
     const res = await fetch("/api/shifts/monthly", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "assign", assignments: Array.from(modifications.values()) }) })
     const data = await res.json()
-    if (data.success) { toast.success(`บันทึก ${data.updated} รายการ`); setModifications(new Map()) }
+    if (data.success) { toast.success(t("shifts.saved_count", { count: data.updated })); setModifications(new Map()) }
     else toast.error(data.error)
     setSaving(false)
   }
@@ -164,7 +164,7 @@ export default function ManagerShiftsPage() {
     const py = month === 1 ? year - 1 : year
     const res = await fetch("/api/shifts/monthly", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "copy", from_month: `${py}-${String(pm).padStart(2, "0")}`, to_month: monthStr }) })
     const data = await res.json()
-    if (data.success) { toast.success(`คัดลอก ${data.copied} รายการ`); load() }
+    if (data.success) { toast.success(t("shifts.copied_count", { count: data.copied })); load() }
     else toast.error(data.error)
   }
 
@@ -191,8 +191,8 @@ export default function ManagerShiftsPage() {
           <ChevronLeft size={18} />
         </button>
         <div className="text-center">
-          <p className="text-base font-black text-slate-800">{TH_MONTHS[month]} {year + 543}</p>
-          <p className="text-[10px] text-slate-400">{filtered.length} คน</p>
+          <p className="text-base font-black text-slate-800">{T.months_short[month]} {year + 543}</p>
+          <p className="text-[10px] text-slate-400">{filtered.length} {t("common.people")}</p>
         </div>
         <button onClick={nextMonth} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200">
           <ChevronRight size={18} />
@@ -209,16 +209,16 @@ export default function ManagerShiftsPage() {
       <div className="flex items-center gap-2">
         <div className="flex flex-1 rounded-xl border border-slate-200 bg-white p-0.5">
           {([
-            { key: "all", label: "ทั้งหมด" },
-            { key: "fixed", label: "แน่นอน" },
-            { key: "variable", label: "ไม่แน่นอน" },
-          ] as const).map(t => (
+            { key: "all", label: t("shifts.filter_all") },
+            { key: "fixed", label: t("shifts.filter_fixed") },
+            { key: "variable", label: t("shifts.filter_variable") },
+          ] as const).map(filterItem => (
             <button
-              key={t.key}
-              onClick={() => setFilterType(t.key)}
-              className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${filterType === t.key ? "bg-indigo-600 text-white" : "text-slate-500"}`}
+              key={filterItem.key}
+              onClick={() => setFilterType(filterItem.key)}
+              className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${filterType === filterItem.key ? "bg-indigo-600 text-white" : "text-slate-500"}`}
             >
-              {t.label}
+              {filterItem.label}
             </button>
           ))}
         </div>
@@ -228,18 +228,18 @@ export default function ManagerShiftsPage() {
       <input
         value={searchText}
         onChange={e => setSearchText(e.target.value)}
-        placeholder="ค้นหาชื่อ / รหัส..."
+        placeholder={t("shifts.search_placeholder")}
         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400"
       />
 
       {/* Actions */}
       <div className="flex items-center gap-2">
         <button onClick={handleCopy} className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-bold text-slate-600">
-          <Copy size={14} /> คัดลอกเดือนก่อน
+          <Copy size={14} /> {t("shifts.copy_prev_month")}
         </button>
         {modifications.size > 0 && (
           <button onClick={handleSave} disabled={saving} className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 py-2.5 text-xs font-bold text-white disabled:opacity-50">
-            <Save size={14} /> บันทึก ({modifications.size})
+            <Save size={14} /> {t("common.save")} ({modifications.size})
           </button>
         )}
       </div>
@@ -268,15 +268,15 @@ export default function ManagerShiftsPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-slate-800 truncate">
-                    {row.employee.first_name_th} {row.employee.last_name_th}
-                    {isVariable && <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 font-black">ไม่แน่นอน</span>}
-                    {canSelfSched && <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-emerald-100 text-emerald-700 font-black">วางกะเอง</span>}
+                    {empName(row.employee)}
+                    {isVariable && <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 font-black">{t("shifts.filter_variable")}</span>}
+                    {canSelfSched && <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-emerald-100 text-emerald-700 font-black">{t("shifts.self_schedule")}</span>}
                   </p>
                   <p className="text-[10px] text-slate-400">{row.employee.employee_code} · {row.employee.department}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-xs font-black text-indigo-600">{assigned}/{total}</p>
-                  <p className="text-[9px] text-slate-400">จัดแล้ว</p>
+                  <p className="text-[9px] text-slate-400">{t("shifts.assigned_counter")}</p>
                 </div>
               </button>
             )
@@ -284,7 +284,7 @@ export default function ManagerShiftsPage() {
           {filtered.length === 0 && (
             <div className="py-12 text-center text-slate-400">
               <Users size={36} className="mx-auto mb-2 opacity-30" />
-              <p className="font-medium text-sm">ไม่พบพนักงาน</p>
+              <p className="font-medium text-sm">{t("shifts.no_employees")}</p>
             </div>
           )}
         </div>
@@ -292,11 +292,11 @@ export default function ManagerShiftsPage() {
         /* ── Individual Schedule ─────────────────────────────────── */
         <div>
           <button onClick={() => setSelectedEmp(null)} className="flex items-center gap-1 text-sm text-indigo-600 font-bold mb-3">
-            <ChevronLeft size={16} /> กลับ
+            <ChevronLeft size={16} /> {t("common.back")}
           </button>
 
           <div className="rounded-2xl bg-white border border-slate-100 p-4 shadow-sm mb-4">
-            <p className="font-black text-slate-800">{selectedRow?.employee.first_name_th} {selectedRow?.employee.last_name_th}</p>
+            <p className="font-black text-slate-800">{empName(selectedRow?.employee)}</p>
             <p className="text-xs text-slate-400">{selectedRow?.employee.employee_code} · {selectedRow?.employee.department}</p>
           </div>
 
@@ -328,13 +328,13 @@ export default function ManagerShiftsPage() {
                     }`}
                   >
                     <div className="w-8 text-center">
-                      <p className={`text-[9px] font-bold ${dow === 0 || dow === 6 ? "text-red-400" : "text-slate-400"}`}>{TH_DAYS[dow]}</p>
+                      <p className={`text-[9px] font-bold ${dow === 0 || dow === 6 ? "text-red-400" : "text-slate-400"}`}>{T.days_short[dow]}</p>
                       <p className="text-sm font-black text-slate-700">{d.getDate()}</p>
                     </div>
                     {aType === "dayoff" ? (
                       <div className="flex items-center gap-2">
                         <Moon size={14} className="text-slate-300" />
-                        <span className="text-xs font-bold text-slate-400">วันหยุด</span>
+                        <span className="text-xs font-bold text-slate-400">{t("shifts.dayoff")}</span>
                       </div>
                     ) : aType === "leave" ? (
                       <div className="flex items-center gap-2 px-2 py-0.5 rounded-lg bg-sky-50">
@@ -436,7 +436,7 @@ export default function ManagerShiftsPage() {
 
               <button onClick={() => applyShift(picker.empId, picker.date, null, "dayoff")}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors mb-1">
-                <Moon size={18} className="text-slate-400" /> วันหยุด (OFF)
+                <Moon size={18} className="text-slate-400" /> {t("shifts.dayoff")} (OFF)
               </button>
 
               {/* ── ประเภทลา ── */}
@@ -478,7 +478,7 @@ export default function ManagerShiftsPage() {
                     onClick={() => handleClearShift(picker.empId, picker.date)}
                     className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition-colors"
                   >
-                    <Trash2 size={18} className="text-red-400" /> ลบกะ (ไม่มีกะ)
+                    <Trash2 size={18} className="text-red-400" /> {t("shifts.clear_shift")}
                   </button>
                 </>
               )}

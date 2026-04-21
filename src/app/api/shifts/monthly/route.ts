@@ -51,7 +51,7 @@ export async function GET(request: Request) {
   // ── ดึงพนักงาน + profile ────────────────────────────────────────
   let empQuery = supa
     .from("employees")
-    .select("id, employee_code, first_name_th, last_name_th, department_id, can_self_schedule, department:departments(name), schedule_profile:employee_schedule_profiles(*)")
+    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, department_id, can_self_schedule, department:departments(name), schedule_profile:employee_schedule_profiles(*)")
     .eq("company_id", companyId)
     .eq("is_active", true)
     .order("employee_code", { ascending: true })
@@ -135,6 +135,10 @@ export async function GET(request: Request) {
         employee_code: emp.employee_code,
         first_name_th: emp.first_name_th,
         last_name_th: emp.last_name_th,
+        first_name_en: emp.first_name_en,
+        last_name_en: emp.last_name_en,
+        nickname: emp.nickname,
+        nickname_en: emp.nickname_en,
         department: emp.department?.name,
         can_self_schedule: emp.can_self_schedule ?? false,
       },

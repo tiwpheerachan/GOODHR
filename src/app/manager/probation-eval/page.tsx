@@ -1,6 +1,7 @@
 "use client"
 import { useEffect, useState, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import Link from "next/link"
 import { Shield, Loader2, ChevronRight, CheckCircle2, Clock, AlertCircle, FilePlus2, FilePen } from "lucide-react"
 
@@ -20,6 +21,8 @@ function daysBetween(d1: string, d2: string) {
 
 export default function ManagerProbationEvalPage() {
   const { user } = useAuth()
+  const { t } = useLanguage()
+  const empName = useEmployeeName()
   const [members, setMembers] = useState<any[]>([])
   const [forms, setForms] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,11 +50,11 @@ export default function ManagerProbationEvalPage() {
   const getFormsForEmployee = (empId: string) => forms.filter(f => f.employee_id === empId)
 
   const getRoundStatus = (form: any) => {
-    if (!form) return { label: "ยังไม่ประเมิน", color: "text-slate-400", bg: "bg-slate-100", icon: FilePlus2 }
-    if (form.status === "approved") return { label: "อนุมัติ", color: "text-emerald-600", bg: "bg-emerald-50", icon: CheckCircle2 }
-    if (form.status === "submitted") return { label: "รอ HR", color: "text-orange-600", bg: "bg-orange-50", icon: Clock }
-    if (form.status === "rejected") return { label: "ส่งคืน", color: "text-red-600", bg: "bg-red-50", icon: AlertCircle }
-    return { label: "ร่าง", color: "text-amber-600", bg: "bg-amber-50", icon: FilePen }
+    if (!form) return { label: t("probation.not_evaluated"), color: "text-slate-400", bg: "bg-slate-100", icon: FilePlus2 }
+    if (form.status === "approved") return { label: t("probation.approved"), color: "text-emerald-600", bg: "bg-emerald-50", icon: CheckCircle2 }
+    if (form.status === "submitted") return { label: t("probation.awaiting_hr"), color: "text-orange-600", bg: "bg-orange-50", icon: Clock }
+    if (form.status === "rejected") return { label: t("probation.returned"), color: "text-red-600", bg: "bg-red-50", icon: AlertCircle }
+    return { label: t("probation.draft"), color: "text-amber-600", bg: "bg-amber-50", icon: FilePen }
   }
 
   const today = new Date().toISOString().split("T")[0]
@@ -64,9 +67,9 @@ export default function ManagerProbationEvalPage() {
           <div className="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center">
             <Shield size={16} className="text-rose-600" />
           </div>
-          <h1 className="text-xl font-black text-slate-800">ประเมินทดลองงาน</h1>
+          <h1 className="text-xl font-black text-slate-800">{t("probation.title")}</h1>
         </div>
-        <p className="text-sm text-slate-400 ml-10">ประเมินพนักงานทดลองงาน 3 รอบ (60/90/119 วัน)</p>
+        <p className="text-sm text-slate-400 ml-10">{t("probation.subtitle")}</p>
       </div>
 
       {loading ? (
@@ -74,7 +77,7 @@ export default function ManagerProbationEvalPage() {
       ) : members.length === 0 ? (
         <div className="text-center py-12">
           <Shield size={32} className="text-slate-200 mx-auto mb-3" />
-          <p className="text-slate-400 text-sm">ไม่มีพนักงานทดลองงานในทีม</p>
+          <p className="text-slate-400 text-sm">{t("probation.no_members")}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -92,11 +95,11 @@ export default function ManagerProbationEvalPage() {
                       : <span className="text-rose-600 font-bold">{m.first_name_th?.[0]}</span>}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-800 text-sm truncate">{m.first_name_th} {m.last_name_th}</p>
+                    <p className="font-bold text-slate-800 text-sm truncate">{empName(m)}</p>
                     <p className="text-xs text-slate-400 truncate">{m.position?.name} · {m.employee_code}</p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xs text-slate-400">ทำงานมา</p>
+                    <p className="text-xs text-slate-400">{t("probation.worked_days")}</p>
                     <p className="text-sm font-black text-slate-700">{daysFromHire} วัน</p>
                   </div>
                 </div>
@@ -118,7 +121,7 @@ export default function ManagerProbationEvalPage() {
                           isOverdue ? "bg-red-50 ring-1 ring-red-200" :
                           `${rs.bg} hover:shadow-md active:scale-[0.97]`
                         }`}>
-                        <p className="text-[10px] font-bold text-slate-500 mb-1">{ROUND_LABELS[round]}</p>
+                        <p className="text-[10px] font-bold text-slate-500 mb-1">{t(`probation.round_${round === 1 ? "60" : round === 2 ? "90" : "119"}`)}</p>
                         <div className="flex items-center justify-center gap-1">
                           <Icon size={12} className={rs.color} />
                           <span className={`text-[11px] font-bold ${rs.color}`}>{rs.label}</span>
@@ -128,7 +131,7 @@ export default function ManagerProbationEvalPage() {
                             {form.grade}
                           </span>
                         )}
-                        {isOverdue && <p className="text-[9px] text-red-500 font-bold mt-1">เลยกำหนด</p>}
+                        {isOverdue && <p className="text-[9px] text-red-500 font-bold mt-1">{t("probation.overdue")}</p>}
                       </Link>
                     )
                   })}

@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
     // ดึงลูกน้อง
     const { data: history } = await svc
       .from("employee_manager_history")
-      .select("employee_id, employee:employees!employee_id(id, first_name_th, last_name_th, employee_code, avatar_url, position:positions(name), department:departments(name))")
+      .select("employee_id, employee:employees!employee_id(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, position:positions(name), department:departments(name))")
       .eq("manager_id", managerId)
       .is("effective_to", null)
 

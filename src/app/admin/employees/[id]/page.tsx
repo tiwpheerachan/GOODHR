@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/lib/hooks/useAuth"
@@ -629,7 +629,7 @@ export default function EmployeeDetailPage() {
         </>}
 
         {/* ── Tab 4: สรุปเงินเดือนรายเดือน ── */}
-        {tab === 4 && <PayrollHistoryTab employeeId={id as string}/>}
+        {tab === 4 && <PayrollHistoryTab employeeId={id as string} companyId={emp.company_id}/>}
 
         {/* ── Tab 5: ตารางงาน ── */}
         {tab === 5 && <WorkScheduleTab employeeId={id as string} companyId={emp.company_id}/>}
@@ -1206,12 +1206,16 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
 }
 
 // ─── PayrollHistoryTab ───────────────────────────────────────────────────────
-function PayrollHistoryTab({ employeeId }: { employeeId: string }) {
+function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; companyId: string }) {
   const supabase = createClient()
   const [records, setRecords] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<any | null>(null)
   const [recalcing, setRecalcing] = useState(false)
+  const [breakdown, setBreakdown] = useState<any | null>(null)
+  const [bdLoading, setBdLoading] = useState(false)
+  const [bdOpen, setBdOpen] = useState(false)
+  const bdCache = useRef<Record<string, any>>({})
 
   const loadRecords = () => {
     return supabase
@@ -1234,6 +1238,31 @@ function PayrollHistoryTab({ employeeId }: { employeeId: string }) {
   }
 
   useEffect(() => { loadRecords() }, [employeeId]) // eslint-disable-line
+
+  // ── โหลด breakdown ผ่าน API (service client — ไม่ติด RLS) ──
+  useEffect(() => {
+    if (!bdOpen || !selected) return
+    const cacheKey = `${selected.id}`
+    if (bdCache.current[cacheKey]) { setBreakdown(bdCache.current[cacheKey]); return }
+
+    let cancelled = false
+    setBdLoading(true)
+    setBreakdown(null)
+
+    fetch(`/api/payroll/breakdown?employee_id=${employeeId}&year=${selected.year}&month=${selected.month}&company_id=${companyId || ""}`)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(result => {
+        if (!cancelled) { bdCache.current[cacheKey] = result; setBreakdown(result); setBdLoading(false) }
+      })
+      .catch(() => {
+        if (!cancelled) { setBdLoading(false); setBreakdown({ _error: true }) }
+      })
+
+    return () => { cancelled = true }
+  }, [bdOpen, selected?.id, employeeId]) // eslint-disable-line
+
+  // เคลียร์ cache เมื่อเปลี่ยน employee
+  useEffect(() => { bdCache.current = {} }, [employeeId])
 
   const recalc = async () => {
     if (!selected?.payroll_period_id) return
@@ -1283,7 +1312,7 @@ function PayrollHistoryTab({ employeeId }: { employeeId: string }) {
             return (
               <button
                 key={rec.id}
-                onClick={() => setSelected(rec)}
+                onClick={() => { setSelected(rec); setBreakdown(null) }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
                   isActive ? "bg-indigo-600 text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                 }`}
@@ -1399,6 +1428,172 @@ function PayrollHistoryTab({ employeeId }: { employeeId: string }) {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* ── รายละเอียดรายวัน (Breakdown) ── */}
+          <div className="rounded-2xl border border-slate-100 bg-white p-4">
+            <button
+              onClick={() => setBdOpen(!bdOpen)}
+              className="w-full flex items-center justify-between text-sm font-black text-slate-700"
+            >
+              <span className="flex items-center gap-2">
+                <Calendar size={15}/> รายละเอียดรายวัน
+              </span>
+              <ChevronRight size={16} className={`transition-transform ${bdOpen ? "rotate-90" : ""}`}/>
+            </button>
+
+            {bdOpen && (
+              <div className="mt-4 space-y-4">
+                {bdLoading ? (
+                  <div className="space-y-3 animate-pulse">
+                    {[1,2,3].map(i => (
+                      <div key={i} className="space-y-2">
+                        <div className="h-3 w-32 rounded bg-slate-200"/>
+                        <div className="flex gap-2">
+                          <div className="h-7 w-20 rounded-lg bg-slate-100"/>
+                          <div className="h-7 w-24 rounded-lg bg-slate-100"/>
+                          <div className="h-7 w-16 rounded-lg bg-slate-100"/>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : breakdown?._error ? (
+                  <div className="text-center py-6">
+                    <p className="text-slate-400 text-xs mb-2">ไม่สามารถโหลดข้อมูลได้</p>
+                    <button
+                      onClick={() => { bdCache.current = {}; setBreakdown(null); setBdOpen(false); setTimeout(() => setBdOpen(true), 50) }}
+                      className="text-xs text-indigo-600 font-bold hover:underline"
+                    >
+                      ลองใหม่
+                    </button>
+                  </div>
+                ) : breakdown ? (
+                  <>
+                    {/* ขาดงาน */}
+                    {breakdown.absent?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-rose-600 mb-2 flex items-center gap-1.5">
+                          <X size={12}/> ขาดงาน ({breakdown.absent.length} วัน)
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {breakdown.absent.map((d: any) => (
+                            <span key={d.date} className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 text-[11px] font-bold border border-rose-200">
+                              {new Date(d.date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* สาย */}
+                    {breakdown.late?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-amber-600 mb-2 flex items-center gap-1.5">
+                          <Clock size={12}/> สาย ({breakdown.late.length} ครั้ง — รวม {breakdown.summary?.late_total_min ?? 0} นาที)
+                        </p>
+                        <div className="space-y-1">
+                          {breakdown.late.map((d: any) => (
+                            <div key={d.date} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-amber-50 text-[11px] border border-amber-100">
+                              <span className="font-bold text-amber-800 min-w-[60px]">
+                                {new Date(d.date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                              </span>
+                              <span className="text-amber-600">สาย {d.minutes} นาที</span>
+                              {d.clock_in && <span className="text-amber-400 ml-auto">เข้า {new Date(d.clock_in).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ออกก่อน */}
+                    {breakdown.early_out?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-orange-600 mb-2 flex items-center gap-1.5">
+                          <ArrowLeft size={12}/> ออกก่อน ({breakdown.early_out.length} ครั้ง — รวม {breakdown.summary?.early_out_total_min ?? 0} นาที)
+                        </p>
+                        <div className="space-y-1">
+                          {breakdown.early_out.map((d: any) => (
+                            <div key={d.date} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-orange-50 text-[11px] border border-orange-100">
+                              <span className="font-bold text-orange-800 min-w-[60px]">
+                                {new Date(d.date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                              </span>
+                              <span className="text-orange-600">ออกก่อน {d.minutes} นาที</span>
+                              {d.clock_out && <span className="text-orange-400 ml-auto">ออก {new Date(d.clock_out).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* OT */}
+                    {breakdown.ot?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-indigo-600 mb-2 flex items-center gap-1.5">
+                          <TrendingUp size={12}/> OT ({breakdown.ot.length} วัน — รวม {(() => { const t = breakdown.summary?.ot_total_min ?? 0; return `${Math.floor(t/60)} ชม. ${t%60 > 0 ? `${t%60} น.` : ""}` })()})
+                        </p>
+                        <div className="space-y-1">
+                          {breakdown.ot.map((d: any) => (
+                            <div key={d.date} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-[11px] border border-indigo-100">
+                              <span className="font-bold text-indigo-800 min-w-[60px]">
+                                {new Date(d.date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                              </span>
+                              <span className="text-indigo-600">{Math.floor(d.minutes / 60)} ชม. {d.minutes % 60 > 0 ? `${d.minutes % 60} น.` : ""}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ลา */}
+                    {breakdown.leave?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-sky-600 mb-2 flex items-center gap-1.5">
+                          <CalendarClock size={12}/> ลา ({breakdown.leave.length} วัน)
+                        </p>
+                        <div className="space-y-1">
+                          {breakdown.leave.map((d: any) => (
+                            <div key={d.date} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-sky-50 text-[11px] border border-sky-100">
+                              <span className="font-bold text-sky-800 min-w-[60px]">
+                                {new Date(d.date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: d.color || "#6B7280" }}>
+                                {d.type_name}
+                              </span>
+                              {d.is_half_day && <span className="text-sky-400">(ครึ่งวัน)</span>}
+                              <span className={`ml-auto text-[10px] ${d.is_paid ? "text-green-500" : "text-rose-400"}`}>
+                                {d.is_paid ? "ได้เงิน" : "ไม่ได้เงิน"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* วันหยุดบริษัท */}
+                    {breakdown.holidays?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-purple-600 mb-2 flex items-center gap-1.5">
+                          <Calendar size={12}/> วันหยุดบริษัท ({breakdown.holidays.length} วัน)
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {breakdown.holidays.map((d: any) => (
+                            <span key={d.date} className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 text-[11px] font-bold border border-purple-200">
+                              {new Date(d.date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })} — {d.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {!breakdown.absent?.length && !breakdown.late?.length && !breakdown.early_out?.length && !breakdown.ot?.length && !breakdown.leave?.length && !breakdown.holidays?.length && (
+                      <p className="text-center text-slate-400 text-xs py-4">ไม่มีข้อมูลรายละเอียดรายวัน</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-center text-slate-400 text-xs py-4">ไม่สามารถโหลดข้อมูลได้</p>
+                )}
+              </div>
+            )}
           </div>
         </>
       )}

@@ -1,10 +1,11 @@
 "use client"
 import { useEffect, useState, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import Link from "next/link"
 import { Target, ChevronLeft, ChevronRight, Loader2, FileCheck, FilePen, FilePlus2, Clock, AlertCircle, CheckCircle2 } from "lucide-react"
 
-const MONTHS = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+// Month names resolved via i18n T.months
 
 const GRADE_STYLE: Record<string, string> = {
   A: "bg-emerald-100 text-emerald-700 ring-emerald-200",
@@ -15,6 +16,8 @@ const GRADE_STYLE: Record<string, string> = {
 
 export default function ManagerKpiPage() {
   const { user } = useAuth()
+  const { t, T } = useLanguage()
+  const empName = useEmployeeName()
   const [year, setYear] = useState(new Date().getFullYear())
   const [month, setMonth] = useState(new Date().getMonth() + 1)
   const [members, setMembers] = useState<any[]>([])
@@ -53,12 +56,12 @@ export default function ManagerKpiPage() {
   const getFormForEmployee = (empId: string) => forms.find(f => f.employee_id === empId)
 
   const statusInfo = (form: any) => {
-    if (!form) return { label: "ยังไม่ประเมิน", icon: FilePlus2, color: "text-slate-400", bg: "bg-slate-50" }
-    if (form.status === "draft") return { label: "แบบร่าง", icon: FilePen, color: "text-amber-600", bg: "bg-amber-50" }
-    if (form.status === "rejected") return { label: "ส่งคืน", icon: AlertCircle, color: "text-red-600", bg: "bg-red-50" }
-    if (form.status === "submitted") return { label: "รอ HR", icon: Clock, color: "text-orange-600", bg: "bg-orange-50" }
-    if (form.status === "approved") return { label: "อนุมัติ", icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50" }
-    return { label: "ส่งแล้ว", icon: FileCheck, color: "text-emerald-600", bg: "bg-emerald-50" }
+    if (!form) return { label: t("kpi.not_evaluated"), icon: FilePlus2, color: "text-slate-400", bg: "bg-slate-50" }
+    if (form.status === "draft") return { label: t("kpi.draft"), icon: FilePen, color: "text-amber-600", bg: "bg-amber-50" }
+    if (form.status === "rejected") return { label: t("kpi.rejected"), icon: AlertCircle, color: "text-red-600", bg: "bg-red-50" }
+    if (form.status === "submitted") return { label: t("kpi.submitted"), icon: Clock, color: "text-orange-600", bg: "bg-orange-50" }
+    if (form.status === "approved") return { label: t("kpi.approved"), icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50" }
+    return { label: t("kpi.submitted"), icon: FileCheck, color: "text-emerald-600", bg: "bg-emerald-50" }
   }
 
   const approvedCount = forms.filter(f => f.status === "approved").length
@@ -75,9 +78,9 @@ export default function ManagerKpiPage() {
           <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center">
             <Target size={16} className="text-indigo-600" />
           </div>
-          <h1 className="text-xl font-black text-slate-800">ประเมิน KPI</h1>
+          <h1 className="text-xl font-black text-slate-800">{t("kpi.title")}</h1>
         </div>
-        <p className="text-sm text-slate-400 ml-10">ประเมินผลการปฏิบัติงานลูกน้องรายเดือน</p>
+        <p className="text-sm text-slate-400 ml-10">{t("kpi.subtitle")}</p>
       </div>
 
       {/* Month Picker */}
@@ -86,7 +89,7 @@ export default function ManagerKpiPage() {
           <ChevronLeft size={16} className="text-slate-600" />
         </button>
         <div className="text-center">
-          <p className="text-lg font-black text-slate-800">{MONTHS[month]}</p>
+          <p className="text-lg font-black text-slate-800">{T.months[month]}</p>
           <p className="text-xs text-slate-400">{year}</p>
         </div>
         <button onClick={nextMonth} className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors active:scale-95">
@@ -98,21 +101,21 @@ export default function ManagerKpiPage() {
       <div className="grid grid-cols-4 gap-2">
         <div className="bg-emerald-50 rounded-2xl p-3 text-center">
           <p className="text-2xl font-black text-emerald-700">{approvedCount}</p>
-          <p className="text-[10px] font-bold text-emerald-600 mt-0.5">อนุมัติ</p>
+          <p className="text-[10px] font-bold text-emerald-600 mt-0.5">{t("kpi.stats_approved")}</p>
         </div>
         <div className="bg-orange-50 rounded-2xl p-3 text-center">
           <p className="text-2xl font-black text-orange-700">{pendingCount}</p>
-          <p className="text-[10px] font-bold text-orange-600 mt-0.5">รอ HR</p>
+          <p className="text-[10px] font-bold text-orange-600 mt-0.5">{t("kpi.stats_pending")}</p>
         </div>
         {rejectedCount > 0 && (
           <div className="bg-red-50 rounded-2xl p-3 text-center">
             <p className="text-2xl font-black text-red-700">{rejectedCount}</p>
-            <p className="text-[10px] font-bold text-red-600 mt-0.5">ส่งคืน</p>
+            <p className="text-[10px] font-bold text-red-600 mt-0.5">{t("kpi.stats_rejected")}</p>
           </div>
         )}
         <div className="bg-slate-100 rounded-2xl p-3 text-center">
           <p className="text-2xl font-black text-slate-600">{notDone > 0 ? notDone : 0}</p>
-          <p className="text-[10px] font-bold text-slate-500 mt-0.5">รอประเมิน</p>
+          <p className="text-[10px] font-bold text-slate-500 mt-0.5">{t("kpi.stats_not_done")}</p>
         </div>
       </div>
 
@@ -122,7 +125,7 @@ export default function ManagerKpiPage() {
           <Loader2 size={24} className="animate-spin text-slate-300" />
         </div>
       ) : members.length === 0 ? (
-        <p className="text-center py-12 text-slate-400 text-sm">ไม่มีสมาชิกในทีม</p>
+        <p className="text-center py-12 text-slate-400 text-sm">{t("kpi.no_members")}</p>
       ) : (
         <div className="space-y-2">
           {members.map((m: any) => {
@@ -142,7 +145,7 @@ export default function ManagerKpiPage() {
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-slate-800 text-sm truncate">
-                    {m.first_name_th} {m.last_name_th}
+                    {empName(m)}
                   </p>
                   <p className="text-xs text-slate-400 truncate">{m.position?.name} · {m.employee_code}</p>
                 </div>

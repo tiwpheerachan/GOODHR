@@ -1,23 +1,22 @@
 "use client"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useLanguage, useEmployeeName, useLeaveTypeName } from "@/lib/i18n"
 import { createClient } from "@/lib/supabase/client"
 import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp, Bell, ArrowRightLeft, Paperclip, AlertTriangle, Users } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
-import { th } from "date-fns/locale"
+import { th, enUS, zhCN } from "date-fns/locale"
 
 type Tab = "leave" | "overtime" | "adjustment" | "resignation" | "shift_change"
 
-const RESIGN_REASONS_MAP: Record<string, string> = {
-  heavy_work: "งานหนัก/ทีมน้อย", boss: "ปัญหาหัวหน้า", low_salary: "เงินเดือนน้อย",
-  study: "ศึกษาต่อ", own_biz: "ธุรกิจส่วนตัว", family: "ปัญหาครอบครัว",
-  health: "ปัญหาสุขภาพ", new_job: "ได้งานใหม่", mismatch: "ไม่เหมาะสมกับตำแหน่ง",
-  no_prob: "ไม่ผ่านทดลองงาน", other: "อื่นๆ",
-}
+const DATE_LOCALES = { th, en: enUS, cn: zhCN } as const
 
 export default function ApprovalsPage() {
   const { user } = useAuth()
+  const { t, T, lang } = useLanguage()
+  const empName = useEmployeeName()
+  const leaveTypeName = useLeaveTypeName()
   const [tab, setTab] = useState<Tab>("leave")
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -59,7 +58,7 @@ export default function ApprovalsPage() {
     if (!dateStr) return "-"
     const d = new Date(dateStr + "T00:00:00")
     if (isNaN(d.getTime())) return "-"
-    return format(d, fmt, { locale: th })
+    return format(d, fmt, { locale: DATE_LOCALES[lang] || th })
   }
 
   const Avatar = ({ emp, size = "sm", bgColor = "bg-gray-100", textColor = "text-gray-600" }: {
@@ -122,25 +121,25 @@ export default function ApprovalsPage() {
       if (tab === "leave") {
         const { data, error } = await fetchPending(
           "leave_requests",
-          "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name)), leave_type:leave_types(*)"
+          "*, employee:employees!employee_id(id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,employee_code,avatar_url,position:positions(name)), leave_type:leave_types(*)"
         )
-        if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
+        if (error) toast.error(error.message)
         setItems(data ?? [])
 
       } else if (tab === "overtime") {
         const { data, error } = await fetchPending(
           "overtime_requests",
-          "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name))"
+          "*, employee:employees!employee_id(id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,employee_code,avatar_url,position:positions(name))"
         )
-        if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
+        if (error) toast.error(error.message)
         setItems(data ?? [])
 
       } else if (tab === "adjustment") {
         const { data, error } = await fetchPending(
           "time_adjustment_requests",
-          "*, employee:employees!employee_id(id,first_name_th,last_name_th,employee_code,avatar_url,position:positions(name),department:departments(name))"
+          "*, employee:employees!employee_id(id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,employee_code,avatar_url,position:positions(name),department:departments(name))"
         )
-        if (error) { toast.error("โหลดข้อมูลผิดพลาด: " + error.message); setItems([]); return }
+        if (error) { toast.error(error.message); setItems([]); return }
         if (!data || data.length === 0) { setItems([]); return }
         const enriched = await Promise.all(data.map(async (item: any) => {
           const { data: rec } = await supabase.from("attendance_records")
@@ -153,14 +152,14 @@ export default function ApprovalsPage() {
       } else if (tab === "resignation") {
         let q = supabase.from("resignation_requests")
           .select(`*, employee:employees!resignation_requests_employee_id_fkey(
-            id,first_name_th,last_name_th,employee_code,avatar_url,hire_date,
+            id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,employee_code,avatar_url,hire_date,
             position:positions(name),department:departments(name))`)
           .eq("status", "pending_manager").order("created_at", { ascending: true })
         if (useCompanyWide) q = (q as any).eq("company_id", companyId)
         else if (teamIds.length > 0) q = (q as any).in("employee_id", teamIds)
         else { setItems([]); return }
         const { data, error } = await q
-        if (error) toast.error("โหลดข้อมูลผิดพลาด: " + error.message)
+        if (error) toast.error(error.message)
         setItems(data ?? [])
 
       } else if (tab === "shift_change") {
@@ -169,13 +168,13 @@ export default function ApprovalsPage() {
         if (json.success) {
           setItems(json.requests ?? [])
         } else {
-          toast.error(json.error ?? "โหลดข้อมูลผิดพลาด")
+          toast.error(json.error ?? t("approvals.toast_error"))
           setItems([])
         }
       }
     } catch (e: any) {
       console.error("Load approvals error:", e)
-      toast.error("โหลดข้อมูลไม่สำเร็จ กรุณาลองใหม่")
+      toast.error(t("approvals.toast_failed"))
       setItems([])
     } finally {
       setLoading(false)
@@ -302,7 +301,7 @@ export default function ApprovalsPage() {
         }),
       })
       const json = await res.json()
-      if (!res.ok || json.error) { toast.error(json.error ?? "เกิดข้อผิดพลาด"); setActing(null); return }
+      if (!res.ok || json.error) { toast.error(json.error ?? t("approvals.toast_error")); setActing(null); return }
 
       // ✅ Optimistic: ลบออกจากลิสต์ทันที
       optimisticRemove(id)
@@ -317,8 +316,8 @@ export default function ApprovalsPage() {
           body: notes[id] || "", ref_table: tbl, ref_id: id,
         })
       }
-      toast.success(action === "approved" ? "✅ อนุมัติแล้ว" : "ปฏิเสธแล้ว")
-    } catch (err: any) { toast.error(err.message || "ดำเนินการไม่สำเร็จ") }
+      toast.success(action === "approved" ? t("approvals.toast_approved") : t("approvals.toast_rejected"))
+    } catch (err: any) { toast.error(err.message || t("approvals.toast_failed")) }
     setActing(null)
   }
 
@@ -334,7 +333,7 @@ export default function ApprovalsPage() {
         body: JSON.stringify({ action, request_id: id, review_note: notes[id] || null }),
       })
       const json = await res.json()
-      if (!json.success) throw new Error(json.error || "เกิดข้อผิดพลาด")
+      if (!json.success) throw new Error(json.error || t("approvals.toast_error"))
 
       // ✅ Optimistic: ลบออกจากลิสต์ทันที
       optimisticRemove(id)
@@ -342,10 +341,10 @@ export default function ApprovalsPage() {
       if (action === "approve" && json.updated) {
         const { late_minutes, status } = json.updated
         toast.success(status === "present"
-          ? "✅ อนุมัติแล้ว — สถานะเปลี่ยนเป็น ตรงเวลา"
-          : `✅ อนุมัติแล้ว — ยังสาย ${late_minutes} นาที`, { duration: 4000 })
+          ? t("approvals.toast_adj_on_time")
+          : t("approvals.toast_adj_still_late", { count: late_minutes }), { duration: 4000 })
       } else {
-        toast.success(action === "approve" ? "✅ อนุมัติแล้ว" : "ปฏิเสธแล้ว")
+        toast.success(action === "approve" ? t("approvals.toast_approved") : t("approvals.toast_rejected"))
       }
       if (item) {
         await supabase.from("notifications").insert({
@@ -371,11 +370,11 @@ export default function ApprovalsPage() {
       const json = await res.json()
       if (json.success) {
         optimisticRemove(id)
-        toast.success(action === "approve" ? "อนุมัติเปลี่ยนกะแล้ว" : "ปฏิเสธคำขอเปลี่ยนกะแล้ว")
+        toast.success(action === "approve" ? t("approvals.toast_shift_approved") : t("approvals.toast_shift_rejected"))
       } else {
-        toast.error(json.error || "เกิดข้อผิดพลาด")
+        toast.error(json.error || t("approvals.toast_error"))
       }
-    } catch (err: any) { toast.error(err.message || "ดำเนินการไม่สำเร็จ") }
+    } catch (err: any) { toast.error(err.message || t("approvals.toast_failed")) }
     setActing(null)
   }
 
@@ -414,16 +413,17 @@ export default function ApprovalsPage() {
         }
       }
     }
-    toast.success(action === "approved" ? "✅ ส่งต่อ HR แล้ว" : "ปฏิเสธใบลาออกแล้ว")
+    toast.success(action === "approved" ? t("approvals.toast_resign_sent_hr") : t("approvals.toast_resign_rejected"))
     setActing(null)
   }
 
   // ── shared components ─────────────────────────────────────────────────────
   const inputCls = "w-full mt-3 px-3 py-2.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white transition-all placeholder:text-gray-400"
 
-  const ActionButtons = ({ id, onReject, onApprove, approveLabel = "อนุมัติ" }: {
+  const ActionButtons = ({ id, onReject, onApprove, approveLabel = undefined }: {
     id: string; onReject: () => void; onApprove: () => void; approveLabel?: string
   }) => {
+    const label = approveLabel ?? t("approvals.approve")
     const isActing = acting === id
     const isProcessed = processedRef.current.has(id)
     const disabled = isActing || isProcessed
@@ -432,7 +432,7 @@ export default function ApprovalsPage() {
       return (
         <div className="flex items-center justify-center gap-2 mt-3 py-3 rounded-xl bg-green-50 border border-green-200">
           <Check size={14} className="text-green-600" />
-          <span className="text-sm font-semibold text-green-700">ดำเนินการแล้ว</span>
+          <span className="text-sm font-semibold text-green-700">{t("approvals.processed")}</span>
         </div>
       )
     }
@@ -442,23 +442,23 @@ export default function ApprovalsPage() {
         <button onClick={onReject} disabled={disabled}
           className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl border border-gray-200 bg-white text-gray-500 text-sm font-semibold hover:bg-gray-50 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none">
           {isActing ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
-          ปฏิเสธ
+          {t("approvals.reject")}
         </button>
         <button onClick={onApprove} disabled={disabled}
           className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:scale-[0.98] transition-all shadow-sm shadow-blue-200 disabled:opacity-50 disabled:pointer-events-none">
           {isActing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-          {approveLabel}
+          {label}
         </button>
       </div>
     )
   }
 
   const TABS: { key: Tab; label: string; color: string }[] = [
-    { key: "leave",        label: "ใบลา",    color: "bg-sky-500" },
-    { key: "overtime",     label: "OT",       color: "bg-amber-500" },
-    { key: "adjustment",   label: "แก้เวลา", color: "bg-violet-500" },
-    { key: "shift_change", label: "เปลี่ยนกะ", color: "bg-emerald-500" },
-    { key: "resignation",  label: "ลาออก",   color: "bg-rose-500" },
+    { key: "leave",        label: t("approvals.tab_leave"),    color: "bg-sky-500" },
+    { key: "overtime",     label: t("approvals.tab_ot"),       color: "bg-amber-500" },
+    { key: "adjustment",   label: t("approvals.tab_adjustment"), color: "bg-violet-500" },
+    { key: "shift_change", label: t("approvals.tab_shift_change"), color: "bg-emerald-500" },
+    { key: "resignation",  label: t("approvals.tab_resignation"),   color: "bg-rose-500" },
   ]
 
   return (
@@ -468,15 +468,15 @@ export default function ApprovalsPage() {
       <div className="bg-white px-4 pt-5 pb-4 border-b border-gray-100">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-[17px] font-bold text-gray-900 tracking-tight">คำร้องรออนุมัติ</h1>
+            <h1 className="text-[17px] font-bold text-gray-900 tracking-tight">{t("approvals.title")}</h1>
             <p className="text-xs text-gray-400 mt-0.5">
-              {!loading && (items.length > 0 ? `${items.length} รายการรออนุมัติ` : "ไม่มีคำร้องค้างอยู่")}
+              {!loading && (items.length > 0 ? t("approvals.pending_count", { count: items.length }) : t("approvals.no_pending"))}
             </p>
           </div>
           {newRequestAlert && (
             <button onClick={() => { setNewRequestAlert(false); loadItems(); loadCounts() }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-xs font-bold text-blue-600 animate-pulse hover:bg-blue-100 transition-colors">
-              <Bell size={12} /> คำร้องใหม่เข้ามา!
+              <Bell size={12} /> {t("approvals.new_request_alert")}
             </button>
           )}
         </div>
@@ -486,11 +486,11 @@ export default function ApprovalsPage() {
           <div className="mt-3 flex rounded-xl bg-gray-100 p-0.5">
             <button onClick={() => setViewMode("myteam")}
               className={"flex-1 py-1.5 text-xs font-bold rounded-lg transition-all " + (viewMode === "myteam" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-400")}>
-              ทีมของฉัน
+              {t("approvals.view_my_team")}
             </button>
             <button onClick={() => setViewMode("company")}
               className={"flex-1 py-1.5 text-xs font-bold rounded-lg transition-all " + (viewMode === "company" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-400")}>
-              ทั้งบริษัท
+              {t("approvals.view_company")}
             </button>
           </div>
         )}
@@ -519,7 +519,7 @@ export default function ApprovalsPage() {
         {loading && (
           <div className="flex items-center justify-center py-20 gap-2 text-gray-400">
             <Loader2 size={18} className="animate-spin" />
-            <span className="text-sm">กำลังโหลด...</span>
+            <span className="text-sm">{t("approvals.loading")}</span>
           </div>
         )}
 
@@ -530,7 +530,7 @@ export default function ApprovalsPage() {
               <div className="flex items-center gap-3">
                 <Avatar emp={item.employee} bgColor="bg-sky-100" textColor="text-sky-600" />
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-gray-900 text-sm leading-tight">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
+                  <p className="font-bold text-gray-900 text-sm leading-tight">{empName(item.employee)}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{item.employee?.position?.name}</p>
                 </div>
                 <span className="text-[11px] text-gray-400 shrink-0">{fmtDate(item.created_at?.split("T")[0])}</span>
@@ -538,21 +538,21 @@ export default function ApprovalsPage() {
 
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-gray-50 rounded-xl px-3 py-2.5">
-                  <p className="text-gray-400 mb-0.5">ประเภท</p>
-                  <p className="font-bold text-gray-800">{item.leave_type?.name}</p>
+                  <p className="text-gray-400 mb-0.5">{t("approvals.type")}</p>
+                  <p className="font-bold text-gray-800">{leaveTypeName(item.leave_type?.code) || item.leave_type?.name}</p>
                 </div>
                 <div className="bg-gray-50 rounded-xl px-3 py-2.5">
-                  <p className="text-gray-400 mb-0.5">จำนวน</p>
-                  <p className="font-bold text-gray-800">{item.total_days} วัน</p>
+                  <p className="text-gray-400 mb-0.5">{t("approvals.amount")}</p>
+                  <p className="font-bold text-gray-800">{item.total_days} {t("approvals.days_unit")}</p>
                 </div>
               </div>
               <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
-                <p className="text-gray-400 mb-0.5">ช่วงวันที่</p>
+                <p className="text-gray-400 mb-0.5">{t("approvals.date_range")}</p>
                 <p className="font-semibold text-gray-700">{fmtDate(item.start_date)} – {fmtDate(item.end_date, "d MMM yyyy")}</p>
               </div>
               {item.reason && (
                 <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
-                  <p className="text-gray-400 mb-0.5">เหตุผล</p>
+                  <p className="text-gray-400 mb-0.5">{t("approvals.reason")}</p>
                   <p className="text-gray-700">{item.reason}</p>
                 </div>
               )}
@@ -561,15 +561,15 @@ export default function ApprovalsPage() {
                 <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-xs">
                   <AlertTriangle size={13} className="text-amber-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="font-bold text-amber-700">โควต้าทีมต่ำ ({quotaCache[item.start_date].quota_pct}%)</p>
-                    <p className="text-amber-600">ทีม {quotaCache[item.start_date].team_size} คน · ทำงาน {quotaCache[item.start_date].working} · ลา {quotaCache[item.start_date].on_leave} · รอ {quotaCache[item.start_date].pending_leave}</p>
+                    <p className="font-bold text-amber-700">{t("approvals.quota_low", { pct: quotaCache[item.start_date].quota_pct })}</p>
+                    <p className="text-amber-600">{t("approvals.quota_detail", { size: quotaCache[item.start_date].team_size, working: quotaCache[item.start_date].working, leave: quotaCache[item.start_date].on_leave, pending: quotaCache[item.start_date].pending_leave })}</p>
                   </div>
                 </div>
               )}
               {item.start_date && quotaCache[item.start_date] && quotaCache[item.start_date].quota_ok && (
                 <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-xs">
                   <Users size={12} className="text-emerald-500 flex-shrink-0" />
-                  <span className="text-emerald-700">โควต้าทีม {quotaCache[item.start_date].quota_pct}% · ทำงาน {quotaCache[item.start_date].working}/{quotaCache[item.start_date].team_size}</span>
+                  <span className="text-emerald-700">{t("approvals.quota_ok", { pct: quotaCache[item.start_date].quota_pct, working: quotaCache[item.start_date].working, size: quotaCache[item.start_date].team_size })}</span>
                 </div>
               )}
 
@@ -579,13 +579,13 @@ export default function ApprovalsPage() {
                   className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5 text-xs hover:bg-blue-100 transition-colors">
                   <Paperclip size={13} className="text-blue-500 flex-shrink-0" />
                   <span className="text-blue-700 font-semibold truncate">
-                    {(item.attachment_names?.[idx]) || (item.attachment_name) || `ไฟล์แนบ ${idx + 1}`}
+                    {(item.attachment_names?.[idx]) || (item.attachment_name) || t("approvals.attachment_count", { idx: idx + 1 })}
                   </span>
-                  <span className="text-blue-400 text-[10px] ml-auto flex-shrink-0">ดูไฟล์</span>
+                  <span className="text-blue-400 text-[10px] ml-auto flex-shrink-0">{t("approvals.view_file")}</span>
                 </a>
               ))}
 
-              <input placeholder="หมายเหตุ (ไม่บังคับ)" value={notes[item.id] || ""}
+              <input placeholder={t("approvals.note_placeholder")} value={notes[item.id] || ""}
                 onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
                 className={inputCls} />
               <ActionButtons id={item.id}
@@ -602,7 +602,7 @@ export default function ApprovalsPage() {
               <div className="flex items-center gap-3">
                 <Avatar emp={item.employee} bgColor="bg-amber-100" textColor="text-amber-600" />
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-gray-900 text-sm leading-tight">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
+                  <p className="font-bold text-gray-900 text-sm leading-tight">{empName(item.employee)}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{item.employee?.position?.name}</p>
                 </div>
                 <span className="text-[11px] text-gray-400 shrink-0">{fmtDate(item.created_at?.split("T")[0])}</span>
@@ -610,22 +610,22 @@ export default function ApprovalsPage() {
 
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-gray-50 rounded-xl px-3 py-2.5">
-                  <p className="text-gray-400 mb-0.5">วันที่</p>
+                  <p className="text-gray-400 mb-0.5">{t("approvals.date_label")}</p>
                   <p className="font-bold text-gray-800">{fmtDate(item.work_date, "d MMM yyyy")}</p>
                 </div>
                 <div className="bg-gray-50 rounded-xl px-3 py-2.5">
-                  <p className="text-gray-400 mb-0.5">เวลา OT</p>
+                  <p className="text-gray-400 mb-0.5">{t("approvals.ot_time")}</p>
                   <p className="font-bold text-gray-800 tabular-nums">{fmtTime(item.ot_start)} – {fmtTime(item.ot_end)}</p>
                 </div>
               </div>
               {item.reason && (
                 <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
-                  <p className="text-gray-400 mb-0.5">เหตุผล</p>
+                  <p className="text-gray-400 mb-0.5">{t("approvals.reason")}</p>
                   <p className="text-gray-700">{item.reason}</p>
                 </div>
               )}
 
-              <input placeholder="หมายเหตุ (ไม่บังคับ)" value={notes[item.id] || ""}
+              <input placeholder={t("approvals.note_placeholder")} value={notes[item.id] || ""}
                 onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
                 className={inputCls} />
               <ActionButtons id={item.id}
@@ -646,14 +646,14 @@ export default function ApprovalsPage() {
                 <div className="flex items-start gap-3">
                   <Avatar emp={item.employee} bgColor="bg-violet-100" textColor="text-violet-600" />
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900 text-sm leading-tight">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
+                    <p className="font-bold text-gray-900 text-sm leading-tight">{empName(item.employee)}</p>
                     <p className="text-xs text-gray-400 mt-0.5">{item.employee?.position?.name} · {item.employee?.department?.name}</p>
                   </div>
                   <div className="text-right shrink-0 flex flex-col items-end gap-1">
                     <span className="text-[11px] text-gray-400">{fmtDate(item.created_at?.split("T")[0])}</span>
                     {isLate && (
                       <span className="text-[10px] bg-amber-50 text-amber-600 font-bold px-2 py-0.5 rounded-full border border-amber-200">
-                        สาย {actual.late_minutes} น.
+                        {t("approvals.late_minutes", { count: actual.late_minutes })}
                       </span>
                     )}
                   </div>
@@ -666,29 +666,29 @@ export default function ApprovalsPage() {
 
                 <div className="mt-2.5 grid grid-cols-2 gap-2">
                   <div className="bg-gray-50 rounded-xl px-3 py-3 border border-gray-100">
-                    <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-widest mb-2">เวลาจริง</p>
+                    <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-widest mb-2">{t("approvals.actual_time")}</p>
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-center">
-                        <span className="text-[11px] text-gray-400">เข้า</span>
+                        <span className="text-[11px] text-gray-400">{t("approvals.clock_in_short")}</span>
                         <span className="text-sm font-black tabular-nums text-gray-700">{fmtTime(actual?.clock_in)}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-[11px] text-gray-400">ออก</span>
+                        <span className="text-[11px] text-gray-400">{t("approvals.clock_out_short")}</span>
                         <span className="text-sm font-black tabular-nums text-gray-700">{fmtTime(actual?.clock_out)}</span>
                       </div>
                     </div>
                   </div>
                   <div className="bg-blue-50 rounded-xl px-3 py-3 border border-blue-100">
-                    <p className="text-[10px] text-blue-400 font-semibold uppercase tracking-widest mb-2">ขอแก้เป็น</p>
+                    <p className="text-[10px] text-blue-400 font-semibold uppercase tracking-widest mb-2">{t("approvals.requested_time")}</p>
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-center">
-                        <span className="text-[11px] text-blue-400">เข้า</span>
+                        <span className="text-[11px] text-blue-400">{t("approvals.clock_in_short")}</span>
                         <span className={"text-sm font-black tabular-nums " + (item.requested_clock_in ? "text-blue-700" : "text-gray-300")}>
                           {item.requested_clock_in ? fmtTime(item.requested_clock_in) : "--:--"}
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-[11px] text-blue-400">ออก</span>
+                        <span className="text-[11px] text-blue-400">{t("approvals.clock_out_short")}</span>
                         <span className={"text-sm font-black tabular-nums " + (item.requested_clock_out ? "text-blue-700" : "text-gray-300")}>
                           {item.requested_clock_out ? fmtTime(item.requested_clock_out) : "--:--"}
                         </span>
@@ -701,13 +701,13 @@ export default function ApprovalsPage() {
                   className="mt-3 w-full flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-xl px-3 py-2.5 hover:bg-gray-100 transition-colors">
                   <span className="flex items-center gap-1.5 min-w-0">
                     <Clock size={11} className="text-gray-400 shrink-0" />
-                    <span className="truncate">{item.reason || "ไม่มีเหตุผล"}</span>
+                    <span className="truncate">{item.reason || t("approvals.no_reason")}</span>
                   </span>
                   {isOpen ? <ChevronUp size={12} className="text-gray-400 shrink-0" /> : <ChevronDown size={12} className="text-gray-400 shrink-0" />}
                 </button>
 
                 {isOpen && (
-                  <input placeholder="หมายเหตุถึงพนักงาน (ไม่บังคับ)" value={notes[item.id] || ""}
+                  <input placeholder={t("approvals.note_placeholder")} value={notes[item.id] || ""}
                     onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
                     className={inputCls} />
                 )}
@@ -729,35 +729,35 @@ export default function ApprovalsPage() {
             <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-4 pt-3 pb-2 flex items-center gap-2 border-b border-gray-50">
                 <ArrowRightLeft size={13} className="text-emerald-500 shrink-0" />
-                <span className="text-xs font-bold text-emerald-600">ขอเปลี่ยนกะ</span>
+                <span className="text-xs font-bold text-emerald-600">{t("approvals.shift_change_title")}</span>
                 <span className="ml-auto text-[10px] text-gray-400">{fmtDate(item.submitted_at?.split("T")[0])}</span>
               </div>
               <div className="px-4 py-4">
                 <div className="flex items-center gap-3">
                   <Avatar emp={emp} bgColor="bg-emerald-100" textColor="text-emerald-600" />
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900 text-sm leading-tight">{emp?.first_name_th} {emp?.last_name_th}</p>
+                    <p className="font-bold text-gray-900 text-sm leading-tight">{empName(emp)}</p>
                     <p className="text-xs text-gray-400 mt-0.5">{emp?.employee_code}</p>
                   </div>
                 </div>
 
                 <div className="mt-3 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
-                  <p className="text-gray-400 mb-0.5">วันที่</p>
+                  <p className="text-gray-400 mb-0.5">{t("approvals.date_label")}</p>
                   <p className="font-bold text-gray-800">{fmtDate(item.work_date, "EEEE d MMMM yyyy")}</p>
                 </div>
 
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                   <div className="bg-gray-50 rounded-xl px-3 py-2.5 border border-gray-100">
-                    <p className="text-gray-400 mb-0.5">กะปัจจุบัน</p>
+                    <p className="text-gray-400 mb-0.5">{t("approvals.current_shift")}</p>
                     <p className="font-bold text-gray-700">
-                      {item.current_assignment_type === "dayoff" ? "วันหยุด" :
+                      {item.current_assignment_type === "dayoff" ? t("approvals.day_off") :
                         curShift ? `${curShift.work_start?.substring(0,5)} - ${curShift.work_end?.substring(0,5)}` : "-"}
                     </p>
                   </div>
                   <div className="bg-emerald-50 rounded-xl px-3 py-2.5 border border-emerald-100">
-                    <p className="text-emerald-500 mb-0.5">ขอเปลี่ยนเป็น</p>
+                    <p className="text-emerald-500 mb-0.5">{t("approvals.requested_shift")}</p>
                     <p className="font-bold text-emerald-700">
-                      {item.requested_assignment_type === "dayoff" ? "วันหยุด" :
+                      {item.requested_assignment_type === "dayoff" ? t("approvals.day_off") :
                         reqShift ? `${reqShift.work_start?.substring(0,5)} - ${reqShift.work_end?.substring(0,5)}` : "-"}
                     </p>
                   </div>
@@ -765,12 +765,12 @@ export default function ApprovalsPage() {
 
                 {item.reason && (
                   <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
-                    <p className="text-gray-400 mb-0.5">เหตุผล</p>
+                    <p className="text-gray-400 mb-0.5">{t("approvals.reason")}</p>
                     <p className="text-gray-700">{item.reason}</p>
                   </div>
                 )}
 
-                <input placeholder="หมายเหตุ (ไม่บังคับ)" value={notes[item.id] || ""}
+                <input placeholder={t("approvals.note_placeholder")} value={notes[item.id] || ""}
                   onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
                   className={inputCls} />
                 <ActionButtons id={item.id}
@@ -788,7 +788,7 @@ export default function ApprovalsPage() {
             <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-4 pt-3 pb-2 flex items-center gap-2 border-b border-gray-50">
                 <UserX size={13} className="text-rose-400 shrink-0" />
-                <span className="text-xs font-bold text-rose-500">ใบลาออก — รอการอนุมัติจากคุณ</span>
+                <span className="text-xs font-bold text-rose-500">{t("approvals.resign_title")}</span>
                 <span className="ml-auto text-[10px] text-gray-400">{fmtDate(item.created_at?.split("T")[0])}</span>
               </div>
 
@@ -796,30 +796,30 @@ export default function ApprovalsPage() {
                 <div className="flex items-center gap-3">
                   <Avatar emp={item.employee} size="md" bgColor="bg-rose-100" textColor="text-rose-500" />
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900 text-sm leading-tight">{item.employee?.first_name_th} {item.employee?.last_name_th}</p>
+                    <p className="font-bold text-gray-900 text-sm leading-tight">{empName(item.employee)}</p>
                     <p className="text-xs text-gray-400 mt-0.5">{item.employee?.position?.name} · {item.employee?.department?.name}</p>
                     <p className="text-xs text-gray-400">
-                      รหัส {item.employee?.employee_code}
-                      {item.employee?.hire_date ? ` · เริ่มงาน ${fmtDate(item.employee.hire_date, "d MMM yyyy")}` : ""}
+                      {t("approvals.employee_code")} {item.employee?.employee_code}
+                      {item.employee?.hire_date ? ` · ${t("approvals.hire_date")} ${fmtDate(item.employee.hire_date, "d MMM yyyy")}` : ""}
                     </p>
                   </div>
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                   <div className="bg-gray-50 rounded-xl px-3 py-2.5">
-                    <p className="text-gray-400 mb-0.5">วันสุดท้าย</p>
+                    <p className="text-gray-400 mb-0.5">{t("approvals.last_work_date")}</p>
                     <p className="font-bold text-gray-900">{fmtDate(item.last_work_date, "d MMM yyyy")}</p>
                   </div>
                   <div className="bg-gray-50 rounded-xl px-3 py-2.5">
-                    <p className="text-gray-400 mb-0.5">มีผลบังคับ</p>
+                    <p className="text-gray-400 mb-0.5">{t("approvals.effective_date")}</p>
                     <p className="font-bold text-gray-900">{fmtDate(item.effective_date, "d MMM yyyy")}</p>
                   </div>
                 </div>
 
                 <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
-                  <p className="text-gray-400 mb-1">เหตุผล</p>
+                  <p className="text-gray-400 mb-1">{t("approvals.resign_reason_label")}</p>
                   <p className="font-semibold text-gray-700">
-                    {(item.reasons ?? []).map((k: string) => RESIGN_REASONS_MAP[k] || k).join("  ·  ") || "-"}
+                    {(item.reasons ?? []).map((k: string) => (T as any).approvals?.resign_reasons?.[k] || k).join("  ·  ") || "-"}
                   </p>
                   {item.other_reason && <p className="text-gray-400 italic mt-1">&ldquo;{item.other_reason}&rdquo;</p>}
                 </div>
@@ -827,7 +827,7 @@ export default function ApprovalsPage() {
                 <button onClick={() => setExpanded(isExpanded ? null : item.id)}
                   className="mt-3 flex items-center gap-1.5 text-xs text-blue-500 font-semibold hover:text-blue-700 transition-colors">
                   {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                  {isExpanded ? "ซ่อน" : "ดู"} Exit Interview
+                  {isExpanded ? t("approvals.hide_exit_interview") : t("approvals.show_exit_interview")}
                 </button>
 
                 {isExpanded && item.exit_interview && Object.keys(item.exit_interview).length > 0 && (
@@ -835,14 +835,14 @@ export default function ApprovalsPage() {
                     {["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8"].map((k, i) =>
                       item.exit_interview[k] ? (
                         <div key={k} className="flex gap-2">
-                          <span className="text-blue-400 font-bold shrink-0">ข้อ{i + 1}:</span>
+                          <span className="text-blue-400 font-bold shrink-0">{t("approvals.exit_question", { num: i + 1 })}</span>
                           <span className="text-gray-700">{Array.isArray(item.exit_interview[k]) ? item.exit_interview[k].join(", ") : item.exit_interview[k]}</span>
                         </div>
                       ) : null
                     )}
                     {item.exit_interview.suggestion && (
                       <div className="flex gap-2">
-                        <span className="text-blue-400 font-bold shrink-0">คำแนะนำ:</span>
+                        <span className="text-blue-400 font-bold shrink-0">{t("approvals.exit_suggestion")}</span>
                         <span className="text-gray-600">{item.exit_interview.suggestion}</span>
                       </div>
                     )}
@@ -850,7 +850,7 @@ export default function ApprovalsPage() {
                 )}
 
                 <textarea
-                  placeholder="หมายเหตุการอนุมัติ/ปฏิเสธ (ไม่บังคับ)"
+                  placeholder={t("approvals.note_placeholder_resign")}
                   value={notes[item.id] || ""}
                   onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}
                   className={inputCls + " resize-none h-16"}
@@ -859,7 +859,7 @@ export default function ApprovalsPage() {
                 <ActionButtons id={item.id}
                   onReject={() => handleResignation(item.id, "rejected")}
                   onApprove={() => handleResignation(item.id, "approved")}
-                  approveLabel="อนุมัติ → ส่ง HR" />
+                  approveLabel={t("approvals.approve_send_hr")} />
               </div>
             </div>
           )
@@ -870,7 +870,7 @@ export default function ApprovalsPage() {
             <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
               <Clock size={28} strokeWidth={1.5} className="text-gray-300" />
             </div>
-            <p className="text-sm font-medium text-gray-400">ไม่มีคำร้องรออนุมัติ</p>
+            <p className="text-sm font-medium text-gray-400">{t("approvals.no_requests")}</p>
           </div>
         )}
 

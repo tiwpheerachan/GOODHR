@@ -1,26 +1,30 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useLanguage, useEmployeeName, useLeaveTypeName } from "@/lib/i18n"
 import {
   ChevronLeft, ChevronRight, Loader2, Calendar, Users, X,
   AlertTriangle, UserCheck, Clock, CalendarDays, Check,
 } from "lucide-react"
 import { format } from "date-fns"
-import { th } from "date-fns/locale"
+import { th, enUS, zhCN } from "date-fns/locale"
 import toast from "react-hot-toast"
+
+const DATE_LOCALES = { th, en: enUS, cn: zhCN } as const
 
 type DayData = {
   team_size: number; working: number; quota_pct: number; quota_ok: boolean
-  on_leave: { employee_id: string; name: string; avatar_url: string | null; leave_type: string | null; request_id: string }[]
-  pending: { employee_id: string; name: string; avatar_url: string | null; leave_type: string | null; request_id: string }[]
+  on_leave: { employee_id: string; name: string; avatar_url: string | null; leave_type: string | null; leave_type_code: string | null; request_id: string }[]
+  pending: { employee_id: string; name: string; avatar_url: string | null; leave_type: string | null; leave_type_code: string | null; request_id: string }[]
 }
 
 type Balance = { employee_id: string; leave_type: string | null; entitled_days: number; used_days: number; pending_days: number; remaining_days: number }
 
-const WEEKDAYS = ["จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส.", "อา."]
-
 export default function ManagerLeaveCalendarPage() {
   const { user } = useAuth()
+  const { t, T, lang } = useLanguage()
+  const empName = useEmployeeName()
+  const leaveTypeName = useLeaveTypeName()
   const empId = (user as any)?.employee_id ?? (user as any)?.employee?.id
 
   const [currentMonth, setCurrentMonth] = useState(() => format(new Date(), "yyyy-MM"))
@@ -42,7 +46,7 @@ export default function ManagerLeaveCalendarPage() {
       setEmployees(data.employees ?? [])
       setBalances(data.balances ?? [])
     } catch {
-      toast.error("โหลดข้อมูลปฏิทินไม่สำเร็จ")
+      toast.error(t("leave_calendar.load_error"))
     }
     setLoading(false)
   }, [currentMonth, empId])
@@ -69,8 +73,8 @@ export default function ManagerLeaveCalendarPage() {
         body: JSON.stringify({ action, request_id: requestId, request_type: "leave" }),
       })
       const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error || "เกิดข้อผิดพลาด")
-      toast.success(action === "approve" ? "อนุมัติแล้ว" : "ปฏิเสธแล้ว")
+      if (!res.ok || data.error) throw new Error(data.error || t("common.error"))
+      toast.success(action === "approve" ? t("common.approved") : t("common.rejected"))
       loadCalendar()
     } catch (err: any) {
       toast.error(err.message)
@@ -108,18 +112,18 @@ export default function ManagerLeaveCalendarPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-[17px] font-bold text-gray-900 flex items-center gap-2">
-              <CalendarDays size={18} className="text-indigo-500" /> ปฏิทินการลา
+              <CalendarDays size={18} className="text-indigo-500" /> {t("leave_calendar.title")}
             </h1>
-            <p className="text-[11px] text-gray-400 mt-0.5">ดูภาพรวมการลาลูกน้องรายเดือน</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{t("leave_calendar.subtitle")}</p>
           </div>
           <div className="flex bg-gray-100 rounded-xl p-0.5">
             <button onClick={() => setActiveTab("calendar")}
               className={`px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all ${activeTab === "calendar" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-400"}`}>
-              ปฏิทิน
+              {t("leave_calendar.tab_calendar")}
             </button>
             <button onClick={() => setActiveTab("balances")}
               className={`px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all ${activeTab === "balances" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-400"}`}>
-              สิทธิลา
+              {t("leave_calendar.tab_balances")}
             </button>
           </div>
         </div>
@@ -133,7 +137,7 @@ export default function ManagerLeaveCalendarPage() {
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
                 <button onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-xl active:scale-95 transition-all"><ChevronLeft size={16} /></button>
                 <h3 className="text-sm font-black text-gray-800">
-                  {format(new Date(yearNum, monthNum - 1), "MMMM yyyy", { locale: th })}
+                  {format(new Date(yearNum, monthNum - 1), "MMMM yyyy", { locale: DATE_LOCALES[lang] || th })}
                 </h3>
                 <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-xl active:scale-95 transition-all"><ChevronRight size={16} /></button>
               </div>
@@ -143,7 +147,7 @@ export default function ManagerLeaveCalendarPage() {
               ) : (
                 <div className="p-2">
                   <div className="grid grid-cols-7 mb-1">
-                    {WEEKDAYS.map(w => (
+                    {T.days_abbr.map(w => (
                       <div key={w} className="text-center text-[10px] font-bold text-gray-400 py-1">{w}</div>
                     ))}
                   </div>
@@ -174,8 +178,8 @@ export default function ManagerLeaveCalendarPage() {
                           {dayData && dayData.team_size > 0 && (
                             <div className="flex-1 flex flex-col justify-end gap-0.5 mt-0.5">
                               <span className={`text-[9px] font-bold ${quotaColor}`}>{dayData.working}/{dayData.team_size}</span>
-                              {leaveCount > 0 && <span className="text-[8px] font-bold text-red-400 bg-red-50 rounded px-1 w-fit">{leaveCount}ลา</span>}
-                              {pendingCount > 0 && <span className="text-[8px] font-bold text-amber-500 bg-amber-50 rounded px-1 w-fit">{pendingCount}รอ</span>}
+                              {leaveCount > 0 && <span className="text-[8px] font-bold text-red-400 bg-red-50 rounded px-1 w-fit">{leaveCount}{t("common.on_leave")}</span>}
+                              {pendingCount > 0 && <span className="text-[8px] font-bold text-amber-500 bg-amber-50 rounded px-1 w-fit">{pendingCount}{t("leave_calendar.pending_short")}</span>}
                             </div>
                           )}
                           {quotaPct < 60 && dayData && !isWeekend && (
@@ -196,7 +200,7 @@ export default function ManagerLeaveCalendarPage() {
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
                   <h4 className="text-sm font-black text-gray-800">
-                    {format(new Date(selectedDay + "T00:00:00"), "EEEEที่ d MMMM", { locale: th })}
+                    {format(new Date(selectedDay + "T00:00:00"), lang === "th" ? "EEEEที่ d MMMM" : "EEEE d MMMM", { locale: DATE_LOCALES[lang] || th })}
                   </h4>
                   <button onClick={() => setSelectedDay(null)} className="p-1 hover:bg-gray-100 rounded-lg"><X size={14} /></button>
                 </div>
@@ -204,40 +208,40 @@ export default function ManagerLeaveCalendarPage() {
                 <div className="grid grid-cols-4 gap-2 px-4 py-3 border-b border-gray-50">
                   <div className="text-center">
                     <p className="text-lg font-black text-gray-800">{selectedDayData.team_size}</p>
-                    <p className="text-[9px] text-gray-400">ทีม</p>
+                    <p className="text-[9px] text-gray-400">{t("common.team")}</p>
                   </div>
                   <div className="text-center">
                     <p className="text-lg font-black text-emerald-600">{selectedDayData.working}</p>
-                    <p className="text-[9px] text-gray-400">ทำงาน</p>
+                    <p className="text-[9px] text-gray-400">{t("common.working")}</p>
                   </div>
                   <div className="text-center">
                     <p className="text-lg font-black text-red-500">{selectedDayData.on_leave.length}</p>
-                    <p className="text-[9px] text-gray-400">ลา</p>
+                    <p className="text-[9px] text-gray-400">{t("common.on_leave")}</p>
                   </div>
                   <div className="text-center">
                     <p className={`text-lg font-black ${selectedDayData.quota_ok ? "text-emerald-600" : "text-red-500"}`}>{selectedDayData.quota_pct}%</p>
-                    <p className="text-[9px] text-gray-400">โควต้า</p>
+                    <p className="text-[9px] text-gray-400">{t("common.quota")}</p>
                   </div>
                 </div>
 
                 {!selectedDayData.quota_ok && (
                   <div className="mx-4 mt-3 flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
                     <AlertTriangle size={12} className="text-red-500 flex-shrink-0" />
-                    <span className="text-[11px] font-bold text-red-600">คนน้อยกว่า 60% — ควรระวังก่อนอนุมัติเพิ่ม</span>
+                    <span className="text-[11px] font-bold text-red-600">{t("leave_calendar.quota_warning")}</span>
                   </div>
                 )}
 
                 <div className="px-4 py-3 space-y-3">
                   {selectedDayData.on_leave.length > 0 && (
                     <div>
-                      <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider mb-1.5">ลา (อนุมัติแล้ว)</p>
+                      <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider mb-1.5">{t("leave_calendar.on_leave")}</p>
                       {selectedDayData.on_leave.map((m, i) => (
                         <div key={i} className="flex items-center gap-2 py-2 border-b border-gray-50 last:border-0">
                           <div className="w-7 h-7 rounded-full bg-red-100 flex items-center justify-center text-[10px] font-bold text-red-500 flex-shrink-0 overflow-hidden">
-                            {m.avatar_url ? <img src={m.avatar_url} alt="" className="w-full h-full object-cover" /> : m.name?.[0]}
+                            {m.avatar_url ? <img src={m.avatar_url} alt="" className="w-full h-full object-cover" /> : (empName(m) || m.name)?.[0]}
                           </div>
-                          <p className="text-xs font-bold text-gray-700 flex-1 truncate">{m.name}</p>
-                          <span className="text-[10px] text-red-500 font-bold">{m.leave_type}</span>
+                          <p className="text-xs font-bold text-gray-700 flex-1 truncate">{empName(m) || m.name}</p>
+                          <span className="text-[10px] text-red-500 font-bold">{leaveTypeName(m.leave_type_code) || m.leave_type}</span>
                         </div>
                       ))}
                     </div>
@@ -245,14 +249,14 @@ export default function ManagerLeaveCalendarPage() {
 
                   {selectedDayData.pending.length > 0 && (
                     <div>
-                      <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-1.5">รออนุมัติ</p>
+                      <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-1.5">{t("leave_calendar.pending")}</p>
                       {selectedDayData.pending.map((m, i) => (
                         <div key={i} className="flex items-center gap-2 py-2 border-b border-gray-50 last:border-0">
                           <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center text-[10px] font-bold text-amber-600 flex-shrink-0 overflow-hidden">
-                            {m.avatar_url ? <img src={m.avatar_url} alt="" className="w-full h-full object-cover" /> : m.name?.[0]}
+                            {m.avatar_url ? <img src={m.avatar_url} alt="" className="w-full h-full object-cover" /> : (empName(m) || m.name)?.[0]}
                           </div>
-                          <p className="text-xs font-bold text-gray-700 flex-1 truncate">{m.name}</p>
-                          <span className="text-[10px] text-amber-500 font-bold mr-1">{m.leave_type}</span>
+                          <p className="text-xs font-bold text-gray-700 flex-1 truncate">{empName(m) || m.name}</p>
+                          <span className="text-[10px] text-amber-500 font-bold mr-1">{leaveTypeName(m.leave_type_code) || m.leave_type}</span>
                           <div className="flex gap-1">
                             <button onClick={() => handleApproveReject(m.request_id, "reject")}
                               disabled={approving === m.request_id}
@@ -273,7 +277,7 @@ export default function ManagerLeaveCalendarPage() {
                   {selectedDayData.on_leave.length === 0 && selectedDayData.pending.length === 0 && (
                     <div className="text-center py-4 text-gray-300">
                       <UserCheck size={20} className="mx-auto mb-1" />
-                      <p className="text-xs font-bold">ไม่มีใครลา</p>
+                      <p className="text-xs font-bold">{t("leave_calendar.no_leave")}</p>
                     </div>
                   )}
                 </div>
@@ -284,8 +288,8 @@ export default function ManagerLeaveCalendarPage() {
           /* Balances tab */
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-50">
-              <h3 className="text-sm font-black text-gray-800">สิทธิวันลาทีมของฉัน</h3>
-              <p className="text-[10px] text-gray-400 mt-0.5">ปี {yearNum + 543} · {employees.length} คน</p>
+              <h3 className="text-sm font-black text-gray-800">{t("leave_calendar.balances_title")}</h3>
+              <p className="text-[10px] text-gray-400 mt-0.5">{t("common.year")} {lang === "th" ? yearNum + 543 : yearNum} · {employees.length} {t("common.people")}</p>
             </div>
 
             {loading ? (
@@ -293,7 +297,7 @@ export default function ManagerLeaveCalendarPage() {
             ) : Object.keys(balancesByEmp).length === 0 ? (
               <div className="text-center py-16 text-gray-300">
                 <Calendar size={28} className="mx-auto mb-2" />
-                <p className="text-xs font-bold">ไม่พบข้อมูลสิทธิวันลา</p>
+                <p className="text-xs font-bold">{t("leave_calendar.balances_no_data")}</p>
               </div>
             ) : (
               <div className="divide-y divide-gray-50">
@@ -310,12 +314,12 @@ export default function ManagerLeaveCalendarPage() {
                           {emp.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" /> : emp.name?.[0]}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-gray-800 truncate">{emp.full_name || emp.name}</p>
+                          <p className="text-xs font-bold text-gray-800 truncate">{empName(emp)}</p>
                           <p className="text-[10px] text-gray-400">{emp.code}</p>
                         </div>
                         <div className="text-right">
                           <p className={`text-sm font-black ${totalRemaining <= 1 ? "text-red-500" : totalRemaining <= 3 ? "text-amber-500" : "text-emerald-600"}`}>{totalRemaining}</p>
-                          <p className="text-[9px] text-gray-400">เหลือ</p>
+                          <p className="text-[9px] text-gray-400">{t("leave_calendar.balances_remaining")}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -327,7 +331,7 @@ export default function ManagerLeaveCalendarPage() {
                       </div>
                       <div className="flex flex-wrap gap-1 mt-1.5">
                         {bals.map((b, bi) => (
-                          <span key={bi} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-50 text-gray-500">{b.leave_type}: {b.used_days}/{b.entitled_days}</span>
+                          <span key={bi} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-50 text-gray-500">{leaveTypeName((b as any).leave_type_code) || b.leave_type}: {b.used_days}/{b.entitled_days}</span>
                         ))}
                       </div>
                     </div>

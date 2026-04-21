@@ -1,6 +1,7 @@
 "use client"
 import { useEffect, useState, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import { createClient } from "@/lib/supabase/client"
 import { Phone, Mail, Calendar, Loader2 } from "lucide-react"
 import { format, differenceInMonths } from "date-fns"
@@ -10,6 +11,8 @@ const supabase = createClient()
 
 export default function TeamPage() {
   const { user } = useAuth()
+  const { t } = useLanguage()
+  const empName = useEmployeeName()
   const [members, setMembers] = useState<any[]>([])
   const [balances, setBalances] = useState<Record<string, any[]>>({})
   const [loading, setLoading] = useState(true)
@@ -56,16 +59,16 @@ export default function TeamPage() {
   const workLabel = (hireDate: string) => {
     const m = differenceInMonths(new Date(), new Date(hireDate))
     const y = Math.floor(m / 12), mo = m % 12
-    if (y > 0 && mo > 0) return `${y} ปี ${mo} เดือน`
-    if (y > 0) return `${y} ปี`
-    return `${mo} เดือน`
+    if (y > 0 && mo > 0) return `${y} ${t("common.years_short")} ${mo} ${t("common.months_short_label")}`
+    if (y > 0) return `${y} ${t("common.years_short")}`
+    return `${mo} ${t("common.months_short_label")}`
   }
 
   return (
     <div className="p-4 space-y-4">
       <div className="pt-2">
-        <h1 className="text-xl font-bold text-slate-800">สมาชิกในทีม</h1>
-        <p className="text-sm text-slate-500">{members.length} คน</p>
+        <h1 className="text-xl font-bold text-slate-800">{t("team.title")}</h1>
+        <p className="text-sm text-slate-500">{members.length} {t("common.persons")}</p>
       </div>
       {loading && <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-slate-300" /></div>}
       <div className="space-y-4">
@@ -80,7 +83,7 @@ export default function TeamPage() {
                     : <span className="text-indigo-600 text-lg font-bold">{m.first_name_th?.[0]}</span>}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-800">{m.first_name_th} {m.last_name_th}</p>
+                  <p className="font-bold text-slate-800">{empName(m)}</p>
                   <p className="text-sm text-primary-600 font-medium">{m.position?.name}</p>
                   <p className="text-xs text-slate-400">{m.department?.name} · {m.employee_code}</p>
                 </div>
@@ -88,7 +91,7 @@ export default function TeamPage() {
                   m.employment_status === "active"    ? "bg-green-100 text-green-700" :
                   m.employment_status === "probation" ? "bg-yellow-100 text-yellow-700" :
                   "bg-slate-100 text-slate-500")}>
-                  {m.employment_status === "active" ? "ปกติ" : m.employment_status === "probation" ? "ทดลองงาน" : m.employment_status}
+                  {m.employment_status === "active" ? t("team.status_active") : m.employment_status === "probation" ? t("team.status_probation") : m.employment_status}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-500">
@@ -98,7 +101,7 @@ export default function TeamPage() {
               </div>
               {memberBals.length > 0 && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-1.5">วันลาคงเหลือ {year}</p>
+                  <p className="text-xs font-semibold text-slate-500 mb-1.5">{t("team.leave_balance", { year })}</p>
                   <div className="flex flex-wrap gap-2">
                     {memberBals.map(b => (
                       <div key={b.id} className="flex items-center gap-1.5 bg-slate-50 rounded-lg px-2 py-1">
@@ -113,7 +116,7 @@ export default function TeamPage() {
             </div>
           )
         })}
-        {!loading && members.length === 0 && <p className="text-center py-12 text-slate-400 text-sm">ไม่มีสมาชิกในทีม</p>}
+        {!loading && members.length === 0 && <p className="text-center py-12 text-slate-400 text-sm">{t("team.no_members")}</p>}
       </div>
     </div>
   )

@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
 
   // Get all leave requests that overlap with this month
   const { data: leaveRequests } = await supa.from("leave_requests")
-    .select("id, employee_id, start_date, end_date, total_days, status, leave_type:leave_types(id, name, color_hex)")
+    .select("id, employee_id, start_date, end_date, total_days, status, leave_type:leave_types(id, code, name, color_hex)")
     .in("employee_id", teamEmployeeIds)
     .in("status", ["approved", "pending"])
     .lte("start_date", lastDay)
@@ -72,12 +72,12 @@ export async function GET(req: NextRequest) {
 
   // Get employee details
   const { data: employees } = await supa.from("employees")
-    .select("id, first_name_th, last_name_th, nickname, avatar_url, employee_code, department:departments(name), position:positions(name)")
+    .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, employee_code, department:departments(name), position:positions(name)")
     .in("id", teamEmployeeIds)
 
   // Get leave balances for all team members (current year)
   const { data: balances } = await supa.from("leave_balances")
-    .select("employee_id, entitled_days, used_days, pending_days, remaining_days, carried_over, leave_type:leave_types(name, color_hex)")
+    .select("employee_id, entitled_days, used_days, pending_days, remaining_days, carried_over, leave_type:leave_types(code, name, color_hex)")
     .in("employee_id", teamEmployeeIds)
     .eq("year", year)
 
@@ -109,8 +109,15 @@ export async function GET(req: NextRequest) {
         const entry = {
           employee_id: lr.employee_id,
           name: emp ? (emp.nickname || `${emp.first_name_th} ${emp.last_name_th}`) : "?",
+          first_name_th: emp?.first_name_th || null,
+          last_name_th: emp?.last_name_th || null,
+          first_name_en: emp?.first_name_en || null,
+          last_name_en: emp?.last_name_en || null,
+          nickname: emp?.nickname || null,
+          nickname_en: emp?.nickname_en || null,
           avatar_url: emp?.avatar_url || null,
           leave_type: (lr.leave_type as any)?.name || null,
+          leave_type_code: (lr.leave_type as any)?.code || null,
           leave_color: (lr.leave_type as any)?.color_hex || null,
           request_id: lr.id,
         }
@@ -141,6 +148,12 @@ export async function GET(req: NextRequest) {
       id: e.id,
       name: e.nickname || `${e.first_name_th} ${e.last_name_th}`,
       full_name: `${e.first_name_th} ${e.last_name_th}`,
+      first_name_th: e.first_name_th,
+      last_name_th: e.last_name_th,
+      first_name_en: e.first_name_en,
+      last_name_en: e.last_name_en,
+      nickname: e.nickname,
+      nickname_en: e.nickname_en,
       code: e.employee_code,
       avatar_url: e.avatar_url,
       department: (e.department as any)?.name || null,
@@ -155,6 +168,7 @@ export async function GET(req: NextRequest) {
     .map((b: any) => ({
       employee_id: b.employee_id,
       leave_type: (b.leave_type as any)?.name || null,
+      leave_type_code: (b.leave_type as any)?.code || null,
       color: (b.leave_type as any)?.color_hex || null,
       entitled_days: b.entitled_days,
       used_days: b.used_days,
