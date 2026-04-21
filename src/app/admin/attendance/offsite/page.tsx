@@ -1,10 +1,10 @@
 "use client"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import {
   Camera, CheckCircle2, XCircle, Clock, MapPin,
   Loader2, ChevronRight, Eye, MessageSquare,
-  User, Calendar, Filter, RefreshCw
+  User, Calendar, Filter, RefreshCw, Download
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
@@ -40,30 +40,40 @@ type OffsiteRequest = {
   reviewed_by_name?: string | null
 }
 
+const PER_PAGE = 50
+
 export default function OffsiteReviewPage() {
   const { user } = useAuth()
   const [tab, setTab] = useState<"pending" | "approved" | "rejected">("pending")
   const [requests, setRequests] = useState<OffsiteRequest[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
   const [previewImg, setPreviewImg] = useState<string | null>(null)
   const [rejectId, setRejectId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState("")
   const [processing, setProcessing] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
 
+  // ── Fetch first page ──
   const fetchRequests = useCallback(async () => {
     setLoading(true)
+    setPage(1)
     try {
-      const res = await fetch(`/api/checkin/offsite/review?status=${tab}`)
+      const res = await fetch(`/api/checkin/offsite/review?status=${tab}&page=1&limit=${PER_PAGE}`)
       const data = await res.json()
       if (data.success) {
         setRequests(data.data || [])
         setTotal(data.total || 0)
+        setHasMore((data.data || []).length < (data.total || 0))
       } else {
         console.error("offsite review error:", data.error)
         toast.error(data.error || "โหลดข้อมูลไม่สำเร็จ")
         setRequests([])
         setTotal(0)
+        setHasMore(false)
       }
     } catch (err) {
       console.error("offsite review fetch error:", err)
@@ -74,6 +84,87 @@ export default function OffsiteReviewPage() {
   }, [tab])
 
   useEffect(() => { fetchRequests() }, [fetchRequests])
+
+  // ── Load more ──
+  const loadMore = async () => {
+    const nextPage = page + 1
+    setLoadingMore(true)
+    try {
+      const res = await fetch(`/api/checkin/offsite/review?status=${tab}&page=${nextPage}&limit=${PER_PAGE}`)
+      const data = await res.json()
+      if (data.success) {
+        const newItems = data.data || []
+        setRequests(prev => [...prev, ...newItems])
+        setPage(nextPage)
+        setHasMore(requests.length + newItems.length < (data.total || 0))
+      }
+    } catch {
+      toast.error("โหลดข้อมูลเพิ่มเติมไม่สำเร็จ")
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  // ── Export XLSX ──
+  const exportXlsx = async () => {
+    setExporting(true)
+    try {
+      // ดึงข้อมูลทั้งหมด (ไม่จำกัดหน้า)
+      const res = await fetch(`/api/checkin/offsite/review?status=${tab}&page=1&limit=9999`)
+      const data = await res.json()
+      if (!data.success || !data.data?.length) {
+        toast.error("ไม่มีข้อมูลสำหรับ export")
+        return
+      }
+      const rows = (data.data as OffsiteRequest[]).map((r, i) => ({
+        "ลำดับ": i + 1,
+        "รหัสพนักงาน": r.employee?.employee_code || "",
+        "ชื่อ-นามสกุล": r.employee ? `${r.employee.first_name_th} ${r.employee.last_name_th}` : "",
+        "แผนก": r.employee?.department?.name || "",
+        "ตำแหน่ง": r.employee?.position?.name || "",
+        "วันที่": r.work_date ? format(new Date(r.work_date + "T00:00:00"), "dd/MM/yyyy") : "",
+        "ประเภท": r.check_type === "clock_in" ? "เช็คอิน" : "เช็คเอ้าท์",
+        "เวลา": r.checked_at ? format(new Date(r.checked_at), "HH:mm:ss") : "",
+        "สถานที่": r.location_name || (r.latitude && r.longitude ? `${Number(r.latitude).toFixed(4)}, ${Number(r.longitude).toFixed(4)}` : ""),
+        "หมายเหตุ": r.note || "",
+        "สถานะ": r.status === "pending" ? "รออนุมัติ" : r.status === "approved" ? "อนุมัติ" : "ปฏิเสธ",
+        "เหตุผลปฏิเสธ": r.reject_reason || "",
+        "วันที่ตรวจสอบ": r.reviewed_at ? format(new Date(r.reviewed_at), "dd/MM/yyyy HH:mm") : "",
+      }))
+
+      // ใช้ SheetJS (xlsx) สร้าง file
+      const XLSX = await import("xlsx")
+      const ws = XLSX.utils.json_to_sheet(rows)
+
+      // ปรับ column widths
+      ws["!cols"] = [
+        { wch: 6 },   // ลำดับ
+        { wch: 12 },  // รหัส
+        { wch: 22 },  // ชื่อ
+        { wch: 16 },  // แผนก
+        { wch: 20 },  // ตำแหน่ง
+        { wch: 12 },  // วันที่
+        { wch: 10 },  // ประเภท
+        { wch: 10 },  // เวลา
+        { wch: 28 },  // สถานที่
+        { wch: 20 },  // หมายเหตุ
+        { wch: 10 },  // สถานะ
+        { wch: 20 },  // เหตุผลปฏิเสธ
+        { wch: 18 },  // วันที่ตรวจสอบ
+      ]
+
+      const wb = XLSX.utils.book_new()
+      const statusLabel = tab === "pending" ? "รออนุมัติ" : tab === "approved" ? "อนุมัติแล้ว" : "ปฏิเสธ"
+      XLSX.utils.book_append_sheet(wb, ws, statusLabel)
+      XLSX.writeFile(wb, `offsite_checkin_${tab}_${format(new Date(), "yyyyMMdd_HHmm")}.xlsx`)
+      toast.success(`Export สำเร็จ ${rows.length} รายการ`)
+    } catch (err) {
+      console.error("Export error:", err)
+      toast.error("Export ไม่สำเร็จ")
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const handleAction = async (requestId: string, action: "approve" | "reject", reason?: string) => {
     setProcessing(requestId)
@@ -121,10 +212,17 @@ export default function OffsiteReviewPage() {
               <p className="text-xs text-gray-400">ตรวจสอบและอนุมัติคำขอเช็คอินนอกสถานที่</p>
             </div>
           </div>
-          <button onClick={fetchRequests}
-            className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 hover:bg-gray-200 active:scale-95 transition-all">
-            <RefreshCw size={14} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={exportXlsx} disabled={exporting || loading}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold hover:bg-emerald-100 active:scale-95 transition-all disabled:opacity-50">
+              {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              Export
+            </button>
+            <button onClick={fetchRequests}
+              className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 hover:bg-gray-200 active:scale-95 transition-all">
+              <RefreshCw size={14} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -157,119 +255,137 @@ export default function OffsiteReviewPage() {
             <p className="text-sm font-semibold text-gray-400">ไม่มีคำขอ{tab === "pending" ? "ที่รอ" : tab === "approved" ? "ที่อนุมัติแล้ว" : "ที่ถูกปฏิเสธ"}</p>
           </div>
         ) : (
-          requests.map(req => {
-            const emp = req.employee
-            const isIn = req.check_type === "clock_in"
-            return (
-              <div key={req.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-                {/* Top bar */}
-                <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-50">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isIn ? "bg-indigo-50" : "bg-rose-50"}`}>
-                    {isIn ? <Camera size={14} className="text-indigo-500" /> : <Camera size={14} className="text-rose-500" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-bold text-gray-800 truncate">
-                      {emp?.first_name_th} {emp?.last_name_th}
-                      <span className="text-gray-400 font-normal ml-1.5">({emp?.employee_code})</span>
-                    </p>
-                    <p className="text-[10px] text-gray-400">
-                      {emp?.department?.name} · {emp?.position?.name}
-                    </p>
-                  </div>
-                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
-                    req.status === "pending" ? "bg-amber-50 text-amber-600"
-                    : req.status === "approved" ? "bg-emerald-50 text-emerald-600"
-                    : "bg-red-50 text-red-500"
-                  }`}>
-                    {req.status === "pending" ? "รออนุมัติ" : req.status === "approved" ? "อนุมัติ" : "ปฏิเสธ"}
-                  </span>
-                </div>
+          <>
+            {/* แสดงจำนวนที่แสดง / ทั้งหมด */}
+            <p className="text-xs text-gray-400 font-medium">
+              แสดง {requests.length} จาก {total} รายการ
+            </p>
 
-                {/* Photo + details */}
-                <div className="flex gap-3 px-4 py-3">
-                  {/* Thumbnail */}
-                  <button onClick={() => setPreviewImg(req.photo_url)}
-                    className="relative w-24 h-24 rounded-xl overflow-hidden bg-gray-100 shrink-0 group">
-                    <img src={req.photo_url} alt="offsite" className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                      <Eye size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+            {requests.map(req => {
+              const emp = req.employee
+              const isIn = req.check_type === "clock_in"
+              return (
+                <div key={req.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                  {/* Top bar */}
+                  <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-50">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isIn ? "bg-indigo-50" : "bg-rose-50"}`}>
+                      {isIn ? <Camera size={14} className="text-indigo-500" /> : <Camera size={14} className="text-rose-500" />}
                     </div>
-                  </button>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-bold text-gray-800 truncate">
+                        {emp?.first_name_th} {emp?.last_name_th}
+                        <span className="text-gray-400 font-normal ml-1.5">({emp?.employee_code})</span>
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {emp?.department?.name} · {emp?.position?.name}
+                      </p>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
+                      req.status === "pending" ? "bg-amber-50 text-amber-600"
+                      : req.status === "approved" ? "bg-emerald-50 text-emerald-600"
+                      : "bg-red-50 text-red-500"
+                    }`}>
+                      {req.status === "pending" ? "รออนุมัติ" : req.status === "approved" ? "อนุมัติ" : "ปฏิเสธ"}
+                    </span>
+                  </div>
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                      <Calendar size={10} />
-                      <span>{format(new Date(req.work_date + "T00:00:00"), "d MMM yyyy", { locale: th })}</span>
-                      <span className="text-gray-300">·</span>
-                      <span className={isIn ? "text-indigo-500 font-semibold" : "text-rose-500 font-semibold"}>
-                        {isIn ? "เช็คอิน" : "เช็คเอ้าท์"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                      <Clock size={10} />
-                      <span className="font-semibold text-gray-700">
-                        {format(new Date(req.checked_at), "HH:mm:ss")}
-                      </span>
-                    </div>
-                    {(req.location_name || (req.latitude && req.longitude)) && (
+                  {/* Photo + details */}
+                  <div className="flex gap-3 px-4 py-3">
+                    {/* Thumbnail */}
+                    <button onClick={() => setPreviewImg(req.photo_url)}
+                      className="relative w-24 h-24 rounded-xl overflow-hidden bg-gray-100 shrink-0 group">
+                      <img src={req.photo_url} alt="offsite" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                        <Eye size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </button>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0 space-y-1.5">
                       <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                        <MapPin size={10} className="shrink-0" />
-                        {req.latitude && req.longitude ? (
-                          <a href={`https://www.google.com/maps?q=${req.latitude},${req.longitude}`}
-                            target="_blank" rel="noopener noreferrer"
-                            className="text-indigo-600 hover:underline truncate">
-                            {req.location_name || `${Number(req.latitude).toFixed(4)}, ${Number(req.longitude).toFixed(4)}`}
-                          </a>
-                        ) : (
-                          <span className="truncate">{req.location_name}</span>
-                        )}
+                        <Calendar size={10} />
+                        <span>{format(new Date(req.work_date + "T00:00:00"), "d MMM yyyy", { locale: th })}</span>
+                        <span className="text-gray-300">·</span>
+                        <span className={isIn ? "text-indigo-500 font-semibold" : "text-rose-500 font-semibold"}>
+                          {isIn ? "เช็คอิน" : "เช็คเอ้าท์"}
+                        </span>
                       </div>
-                    )}
-                    {req.note && (
-                      <div className="flex items-start gap-1.5 text-[11px] text-gray-500">
-                        <MessageSquare size={10} className="mt-0.5 shrink-0" />
-                        <span className="line-clamp-2">{req.note}</span>
+                      <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                        <Clock size={10} />
+                        <span className="font-semibold text-gray-700">
+                          {format(new Date(req.checked_at), "HH:mm:ss")}
+                        </span>
                       </div>
-                    )}
-                    {req.reject_reason && (
-                      <div className="flex items-start gap-1.5 text-[11px] text-red-500">
-                        <XCircle size={10} className="mt-0.5 shrink-0" />
-                        <span>เหตุผล: {req.reject_reason}</span>
-                      </div>
-                    )}
+                      {(req.location_name || (req.latitude && req.longitude)) && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                          <MapPin size={10} className="shrink-0" />
+                          {req.latitude && req.longitude ? (
+                            <a href={`https://www.google.com/maps?q=${req.latitude},${req.longitude}`}
+                              target="_blank" rel="noopener noreferrer"
+                              className="text-indigo-600 hover:underline truncate">
+                              {req.location_name || `${Number(req.latitude).toFixed(4)}, ${Number(req.longitude).toFixed(4)}`}
+                            </a>
+                          ) : (
+                            <span className="truncate">{req.location_name}</span>
+                          )}
+                        </div>
+                      )}
+                      {req.note && (
+                        <div className="flex items-start gap-1.5 text-[11px] text-gray-500">
+                          <MessageSquare size={10} className="mt-0.5 shrink-0" />
+                          <span className="line-clamp-2">{req.note}</span>
+                        </div>
+                      )}
+                      {req.reject_reason && (
+                        <div className="flex items-start gap-1.5 text-[11px] text-red-500">
+                          <XCircle size={10} className="mt-0.5 shrink-0" />
+                          <span>เหตุผล: {req.reject_reason}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Action buttons (only for pending) */}
+                  {req.status === "pending" && (
+                    <div className="flex gap-2 px-4 pb-3.5">
+                      <button
+                        onClick={() => handleAction(req.id, "approve")}
+                        disabled={processing === req.id}
+                        className="flex-1 py-2.5 rounded-xl text-[12px] font-bold text-white flex items-center justify-center gap-1.5 active:scale-[.98] transition-all"
+                        style={{ background: "linear-gradient(135deg, #059669, #10b981)" }}>
+                        {processing === req.id ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                        อนุมัติ
+                      </button>
+                      <button
+                        onClick={() => setRejectId(req.id)}
+                        disabled={processing === req.id}
+                        className="flex-1 py-2.5 rounded-xl text-[12px] font-bold border border-gray-200 text-gray-600 flex items-center justify-center gap-1.5 hover:bg-gray-50 active:scale-[.98] transition-all">
+                        <XCircle size={12} /> ปฏิเสธ
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Reviewer info */}
+                  {req.reviewed_at && (
+                    <div className="px-4 pb-3 text-[10px] text-gray-400">
+                      ตรวจสอบเมื่อ {format(new Date(req.reviewed_at), "d MMM HH:mm", { locale: th })}
+                    </div>
+                  )}
                 </div>
+              )
+            })}
 
-                {/* Action buttons (only for pending) */}
-                {req.status === "pending" && (
-                  <div className="flex gap-2 px-4 pb-3.5">
-                    <button
-                      onClick={() => handleAction(req.id, "approve")}
-                      disabled={processing === req.id}
-                      className="flex-1 py-2.5 rounded-xl text-[12px] font-bold text-white flex items-center justify-center gap-1.5 active:scale-[.98] transition-all"
-                      style={{ background: "linear-gradient(135deg, #059669, #10b981)" }}>
-                      {processing === req.id ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-                      อนุมัติ
-                    </button>
-                    <button
-                      onClick={() => setRejectId(req.id)}
-                      disabled={processing === req.id}
-                      className="flex-1 py-2.5 rounded-xl text-[12px] font-bold border border-gray-200 text-gray-600 flex items-center justify-center gap-1.5 hover:bg-gray-50 active:scale-[.98] transition-all">
-                      <XCircle size={12} /> ปฏิเสธ
-                    </button>
-                  </div>
-                )}
-
-                {/* Reviewer info */}
-                {req.reviewed_at && (
-                  <div className="px-4 pb-3 text-[10px] text-gray-400">
-                    ตรวจสอบเมื่อ {format(new Date(req.reviewed_at), "d MMM HH:mm", { locale: th })}
-                  </div>
-                )}
+            {/* Load more button */}
+            {hasMore && (
+              <div className="flex justify-center pt-2 pb-4">
+                <button onClick={loadMore} disabled={loadingMore}
+                  className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 active:scale-[.98] transition-all disabled:opacity-50 shadow-sm">
+                  {loadingMore ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} className="rotate-90" />}
+                  {loadingMore ? "กำลังโหลด..." : `โหลดเพิ่ม (เหลือ ${total - requests.length} รายการ)`}
+                </button>
               </div>
-            )
-          })
+            )}
+          </>
         )}
       </div>
 
