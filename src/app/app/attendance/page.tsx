@@ -532,8 +532,9 @@ export default function AttendancePage() {
             const isLeave = r.status === "leave"
             const isVirtual = !!r._virtual
             const hasClockedIn = !!r.clock_in
+            const missingClockOut = hasClockedIn && !r.clock_out
             const showActions = !hol && !isLeave && r.status !== "holiday"
-                                 && (isAbsent || isLate || isEarlyOut || !hasClockedIn)
+                                 && (isAbsent || isLate || isEarlyOut || !hasClockedIn || missingClockOut)
 
             return (
               <div key={r.id}

@@ -190,7 +190,10 @@ export default function CorrectionPage() {
               <Loader2 size={16} className="animate-spin" /><span className="text-sm">กำลังโหลด...</span>
             </div>
           ) : !record ? (
-            <div className="px-4 py-5 text-center text-slate-400 text-sm">ไม่พบข้อมูลการเข้างานของวันนี้</div>
+            <div className="px-4 py-5 text-center">
+              <p className="text-slate-400 text-sm">ไม่พบข้อมูลการเข้างานของวันนี้</p>
+              <p className="text-xs text-indigo-500 mt-1">สามารถยื่นขอแก้ไขเวลาได้ด้านล่าง</p>
+            </div>
           ) : (
             <>
               <div className="grid grid-cols-2 divide-x divide-slate-100">
@@ -214,7 +217,7 @@ export default function CorrectionPage() {
         </div>
 
         {/* ── Form ────────────────────────────────────── */}
-        {record && (
+        {!recLoading && (
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2.5 flex items-center gap-2">
               <Clock size={13} className="text-indigo-200" />
@@ -238,7 +241,7 @@ export default function CorrectionPage() {
                     className="px-3 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 tabular-nums font-semibold text-slate-800"
                   />
                 </div>
-                {record.clock_in && form.requested_clock_in && toInput(record.clock_in) !== form.requested_clock_in && (
+                {record?.clock_in && form.requested_clock_in && toInput(record.clock_in) !== form.requested_clock_in && (
                   <p className="text-[10px] text-slate-400 mt-1">
                     เดิม {toDisplay(record.clock_in)} → <span className="text-indigo-600 font-semibold">{form.requested_clock_in}</span>
                   </p>
@@ -269,7 +272,7 @@ export default function CorrectionPage() {
                     <AlertCircle size={10} /> กะข้ามคืน — ออกงานวันถัดไป
                   </p>
                 )}
-                {record.clock_out && form.requested_clock_out && toInput(record.clock_out) !== form.requested_clock_out && (
+                {record?.clock_out && form.requested_clock_out && toInput(record.clock_out) !== form.requested_clock_out && (
                   <p className="text-[10px] text-slate-400 mt-1">
                     เดิม {toDisplay(record.clock_out)} → <span className="text-indigo-600 font-semibold">{form.requested_clock_out}</span>
                   </p>
