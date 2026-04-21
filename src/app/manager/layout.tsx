@@ -111,7 +111,7 @@ function ManagerLayoutInner({ children }: { children: React.ReactNode }) {
     const onApprovalAction = () => load()
     window.addEventListener("approval-action", onApprovalAction)
     return () => { clearInterval(iv); window.removeEventListener("approval-action", onApprovalAction) }
-  }, [empId, pathname]) // eslint-disable-line
+  }, [empId]) // eslint-disable-line — badge ไม่ต้อง refetch ทุกครั้งที่เปลี่ยนหน้า (มี interval 30s อยู่แล้ว)
 
   return (
     <div className="mobile-container">

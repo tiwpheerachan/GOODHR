@@ -55,29 +55,39 @@ export async function GET(req: NextRequest) {
     const directMembers = (history ?? []).map((h: any) => h.employee).filter(Boolean)
 
     // ดึงพนักงานที่กำหนดให้คนนี้เป็นผู้ประเมิน KPI (kpi_evaluator_id)
-    const { data: kpiAssigned } = await svc
-      .from("employees")
-      .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, position:positions(name), department:departments(name)")
-      .eq("kpi_evaluator_id", managerId)
-      .eq("is_active", true)
+    // try/catch เพราะ column อาจยังไม่มี (ต้องรัน migration ก่อน)
+    let kpiAssigned: any[] = []
+    let overriddenSet = new Set<string>()
+    try {
+      const { data: kpiData } = await svc
+        .from("employees")
+        .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, position:positions(name), department:departments(name)")
+        .eq("kpi_evaluator_id", managerId)
+        .eq("is_active", true)
+      kpiAssigned = kpiData ?? []
+
+      // ตัดลูกน้องที่มีผู้ประเมิน KPI เป็นคนอื่น (ไม่ใช่ manager คนนี้)
+      if (directMembers.length > 0) {
+        const { data: overridden } = await svc
+          .from("employees")
+          .select("id, kpi_evaluator_id")
+          .in("id", directMembers.map((m: any) => m.id))
+          .not("kpi_evaluator_id", "is", null)
+
+        overriddenSet = new Set(
+          (overridden ?? [])
+            .filter((e: any) => e.kpi_evaluator_id !== managerId)
+            .map((e: any) => e.id)
+        )
+      }
+    } catch {
+      // column kpi_evaluator_id ยังไม่มี — ใช้ logic เดิม (แค่ลูกน้อง)
+    }
 
     // รวมทั้งสองกลุ่ม (ลบซ้ำด้วย id)
     const memberMap = new Map<string, any>()
     for (const m of directMembers) memberMap.set(m.id, m)
-    for (const m of (kpiAssigned ?? [])) memberMap.set(m.id, m)
-
-    // ตัดลูกน้องที่มีผู้ประเมิน KPI เป็นคนอื่น (ไม่ใช่ manager คนนี้)
-    const { data: overridden } = await svc
-      .from("employees")
-      .select("id, kpi_evaluator_id")
-      .in("id", directMembers.map((m: any) => m.id))
-      .not("kpi_evaluator_id", "is", null)
-
-    const overriddenSet = new Set(
-      (overridden ?? [])
-        .filter((e: any) => e.kpi_evaluator_id !== managerId)
-        .map((e: any) => e.id)
-    )
+    for (const m of kpiAssigned) memberMap.set(m.id, m)
 
     // ลบลูกน้องที่ถูก override ไปให้คนอื่นประเมิน
     overriddenSet.forEach((eid: string) => memberMap.delete(eid))
@@ -284,8 +294,13 @@ export async function POST(req: NextRequest) {
 
   // ตรวจสอบว่าพนักงานมี kpi_evaluator_id กำหนดไว้หรือไม่
   // ถ้ามี → ใช้ kpi_evaluator_id, ถ้าไม่มี → ใช้ manager ปัจจุบัน (คนที่กด submit)
-  const { data: targetEmp } = await svc.from("employees").select("kpi_evaluator_id").eq("id", employee_id).single()
-  const effectiveEvaluatorId = targetEmp?.kpi_evaluator_id || dbUser.employee_id
+  let effectiveEvaluatorId = dbUser.employee_id
+  try {
+    const { data: targetEmp } = await svc.from("employees").select("kpi_evaluator_id").eq("id", employee_id).single()
+    if (targetEmp?.kpi_evaluator_id) effectiveEvaluatorId = targetEmp.kpi_evaluator_id
+  } catch {
+    // column kpi_evaluator_id ยังไม่มี — ใช้ default (manager ปัจจุบัน)
+  }
 
   // Check existing form
   const { data: existing } = await svc.from("kpi_forms")

@@ -51,25 +51,37 @@ export async function GET(req: NextRequest) {
     // ดึงลูกน้อง (จาก employee_manager_history)
     const { data: history } = await svc
       .from("employee_manager_history")
-      .select("employee_id, employee:employees!employee_id(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, employment_status, probation_end_date, kpi_evaluator_id, position:positions(name), department:departments(name))")
+      .select("employee_id, employee:employees!employee_id(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, employment_status, probation_end_date, position:positions(name), department:departments(name))")
       .eq("manager_id", managerId)
       .is("effective_to", null)
 
-    // ดึงพนักงานที่กำหนดให้คนนี้เป็นผู้ประเมิน KPI
-    const { data: kpiAssigned } = await svc
-      .from("employees")
-      .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, employment_status, probation_end_date, kpi_evaluator_id, position:positions(name), department:departments(name)")
-      .eq("kpi_evaluator_id", managerId)
-      .eq("is_active", true)
-
-    // รวมทั้งสองกลุ่ม (ลบซ้ำ + ตัดคนที่ถูก override)
     const directMembers = (history ?? []).map((h: any) => h.employee).filter(Boolean)
     const memberMap = new Map<string, any>()
     for (const m of directMembers) memberMap.set(m.id, m)
-    for (const m of (kpiAssigned ?? [])) memberMap.set(m.id, m)
-    // ตัดลูกน้องที่มีผู้ประเมินเป็นคนอื่น
-    for (const m of directMembers) {
-      if (m.kpi_evaluator_id && m.kpi_evaluator_id !== managerId) memberMap.delete(m.id)
+
+    // ดึงพนักงานที่กำหนดให้คนนี้เป็นผู้ประเมิน KPI
+    // try/catch เพราะ column kpi_evaluator_id อาจยังไม่มี (ต้องรัน migration ก่อน)
+    try {
+      const { data: kpiAssigned } = await svc
+        .from("employees")
+        .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, employment_status, probation_end_date, position:positions(name), department:departments(name)")
+        .eq("kpi_evaluator_id", managerId)
+        .eq("is_active", true)
+      for (const m of (kpiAssigned ?? [])) memberMap.set(m.id, m)
+
+      // ตัดลูกน้องที่มีผู้ประเมินเป็นคนอื่น
+      if (directMembers.length > 0) {
+        const { data: overridden } = await svc
+          .from("employees")
+          .select("id, kpi_evaluator_id")
+          .in("id", directMembers.map((m: any) => m.id))
+          .not("kpi_evaluator_id", "is", null)
+        for (const e of (overridden ?? [])) {
+          if (e.kpi_evaluator_id !== managerId) memberMap.delete(e.id)
+        }
+      }
+    } catch {
+      // column kpi_evaluator_id ยังไม่มี — ใช้ logic เดิม (แค่ลูกน้อง)
     }
 
     // เอาเฉพาะพนักงานที่ยังอยู่ในช่วงทดลองงาน

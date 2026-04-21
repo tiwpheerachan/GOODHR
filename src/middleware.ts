@@ -52,26 +52,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/", request.url))
   }
 
-  if (user && pathname.startsWith("/admin")) {
+  // ── Role check: query DB เพียงครั้งเดียว สำหรับทุก protected route ──
+  const needsRole = pathname.startsWith("/admin") || pathname.startsWith("/manager") || pathname.startsWith("/equipment")
+  if (user && needsRole) {
     const { data: u } = await supabase
       .from("users").select("role").eq("id", user.id).maybeSingle()
-    if (!u || !["super_admin", "hr_admin"].includes(u.role)) {
+    const role = u?.role
+
+    if (pathname.startsWith("/admin") && !["super_admin", "hr_admin"].includes(role)) {
       return NextResponse.redirect(new URL("/app/dashboard", request.url))
     }
-  }
-
-  if (user && pathname.startsWith("/manager")) {
-    const { data: u } = await supabase
-      .from("users").select("role").eq("id", user.id).maybeSingle()
-    if (!u || !["super_admin", "hr_admin", "manager"].includes(u.role)) {
+    if (pathname.startsWith("/manager") && !["super_admin", "hr_admin", "manager"].includes(role)) {
       return NextResponse.redirect(new URL("/app/dashboard", request.url))
     }
-  }
-
-  if (user && pathname.startsWith("/equipment")) {
-    const { data: u } = await supabase
-      .from("users").select("role").eq("id", user.id).maybeSingle()
-    if (!u || !["super_admin", "hr_admin", "equipment_admin"].includes(u.role)) {
+    if (pathname.startsWith("/equipment") && !["super_admin", "hr_admin", "equipment_admin"].includes(role)) {
       return NextResponse.redirect(new URL("/app/dashboard", request.url))
     }
   }

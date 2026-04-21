@@ -118,7 +118,7 @@ export default function EmployeeDetailPage() {
   useEffect(() => {
     if (!id) return
     Promise.all([
-      supabase.from("employees").select("*, position:positions(name), department:departments(name), branch:branches(name), kpi_evaluator:employees!employees_kpi_evaluator_id_fkey(id,first_name_th,last_name_th,employee_code)").eq("id",id as string).single(),
+      supabase.from("employees").select("*, position:positions(name), department:departments(name), branch:branches(name)").eq("id",id as string).single(),
       supabase.from("salary_structures").select("*").eq("employee_id",id as string).is("effective_to",null).order("effective_from",{ascending:false}).limit(1).maybeSingle(),
       supabase.from("employee_manager_history").select("*, manager:employees!manager_id(id,first_name_th,last_name_th)").eq("employee_id",id as string).order("effective_from",{ascending:false}),
       supabase.from("kpi_bonus_settings").select("*").eq("employee_id",id as string).eq("is_active",true).maybeSingle(),
@@ -128,9 +128,13 @@ export default function EmployeeDetailPage() {
     ]).then(([e, s, h, kpi, resign, promo, comp]) => {
       if (e.data) {
         setEmp(e.data); setForm(e.data)
-        if (e.data.kpi_evaluator) {
-          const ev = e.data.kpi_evaluator
-          setKpiEvalSearch(`${ev.first_name_th} ${ev.last_name_th} (${ev.employee_code})`)
+        // ── โหลด kpi_evaluator แยก (column อาจยังไม่มีถ้ายังไม่รัน migration) ──
+        if (e.data.kpi_evaluator_id) {
+          supabase.from("employees").select("id,first_name_th,last_name_th,employee_code")
+            .eq("id", e.data.kpi_evaluator_id).single()
+            .then(({ data: ev }) => {
+              if (ev) setKpiEvalSearch(`${ev.first_name_th} ${ev.last_name_th} (${ev.employee_code})`)
+            })
         }
       }
       if (s.data) { setSalary(s.data); setSf(s.data) }
@@ -203,7 +207,7 @@ export default function EmployeeDetailPage() {
 
   const saveEmployment = async () => {
     setLoading(true)
-    const { error } = await supabase.from("employees").update({
+    const updateData: any = {
       company_id: form.company_id || null,
       department_id: form.department_id || null,
       position_id: form.position_id || null,
@@ -214,8 +218,10 @@ export default function EmployeeDetailPage() {
       probation_end_date: form.probation_end_date || null,
       resign_date: form.resign_date || null,
       is_attendance_exempt: !!form.is_attendance_exempt,
-      kpi_evaluator_id: form.kpi_evaluator_id || null,
-    }).eq("id", id as string)
+    }
+    // เพิ่ม kpi_evaluator_id เฉพาะเมื่อมี field อยู่ (หลังรัน migration แล้ว)
+    if ("kpi_evaluator_id" in form) updateData.kpi_evaluator_id = form.kpi_evaluator_id || null
+    const { error } = await supabase.from("employees").update(updateData).eq("id", id as string)
     if (error) toast.error("เกิดข้อผิดพลาด"); else {
       toast.success("บันทึกสำเร็จ")
       // อัปเดต users table ด้วย company_id ถ้าเปลี่ยน

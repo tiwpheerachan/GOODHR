@@ -69,7 +69,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const onChanged = () => load()
     window.addEventListener("approvals-changed", onChanged)
     return () => { clearInterval(iv); window.removeEventListener("approvals-changed", onChanged) }
-  }, [user, pathname]) // eslint-disable-line
+  }, [user]) // eslint-disable-line — badge ไม่ต้อง refetch ทุกครั้งที่เปลี่ยนหน้า (มี interval 30s อยู่แล้ว)
 
   const emp         = user?.employee
   const avatarUrl   = emp?.avatar_url
