@@ -97,7 +97,7 @@ export default function AttendancePage() {
   const [month, setMonth] = useState(() => new Date(2026, 0, 1)) // fixed date, sync ใน useEffect
   const [hydrated, setHydrated] = useState(false)
   const empId = (user as any)?.employee_id ?? (user as any)?.employee?.id
-  const { records, periodRecords, period, holidayMap, leaveMap, loading } = useAttendance(empId, month)
+  const { records, periodRecords, period, holidayMap, leaveMap, correctionMap, loading } = useAttendance(empId, month)
 
   useEffect(() => {
     setMonth(getCurrentPeriodDate())
@@ -533,8 +533,13 @@ export default function AttendancePage() {
             const isVirtual = !!r._virtual
             const hasClockedIn = !!r.clock_in
             const missingClockOut = hasClockedIn && !r.clock_out
+            const correction = correctionMap[r.work_date]
+            const hasPendingCorrection = correction?.status === "pending"
+            const hasApprovedCorrection = correction?.status === "approved"
+            const hasRejectedCorrection = correction?.status === "rejected"
             const showActions = !hol && !isLeave && r.status !== "holiday"
                                  && (isAbsent || isLate || isEarlyOut || !hasClockedIn || missingClockOut)
+                                 && !hasPendingCorrection
 
             return (
               <div key={r.id}
@@ -564,6 +569,9 @@ export default function AttendancePage() {
                       {isLeave && r.leave_status === "approved" && <span className="text-[9px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded-lg border border-green-100">อนุมัติแล้ว</span>}
                       {hol && <span className="text-[9px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-lg border border-rose-100">{hol.length > 12 ? hol.slice(0, 12) + "…" : hol}</span>}
                       {isAbsent && isVirtual && <span className="text-[9px] font-bold text-red-400 bg-red-50 px-1.5 py-0.5 rounded-lg border border-red-100">ไม่มีการเช็คอิน</span>}
+                      {hasPendingCorrection && <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-lg border border-amber-100">⏳ รออนุมัติแก้ไขเวลา</span>}
+                      {hasApprovedCorrection && <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-lg border border-emerald-100">✅ แก้ไขเวลาอนุมัติแล้ว</span>}
+                      {hasRejectedCorrection && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-lg border border-red-100">❌ แก้ไขเวลาไม่อนุมัติ</span>}
                     </div>
                     {isLeave && isVirtual ? (
                       <p className="text-[11px] text-purple-500 font-medium">{r.leave_type_name || "ลา"} {r.leave_status === "approved" ? "✓" : "(รออนุมัติ)"}</p>
@@ -585,7 +593,9 @@ export default function AttendancePage() {
                         )}
                       </div>
                     ) : (
-                      <p className="text-[11px] text-red-400 font-medium">ส่งคำขอแก้ไข หรือยื่นลาย้อนหลัง</p>
+                      <p className="text-[11px] text-red-400 font-medium">
+                        {hasPendingCorrection ? "ส่งคำขอแก้ไขเวลาแล้ว — รอหัวหน้าอนุมัติ" : "ส่งคำขอแก้ไข หรือยื่นลาย้อนหลัง"}
+                      </p>
                     )}
                   </div>
 

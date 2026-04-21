@@ -24,6 +24,7 @@ export function useAttendance(employeeId?: string, month = new Date()) {
   const [periodRecords,setPeriodRecords] = useState<any[]>([])  // records เฉพาะในงวดเงินเดือน
   const [holidays,     setHolidays]     = useState<any[]>([])
   const [leaveMap,     setLeaveMap]     = useState<Record<string, { type: string; status: string }>>({})
+  const [correctionMap, setCorrectionMap] = useState<Record<string, { status: string; requested_clock_in?: string; requested_clock_out?: string }>>({})
   const [today,        setToday]        = useState<any>(null)
   const [forgotCheckout, setForgotCheckout] = useState<any>(null) // record เมื่อวานที่ลืมเช็คเอ้า
   const [loading,      setLoading]      = useState(true)
@@ -47,7 +48,7 @@ export function useAttendance(employeeId?: string, month = new Date()) {
 
     // ดึง attendance สำหรับ calendar (ทั้งเดือน)
     // และดึง attendance สำหรับงวดเงินเดือน (22-21) แยกกัน
-    const [attRes, periodRes, todayRes, holRes, leaveRes] = await Promise.all([
+    const [attRes, periodRes, todayRes, holRes, leaveRes, corrRes] = await Promise.all([
       supabase.from("attendance_records").select("*")
         .eq("employee_id", employeeId)
         .gte("work_date", startDate).lte("work_date", endDate)
@@ -73,6 +74,13 @@ export function useAttendance(employeeId?: string, month = new Date()) {
         .in("status", ["approved", "pending"])
         .lte("start_date", endDate)
         .gte("end_date", startDate),
+
+      // ดึง time_adjustment_requests เพื่อแสดงสถานะ "รออนุมัติ" / "อนุมัติแล้ว"
+      supabase.from("time_adjustment_requests")
+        .select("work_date, status, requested_clock_in, requested_clock_out")
+        .eq("employee_id", employeeId)
+        .gte("work_date", startDate).lte("work_date", endDate)
+        .order("created_at", { ascending: false }),
     ])
 
     // สร้าง leaveMap: { "2026-03-27": { type: "ลาพักร้อน", status: "approved" } }
@@ -89,6 +97,20 @@ export function useAttendance(employeeId?: string, month = new Date()) {
         cur = format(d, "yyyy-MM-dd")
       }
     }
+
+    // สร้าง correctionMap: { "2026-04-10": { status: "pending", ... } }
+    // เก็บเฉพาะ record ล่าสุดต่อวัน (อันแรกจาก order by created_at desc)
+    const cm: Record<string, { status: string; requested_clock_in?: string; requested_clock_out?: string }> = {}
+    for (const c of (corrRes.data ?? []) as any[]) {
+      if (!cm[c.work_date]) {
+        cm[c.work_date] = {
+          status: c.status,
+          requested_clock_in: c.requested_clock_in,
+          requested_clock_out: c.requested_clock_out,
+        }
+      }
+    }
+    setCorrectionMap(cm)
 
     setRecords(attRes.data ?? [])
     setPeriodRecords(periodRes.data ?? [])
@@ -141,6 +163,7 @@ export function useAttendance(employeeId?: string, month = new Date()) {
     holidays,
     holidayMap,
     leaveMap,         // วันลาที่ approved/pending — ใช้แสดง "ลา" แทน "ขาดงาน"
+    correctionMap,    // วันที่มีคำขอแก้ไขเวลา — ใช้แสดงสถานะ pending/approved/rejected
     today,
     todayRecord: today,
     forgotCheckout,   // record เมื่อวานที่ลืมเช็คเอ้า (หลังตี 5) — ใช้แสดงเตือนใน UI
