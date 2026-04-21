@@ -30,11 +30,14 @@ export function useAuth() {
           .select(`
             *,
             employee:employees(
-              *,
-              company:companies(*),
-              branch:branches(*),
-              department:departments(*),
-              position:positions(*)
+              id, employee_code, first_name_th, last_name_th, nickname,
+              company_id, branch_id, department_id, position_id,
+              employment_status, employment_type, is_active, avatar_url,
+              hire_date, is_attendance_exempt, brand,
+              company:companies(id, name_th, code),
+              branch:branches(id, name),
+              department:departments(id, name),
+              position:positions(id, name)
             )
           `)
           .eq("id", authUser.id)

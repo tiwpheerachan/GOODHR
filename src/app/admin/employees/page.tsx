@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import { Search, Plus, Download, ChevronRight, ChevronLeft, Filter, Users, Building2, Trash2, FileUp } from "lucide-react"
@@ -40,6 +40,7 @@ export default function EmployeesPage() {
   const [total,            setTotal]            = useState(0)
   const [page,             setPage]             = useState(0)
   const [search,           setSearch]           = useState("")
+  const [debouncedSearch,  setDebouncedSearch]  = useState("")
   const [status,           setStatus]           = useState("")
   const [showInactive,     setShowInactive]     = useState(false)
   const [dept,             setDept]             = useState("")
@@ -54,22 +55,31 @@ export default function EmployeesPage() {
     ? (selectedCompany || undefined)
     : myCompanyId
 
-  // ── load companies + per-company counts ───────────────────────────
+  // ── debounce search: รอ 400ms หลังพิมพ์เสร็จค่อย query ──────────
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>()
+  useEffect(() => {
+    searchTimer.current = setTimeout(() => {
+      setDebouncedSearch(search)
+      setPage(0)
+    }, 400)
+    return () => clearTimeout(searchTimer.current)
+  }, [search])
+
+  // ── load companies + per-company counts (ใช้ single query) ───────
   useEffect(() => {
     if (!isSuperAdmin) return
-    supabase.from("companies").select("id, name_th, code").eq("is_active", true).order("name_th")
-      .then(({ data }) => {
-        setCompanies(data ?? [])
-        // load counts per company
-        Promise.all((data ?? []).map((c: any) =>
-          supabase.from("employees").select("id", { count: "exact", head: true })
-            .eq("company_id", c.id).eq("is_active", true)
-        )).then(results => {
-          const counts: Record<string, number> = {}
-          ;(data ?? []).forEach((c: any, i: number) => { counts[c.id] = results[i].count ?? 0 })
-          setCompanyCounts(counts)
-        })
+    Promise.all([
+      supabase.from("companies").select("id, name_th, code").eq("is_active", true).order("name_th"),
+      supabase.from("employees").select("company_id", { count: "exact", head: false }).eq("is_active", true).is("deleted_at", null),
+    ]).then(([compRes, empRes]) => {
+      setCompanies(compRes.data ?? [])
+      // นับจำนวนพนักงานจากผลลัพธ์ครั้งเดียว แทน N+1 queries
+      const counts: Record<string, number> = {}
+      ;(empRes.data ?? []).forEach((e: any) => {
+        counts[e.company_id] = (counts[e.company_id] || 0) + 1
       })
+      setCompanyCounts(counts)
+    })
   }, [isSuperAdmin])
 
   // ── load departments ──────────────────────────────────────────────
@@ -113,7 +123,7 @@ export default function EmployeesPage() {
       else if (!isSuperAdmin)    q = q.eq("company_id", myCompanyId!)
       if (status)                q = q.eq("employment_status", status)
       if (dept)                  q = q.eq("department_id", dept)
-      if (search)                q = q.or(`first_name_th.ilike.%${search}%,last_name_th.ilike.%${search}%,employee_code.ilike.%${search}%,nickname.ilike.%${search}%`)
+      if (debouncedSearch)       q = q.or(`first_name_th.ilike.%${debouncedSearch}%,last_name_th.ilike.%${debouncedSearch}%,employee_code.ilike.%${debouncedSearch}%,nickname.ilike.%${debouncedSearch}%`)
 
       const { data, count, error } = await q
       if (error) console.error(error)
@@ -122,7 +132,7 @@ export default function EmployeesPage() {
     } finally {
       setLoading(false)
     }
-  }, [isSuperAdmin, myCompanyId, activeCompanyId, search, status, dept, page, showInactive])
+  }, [isSuperAdmin, myCompanyId, activeCompanyId, debouncedSearch, status, dept, page, showInactive])
 
   useEffect(() => { load() }, [load])
   const setF = (fn: () => void) => { fn(); setPage(0) }
@@ -232,7 +242,7 @@ export default function EmployeesPage() {
         <Filter size={13} className="text-slate-400 flex-shrink-0" />
         <div className="relative flex-1 min-w-44">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={search} onChange={e => setF(() => setSearch(e.target.value))}
+          <input value={search} onChange={e => setSearch(e.target.value)}
             className={inp + " pl-8 w-full"} placeholder="ค้นหาชื่อ, รหัส, ชื่อเล่น..." />
         </div>
         {isSuperAdmin && (

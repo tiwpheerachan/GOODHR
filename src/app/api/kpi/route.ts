@@ -40,19 +40,49 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ form })
   }
 
-  // Manager: ดึง KPI ลูกน้องตัวเอง
+  // Manager: ดึง KPI ลูกน้องตัวเอง + คนที่กำหนดให้ประเมิน
   if (mode === "manager") {
     const managerId = dbUser.employee_id
     if (!managerId) return NextResponse.json({ forms: [] })
 
-    // ดึงลูกน้อง
+    // ดึงลูกน้อง (จาก employee_manager_history)
     const { data: history } = await svc
       .from("employee_manager_history")
       .select("employee_id, employee:employees!employee_id(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, position:positions(name), department:departments(name))")
       .eq("manager_id", managerId)
       .is("effective_to", null)
 
-    const members = (history ?? []).map((h: any) => h.employee).filter(Boolean)
+    const directMembers = (history ?? []).map((h: any) => h.employee).filter(Boolean)
+
+    // ดึงพนักงานที่กำหนดให้คนนี้เป็นผู้ประเมิน KPI (kpi_evaluator_id)
+    const { data: kpiAssigned } = await svc
+      .from("employees")
+      .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, position:positions(name), department:departments(name)")
+      .eq("kpi_evaluator_id", managerId)
+      .eq("is_active", true)
+
+    // รวมทั้งสองกลุ่ม (ลบซ้ำด้วย id)
+    const memberMap = new Map<string, any>()
+    for (const m of directMembers) memberMap.set(m.id, m)
+    for (const m of (kpiAssigned ?? [])) memberMap.set(m.id, m)
+
+    // ตัดลูกน้องที่มีผู้ประเมิน KPI เป็นคนอื่น (ไม่ใช่ manager คนนี้)
+    const { data: overridden } = await svc
+      .from("employees")
+      .select("id, kpi_evaluator_id")
+      .in("id", directMembers.map((m: any) => m.id))
+      .not("kpi_evaluator_id", "is", null)
+
+    const overriddenSet = new Set(
+      (overridden ?? [])
+        .filter((e: any) => e.kpi_evaluator_id !== managerId)
+        .map((e: any) => e.id)
+    )
+
+    // ลบลูกน้องที่ถูก override ไปให้คนอื่นประเมิน
+    overriddenSet.forEach((eid: string) => memberMap.delete(eid))
+
+    const members = Array.from(memberMap.values())
 
     // ดึง KPI forms ที่มีอยู่แล้ว
     let query = svc.from("kpi_forms").select("id, employee_id, year, month, total_score, grade, status, submitted_at, rejection_note").eq("year", year).eq("evaluator_id", managerId)
@@ -252,6 +282,11 @@ export async function POST(req: NextRequest) {
   const grade = calcGrade(totalScore)
   const status = action === "submit" ? "submitted" : "draft"
 
+  // ตรวจสอบว่าพนักงานมี kpi_evaluator_id กำหนดไว้หรือไม่
+  // ถ้ามี → ใช้ kpi_evaluator_id, ถ้าไม่มี → ใช้ manager ปัจจุบัน (คนที่กด submit)
+  const { data: targetEmp } = await svc.from("employees").select("kpi_evaluator_id").eq("id", employee_id).single()
+  const effectiveEvaluatorId = targetEmp?.kpi_evaluator_id || dbUser.employee_id
+
   // Check existing form
   const { data: existing } = await svc.from("kpi_forms")
     .select("id, status")
@@ -286,7 +321,7 @@ export async function POST(req: NextRequest) {
     const { data: newForm, error } = await svc.from("kpi_forms").insert({
       company_id: dbUser.company_id,
       employee_id,
-      evaluator_id: dbUser.employee_id,
+      evaluator_id: effectiveEvaluatorId,
       year, month,
       total_score: totalScore, grade, status, evaluator_note,
       submitted_at: action === "submit" ? new Date().toISOString() : null,

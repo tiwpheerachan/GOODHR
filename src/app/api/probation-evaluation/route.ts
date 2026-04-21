@@ -48,17 +48,32 @@ export async function GET(req: NextRequest) {
     const managerId = dbUser.employee_id
     if (!managerId) return NextResponse.json({ members: [], forms: [] })
 
-    // ดึงลูกน้อง
+    // ดึงลูกน้อง (จาก employee_manager_history)
     const { data: history } = await svc
       .from("employee_manager_history")
-      .select("employee_id, employee:employees!employee_id(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, employment_status, probation_end_date, position:positions(name), department:departments(name))")
+      .select("employee_id, employee:employees!employee_id(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, employment_status, probation_end_date, kpi_evaluator_id, position:positions(name), department:departments(name))")
       .eq("manager_id", managerId)
       .is("effective_to", null)
 
+    // ดึงพนักงานที่กำหนดให้คนนี้เป็นผู้ประเมิน KPI
+    const { data: kpiAssigned } = await svc
+      .from("employees")
+      .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, employment_status, probation_end_date, kpi_evaluator_id, position:positions(name), department:departments(name)")
+      .eq("kpi_evaluator_id", managerId)
+      .eq("is_active", true)
+
+    // รวมทั้งสองกลุ่ม (ลบซ้ำ + ตัดคนที่ถูก override)
+    const directMembers = (history ?? []).map((h: any) => h.employee).filter(Boolean)
+    const memberMap = new Map<string, any>()
+    for (const m of directMembers) memberMap.set(m.id, m)
+    for (const m of (kpiAssigned ?? [])) memberMap.set(m.id, m)
+    // ตัดลูกน้องที่มีผู้ประเมินเป็นคนอื่น
+    for (const m of directMembers) {
+      if (m.kpi_evaluator_id && m.kpi_evaluator_id !== managerId) memberMap.delete(m.id)
+    }
+
     // เอาเฉพาะพนักงานที่ยังอยู่ในช่วงทดลองงาน
-    // เงื่อนไข: อายุงาน ≤ 150 วัน (เผื่อเลยกำหนดรอบ 3) AND ยังไม่ผ่านโปรฯ
-    // ถ้า employment_status = "probation" หรือ มี probation_end_date หรือ อายุงาน ≤ 121 วัน (ยังไม่ครบทดลอง)
-    const allMembers = (history ?? []).map((h: any) => h.employee).filter(Boolean)
+    const allMembers = Array.from(memberMap.values())
     const today = new Date()
     const members = allMembers.filter((m: any) => {
       if (!m.hire_date) return false

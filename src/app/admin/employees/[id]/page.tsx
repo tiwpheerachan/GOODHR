@@ -44,6 +44,9 @@ export default function EmployeeDetailPage() {
   const [newMgrDate, setNewMgrDate] = useState(format(new Date(),"yyyy-MM-dd"))
   const [mgrSearch, setMgrSearch] = useState<string | null>(null)
   const [showMgrDropdown, setShowMgrDropdown] = useState(false)
+  // KPI evaluator
+  const [kpiEvalSearch, setKpiEvalSearch] = useState<string | null>(null)
+  const [showKpiEvalDropdown, setShowKpiEvalDropdown] = useState(false)
   // resign modal
   const [kpiSetting, setKpiSetting] = useState<any>(null)
   const [kpiAmount,  setKpiAmount]  = useState<string>("")
@@ -111,32 +114,42 @@ export default function EmployeeDetailPage() {
     setCreatingPosition(false)
   }
 
+  // ── โหลดข้อมูลหลักทั้งหมดพร้อมกันใน Promise.all เดียว ──
   useEffect(() => {
     if (!id) return
     Promise.all([
-      supabase.from("employees").select("*, position:positions(name), department:departments(name), branch:branches(name)").eq("id",id as string).single(),
+      supabase.from("employees").select("*, position:positions(name), department:departments(name), branch:branches(name), kpi_evaluator:employees!employees_kpi_evaluator_id_fkey(id,first_name_th,last_name_th,employee_code)").eq("id",id as string).single(),
       supabase.from("salary_structures").select("*").eq("employee_id",id as string).is("effective_to",null).order("effective_from",{ascending:false}).limit(1).maybeSingle(),
       supabase.from("employee_manager_history").select("*, manager:employees!manager_id(id,first_name_th,last_name_th)").eq("employee_id",id as string).order("effective_from",{ascending:false}),
-    ]).then(([e,s,h]) => {
-      if (e.data) { setEmp(e.data); setForm(e.data) }
+      supabase.from("kpi_bonus_settings").select("*").eq("employee_id",id as string).eq("is_active",true).maybeSingle(),
+      supabase.from("resignation_history").select("*").eq("employee_id",id as string).order("created_at",{ascending:false}),
+      supabase.from("employee_probation_promotions").select("*, new_position:positions(name)").eq("employee_id",id as string).eq("is_applied",false).order("created_at",{ascending:false}).limit(1).maybeSingle(),
+      supabase.from("companies").select("id,name_th,code").eq("is_active", true).order("name_th"),
+    ]).then(([e, s, h, kpi, resign, promo, comp]) => {
+      if (e.data) {
+        setEmp(e.data); setForm(e.data)
+        if (e.data.kpi_evaluator) {
+          const ev = e.data.kpi_evaluator
+          setKpiEvalSearch(`${ev.first_name_th} ${ev.last_name_th} (${ev.employee_code})`)
+        }
+      }
       if (s.data) { setSalary(s.data); setSf(s.data) }
       setMgrHistory(h.data ?? [])
+      if (kpi.data) { setKpiSetting(kpi.data); setKpiAmount(kpi.data?.standard_amount?.toString() || "") }
+      setResignHistory(resign.data ?? [])
+      setPromotion(promo.data ?? null)
+      setCompanies(comp.data ?? [])
     })
-    // ดึง KPI bonus settings
-    supabase.from("kpi_bonus_settings").select("*").eq("employee_id",id as string).eq("is_active",true).maybeSingle()
-      .then(({ data }) => { setKpiSetting(data); setKpiAmount(data?.standard_amount?.toString() || "") })
-    // ดึงประวัติการลาออก/ดึงกลับ
-    supabase.from("resignation_history").select("*").eq("employee_id",id as string).order("created_at",{ascending:false})
-      .then(({ data }) => setResignHistory(data ?? []))
-    // ดึง probation promotion settings
-    supabase.from("employee_probation_promotions").select("*, new_position:positions(name)").eq("employee_id",id as string).eq("is_applied",false).order("created_at",{ascending:false}).limit(1).maybeSingle()
-      .then(({ data }) => setPromotion(data))
-    // ดึงรายชื่อบริษัท
-    supabase.from("companies").select("id,name_th,code").eq("is_active", true).order("name_th")
-      .then(({ data }) => setCompanies(data ?? []))
-    supabase.from("employees").select("id,first_name_th,last_name_th,employee_code").eq("is_active",true).neq("id",id as string).order("first_name_th")
-      .then(({ data }) => setAllEmps(data ?? []))
   }, [id, user])
+
+  // ── lazy-load รายชื่อพนักงาน: โหลดเฉพาะเมื่อเปิด dropdown ──
+  const allEmpsLoaded = useRef(false)
+  const loadAllEmps = useCallback(async () => {
+    if (allEmpsLoaded.current || !id) return
+    allEmpsLoaded.current = true
+    const { data } = await supabase.from("employees").select("id,first_name_th,last_name_th,employee_code").eq("is_active",true).neq("id",id as string).order("first_name_th")
+    setAllEmps(data ?? [])
+  }, [id])
 
   // โหลดแผนก/ตำแหน่ง/สาขา ตาม company ของพนักงาน
   useEffect(() => {
@@ -201,6 +214,7 @@ export default function EmployeeDetailPage() {
       probation_end_date: form.probation_end_date || null,
       resign_date: form.resign_date || null,
       is_attendance_exempt: !!form.is_attendance_exempt,
+      kpi_evaluator_id: form.kpi_evaluator_id || null,
     }).eq("id", id as string)
     if (error) toast.error("เกิดข้อผิดพลาด"); else {
       toast.success("บันทึกสำเร็จ")
@@ -547,6 +561,60 @@ export default function EmployeeDetailPage() {
             </label>
           </div>
 
+          {/* ── ผู้ประเมิน KPI ── */}
+          <div className="mt-6 p-4 rounded-2xl border-2 border-violet-100 bg-violet-50/50">
+            <h4 className="font-bold text-slate-800 text-sm mb-1 flex items-center gap-2"><BarChart2 size={14} className="text-violet-500"/>ผู้ประเมิน KPI</h4>
+            <p className="text-xs text-slate-400 mb-3">เว้นว่าง = ใช้หัวหน้าปัจจุบันเป็นผู้ประเมินตามปกติ</p>
+            <div className="relative">
+              <input
+                type="text"
+                value={kpiEvalSearch ?? ""}
+                onChange={e => { setKpiEvalSearch(e.target.value); setShowKpiEvalDropdown(true); loadAllEmps() }}
+                onFocus={() => { setShowKpiEvalDropdown(true); loadAllEmps() }}
+                placeholder="ค้นหาชื่อ หรือ รหัสพนักงาน... (เว้นว่าง = หัวหน้า)"
+                className={inp}
+              />
+              {form.kpi_evaluator_id && (
+                <button type="button" onClick={() => { set("kpi_evaluator_id", null); setKpiEvalSearch("") }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-100 hover:bg-red-100 flex items-center justify-center transition-colors">
+                  <X size={12} className="text-slate-400 hover:text-red-500" />
+                </button>
+              )}
+              {showKpiEvalDropdown && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowKpiEvalDropdown(false)} />
+                  <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-[240px] overflow-y-auto">
+                    {allEmps
+                      .filter(e => {
+                        const s = (kpiEvalSearch || "").toLowerCase()
+                        if (!s) return true
+                        return `${e.first_name_th} ${e.last_name_th} ${e.employee_code}`.toLowerCase().includes(s)
+                      })
+                      .slice(0, 30)
+                      .map(e => (
+                        <button key={e.id} type="button"
+                          onClick={() => { set("kpi_evaluator_id", e.id); setKpiEvalSearch(`${e.first_name_th} ${e.last_name_th} (${e.employee_code})`); setShowKpiEvalDropdown(false) }}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 flex items-center gap-2 transition-colors">
+                          <span className="font-bold text-slate-800">{e.first_name_th} {e.last_name_th}</span>
+                          <span className="text-xs text-slate-400">{e.employee_code}</span>
+                        </button>
+                      ))}
+                    {allEmps.filter(e => {
+                      const s = (kpiEvalSearch || "").toLowerCase()
+                      if (!s) return true
+                      return `${e.first_name_th} ${e.last_name_th} ${e.employee_code}`.toLowerCase().includes(s)
+                    }).length === 0 && (
+                      <p className="px-3 py-4 text-sm text-slate-400 text-center">ไม่พบพนักงาน</p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            {form.kpi_evaluator_id && (
+              <p className="text-xs text-violet-600 font-medium mt-2 flex items-center gap-1"><CheckCircle2 size={11}/>กำหนดผู้ประเมิน KPI แล้ว — จะใช้แทนหัวหน้า</p>
+            )}
+          </div>
+
           <button onClick={saveEmployment} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>
         </>}
 
@@ -646,8 +714,8 @@ export default function EmployeeDetailPage() {
               <input
                 type="text"
                 value={mgrSearch ?? (newMgr ? allEmps.find(e => e.id === newMgr)?.first_name_th + " " + allEmps.find(e => e.id === newMgr)?.last_name_th : "")}
-                onChange={e => { setMgrSearch(e.target.value); setNewMgr(""); setShowMgrDropdown(true) }}
-                onFocus={() => setShowMgrDropdown(true)}
+                onChange={e => { setMgrSearch(e.target.value); setNewMgr(""); setShowMgrDropdown(true); loadAllEmps() }}
+                onFocus={() => { setShowMgrDropdown(true); loadAllEmps() }}
                 placeholder="ค้นหาชื่อ หรือ รหัสพนักงาน..."
                 className={inp}
               />
