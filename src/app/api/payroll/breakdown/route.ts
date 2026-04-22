@@ -113,6 +113,9 @@ export async function GET(req: NextRequest) {
     if (leaveDateMap.has(d)) continue
     const rec = attMap.get(d)
     if (!rec || rec.status === "absent") {
+      // วัน ส-อา + ไม่มี record → ไม่นับขาด (shift=work อาจจัดกะผิด)
+      const dow = new Date(d + "T00:00:00").getDay()
+      if ((dow === 0 || dow === 6) && !rec) continue
       absentDays.push({ date: d, note: rec?.note })
     }
   }
