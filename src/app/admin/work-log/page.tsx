@@ -647,28 +647,32 @@ export default function WorkLogPage() {
                       <span className="block text-center text-slate-300 py-1">—</span>
                     )}
                     {payrollDetail === emp.id && emp.payroll && (
-                      <div className="absolute right-0 top-full z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-56 text-left"
-                        onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-[10px] font-black text-slate-500 uppercase">สรุปเงินเดือน</p>
-                          <button onClick={() => setPayrollDetail(null)} className="text-slate-400 hover:text-slate-600"><X size={12}/></button>
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setPayrollDetail(null)}/>
+                        <div className="fixed z-50 bg-white border border-slate-200 rounded-xl shadow-2xl p-4 w-64"
+                          style={{ top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}
+                          onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-xs font-black text-slate-700">{emp.first_name_th} {emp.last_name_th}</p>
+                            <button onClick={() => setPayrollDetail(null)} className="text-slate-400 hover:text-slate-600"><X size={14}/></button>
+                          </div>
+                          <div className="space-y-1.5 text-[12px]">
+                            <div className="flex justify-between"><span className="text-slate-500">เงินเดือนฐาน</span><span className="font-bold text-slate-700">฿{(emp.payroll.base_salary ?? 0).toLocaleString()}</span></div>
+                            {(emp.payroll.ot_amount ?? 0) > 0 && <div className="flex justify-between"><span className="text-indigo-500">OT</span><span className="font-bold text-indigo-600">+฿{(emp.payroll.ot_amount ?? 0).toLocaleString()}</span></div>}
+                            {(emp.payroll.bonus ?? 0) > 0 && <div className="flex justify-between"><span className="text-emerald-500">โบนัส</span><span className="font-bold text-emerald-600">+฿{(emp.payroll.bonus ?? 0).toLocaleString()}</span></div>}
+                            {(emp.payroll.commission ?? 0) > 0 && <div className="flex justify-between"><span className="text-emerald-500">คอมมิชชั่น</span><span className="font-bold text-emerald-600">+฿{(emp.payroll.commission ?? 0).toLocaleString()}</span></div>}
+                            <div className="border-t border-slate-100 my-1.5"/>
+                            <div className="flex justify-between"><span className="text-slate-500">รวมรายได้</span><span className="font-bold text-slate-700">฿{(emp.payroll.gross_income ?? 0).toLocaleString()}</span></div>
+                            <div className="border-t border-slate-100 my-1.5"/>
+                            {((emp.payroll.deduct_late ?? 0) + (emp.payroll.deduct_absent ?? 0)) > 0 && <div className="flex justify-between"><span className="text-amber-500">หักสาย/ขาด</span><span className="font-bold text-amber-600">-฿{((emp.payroll.deduct_late ?? 0) + (emp.payroll.deduct_absent ?? 0)).toLocaleString()}</span></div>}
+                            {(emp.payroll.social_security_amount ?? 0) > 0 && <div className="flex justify-between"><span className="text-slate-500">ประกันสังคม</span><span className="font-bold text-slate-600">-฿{(emp.payroll.social_security_amount ?? 0).toLocaleString()}</span></div>}
+                            {(emp.payroll.monthly_tax_withheld ?? 0) > 0 && <div className="flex justify-between"><span className="text-slate-500">ภาษี</span><span className="font-bold text-slate-600">-฿{(emp.payroll.monthly_tax_withheld ?? 0).toLocaleString()}</span></div>}
+                            <div className="flex justify-between"><span className="text-rose-500">หักรวม</span><span className="font-bold text-rose-600">-฿{(emp.payroll.total_deductions ?? 0).toLocaleString()}</span></div>
+                            <div className="border-t border-slate-100 my-1.5"/>
+                            <div className="flex justify-between bg-blue-50 rounded-lg px-2 py-1.5 -mx-1"><span className="font-black text-blue-700">เงินสุทธิ</span><span className="font-black text-blue-700">฿{(emp.payroll.net_salary ?? 0).toLocaleString()}</span></div>
+                          </div>
                         </div>
-                        <div className="space-y-1 text-[11px]">
-                          <div className="flex justify-between"><span className="text-slate-500">เงินเดือนฐาน</span><span className="font-bold text-slate-700">฿{(emp.payroll.base_salary ?? 0).toLocaleString()}</span></div>
-                          {(emp.payroll.ot_amount ?? 0) > 0 && <div className="flex justify-between"><span className="text-indigo-500">OT</span><span className="font-bold text-indigo-600">+฿{(emp.payroll.ot_amount ?? 0).toLocaleString()}</span></div>}
-                          {(emp.payroll.bonus ?? 0) > 0 && <div className="flex justify-between"><span className="text-emerald-500">โบนัส</span><span className="font-bold text-emerald-600">+฿{(emp.payroll.bonus ?? 0).toLocaleString()}</span></div>}
-                          {(emp.payroll.commission ?? 0) > 0 && <div className="flex justify-between"><span className="text-emerald-500">คอมมิชชั่น</span><span className="font-bold text-emerald-600">+฿{(emp.payroll.commission ?? 0).toLocaleString()}</span></div>}
-                          <div className="border-t border-slate-100 my-1"/>
-                          <div className="flex justify-between"><span className="text-slate-500">รวมรายได้</span><span className="font-bold text-slate-700">฿{(emp.payroll.gross_income ?? 0).toLocaleString()}</span></div>
-                          <div className="border-t border-slate-100 my-1"/>
-                          {(emp.payroll.deduct_late ?? 0) > 0 && <div className="flex justify-between"><span className="text-amber-500">หักสาย/ขาด</span><span className="font-bold text-amber-600">-฿{((emp.payroll.deduct_late ?? 0) + (emp.payroll.deduct_absent ?? 0)).toLocaleString()}</span></div>}
-                          {(emp.payroll.social_security_amount ?? 0) > 0 && <div className="flex justify-between"><span className="text-slate-500">ประกันสังคม</span><span className="font-bold text-slate-600">-฿{(emp.payroll.social_security_amount ?? 0).toLocaleString()}</span></div>}
-                          {(emp.payroll.monthly_tax_withheld ?? 0) > 0 && <div className="flex justify-between"><span className="text-slate-500">ภาษี</span><span className="font-bold text-slate-600">-฿{(emp.payroll.monthly_tax_withheld ?? 0).toLocaleString()}</span></div>}
-                          <div className="flex justify-between"><span className="text-rose-500">หักรวม</span><span className="font-bold text-rose-600">-฿{(emp.payroll.total_deductions ?? 0).toLocaleString()}</span></div>
-                          <div className="border-t border-slate-100 my-1"/>
-                          <div className="flex justify-between bg-blue-50 rounded-lg px-2 py-1 -mx-1"><span className="font-black text-blue-700">เงินสุทธิ</span><span className="font-black text-blue-700">฿{(emp.payroll.net_salary ?? 0).toLocaleString()}</span></div>
-                        </div>
-                      </div>
+                      </>
                     )}
                   </td>
                 </tr>
