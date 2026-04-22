@@ -120,9 +120,13 @@ export async function GET(req: NextRequest) {
 
   // Admin: ดึง KPI ทั้งบริษัท
   if (mode === "admin") {
+    // super_admin เห็นทุกบริษัท, hr_admin เห็นเฉพาะบริษัทตัวเอง
+    const filterCompany = url.get("company") || (dbUser.role === "super_admin" ? null : companyId)
+
     let query = svc.from("kpi_forms")
       .select("*, employee:employees!kpi_forms_employee_id_fkey(first_name_th, last_name_th, employee_code, avatar_url, position:positions(name), department:departments(name)), evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th)")
-      .eq("company_id", companyId).eq("year", year).order("month", { ascending: false })
+      .eq("year", year).order("month", { ascending: false })
+    if (filterCompany) query = query.eq("company_id", filterCompany)
     if (month) query = query.eq("month", month)
     const { data: forms } = await query
 
