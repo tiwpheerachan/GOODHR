@@ -438,8 +438,14 @@ async function calcAndSave(
     } else {
       // วันก่อนหน้า: ไม่มี record = ขาดงาน
       if (!rec || rec.status === "absent") {
-        absentDays++
-        absentDates.push(d)
+        // ถ้าเป็นวัน ส-อา + ไม่มี record เลย → ไม่นับขาด (shift=work อาจจัดกะผิด)
+        const dow = dayOfWeek(d)
+        if ((dow === 0 || dow === 6) && !rec) {
+          // skip — วันหยุดสัปดาห์ที่ไม่ได้มาทำงาน
+        } else {
+          absentDays++
+          absentDates.push(d)
+        }
       }
     }
     // หมายเหตุ: status = present/late/early_out/wfh/leave/holiday ไม่ถือว่าขาด

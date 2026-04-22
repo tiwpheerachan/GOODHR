@@ -234,16 +234,21 @@ export default function WorkLogPage() {
           const lv = leaveLookup[emp.id]?.[date]
 
           if (att) {
-            days[date] = att
+            // ถ้า status=absent แต่มี leave approved → แสดงเป็น "ลา" ไม่ใช่ "ขาด"
+            const hasLeave = lv && lv.status === "approved"
+            const effectiveStatus = (att.status === "absent" && hasLeave) ? "leave" : att.status
+
+            days[date] = { ...att, status: effectiveStatus }
+
             // Stats
-            if (att.status === "present" || att.status === "wfh") present++
-            else if (att.status === "late") { present++; late++ }
-            else if (att.status === "absent") absent++
-            else if (att.status === "leave") leave++
-            else if (att.status === "early_out") present++
+            if (effectiveStatus === "present" || effectiveStatus === "wfh") present++
+            else if (effectiveStatus === "late") { present++; late++ }
+            else if (effectiveStatus === "absent") absent++
+            else if (effectiveStatus === "leave") { leave++; if (hasLeave && lv.isHalf) halfLeave++ }
+            else if (effectiveStatus === "early_out") present++
 
             if (att.half_day_leave) halfLeave++
-            if (att.half_day_leave !== "morning") lateMin += att.late_minutes
+            if (effectiveStatus !== "leave" && att.half_day_leave !== "morning") lateMin += att.late_minutes
             otMin += att.ot_minutes
           } else if (lv && lv.status === "approved") {
             // No attendance record but has approved leave

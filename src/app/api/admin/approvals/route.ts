@@ -673,17 +673,38 @@ export async function POST(req: NextRequest) {
         }
 
         for (const ld of leaveDates) {
-          const updateFields: Record<string, unknown> = {
-            status: "leave",
-            early_out_minutes: 0,
+          // ตรวจว่ามี attendance record อยู่แล้วหรือไม่
+          const { data: existingAtt } = await supa.from("attendance_records")
+            .select("id").eq("employee_id", lr.employee_id).eq("work_date", ld).maybeSingle()
+
+          if (existingAtt) {
+            // มี record → update status เป็น leave
+            const updateFields: Record<string, unknown> = {
+              status: "leave",
+              early_out_minutes: 0,
+            }
+            if (!lr.is_half_day) {
+              updateFields.late_minutes = 0
+            }
+            await supa.from("attendance_records").update(updateFields)
+              .eq("employee_id", lr.employee_id)
+              .eq("work_date", ld)
+          } else {
+            // ไม่มี record → สร้างใหม่เป็น status=leave
+            const { data: empInfo } = await supa.from("employees")
+              .select("company_id").eq("id", lr.employee_id).single()
+            await supa.from("attendance_records").insert({
+              employee_id: lr.employee_id,
+              company_id: empInfo?.company_id || null,
+              work_date: ld,
+              status: "leave",
+              late_minutes: 0,
+              early_out_minutes: 0,
+              ot_minutes: 0,
+              work_minutes: 0,
+              is_manual: true,
+            })
           }
-          // ลาเต็มวัน → เคลียร์ late_minutes ด้วย
-          if (!lr.is_half_day) {
-            updateFields.late_minutes = 0
-          }
-          await supa.from("attendance_records").update(updateFields)
-            .eq("employee_id", lr.employee_id)
-            .eq("work_date", ld)
         }
       }
     }

@@ -273,7 +273,14 @@ export async function POST(req: Request) {
             const rec = recordMap.get(d)
             const isToday = d === todayStr
             if (isToday) { if (rec && rec.status === "absent") absentDays++ }
-            else { if (!rec || rec.status === "absent") absentDays++ }
+            else {
+              if (!rec || rec.status === "absent") {
+                // วัน ส-อา + ไม่มี record → ไม่นับขาด (shift=work อาจจัดกะผิด)
+                const dow = dayOfWeek(d)
+                if ((dow === 0 || dow === 6) && !rec) { /* skip */ }
+                else absentDays++
+              }
+            }
           }
 
           const presentDays = records.filter((r: any) => ["present", "late", "early_out", "wfh"].includes(r.status)).length
