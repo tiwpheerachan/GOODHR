@@ -35,7 +35,7 @@ interface EmpRow {
   employee_code: string
   first_name_th: string
   last_name_th: string
-  nickname_th?: string
+  nickname?: string
   department: string
   branch: string
   company_code?: string
@@ -154,7 +154,8 @@ export default function WorkLogPage() {
 
   // ── Load companies ───────────────────────────────────────────
   useEffect(() => {
-    supabase.from("companies").select("id,name,code").eq("is_active", true).order("name").then(({ data }) => {
+    supabase.from("companies").select("id,name,code").order("name").then(({ data, error }) => {
+      if (error) console.error("load companies:", error)
       setCompanies(data ?? [])
     })
   }, []) // eslint-disable-line
@@ -175,8 +176,9 @@ export default function WorkLogPage() {
       const params = new URLSearchParams({ company_id: activeCid, from: period.from, to: period.to })
       if (filterDept) params.set("dept_id", filterDept)
       const res = await fetch(`/api/admin/work-log?${params}`)
+      if (!res.ok) { toast.error(`Error: ${res.status}`); setRows([]); setLoading(false); return }
       const json = await res.json()
-      if (json.error) { toast.error(json.error); setRows([]); return }
+      if (json.error) { toast.error(json.error); setRows([]); setLoading(false); return }
 
       const employees = json.employees ?? []
       const allAttendance = json.attendance ?? []
@@ -269,7 +271,7 @@ export default function WorkLogPage() {
           employee_code: emp.employee_code || "",
           first_name_th: emp.first_name_th || "",
           last_name_th: emp.last_name_th || "",
-          nickname_th: emp.nickname_th || "",
+          nickname: emp.nickname || "",
           department: (emp.department as any)?.name || "-",
           branch: (emp.branch as any)?.name || "-",
           company_code: (emp.company as any)?.code || "",
@@ -302,7 +304,7 @@ export default function WorkLogPage() {
       r.employee_code.toLowerCase().includes(q) ||
       r.first_name_th.includes(q) ||
       r.last_name_th.includes(q) ||
-      (r.nickname_th && r.nickname_th.includes(q)) ||
+      (r.nickname && r.nickname.includes(q)) ||
       r.department.includes(q)
     )
   }, [rows, debouncedSearch])
@@ -353,7 +355,7 @@ export default function WorkLogPage() {
           return lbl
         })
         return [
-          r.employee_code, `${r.first_name_th} ${r.last_name_th}`, r.nickname_th || "",
+          r.employee_code, `${r.first_name_th} ${r.last_name_th}`, r.nickname || "",
           r.department, ...dayCols,
           r.stats.present, r.stats.late, r.stats.absent, r.stats.leave, r.stats.halfLeave,
           r.stats.lateMin, r.stats.otMin,
@@ -630,7 +632,7 @@ export default function WorkLogPage() {
                   <td className="sticky left-0 z-10 bg-inherit px-2 py-1.5 font-mono text-[11px] font-bold text-slate-700 border border-slate-100 whitespace-nowrap">{emp.employee_code}</td>
                   <td className="sticky left-[60px] z-10 bg-inherit px-2 py-1.5 text-[11px] font-bold text-slate-800 border border-slate-100 whitespace-nowrap">
                     {emp.first_name_th} {emp.last_name_th}
-                    {emp.nickname_th && <span className="text-slate-400 font-normal ml-1">({emp.nickname_th})</span>}
+                    {emp.nickname && <span className="text-slate-400 font-normal ml-1">({emp.nickname})</span>}
                   </td>
                   <td className="sticky left-[180px] z-10 bg-inherit px-2 py-1.5 text-[10px] text-slate-600 border border-slate-100 whitespace-nowrap">{emp.department}</td>
                   {allDates.map(d => renderCell(emp, d))}

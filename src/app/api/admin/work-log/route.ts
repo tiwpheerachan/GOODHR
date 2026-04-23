@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   // 1) Employees — ถ้า all ดึงทุกบริษัท
   let empQ = supa.from("employees")
-    .select("id, employee_code, first_name_th, last_name_th, nickname_th, company_id, department:departments(name), branch:branches(name), company:companies(code)")
+    .select("id, employee_code, first_name_th, last_name_th, nickname, company_id, department:departments(name), branch:branches(name), company:companies(code)")
     .eq("is_active", true).is("deleted_at", null)
     .order("employee_code")
   if (companyId !== "all") empQ = empQ.eq("company_id", companyId)
