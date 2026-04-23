@@ -64,7 +64,7 @@ export async function GET(req: Request) {
  */
 export async function PATCH(req: Request) {
   const body = await req.json()
-  const { id, income_extras, deduction_extras, bonus, commission, other_income, deduct_other, deduct_loan } = body
+  const { id, ...fields } = body
 
   if (!id) return NextResponse.json({ error: "id จำเป็น" }, { status: 400 })
 
@@ -74,54 +74,22 @@ export async function PATCH(req: Request) {
 
   const supa = createServiceClient()
 
-  // Build update payload - only include provided fields
+  // อนุญาตให้ update ทุก field ที่ส่งมา (ยกเว้น id, employee_id, payroll_period_id)
+  const SAFE_FIELDS = [
+    "base_salary", "allowance_position", "allowance_transport", "allowance_food",
+    "allowance_phone", "allowance_housing", "allowance_other", "ot_amount",
+    "ot_weekday_minutes", "ot_holiday_reg_minutes", "ot_holiday_ot_minutes", "ot_hours",
+    "bonus", "commission", "other_income",
+    "deduct_absent", "deduct_late", "deduct_early_out", "deduct_loan", "deduct_other",
+    "social_security_amount", "monthly_tax_withheld",
+    "absent_days", "late_count", "present_days", "leave_paid_days", "leave_unpaid_days",
+    "gross_income", "total_deductions", "net_salary",
+    "income_extras", "deduction_extras", "note_override", "is_manual_override",
+  ]
+
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  if (income_extras !== undefined)    update.income_extras = income_extras
-  if (deduction_extras !== undefined) update.deduction_extras = deduction_extras
-  if (bonus !== undefined)            update.bonus = bonus
-  if (commission !== undefined)       update.commission = commission
-  if (other_income !== undefined)     update.other_income = other_income
-  if (deduct_other !== undefined)     update.deduct_other = deduct_other
-  if (deduct_loan !== undefined)      update.deduct_loan = deduct_loan
-
-  // Recalculate gross, total_deductions, net if extras changed
-  if (income_extras !== undefined || deduction_extras !== undefined || bonus !== undefined || commission !== undefined) {
-    // Fetch current record
-    const { data: rec } = await supa.from("payroll_records").select("*").eq("id", id).single()
-    if (!rec) return NextResponse.json({ error: "ไม่พบ record" }, { status: 404 })
-
-    const ie = income_extras ?? rec.income_extras ?? {}
-    const de = deduction_extras ?? rec.deduction_extras ?? {}
-
-    const extraIncomeTotal = Object.values(ie as Record<string, number>).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
-    const extraDeductTotal = Object.values(de as Record<string, number>).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
-
-    const newGross =
-      Number(rec.base_salary) +
-      Number(rec.allowance_position || 0) +
-      Number(rec.allowance_transport || 0) +
-      Number(rec.allowance_food || 0) +
-      Number(rec.allowance_phone || 0) +
-      Number(rec.allowance_housing || 0) +
-      Number(rec.ot_amount || 0) +
-      Number(bonus ?? rec.bonus ?? 0) +
-      Number(commission ?? rec.commission ?? 0) +
-      Number(other_income ?? rec.other_income ?? 0) +
-      extraIncomeTotal
-
-    const newTotalDeduct =
-      Number(rec.social_security_amount || 0) +
-      Number(rec.monthly_tax_withheld || 0) +
-      Number(rec.deduct_absent || 0) +
-      Number(rec.deduct_late || 0) +
-      Number(rec.deduct_early_out || 0) +
-      Number(deduct_loan ?? rec.deduct_loan ?? 0) +
-      Number(deduct_other ?? rec.deduct_other ?? 0) +
-      extraDeductTotal
-
-    update.gross_income = newGross
-    update.total_deductions = newTotalDeduct
-    update.net_salary = Math.max(newGross - newTotalDeduct, 0)
+  for (const key of SAFE_FIELDS) {
+    if (fields[key] !== undefined) update[key] = fields[key]
   }
 
   const { error } = await supa

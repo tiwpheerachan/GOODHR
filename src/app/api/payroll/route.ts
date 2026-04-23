@@ -635,22 +635,28 @@ async function calcAndSave(
     allowance_phone:        manualAllowPhone,
     allowance_housing:      manualAllowHousing,
     allowance_other:        manualAllowOther,
-    ot_amount:              result.otAmount,
-    ot_hours:               (
+    ot_amount:              isManual ? (Number(existingPR?.ot_amount) || result.otAmount) : result.otAmount,
+    ot_hours:               isManual ? (Number(existingPR?.ot_hours) || 0) : (
       otBreakdown.weekday_minutes +
       otBreakdown.holiday_regular_minutes +
       otBreakdown.holiday_ot_minutes
     ) / 60,
-    ot_weekday_minutes:     otBreakdown.weekday_minutes,
-    ot_holiday_reg_minutes: otBreakdown.holiday_regular_minutes,
-    ot_holiday_ot_minutes:  otBreakdown.holiday_ot_minutes,
+    ot_weekday_minutes:     isManual ? (Number(existingPR?.ot_weekday_minutes) || 0) : otBreakdown.weekday_minutes,
+    ot_holiday_reg_minutes: isManual ? (Number(existingPR?.ot_holiday_reg_minutes) || 0) : otBreakdown.holiday_regular_minutes,
+    ot_holiday_ot_minutes:  isManual ? (Number(existingPR?.ot_holiday_ot_minutes) || 0) : otBreakdown.holiday_ot_minutes,
     bonus:                  manualBonus,
     kpi_grade:              kpiBonus.grade,
     kpi_standard_amount:    kpiBonus.standardAmount,
     commission:             manualCommission,        // เก็บค่าที่ HR กรอก
     other_income:           manualOtherIncome,        // เก็บค่าที่ HR กรอก
     income_extras:          existingExtras,            // เก็บ extras ที่ HR กรอก
-    gross_income:           result.gross + manualCommission + manualOtherIncome,
+    gross_income:           (() => {
+      let g = result.gross + manualCommission + manualOtherIncome
+      if (isManual && existingPR?.ot_amount !== undefined) {
+        g = g - result.otAmount + Number(existingPR.ot_amount)
+      }
+      return g
+    })(),
     // การหัก
     deduct_absent:          result.deductAbsent,
     deduct_late:            result.deductLate,
@@ -668,7 +674,10 @@ async function calcAndSave(
     ytd_tax_withheld:       previousYtdTax + result.tax,
     // รวม
     total_deductions:       result.totalDeduct + deductUnpaidLeave + manualDeductOther,
-    net_salary:             Math.max(result.net - deductUnpaidLeave - manualDeductOther + manualCommission + manualOtherIncome, 0),
+    net_salary:             Math.max(
+      result.net - deductUnpaidLeave - manualDeductOther + manualCommission + manualOtherIncome
+      + (isManual && existingPR?.ot_amount !== undefined ? Number(existingPR.ot_amount) - result.otAmount : 0)
+    , 0),
     // สถิติ
     working_days:           pastWorkDays.length,
     present_days:           presentDays,

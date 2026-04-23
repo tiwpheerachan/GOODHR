@@ -837,12 +837,30 @@ function EditModal({
     payload.is_manual_override = true
     payload.updated_at = new Date().toISOString()
 
-    const { error } = await supabase.from("payroll_records").update(payload).eq("id", record.id)
-    setSaving(false)
-    if (error) return toast.error(error.message)
-    toast.success("บันทึกการแก้ไขแล้ว")
-    onSaved({ ...record, ...payload })
-    onClose()
+    // ใช้ API route + service client เพื่อไม่ติด RLS
+    console.log("[payroll save] id:", record.id, "payload keys:", Object.keys(payload), "commission:", payload.commission, "bonus:", payload.bonus)
+    try {
+      const res = await fetch("/api/payroll/register", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: record.id, ...payload }),
+      })
+      const result = await res.json()
+      console.log("[payroll save] response:", res.status, result)
+      setSaving(false)
+      if (!res.ok || result.error) {
+        toast.error(result.error || `Error ${res.status}`)
+        return
+      }
+      toast.success("บันทึกการแก้ไขแล้ว")
+      // Reload records จาก server เพื่อให้ได้ค่าใหม่จริง
+      onSaved({ ...record, ...payload })
+      onClose()
+    } catch (err: any) {
+      setSaving(false)
+      console.error("[payroll save] error:", err)
+      toast.error(err.message || "บันทึกไม่สำเร็จ")
+    }
   }
 
   const reset = async () => {
@@ -1284,6 +1302,10 @@ export default function PayrollPage() {
   const [editing,      setEditing]      = useState<any>(null)
   const [filterDept,   setFilterDept]   = useState("")
   const [viewMode,     setViewMode]     = useState<"compact"|"full">("full")
+  const [showTxtExport, setShowTxtExport] = useState(false)
+  const [txtExclude,   setTxtExclude]   = useState<Set<string>>(new Set())
+  const [txtSearch,    setTxtSearch]    = useState("")
+  const [txtFilterDept, setTxtFilterDept] = useState("")
 
   const myCompanyId: string | undefined =
     user?.employee?.company_id ?? (user as any)?.company_id ?? undefined
@@ -1836,6 +1858,10 @@ export default function PayrollPage() {
                 className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors">
                 <Download size={11}/> Excel
               </button>
+              <button onClick={() => { setShowTxtExport(true); setTxtExclude(new Set()); setTxtSearch(""); setTxtFilterDept("") }}
+                className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors">
+                <Download size={11}/> TXT
+              </button>
             </div>
           )}
 
@@ -1878,6 +1904,116 @@ export default function PayrollPage() {
           }}
         />
       )}
+
+      {/* ═══ TXT Export Modal ═══ */}
+      {showTxtExport && (() => {
+        const departments = Array.from(new Set(records.map((r: any) => r.employee?.department?.name).filter(Boolean))).sort() as string[]
+        const txtFiltered = records.filter((r: any) => {
+          if (txtFilterDept && r.employee?.department?.name !== txtFilterDept) return false
+          if (txtSearch) {
+            const s = txtSearch.toLowerCase()
+            const name = `${r.employee?.first_name_th || ""} ${r.employee?.last_name_th || ""} ${r.employee?.employee_code || ""}`.toLowerCase()
+            if (!name.includes(s)) return false
+          }
+          if (txtExclude.has(r.employee?.id)) return false
+          return true
+        })
+        const totalNet = txtFiltered.reduce((s: number, r: any) => s + (Number(r.net_salary) || 0), 0)
+
+        const doExport = () => {
+          const lines = txtFiltered.map((r: any) => {
+            const emp = r.employee || {}
+            const bankAcc = (emp.bank_account || "").replace(/[^0-9]/g, "")
+            const net = (Number(r.net_salary) || 0).toFixed(2)
+            const name = `${emp.first_name_th || ""} ${emp.last_name_th || ""}`.trim()
+            return `${bankAcc}\t${net}\t${emp.employee_code || ""}\t${name}`
+          })
+          const header = `บัญชีธนาคาร\tจำนวนเงิน\tรหัสพนักงาน\tชื่อ-นามสกุล`
+          const txt = [header, ...lines].join("\n")
+          const blob = new Blob(["\uFEFF" + txt], { type: "text/plain;charset=utf-8" })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement("a"); a.href = url
+          a.download = `payroll_${selected?.year}_${String(selected?.month).padStart(2,"0")}.txt`
+          a.click(); URL.revokeObjectURL(url)
+          toast.success(`Export TXT สำเร็จ: ${txtFiltered.length} คน`)
+          setShowTxtExport(false)
+        }
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowTxtExport(false)}>
+            <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="bg-blue-600 px-5 py-4">
+                <h3 className="text-white font-bold">Export TXT — เลือกพนักงาน</h3>
+                <p className="text-blue-200 text-xs">งวด {selected?.period_name || `${selected?.month}/${selected?.year}`} · {txtFiltered.length} คน · ฿{totalNet.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</p>
+              </div>
+
+              {/* Filters */}
+              <div className="px-5 py-3 border-b border-slate-100 space-y-2">
+                <div className="flex gap-2">
+                  <select value={txtFilterDept} onChange={e => setTxtFilterDept(e.target.value)}
+                    className="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 outline-none">
+                    <option value="">ทุกแผนก</option>
+                    {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <input value={txtSearch} onChange={e => setTxtSearch(e.target.value)}
+                    placeholder="ค้นหาชื่อ/รหัส..."
+                    className="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 outline-none" />
+                </div>
+                <div className="flex items-center justify-between">
+                  <button onClick={() => setTxtExclude(new Set())}
+                    className="text-[10px] text-blue-600 font-bold hover:underline">เลือกทั้งหมด</button>
+                  <button onClick={() => setTxtExclude(new Set(txtFiltered.map((r: any) => r.employee?.id)))}
+                    className="text-[10px] text-slate-400 font-bold hover:underline">ไม่เลือกทั้งหมด</button>
+                </div>
+              </div>
+
+              {/* Employee list */}
+              <div className="flex-1 overflow-y-auto px-5 py-2">
+                {records.filter((r: any) => {
+                  if (txtFilterDept && r.employee?.department?.name !== txtFilterDept) return false
+                  if (txtSearch) {
+                    const s = txtSearch.toLowerCase()
+                    const name = `${r.employee?.first_name_th || ""} ${r.employee?.last_name_th || ""} ${r.employee?.employee_code || ""}`.toLowerCase()
+                    if (!name.includes(s)) return false
+                  }
+                  return true
+                }).map((r: any) => {
+                  const emp = r.employee || {}
+                  const excluded = txtExclude.has(emp.id)
+                  return (
+                    <label key={r.id} className={`flex items-center gap-2 py-1.5 px-1 rounded-lg cursor-pointer hover:bg-slate-50 ${excluded ? "opacity-40" : ""}`}>
+                      <input type="checkbox" checked={!excluded}
+                        onChange={() => {
+                          setTxtExclude(prev => {
+                            const next = new Set(prev)
+                            if (next.has(emp.id)) next.delete(emp.id)
+                            else next.add(emp.id)
+                            return next
+                          })
+                        }}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600" />
+                      <span className="text-xs font-bold text-slate-700 flex-1 truncate">{emp.first_name_th} {emp.last_name_th}</span>
+                      <span className="text-[10px] text-slate-400">{emp.employee_code}</span>
+                      <span className="text-[10px] text-slate-400">{emp.department?.name || ""}</span>
+                      <span className="text-xs font-bold text-blue-700 min-w-[70px] text-right">฿{(Number(r.net_salary) || 0).toLocaleString()}</span>
+                    </label>
+                  )
+                })}
+              </div>
+
+              {/* Footer */}
+              <div className="px-5 py-4 border-t border-slate-100 flex items-center gap-3">
+                <button onClick={() => setShowTxtExport(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600">ยกเลิก</button>
+                <button onClick={doExport} disabled={txtFiltered.length === 0}
+                  className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                  <Download size={14} /> Export TXT ({txtFiltered.length} คน)
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

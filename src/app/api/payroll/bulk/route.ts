@@ -220,7 +220,7 @@ export async function POST(req: Request) {
 
   // ── ดึง existing payroll records เพื่อเก็บค่า manual ──
   const { data: existPRData } = await supa.from("payroll_records")
-    .select("employee_id, is_manual_override, bonus, commission, other_income, deduct_other, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_other, income_extras, deduction_extras")
+    .select("employee_id, is_manual_override, bonus, commission, other_income, deduct_other, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_other, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, income_extras, deduction_extras")
     .eq("payroll_period_id", payroll_period_id)
     .in("employee_id", employee_ids)
   const existingPayrolls = new Map<string, any>()
@@ -382,12 +382,21 @@ export async function POST(req: Request) {
             allowance_phone: mIsManual ? Number(existPR?.allowance_phone) : Number(sal.allowance_phone) || 0,
             allowance_housing: mIsManual ? Number(existPR?.allowance_housing) : Number(sal.allowance_housing) || 0,
             allowance_other: mIsManual ? Number(existPR?.allowance_other) : 0,
-            ot_amount: result.otAmount,
-            ot_hours: (weekdayOtMin + holidayRegMin + holidayOtMin) / 60,
-            ot_weekday_minutes: weekdayOtMin, ot_holiday_reg_minutes: holidayRegMin, ot_holiday_ot_minutes: holidayOtMin,
+            ot_amount: mIsManual ? (Number(existPR?.ot_amount) || result.otAmount) : result.otAmount,
+            ot_hours: mIsManual ? (Number(existPR?.ot_hours) || 0) : (weekdayOtMin + holidayRegMin + holidayOtMin) / 60,
+            ot_weekday_minutes: mIsManual ? (Number(existPR?.ot_weekday_minutes) || 0) : weekdayOtMin,
+            ot_holiday_reg_minutes: mIsManual ? (Number(existPR?.ot_holiday_reg_minutes) || 0) : holidayRegMin,
+            ot_holiday_ot_minutes: mIsManual ? (Number(existPR?.ot_holiday_ot_minutes) || 0) : holidayOtMin,
             bonus: existPR?.bonus || 0, commission: mCommission, other_income: mOtherIncome,
             income_extras: existPR?.income_extras || null,
-            gross_income: result.gross + mCommission + mOtherIncome,
+            gross_income: (() => {
+              let g = result.gross + mCommission + mOtherIncome
+              // ถ้า manual → ปรับ gross ให้ใช้ ot_amount จาก manual แทน calculated
+              if (mIsManual && existPR?.ot_amount !== undefined) {
+                g = g - result.otAmount + Number(existPR.ot_amount)
+              }
+              return g
+            })(),
             deduct_absent: result.deductAbsent, deduct_late: result.deductLate,
             deduct_early_out: result.deductEarlyOut, deduct_loan: loanDeduction,
             deduct_other: deductUnpaidLeave + mDeductOther,
