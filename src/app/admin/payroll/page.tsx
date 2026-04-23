@@ -1898,9 +1898,9 @@ export default function PayrollPage() {
         <EditModal
           record={editing}
           onClose={() => setEditing(null)}
-          onSaved={updated => {
-            setRecords(rs => rs.map(r => r.id === updated.id ? { ...r, ...updated } : r))
+          onSaved={() => {
             setEditing(null)
+            loadRecords()
           }}
         />
       )}
