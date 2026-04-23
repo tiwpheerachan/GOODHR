@@ -8,7 +8,7 @@ import AIChatWidget from "@/components/admin/AIChatWidget"
 import {
   LayoutDashboard, Users, Clock, CreditCard, Calendar, CalendarDays,
   Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target, Camera, CalendarClock,
-  Network, ClipboardCheck, Megaphone, MessageCircle, ScrollText, Shield, Package, Table2,
+  Network, ClipboardCheck, Megaphone, MessageCircle, ScrollText, Shield, Package, Table2, PieChart,
 } from "lucide-react"
 
 const SIDEBAR = [
@@ -24,6 +24,7 @@ const SIDEBAR = [
   { href: "/admin/shifts",              icon: CalendarClock,   label: "จัดกะ",          badge: null as string|null },
   { href: "/admin/leave",                icon: Calendar,        label: "การลา",          badge: null as string|null },
   { href: "/admin/leave-calendar",       icon: CalendarDays,    label: "ปฏิทินการลา",    badge: null as string|null },
+  { href: "/admin/leave-quota",          icon: PieChart,        label: "โควต้าการลา",    badge: null as string|null },
   { href: "/admin/kpi",                  icon: Target,          label: "KPI",            badge: null as string|null },
   { href: "/admin/probation-eval",       icon: Shield,          label: "ประเมินทดลองงาน", badge: null as string|null },
   { href: "/equipment/dashboard",       icon: Package,         label: "อุปกรณ์",        badge: null as string|null },

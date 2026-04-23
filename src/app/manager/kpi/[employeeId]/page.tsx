@@ -5,7 +5,7 @@ import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import {
   ChevronLeft, Plus, Trash2, Save, Send, Loader2, Target, AlertCircle,
-  CheckCircle2, GripVertical, MessageSquare, Info, Clock,
+  CheckCircle2, GripVertical, MessageSquare, Info, Clock, Copy,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -19,11 +19,11 @@ const GRADE_CONFIG: Record<string, { label: string; range: string; color: string
   D: { label: "D", range: "0-70%",   color: "text-red-700",     bg: "bg-red-50",     ring: "ring-red-200" },
 }
 
-const MANDATORY_ITEMS = [
+const DEFAULT_ITEMS: KpiRow[] = [
   {
     category: "ความประพฤติ (พนักงาน)",
     description: "1. ไม่ขาดงาน/ลางาน/มาสาย\n2. ให้ความร่วมมือในกิจกรรมต่างๆที่บริษัทจัดขึ้น\n3. มีความประพฤติส่วนตัวที่เหมาะสม",
-    is_mandatory: true,
+    is_mandatory: false,
     weight_pct: 20,
     actual_score: 0,
     comment: "",
@@ -31,7 +31,7 @@ const MANDATORY_ITEMS = [
   {
     category: "ความประพฤติ (หัวหน้างาน)",
     description: "4. ประพฤติตนตามระเบียบวินัย และคำสั่งของผู้บังคับบัญชา\n5. ไม่มีพฤติกรรมสร้างความแตกแยกในองค์กร\n6. ซื่อสัตย์สุจริตต่อหน้าที่ และรักษาผลประโยชน์ของบริษัท\n7. ไม่ทำให้บริษัทเสียหาย และหรือเสื่อมเสียชื่อเสียง",
-    is_mandatory: true,
+    is_mandatory: false,
     weight_pct: 20,
     actual_score: 0,
     comment: "",
@@ -67,7 +67,7 @@ export default function KpiFormPage() {
   const month = Number(searchParams.get("month")) || (new Date().getMonth() + 1)
 
   const [employee, setEmployee] = useState<any>(null)
-  const [items, setItems] = useState<KpiRow[]>([...MANDATORY_ITEMS])
+  const [items, setItems] = useState<KpiRow[]>([...DEFAULT_ITEMS])
   const [evaluatorNote, setEvaluatorNote] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -147,13 +147,45 @@ export default function KpiFormPage() {
   }, [])
 
   const addItem = () => {
-    if (items.length >= 7) { toast.error(t("kpi.max_items_error")); return }
+    if (items.length >= 15) { toast.error("สูงสุด 15 หัวข้อ"); return }
     setItems(prev => [...prev, { category: "", description: "", is_mandatory: false, weight_pct: 0, actual_score: 0, comment: "" }])
   }
 
   const removeItem = (idx: number) => {
-    if (items[idx].is_mandatory) { toast.error(t("kpi.cannot_delete_mandatory")); return }
+    if (items.length <= 1) { toast.error("ต้องมีอย่างน้อย 1 หัวข้อ"); return }
     setItems(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  // Copy items as template for next month
+  const copyAsTemplate = async () => {
+    const nextMonth = month === 12 ? 1 : month + 1
+    const nextYear = month === 12 ? year + 1 : year
+    const templateItems = items.map(i => ({
+      ...i,
+      actual_score: 0,
+      comment: "",
+    }))
+    setSaving(true)
+    try {
+      const res = await fetch("/api/kpi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employee_id: employeeId,
+          year: nextYear,
+          month: nextMonth,
+          items: templateItems,
+          evaluator_note: "",
+          action: "save_draft",
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "ไม่สามารถคัดลอกได้")
+      toast.success(`คัดลอก template ไป ${MONTHS[nextMonth]} ${nextYear} แล้ว`)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
+    setSaving(false)
   }
 
   const handleSave = async (action: "save_draft" | "submit") => {
@@ -293,38 +325,27 @@ export default function KpiFormPage() {
         {items.map((item, idx) => {
           const weighted = Math.round(((Number(item.weight_pct) || 0) * (Number(item.actual_score) || 0) / 100) * 100) / 100
           return (
-            <div key={idx} className={`card space-y-3 ${item.is_mandatory ? "ring-1 ring-indigo-100" : ""}`}>
+            <div key={idx} className="card space-y-3">
               {/* Header Row */}
               <div className="flex items-start gap-2">
                 <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black ${
-                    item.is_mandatory ? "bg-indigo-100 text-indigo-600" : "bg-slate-100 text-slate-500"
-                  }`}>
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black bg-slate-100 text-slate-500">
                     {idx + 1}
                   </div>
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  {item.is_mandatory ? (
-                    <div>
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">{t("kpi.mandatory_badge")}</span>
-                      </div>
-                      <p className="font-bold text-slate-800 text-sm">{item.category}</p>
-                    </div>
-                  ) : (
-                    <input
-                      type="text"
-                      value={item.category}
-                      onChange={e => updateItem(idx, "category", e.target.value)}
-                      disabled={isSubmitted}
-                      placeholder="ชื่อหมวดหมู่งาน..."
-                      className="w-full font-bold text-slate-800 text-sm bg-transparent border-b border-dashed border-slate-200 pb-1 outline-none focus:border-indigo-400 placeholder:text-slate-300 disabled:opacity-60"
-                    />
-                  )}
+                  <input
+                    type="text"
+                    value={item.category}
+                    onChange={e => updateItem(idx, "category", e.target.value)}
+                    disabled={isSubmitted}
+                    placeholder="ชื่อหมวดหมู่งาน..."
+                    className="w-full font-bold text-slate-800 text-sm bg-transparent border-b border-dashed border-slate-200 pb-1 outline-none focus:border-indigo-400 placeholder:text-slate-300 disabled:opacity-60"
+                  />
                 </div>
 
-                {!item.is_mandatory && !isSubmitted && (
+                {!isSubmitted && (
                   <button onClick={() => removeItem(idx)} className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center hover:bg-red-100 transition-colors shrink-0">
                     <Trash2 size={13} className="text-red-400" />
                   </button>
@@ -332,20 +353,14 @@ export default function KpiFormPage() {
               </div>
 
               {/* Description */}
-              {item.is_mandatory ? (
-                <div className="ml-9 text-xs text-slate-500 whitespace-pre-line leading-relaxed bg-slate-50 rounded-xl p-3">
-                  {item.description}
-                </div>
-              ) : (
-                <textarea
-                  value={item.description}
-                  onChange={e => updateItem(idx, "description", e.target.value)}
-                  disabled={isSubmitted}
-                  placeholder="รายละเอียด / เป้าหมาย..."
-                  rows={2}
-                  className="ml-9 w-[calc(100%-36px)] text-xs text-slate-600 bg-slate-50 rounded-xl p-3 outline-none focus:ring-1 focus:ring-indigo-200 resize-none placeholder:text-slate-300 disabled:opacity-60"
-                />
-              )}
+              <textarea
+                value={item.description}
+                onChange={e => updateItem(idx, "description", e.target.value)}
+                disabled={isSubmitted}
+                placeholder="รายละเอียด / เป้าหมาย..."
+                rows={2}
+                className="ml-9 w-[calc(100%-36px)] text-xs text-slate-600 bg-slate-50 rounded-xl p-3 outline-none focus:ring-1 focus:ring-indigo-200 resize-none placeholder:text-slate-300 disabled:opacity-60"
+              />
 
               {/* Score Row */}
               <div className="ml-9 flex items-center gap-2 flex-wrap">
@@ -417,10 +432,19 @@ export default function KpiFormPage() {
       </div>
 
       {/* Add Button */}
-      {!isSubmitted && items.length < 7 && (
+      {!isSubmitted && items.length < 15 && (
         <button onClick={addItem}
           className="w-full card flex items-center justify-center gap-2 py-4 text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors border-dashed border-2 border-indigo-200 bg-transparent shadow-none active:scale-[0.98]">
           <Plus size={16} /> {t("kpi.add_item")}
+        </button>
+      )}
+
+      {/* Copy as Template for Next Month */}
+      {items.length > 0 && existingFormId && (
+        <button onClick={copyAsTemplate} disabled={saving}
+          className="w-full card flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-emerald-600 hover:bg-emerald-50 transition-colors border border-emerald-200 bg-transparent shadow-none active:scale-[0.98] disabled:opacity-50">
+          <Copy size={15} />
+          คัดลอกหัวข้อไปเดือนถัดไป ({MONTHS[month === 12 ? 1 : month + 1]} {month === 12 ? year + 1 : year})
         </button>
       )}
 

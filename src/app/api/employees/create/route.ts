@@ -39,6 +39,13 @@ export async function POST(req: Request) {
       allowed_branch_ids,
     } = body
 
+    // Validate: ป้องกันปี พ.ศ. (> 2100)
+    for (const [val, label] of [[hire_date, "วันเริ่มงาน"], [probation_end_date, "สิ้นสุดทดลองงาน"], [birth_date, "วันเกิด"]]) {
+      if (val && parseInt(String(val).split("-")[0]) > 2100) {
+        return NextResponse.json({ error: `${label}: ปีต้องเป็น ค.ศ. (เช่น 2026) ไม่ใช่ พ.ศ.` }, { status: 400 })
+      }
+    }
+
     // 1. สร้าง auth user (ต้องใช้ service role)
     const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
       email,

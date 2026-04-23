@@ -433,9 +433,16 @@ async function handleCancelAction(
     // Restore leave balance
     if (requestType === "leave" && reqData.leave_type_id && reqData.total_days && reqData.status === "approved") {
       try {
-        const { data: bal } = await supa.from("leave_balances").select("id, used_days")
-          .eq("employee_id", reqData.employee_id).eq("leave_type_id", reqData.leave_type_id).single()
-        if (bal) await supa.from("leave_balances").update({ used_days: Math.max(0, (bal.used_days || 0) - reqData.total_days) }).eq("id", bal.id)
+        const { data: bal } = await supa.from("leave_balances").select("id, entitled_days, used_days, pending_days")
+          .eq("employee_id", reqData.employee_id).eq("leave_type_id", reqData.leave_type_id)
+          .eq("year", new Date(reqData.start_date).getFullYear()).maybeSingle()
+        if (bal) {
+          const newUsed = Math.max(0, (bal.used_days || 0) - reqData.total_days)
+          await supa.from("leave_balances").update({
+            used_days: newUsed,
+            remaining_days: Math.max(0, (bal.entitled_days || 0) - newUsed - (bal.pending_days || 0)),
+          }).eq("id", bal.id)
+        }
       } catch {}
     }
     // Audit log
@@ -478,9 +485,16 @@ async function handleCancelAction(
     if (error) return { error: error.message }
     if (requestType === "leave" && reqData?.leave_type_id && reqData?.total_days && reqData?.status === "approved") {
       try {
-        const { data: bal } = await supa.from("leave_balances").select("id, used_days")
-          .eq("employee_id", reqData.employee_id).eq("leave_type_id", reqData.leave_type_id).single()
-        if (bal) await supa.from("leave_balances").update({ used_days: Math.max(0, (bal.used_days || 0) - reqData.total_days) }).eq("id", bal.id)
+        const { data: bal } = await supa.from("leave_balances").select("id, entitled_days, used_days, pending_days")
+          .eq("employee_id", reqData.employee_id).eq("leave_type_id", reqData.leave_type_id)
+          .eq("year", new Date(reqData.start_date).getFullYear()).maybeSingle()
+        if (bal) {
+          const newUsed = Math.max(0, (bal.used_days || 0) - reqData.total_days)
+          await supa.from("leave_balances").update({
+            used_days: newUsed,
+            remaining_days: Math.max(0, (bal.entitled_days || 0) - newUsed - (bal.pending_days || 0)),
+          }).eq("id", bal.id)
+        }
       } catch {}
     }
     // Audit log
@@ -654,12 +668,17 @@ export async function POST(req: NextRequest) {
         .eq("id", request_id).single()
       if (lr) {
         const { data: bal } = await supa.from("leave_balances")
-          .select("id,used_days,pending_days")
-          .eq("employee_id", lr.employee_id).eq("leave_type_id", lr.leave_type_id).single()
+          .select("id,entitled_days,used_days,pending_days,remaining_days")
+          .eq("employee_id", lr.employee_id).eq("leave_type_id", lr.leave_type_id)
+          .eq("year", new Date(lr.start_date).getFullYear()).maybeSingle()
         if (bal) {
+          const newUsed = (bal.used_days || 0) + lr.total_days
+          const newPending = Math.max(0, (bal.pending_days || 0) - lr.total_days)
+          const newRemaining = Math.max(0, (bal.entitled_days || 0) - newUsed - newPending)
           await supa.from("leave_balances").update({
-            used_days: (bal.used_days || 0) + lr.total_days,
-            pending_days: Math.max(0, (bal.pending_days || 0) - lr.total_days),
+            used_days: newUsed,
+            pending_days: newPending,
+            remaining_days: newRemaining,
           }).eq("id", bal.id)
         }
 

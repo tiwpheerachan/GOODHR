@@ -13,7 +13,7 @@ import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
-const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท"]
+const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท","โควต้าการลา"]
 const inp = "input-field"
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -206,6 +206,15 @@ export default function EmployeeDetailPage() {
   }
 
   const saveEmployment = async () => {
+    // Validate: ป้องกันปี พ.ศ. (> 2100)
+    const yearCheck = (d: string | null | undefined, label: string) => {
+      if (!d) return true
+      const y = parseInt(d.split("-")[0])
+      if (y > 2100) { toast.error(`${label}: ปีต้องเป็น ค.ศ. (เช่น 2026) ไม่ใช่ พ.ศ. (${y})`); return false }
+      return true
+    }
+    if (!yearCheck(form.hire_date, "วันเริ่มงาน") || !yearCheck(form.probation_end_date, "สิ้นสุดทดลองงาน")) return
+
     setLoading(true)
     const updateData: any = {
       company_id: form.company_id || null,
@@ -771,6 +780,9 @@ export default function EmployeeDetailPage() {
 
         {/* ── Tab 8: บทบาท (Role Management) ── */}
         {tab === 8 && <RoleManagementTab employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`} employeeEmail={emp?.email || ""}/>}
+
+        {/* ── Tab 9: โควต้าการลา ── */}
+        {tab === 9 && <LeaveQuotaTab employeeId={id as string} companyId={emp?.company_id} />}
 
       </div>
 
@@ -2750,6 +2762,118 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
             </div>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Leave Quota Tab ──────────────────────────────────────────────────────────
+function LeaveQuotaTab({ employeeId, companyId }: { employeeId: string; companyId?: string }) {
+  const [balances, setBalances] = useState<any[]>([])
+  const [loading, setLoading]   = useState(true)
+  const year = new Date().getFullYear()
+
+  useEffect(() => {
+    if (!employeeId) return
+    // ใช้ API ที่มี service client (ไม่ติด RLS)
+    fetch(`/api/admin/leave-quota?company_id=${companyId || "all"}&year=${year}`)
+      .then(r => r.json())
+      .then(d => {
+        // filter เฉพาะพนักงานคนนี้
+        const empBalances = (d.balances ?? []).filter((b: any) => b.employee_id === employeeId)
+        const leaveTypes = d.leaveTypes ?? []
+        // enrich balance with leave_type info
+        const enriched = empBalances.map((b: any) => ({
+          ...b,
+          leave_type: leaveTypes.find((lt: any) => lt.id === b.leave_type_id) || null,
+        }))
+        enriched.sort((a: any, b: any) => (b.entitled_days || 0) - (a.entitled_days || 0))
+        setBalances(enriched)
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [employeeId, year, companyId])
+
+  if (loading) return <div className="flex items-center justify-center py-16 gap-2 text-slate-400"><Loader2 size={16} className="animate-spin"/>กำลังโหลด...</div>
+
+  if (balances.length === 0) return (
+    <div className="py-16 text-center">
+      <Calendar size={24} className="mx-auto text-slate-200 mb-2"/>
+      <p className="text-slate-400 text-sm">ยังไม่มีโควต้าการลาสำหรับปี {year}</p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+          <Calendar size={16} className="text-indigo-500"/>
+          โควต้าการลา {year}
+        </h3>
+        <span className="text-xs text-slate-400">{balances.length} ประเภท</span>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl bg-blue-50 p-3 text-center">
+          <p className="text-[10px] font-bold text-blue-400 uppercase">โควต้ารวม</p>
+          <p className="text-xl font-black text-blue-700">{balances.reduce((s, b) => s + (b.entitled_days || 0), 0).toFixed(1)}</p>
+        </div>
+        <div className="rounded-xl bg-amber-50 p-3 text-center">
+          <p className="text-[10px] font-bold text-amber-400 uppercase">ใช้ไปรวม</p>
+          <p className="text-xl font-black text-amber-700">{balances.reduce((s, b) => s + (b.used_days || 0), 0).toFixed(1)}</p>
+        </div>
+        <div className="rounded-xl bg-emerald-50 p-3 text-center">
+          <p className="text-[10px] font-bold text-emerald-400 uppercase">คงเหลือรวม</p>
+          <p className="text-xl font-black text-emerald-700">{balances.reduce((s, b) => s + (b.remaining_days || 0), 0).toFixed(1)}</p>
+        </div>
+      </div>
+
+      {/* Detail table */}
+      <div className="rounded-xl border border-slate-100 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-100">
+              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-slate-500 uppercase">ประเภทการลา</th>
+              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">โควต้า</th>
+              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">ใช้ไป</th>
+              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">รอ</th>
+              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">คงเหลือ</th>
+              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase w-[120px]">สัดส่วน</th>
+            </tr>
+          </thead>
+          <tbody>
+            {balances.map((b: any) => {
+              const lt = b.leave_type
+              const hex = lt?.color_hex || "#3b82f6"
+              const pct = b.entitled_days > 0 ? Math.min(b.used_days / b.entitled_days * 100, 100) : 0
+              const isLow = b.remaining_days <= 2 && b.entitled_days > 0
+              return (
+                <tr key={b.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: hex }}/>
+                      <div>
+                        <p className="font-bold text-slate-700 text-xs">{lt?.name || "—"}</p>
+                        <p className="text-[10px] text-slate-400">{lt?.is_paid ? "ได้รับเงิน" : "ไม่ได้รับเงิน"}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-center font-medium text-slate-600">{b.entitled_days}</td>
+                  <td className={`px-3 py-3 text-center font-bold ${pct > 80 ? "text-red-600" : "text-slate-600"}`}>{b.used_days}</td>
+                  <td className="px-3 py-3 text-center text-amber-600 font-medium">{b.pending_days}</td>
+                  <td className={`px-3 py-3 text-center font-black ${isLow ? "text-red-600" : "text-emerald-600"}`}>{b.remaining_days}</td>
+                  <td className="px-3 py-3">
+                    <div className="w-full h-2 rounded-full bg-slate-100">
+                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: hex }}/>
+                    </div>
+                    <p className="text-[9px] text-slate-400 text-center mt-0.5">{pct.toFixed(0)}%</p>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   )

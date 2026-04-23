@@ -83,6 +83,8 @@ function validateRow(row: RowData, allEmails: string[], allCodes: string[]): Rec
   else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) e.email = "ผิดรูปแบบ"
   else if (allEmails.filter(x => x === row.email.toLowerCase().trim()).length > 1) e.email = "ซ้ำ"
   if (!row.hire_date?.trim())     e.hire_date     = "จำเป็น"
+  else if (parseInt(row.hire_date.split("-")[0]) > 2100) e.hire_date = "ปีต้องเป็น ค.ศ."
+  if (row.birth_date && parseInt(row.birth_date.split("-")[0]) > 2100) e.birth_date = "ปีต้องเป็น ค.ศ."
   if (row.national_id && row.national_id.replace(/\D/g,"").length !== 13) e.national_id = "ต้อง 13 หลัก"
   return e
 }

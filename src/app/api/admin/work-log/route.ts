@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   // 1) Employees — ถ้า all ดึงทุกบริษัท
   let empQ = supa.from("employees")
-    .select("id, employee_code, first_name_th, last_name_th, company_id, department:departments(name), branch:branches(name), company:companies(code)")
+    .select("id, employee_code, first_name_th, last_name_th, nickname_th, company_id, department:departments(name), branch:branches(name), company:companies(code)")
     .eq("is_active", true).is("deleted_at", null)
     .order("employee_code")
   if (companyId !== "all") empQ = empQ.eq("company_id", companyId)
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
   for (let i = 0; i < empIds.length; i += BATCH) {
     const batch = empIds.slice(i, i + BATCH)
     const { data: pr } = await supa.from("payroll_records")
-      .select("employee_id, base_salary, gross_income, net_salary, ot_amount, deduct_late, deduct_absent, social_security_amount, monthly_tax_withheld, total_deductions, bonus, commission")
+      .select("employee_id, base_salary, gross_income, net_salary, ot_amount, deduct_late, deduct_absent, social_security_amount, monthly_tax_withheld, total_deductions")
       .in("employee_id", batch).eq("year", payrollYear).eq("month", payrollMonth)
       .limit(1000)
     for (const r of (pr ?? [])) payrollMap[r.employee_id] = r

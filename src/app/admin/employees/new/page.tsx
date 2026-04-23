@@ -252,6 +252,11 @@ export default function NewEmployeePage() {
     const err = validateStep()
     if (err) { toast.error(err); return }
     if (!f.base_salary) { toast.error("กรุณากรอกเงินเดือน"); return }
+    // Validate: ป้องกันปี พ.ศ.
+    for (const [key, label] of [["hire_date","วันเริ่มงาน"],["probation_end_date","สิ้นสุดทดลองงาน"],["birth_date","วันเกิด"]] as const) {
+      const val = (f as any)[key]
+      if (val && parseInt(val.split("-")[0]) > 2100) { toast.error(`${label}: ปีต้องเป็น ค.ศ. (เช่น 2026) ไม่ใช่ พ.ศ.`); return }
+    }
     setLoading(true)
     try {
       const res = await fetch("/api/employees/create", {
