@@ -382,20 +382,27 @@ export async function POST(req: Request) {
             allowance_phone: mIsManual ? Number(existPR?.allowance_phone) : Number(sal.allowance_phone) || 0,
             allowance_housing: mIsManual ? Number(existPR?.allowance_housing) : Number(sal.allowance_housing) || 0,
             allowance_other: mIsManual ? Number(existPR?.allowance_other) : 0,
-            ot_amount: mIsManual ? (Number(existPR?.ot_amount) || result.otAmount) : result.otAmount,
-            ot_hours: mIsManual ? (Number(existPR?.ot_hours) || 0) : (weekdayOtMin + holidayRegMin + holidayOtMin) / 60,
-            ot_weekday_minutes: mIsManual ? (Number(existPR?.ot_weekday_minutes) || 0) : weekdayOtMin,
-            ot_holiday_reg_minutes: mIsManual ? (Number(existPR?.ot_holiday_reg_minutes) || 0) : holidayRegMin,
-            ot_holiday_ot_minutes: mIsManual ? (Number(existPR?.ot_holiday_ot_minutes) || 0) : holidayOtMin,
-            bonus: existPR?.bonus || 0, commission: mCommission, other_income: mOtherIncome,
+            ot_amount: mIsManual ? (existPR?.ot_amount != null ? Number(existPR.ot_amount) : result.otAmount) : result.otAmount,
+            ot_hours: mIsManual ? (existPR?.ot_hours != null ? Number(existPR.ot_hours) : 0) : (weekdayOtMin + holidayRegMin + holidayOtMin) / 60,
+            ot_weekday_minutes: mIsManual ? (existPR?.ot_weekday_minutes != null ? Number(existPR.ot_weekday_minutes) : 0) : weekdayOtMin,
+            ot_holiday_reg_minutes: mIsManual ? (existPR?.ot_holiday_reg_minutes != null ? Number(existPR.ot_holiday_reg_minutes) : 0) : holidayRegMin,
+            ot_holiday_ot_minutes: mIsManual ? (existPR?.ot_holiday_ot_minutes != null ? Number(existPR.ot_holiday_ot_minutes) : 0) : holidayOtMin,
+            bonus: existPR?.bonus ?? 0, commission: mCommission, other_income: mOtherIncome,
             income_extras: existPR?.income_extras || null,
             gross_income: (() => {
-              let g = result.gross + mCommission + mOtherIncome
-              // ถ้า manual → ปรับ gross ให้ใช้ ot_amount จาก manual แทน calculated
-              if (mIsManual && existPR?.ot_amount !== undefined) {
-                g = g - result.otAmount + Number(existPR.ot_amount)
+              if (mIsManual) {
+                // คำนวณ gross จากค่าที่ HR กรอกจริง ไม่ใช้ result.gross ที่ใช้ค่าจาก salary_structures
+                const mAllow = Number(existPR?.allowance_position ?? sal.allowance_position ?? 0)
+                  + Number(existPR?.allowance_transport ?? 0)
+                  + Number(existPR?.allowance_food ?? sal.allowance_food ?? 0)
+                  + Number(existPR?.allowance_phone ?? sal.allowance_phone ?? 0)
+                  + Number(existPR?.allowance_housing ?? sal.allowance_housing ?? 0)
+                  + Number(existPR?.allowance_other ?? 0)
+                const mOt = existPR?.ot_amount != null ? Number(existPR.ot_amount) : result.otAmount
+                const mBonus = Number(existPR?.bonus ?? 0)
+                return baseSalary + mAllow + mOt + mBonus + mCommission + mOtherIncome
               }
-              return g
+              return result.gross + mCommission + mOtherIncome
             })(),
             deduct_absent: result.deductAbsent, deduct_late: result.deductLate,
             deduct_early_out: result.deductEarlyOut, deduct_loan: loanDeduction,
@@ -403,11 +410,39 @@ export async function POST(req: Request) {
             deduction_extras: existPR?.deduction_extras || null,
             social_security_base: baseSalary, social_security_rate: 0.05,
             social_security_amount: result.sso,
-            taxable_income: result.gross - result.sso,
+            taxable_income: (() => {
+              if (mIsManual) {
+                const mAllow = Number(existPR?.allowance_position ?? sal.allowance_position ?? 0)
+                  + Number(existPR?.allowance_transport ?? 0)
+                  + Number(existPR?.allowance_food ?? sal.allowance_food ?? 0)
+                  + Number(existPR?.allowance_phone ?? sal.allowance_phone ?? 0)
+                  + Number(existPR?.allowance_housing ?? sal.allowance_housing ?? 0)
+                  + Number(existPR?.allowance_other ?? 0)
+                const mOt = existPR?.ot_amount != null ? Number(existPR.ot_amount) : result.otAmount
+                const mBonus = Number(existPR?.bonus ?? 0)
+                const mGross = baseSalary + mAllow + mOt + mBonus + mCommission + mOtherIncome
+                return mGross - result.sso
+              }
+              return result.gross - result.sso
+            })(),
             monthly_tax_withheld: result.tax,
             ytd_tax_withheld: previousYtdTax + result.tax,
             total_deductions: result.totalDeduct + deductUnpaidLeave + mDeductOther,
-            net_salary: Math.max(result.net - deductUnpaidLeave - mDeductOther + mCommission + mOtherIncome, 0),
+            net_salary: (() => {
+              if (mIsManual) {
+                const mAllow = Number(existPR?.allowance_position ?? sal.allowance_position ?? 0)
+                  + Number(existPR?.allowance_transport ?? 0)
+                  + Number(existPR?.allowance_food ?? sal.allowance_food ?? 0)
+                  + Number(existPR?.allowance_phone ?? sal.allowance_phone ?? 0)
+                  + Number(existPR?.allowance_housing ?? sal.allowance_housing ?? 0)
+                  + Number(existPR?.allowance_other ?? 0)
+                const mOt = existPR?.ot_amount != null ? Number(existPR.ot_amount) : result.otAmount
+                const mBonus = Number(existPR?.bonus ?? 0)
+                const mGross = baseSalary + mAllow + mOt + mBonus + mCommission + mOtherIncome
+                return Math.max(mGross - result.totalDeduct - deductUnpaidLeave - mDeductOther, 0)
+              }
+              return Math.max(result.net - deductUnpaidLeave - mDeductOther + mCommission + mOtherIncome, 0)
+            })(),
             working_days: pastWorkDays.length, present_days: presentDays,
             absent_days: absentDays, late_count: records.filter((r: any) => (r.status === "late" || (Number(r.late_minutes) || 0) > 0) && r.half_day_leave !== "morning").length,
             leave_paid_days: leavePaidDays, leave_unpaid_days: leaveUnpaidDays,

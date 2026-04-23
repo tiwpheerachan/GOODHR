@@ -141,6 +141,11 @@ export async function POST(request: Request) {
     if (monthlyAssignment.assignment_type === "dayoff") {
       console.log(`[checkin] employee ${emp.id} checking in on dayoff (${today})`)
     }
+  } else if (monthlyAssignment?.shift_id) {
+    // FK join ไม่ work → ดึง shift แยก
+    const { data: shiftData } = await supa.from("shift_templates").select("*").eq("id", monthlyAssignment.shift_id).single()
+    if (shiftData) shift = shiftData
+    console.log(`[checkin] FK join failed, fetched shift separately: ${shiftData?.work_start}`)
   } else {
     schedule = schedRes.data
     shift = (schedule as any)?.shift ?? null

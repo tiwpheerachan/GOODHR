@@ -70,6 +70,14 @@ const REG_COLS: RCol[] = [
   { key:"ot15",        label:"OT ×1.5",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5) },
   { key:"ot10",        label:"OT ×1.0",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0) },
   { key:"ot30",        label:"OT ×3.0",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0) },
+  { key:"ot_manual",   label:"OT (กรอก)",           group:"income", get:r=>{
+    const calcOt = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
+      + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
+      + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
+    // แสดงเฉพาะส่วนที่กรอกเกินจาก OT คำนวณ หรือถ้าไม่มี OT คำนวณเลยแสดง ot_amount ทั้งหมด
+    const diff = n(r.ot_amount) - calcOt
+    return diff > 0.01 ? diff : 0
+  }},
   { key:"pos_allow",   label:"ค่าตำแหน่ง",           group:"income", get:r=>n(r.allowance_position) },
   { key:"kpi",         label:"KPI",                 group:"income", get:r=>n((r.income_extras||{}).kpi) },
   { key:"commission",  label:"Commission",          group:"income", get:r=>n(r.commission) },
@@ -560,6 +568,8 @@ function exportXLSX(records: any[], period: any) {
     const ie  = (r:any) => r.income_extras ?? {}
     const de  = (r:any) => r.deduction_extras ?? {}
     const otAmt = (r:any) => {
+      // ใช้ ot_amount เป็นหลัก (รองรับทั้ง OT คำนวณจากนาที และ OT ที่ HR กรอกเอง)
+      if (n(r.ot_amount) > 0) return n(r.ot_amount)
       const base = n(r.base_salary)
       return calcOTAmt(base,n(r.ot_weekday_minutes),1.5)
            + calcOTAmt(base,n(r.ot_holiday_reg_minutes),1.0)
@@ -620,6 +630,13 @@ function exportXLSX(records: any[], period: any) {
     ["OT วันทำงาน ×1.5",         grand(r=>calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5))],
     ["OT วันหยุด ×1.0 (งานปกติ)", grand(r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0))],
     ["OT วันหยุด ×3.0",          grand(r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0))],
+    ["OT (กรอก)",                grand(r=>{
+      const calcOt = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
+        + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
+        + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
+      const diff = n(r.ot_amount) - calcOt
+      return diff > 0.01 ? diff : 0
+    })],
     ["ค่าตำแหน่ง",                grand(r=>n(r.allowance_position))],
     ["ค่าเดินทาง",                 grand(r=>n(r.allowance_transport))],
     ["ค่าอาหาร",                   grand(r=>n(r.allowance_food))],
