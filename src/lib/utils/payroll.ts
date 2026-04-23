@@ -161,6 +161,7 @@ const GRACE_10_DEPTS = [
   "support", "สนับสนุน",
   "kam",
   "content", "graphic",
+  "บริหาร",
 ]
 
 // Companies ที่ทุกแผนก grace = 0
