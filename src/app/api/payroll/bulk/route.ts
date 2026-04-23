@@ -193,7 +193,7 @@ export async function POST(req: Request) {
   const [loanRes, otRes, prevPayrollRes] = await Promise.all([
     supa.from("employee_loans").select("employee_id, monthly_deduction")
       .in("employee_id", employee_ids).eq("status", "active"),
-    supa.from("overtime_requests").select("employee_id, ot_start, ot_end, work_date")
+    supa.from("overtime_requests").select("employee_id, ot_start, ot_end, ot_rate, work_date")
       .in("employee_id", employee_ids).eq("status", "approved")
       .gte("work_date", periodStart).lte("work_date", periodEnd),
     supa.from("payroll_records").select("employee_id, monthly_tax_withheld")
@@ -217,6 +217,14 @@ export async function POST(req: Request) {
   for (const p of (prevPayrollRes.data ?? [])) {
     prevTaxByEmp.set(p.employee_id, (prevTaxByEmp.get(p.employee_id) || 0) + (Number(p.monthly_tax_withheld) || 0))
   }
+
+  // ── ดึง existing payroll records เพื่อเก็บค่า manual ──
+  const { data: existPRData } = await supa.from("payroll_records")
+    .select("employee_id, is_manual_override, bonus, commission, other_income, deduct_other, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_other, income_extras, deduction_extras")
+    .eq("payroll_period_id", payroll_period_id)
+    .in("employee_id", employee_ids)
+  const existingPayrolls = new Map<string, any>()
+  for (const p of (existPRData ?? [])) existingPayrolls.set(p.employee_id, p)
 
   // ── Process each employee ───────────────────────────────────────
   const results: { employee_id: string; success: boolean; error?: string }[] = []
@@ -320,12 +328,10 @@ export async function POST(req: Request) {
                 const mins = Math.max(0, Math.round(
                   (new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000
                 ))
-                const wd = ot.work_date as string
-                if (!isWorkDay(wd, holidaySet, empShiftMap, empDayoffs)) {
-                  holidayOtMin += mins
-                } else {
-                  weekdayOtMin += mins
-                }
+                const rate = Number(ot.ot_rate) || 1.5
+                if (rate >= 3.0) holidayOtMin += mins
+                else if (rate <= 1.0) holidayRegMin += mins
+                else weekdayOtMin += mins
               }
             }
           }
@@ -345,6 +351,13 @@ export async function POST(req: Request) {
           // ถ้า exempt → ไม่หักมาสาย/ขาดงาน/ออกก่อน
           const isExempt = !!emp.is_attendance_exempt
 
+          // ดึงค่า manual ที่ HR กรอกไว้ (commission, other_income ฯลฯ)
+          const existPR = existingPayrolls.get(eid)
+          const mCommission  = Number(existPR?.commission)   || 0
+          const mOtherIncome = Number(existPR?.other_income) || 0
+          const mDeductOther = Number(existPR?.deduct_other) || 0
+          const mIsManual    = !!existPR?.is_manual_override
+
           const result = calculatePayrollSummary({
             baseSalary, allowances: allAllowances,
             otBreakdown, bonus: 0,
@@ -363,27 +376,29 @@ export async function POST(req: Request) {
             payroll_period_id, employee_id: eid, company_id: emp.company_id,
             year: currentYear, month: currentMonth,
             base_salary: baseSalary,
-            allowance_position: Number(sal.allowance_position) || 0,
-            allowance_transport: 0,
-            allowance_food: Number(sal.allowance_food) || 0,
-            allowance_phone: Number(sal.allowance_phone) || 0,
-            allowance_housing: Number(sal.allowance_housing) || 0,
-            allowance_other: 0,
+            allowance_position: mIsManual ? Number(existPR?.allowance_position) : Number(sal.allowance_position) || 0,
+            allowance_transport: mIsManual ? Number(existPR?.allowance_transport) : 0,
+            allowance_food: mIsManual ? Number(existPR?.allowance_food) : Number(sal.allowance_food) || 0,
+            allowance_phone: mIsManual ? Number(existPR?.allowance_phone) : Number(sal.allowance_phone) || 0,
+            allowance_housing: mIsManual ? Number(existPR?.allowance_housing) : Number(sal.allowance_housing) || 0,
+            allowance_other: mIsManual ? Number(existPR?.allowance_other) : 0,
             ot_amount: result.otAmount,
             ot_hours: (weekdayOtMin + holidayRegMin + holidayOtMin) / 60,
             ot_weekday_minutes: weekdayOtMin, ot_holiday_reg_minutes: holidayRegMin, ot_holiday_ot_minutes: holidayOtMin,
-            bonus: 0, commission: 0, other_income: 0,
-            gross_income: result.gross,
+            bonus: existPR?.bonus || 0, commission: mCommission, other_income: mOtherIncome,
+            income_extras: existPR?.income_extras || null,
+            gross_income: result.gross + mCommission + mOtherIncome,
             deduct_absent: result.deductAbsent, deduct_late: result.deductLate,
             deduct_early_out: result.deductEarlyOut, deduct_loan: loanDeduction,
-            deduct_other: deductUnpaidLeave,
+            deduct_other: deductUnpaidLeave + mDeductOther,
+            deduction_extras: existPR?.deduction_extras || null,
             social_security_base: baseSalary, social_security_rate: 0.05,
             social_security_amount: result.sso,
             taxable_income: result.gross - result.sso,
             monthly_tax_withheld: result.tax,
             ytd_tax_withheld: previousYtdTax + result.tax,
-            total_deductions: result.totalDeduct + deductUnpaidLeave,
-            net_salary: Math.max(result.net - deductUnpaidLeave, 0),
+            total_deductions: result.totalDeduct + deductUnpaidLeave + mDeductOther,
+            net_salary: Math.max(result.net - deductUnpaidLeave - mDeductOther + mCommission + mOtherIncome, 0),
             working_days: pastWorkDays.length, present_days: presentDays,
             absent_days: absentDays, late_count: records.filter((r: any) => (r.status === "late" || (Number(r.late_minutes) || 0) > 0) && r.half_day_leave !== "morning").length,
             leave_paid_days: leavePaidDays, leave_unpaid_days: leaveUnpaidDays,

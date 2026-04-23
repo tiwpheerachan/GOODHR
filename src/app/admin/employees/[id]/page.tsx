@@ -2770,25 +2770,31 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
 // ─── Leave Quota Tab ──────────────────────────────────────────────────────────
 function LeaveQuotaTab({ employeeId, companyId }: { employeeId: string; companyId?: string }) {
   const [balances, setBalances] = useState<any[]>([])
+  const [leaveHistory, setLeaveHistory] = useState<any[]>([])
   const [loading, setLoading]   = useState(true)
   const year = new Date().getFullYear()
 
   useEffect(() => {
     if (!employeeId) return
-    // ใช้ API ที่มี service client (ไม่ติด RLS)
     fetch(`/api/admin/leave-quota?company_id=${companyId || "all"}&year=${year}`)
       .then(r => r.json())
       .then(d => {
-        // filter เฉพาะพนักงานคนนี้
         const empBalances = (d.balances ?? []).filter((b: any) => b.employee_id === employeeId)
         const leaveTypes = d.leaveTypes ?? []
-        // enrich balance with leave_type info
         const enriched = empBalances.map((b: any) => ({
           ...b,
           leave_type: leaveTypes.find((lt: any) => lt.id === b.leave_type_id) || null,
         }))
         enriched.sort((a: any, b: any) => (b.entitled_days || 0) - (a.entitled_days || 0))
         setBalances(enriched)
+        // ประวัติการลาของพนักงานคนนี้
+        const empLeaves = (d.leaveRequests ?? [])
+          .filter((lr: any) => lr.employee_id === employeeId)
+          .map((lr: any) => ({
+            ...lr,
+            leave_type: leaveTypes.find((lt: any) => lt.id === lr.leave_type_id) || null,
+          }))
+        setLeaveHistory(empLeaves)
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -2874,6 +2880,36 @@ function LeaveQuotaTab({ employeeId, companyId }: { employeeId: string; companyI
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* ── ประวัติการลา ── */}
+      <div className="mt-4">
+        <h4 className="font-bold text-slate-700 text-sm mb-3 flex items-center gap-2">
+          <Calendar size={14} className="text-sky-500"/>
+          ประวัติการลา {year}
+        </h4>
+        {leaveHistory.length === 0 ? (
+          <p className="text-xs text-slate-300 text-center py-4">ยังไม่มีประวัติการลาในปีนี้</p>
+        ) : (
+          <div className="space-y-1.5">
+            {leaveHistory.map((lr: any) => {
+              const isSameDay = lr.start_date === lr.end_date
+              return (
+                <div key={lr.id} className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 text-xs">
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: lr.leave_type?.color_hex || "#94a3b8" }} />
+                  <span className="font-bold text-slate-600 min-w-[80px]">{lr.leave_type?.name || "ลา"}</span>
+                  <span className="text-slate-500">
+                    {new Date(lr.start_date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                    {!isSameDay && ` – ${new Date(lr.end_date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}`}
+                  </span>
+                  <span className="text-slate-400">{lr.total_days} วัน</span>
+                  {lr.is_half_day && <span className="text-blue-500 text-[10px]">(ครึ่งวัน)</span>}
+                  {lr.reason && <span className="text-slate-300 truncate max-w-[150px] ml-auto" title={lr.reason}>{lr.reason}</span>}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

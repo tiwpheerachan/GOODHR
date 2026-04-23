@@ -617,6 +617,10 @@ export default function ApprovalsPage() {
                   <p className="text-gray-400 mb-0.5">{t("approvals.ot_time")}</p>
                   <p className="font-bold text-gray-800 tabular-nums">{fmtTime(item.ot_start)} – {fmtTime(item.ot_end)}</p>
                 </div>
+                <div className="bg-amber-50 rounded-xl px-3 py-2.5">
+                  <p className="text-amber-500 mb-0.5">อัตรา OT</p>
+                  <p className="font-bold text-amber-700">{item.ot_rate || 1.5}×</p>
+                </div>
               </div>
               {item.reason && (
                 <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">

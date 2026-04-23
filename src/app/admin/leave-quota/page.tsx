@@ -35,6 +35,7 @@ export default function LeaveQuotaPage() {
   const [balances, setBalances] = useState<Balance[]>([])
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([])
   const [departments, setDepartments] = useState<Dept[]>([])
+  const [leaveRequests, setLeaveRequests] = useState<any[]>([])
 
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -64,6 +65,7 @@ export default function LeaveQuotaPage() {
         setBalances(d.balances || [])
         setLeaveTypes(d.leaveTypes || [])
         setDepartments(d.departments || [])
+        setLeaveRequests(d.leaveRequests || [])
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -372,30 +374,71 @@ export default function LeaveQuotaPage() {
                           </button>
                         </td>
                       </tr>
-                      {isExpanded && (
-                        <tr className="bg-indigo-50/30">
-                          <td colSpan={2 + coreTypes.length * 3 + 2} className="px-6 py-3">
-                            <div className="flex flex-wrap gap-2">
-                              {otherBalances.map(ob => {
-                                const lt = leaveTypes.find(t => t.id === ob.leave_type_id)
-                                return (
-                                  <div key={ob.id} className="bg-white rounded-lg px-3 py-2 border border-slate-100 text-xs">
-                                    <div className="flex items-center gap-1.5 mb-1">
-                                      <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: lt?.color_hex || "#94a3b8" }} />
-                                      <span className="font-bold text-slate-700">{lt?.name || "ไม่ทราบ"}</span>
-                                    </div>
-                                    <div className="flex gap-3 text-[10px] text-slate-500">
-                                      <span>โควต้า <b className="text-slate-700">{ob.entitled_days}</b></span>
-                                      <span>ใช้ <b className="text-slate-700">{ob.used_days}</b></span>
-                                      <span>เหลือ <b className="text-emerald-600">{ob.remaining_days}</b></span>
+                      {isExpanded && (() => {
+                        const empLeaves = leaveRequests.filter(lr => lr.employee_id === emp.id)
+                        return (
+                          <tr className="bg-indigo-50/30">
+                            <td colSpan={2 + coreTypes.length * 3 + 2} className="px-6 py-4">
+                              <div className="space-y-3">
+                                {/* ประเภทลาอื่นๆ */}
+                                {otherBalances.length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-2">ประเภทลาอื่นๆ</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {otherBalances.map(ob => {
+                                        const lt = leaveTypes.find(t => t.id === ob.leave_type_id)
+                                        return (
+                                          <div key={ob.id} className="bg-white rounded-lg px-3 py-2 border border-slate-100 text-xs">
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: lt?.color_hex || "#94a3b8" }} />
+                                              <span className="font-bold text-slate-700">{lt?.name || "ไม่ทราบ"}</span>
+                                            </div>
+                                            <div className="flex gap-3 text-[10px] text-slate-500">
+                                              <span>โควต้า <b className="text-slate-700">{ob.entitled_days}</b></span>
+                                              <span>ใช้ <b className="text-slate-700">{ob.used_days}</b></span>
+                                              <span>เหลือ <b className="text-emerald-600">{ob.remaining_days}</b></span>
+                                            </div>
+                                          </div>
+                                        )
+                                      })}
                                     </div>
                                   </div>
-                                )
-                              })}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
+                                )}
+
+                                {/* ประวัติการลา (วันที่ลา) */}
+                                <div>
+                                  <p className="text-[10px] font-black text-slate-400 uppercase mb-2">ประวัติการลา {year}</p>
+                                  {empLeaves.length === 0 ? (
+                                    <p className="text-xs text-slate-300">ยังไม่มีประวัติการลา</p>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      {empLeaves.map((lr: any) => {
+                                        const lt = leaveTypes.find(t => t.id === lr.leave_type_id)
+                                        const startD = new Date(lr.start_date + "T00:00:00")
+                                        const endD = new Date(lr.end_date + "T00:00:00")
+                                        const isSameDay = lr.start_date === lr.end_date
+                                        return (
+                                          <div key={lr.id} className="flex items-center gap-2 bg-white rounded-lg px-3 py-1.5 border border-slate-100 text-xs">
+                                            <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: lt?.color_hex || "#94a3b8" }} />
+                                            <span className="font-bold text-slate-600 min-w-[70px]">{lt?.name || "ลา"}</span>
+                                            <span className="text-slate-500">
+                                              {startD.toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                                              {!isSameDay && ` – ${endD.toLocaleDateString("th-TH", { day: "numeric", month: "short" })}`}
+                                            </span>
+                                            <span className="text-slate-400">{lr.total_days} วัน</span>
+                                            {lr.is_half_day && <span className="text-blue-500 text-[10px]">(ครึ่งวัน)</span>}
+                                            {lr.reason && <span className="text-slate-300 truncate max-w-[150px]" title={lr.reason}>— {lr.reason}</span>}
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })()}
                     </React.Fragment>
                   )
                 })}

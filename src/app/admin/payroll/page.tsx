@@ -717,60 +717,58 @@ function EditModal({
   const ie = record.income_extras ?? {}
   const de = record.deduction_extras ?? {}
 
-  // editable fields — init from record (standard + extras)
+  // editable fields — init เป็น string ทั้งหมด เพื่อให้ input type=number ทำงานถูก
+  const s = (v: any) => v != null && v !== 0 ? String(v) : ""
   const [f, setF] = useState({
-    // standard columns
-    base_salary:           record.base_salary          ?? 0,
-    allowance_position:    record.allowance_position   ?? 0,
-    allowance_transport:   record.allowance_transport  ?? 0,
-    allowance_food:        record.allowance_food       ?? 0,
-    allowance_phone:       record.allowance_phone      ?? 0,
-    allowance_housing:     record.allowance_housing    ?? 0,
-    allowance_other:       record.allowance_other      ?? 0,
-    ot_amount:             record.ot_amount            ?? 0,
-    ot_weekday_minutes:    record.ot_weekday_minutes   ?? 0,
-    ot_holiday_reg_minutes:record.ot_holiday_reg_minutes ?? 0,
-    ot_holiday_ot_minutes: record.ot_holiday_ot_minutes  ?? 0,
-    bonus:                 record.bonus                ?? 0,
-    commission:            record.commission           ?? 0,
-    other_income:          record.other_income         ?? 0,
-    deduct_absent:         record.deduct_absent        ?? 0,
-    deduct_late:           record.deduct_late          ?? 0,
-    deduct_loan:           record.deduct_loan          ?? 0,
-    deduct_other:          record.deduct_other         ?? 0,
-    social_security_amount:record.social_security_amount ?? 0,
-    monthly_tax_withheld:  record.monthly_tax_withheld ?? 0,
-    absent_days:           record.absent_days          ?? 0,
-    late_count:            record.late_count           ?? 0,
-    present_days:          record.present_days         ?? 0,
-    leave_paid_days:       record.leave_paid_days      ?? 0,
-    leave_unpaid_days:     record.leave_unpaid_days    ?? 0,
-    note_override:         record.note_override        ?? "",
-    // income_extras
-    ex_kpi:                ie.kpi               ?? 0,
-    ex_incentive:          ie.incentive          ?? 0,
-    ex_performance_bonus:  ie.performance_bonus  ?? 0,
-    ex_service_fee:        ie.service_fee        ?? 0,
-    ex_depreciation:       ie.depreciation       ?? 0,
-    ex_expressway:         ie.expressway         ?? 0,
-    ex_fuel:               ie.fuel               ?? 0,
-    ex_campaign:           ie.campaign           ?? 0,
-    ex_retirement_fund:    ie.retirement_fund    ?? 0,
-    ex_per_diem:           ie.per_diem           ?? 0,
-    ex_diligence_bonus:    ie.diligence_bonus    ?? 0,
-    ex_referral_bonus:     ie.referral_bonus     ?? 0,
-    // deduction_extras
-    dx_suspension:         de.suspension         ?? 0,
-    dx_card_lost:          de.card_lost          ?? 0,
-    dx_uniform:            de.uniform            ?? 0,
-    dx_parking:            de.parking            ?? 0,
-    dx_employee_products:  de.employee_products  ?? 0,
-    dx_legal_enforcement:  de.legal_enforcement  ?? 0,
-    dx_student_loan:       de.student_loan       ?? 0,
+    base_salary:           s(record.base_salary),
+    allowance_position:    s(record.allowance_position),
+    allowance_transport:   s(record.allowance_transport),
+    allowance_food:        s(record.allowance_food),
+    allowance_phone:       s(record.allowance_phone),
+    allowance_housing:     s(record.allowance_housing),
+    allowance_other:       s(record.allowance_other),
+    ot_amount:             s(record.ot_amount),
+    ot_weekday_minutes:    s(record.ot_weekday_minutes),
+    ot_holiday_reg_minutes:s(record.ot_holiday_reg_minutes),
+    ot_holiday_ot_minutes: s(record.ot_holiday_ot_minutes),
+    bonus:                 s(record.bonus),
+    commission:            s(record.commission),
+    other_income:          s(record.other_income),
+    deduct_absent:         s(record.deduct_absent),
+    deduct_late:           s(record.deduct_late),
+    deduct_loan:           s(record.deduct_loan),
+    deduct_other:          s(record.deduct_other),
+    social_security_amount:s(record.social_security_amount),
+    monthly_tax_withheld:  s(record.monthly_tax_withheld),
+    absent_days:           s(record.absent_days),
+    late_count:            s(record.late_count),
+    present_days:          s(record.present_days),
+    leave_paid_days:       s(record.leave_paid_days),
+    leave_unpaid_days:     s(record.leave_unpaid_days),
+    note_override:         record.note_override ?? "",
+    ex_kpi:                s(ie.kpi),
+    ex_incentive:          s(ie.incentive),
+    ex_performance_bonus:  s(ie.performance_bonus),
+    ex_service_fee:        s(ie.service_fee),
+    ex_depreciation:       s(ie.depreciation),
+    ex_expressway:         s(ie.expressway),
+    ex_fuel:               s(ie.fuel),
+    ex_campaign:           s(ie.campaign),
+    ex_retirement_fund:    s(ie.retirement_fund),
+    ex_per_diem:           s(ie.per_diem),
+    ex_diligence_bonus:    s(ie.diligence_bonus),
+    ex_referral_bonus:     s(ie.referral_bonus),
+    dx_suspension:         s(de.suspension),
+    dx_card_lost:          s(de.card_lost),
+    dx_uniform:            s(de.uniform),
+    dx_parking:            s(de.parking),
+    dx_employee_products:  s(de.employee_products),
+    dx_legal_enforcement:  s(de.legal_enforcement),
+    dx_student_loan:       s(de.student_loan),
   })
   const [saving, setSaving] = useState(false)
 
-  const set = (k: string, v: string) => setF(prev => ({ ...prev, [k]: v === "" ? 0 : v }))
+  const set = (k: string, v: string) => setF(prev => ({ ...prev, [k]: v }))
 
   // live-calc gross / total_deductions / net — including extras
   const extraIncomeTotal = num(f.ex_kpi) + num(f.ex_incentive) + num(f.ex_performance_bonus)
@@ -865,13 +863,14 @@ function EditModal({
   }
 
   type FieldKey = keyof typeof f
-  const NumRow = ({ label, k, green, red }: { label: string; k: FieldKey; green?: boolean; red?: boolean }) => (
-    <div className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0">
+  // ใช้ function ธรรมดา (ไม่ใช่ component) เพื่อไม่ให้ remount input ทุก render
+  const numRow = (label: string, k: FieldKey, green?: boolean, red?: boolean) => (
+    <div key={k} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0">
       <label className="text-[11px] text-slate-600 flex-1">{label}</label>
       <div className="w-28">
         <input
           type="number" step="0.01"
-          value={f[k] as number}
+          value={f[k] ?? ""}
           onChange={e => set(k, e.target.value)}
           className={inpCls + (green ? " text-green-700" : red ? " text-red-600" : "")}
         />
@@ -916,16 +915,16 @@ function EditModal({
                 <span className="w-2 h-2 bg-green-500 rounded-full inline-block"/> รายรับหลัก
               </p>
               <div className="bg-slate-50 rounded-xl px-3 py-1.5">
-                <NumRow label="เงินเดือน"       k="base_salary"         green/>
-                <NumRow label={`KPI Bonus${record.kpi_grade ? ` (${record.kpi_grade})` : ""}`} k="bonus" green/>
-                <NumRow label="OT (฿ รวม)"      k="ot_amount"           green/>
-                <NumRow label="ค่าตำแหน่ง"      k="allowance_position"  green/>
-                <NumRow label="คอมมิชชั่น"       k="commission"          green/>
-                <NumRow label="ค่าเดินทาง"       k="allowance_transport" green/>
-                <NumRow label="ค่าอาหาร"         k="allowance_food"      green/>
-                <NumRow label="ค่าโทรศัพท์"      k="allowance_phone"     green/>
-                <NumRow label="ค่าที่พัก"         k="allowance_housing"   green/>
-                <NumRow label="รายได้อื่นๆ"       k="other_income"        green/>
+                {numRow("เงินเดือน", "base_salary", true)}
+                {numRow(`KPI Bonus${record.kpi_grade ? ` (${record.kpi_grade})` : ""}`, "bonus", true)}
+                {numRow("OT (฿ รวม)", "ot_amount", true)}
+                {numRow("ค่าตำแหน่ง", "allowance_position", true)}
+                {numRow("คอมมิชชั่น", "commission", true)}
+                {numRow("ค่าเดินทาง", "allowance_transport", true)}
+                {numRow("ค่าอาหาร", "allowance_food", true)}
+                {numRow("ค่าโทรศัพท์", "allowance_phone", true)}
+                {numRow("ค่าที่พัก", "allowance_housing", true)}
+                {numRow("รายได้อื่นๆ", "other_income", true)}
               </div>
 
               {/* รายรับเพิ่มเติม (extras) */}
@@ -933,18 +932,18 @@ function EditModal({
                 <span className="w-2 h-2 bg-emerald-400 rounded-full inline-block"/> รายรับเพิ่มเติม
               </p>
               <div className="bg-emerald-50/50 rounded-xl px-3 py-1.5">
-                <NumRow label="KPI"                  k="ex_kpi"               green/>
-                <NumRow label="Incentive"             k="ex_incentive"          green/>
-                <NumRow label="Performance Bonus"     k="ex_performance_bonus"  green/>
-                <NumRow label="ค่าบริการ"              k="ex_service_fee"        green/>
-                <NumRow label="ค่าเสื่อมสภาพ"          k="ex_depreciation"       green/>
-                <NumRow label="ค่าทางด่วน"             k="ex_expressway"         green/>
-                <NumRow label="ค่าน้ำมัน"               k="ex_fuel"               green/>
-                <NumRow label="แคมเปญ"               k="ex_campaign"           green/>
-                <NumRow label="ค่าโครงการเกษียณ"       k="ex_retirement_fund"    green/>
-                <NumRow label="เบี้ยเลี้ยง"             k="ex_per_diem"           green/>
-                <NumRow label="เบี้ยขยัน"               k="ex_diligence_bonus"    green/>
-                <NumRow label="เพื่อนแนะนำเพื่อน"        k="ex_referral_bonus"     green/>
+                {numRow("KPI", "ex_kpi", true)}
+                {numRow("Incentive", "ex_incentive", true)}
+                {numRow("Performance Bonus", "ex_performance_bonus", true)}
+                {numRow("ค่าบริการ", "ex_service_fee", true)}
+                {numRow("ค่าเสื่อมสภาพ", "ex_depreciation", true)}
+                {numRow("ค่าทางด่วน", "ex_expressway", true)}
+                {numRow("ค่าน้ำมัน", "ex_fuel", true)}
+                {numRow("แคมเปญ", "ex_campaign", true)}
+                {numRow("ค่าโครงการเกษียณ", "ex_retirement_fund", true)}
+                {numRow("เบี้ยเลี้ยง", "ex_per_diem", true)}
+                {numRow("เบี้ยขยัน", "ex_diligence_bonus", true)}
+                {numRow("เพื่อนแนะนำเพื่อน", "ex_referral_bonus", true)}
               </div>
 
               <div className="flex justify-between px-3 py-2 mt-2 bg-green-50 rounded-xl">
@@ -959,12 +958,12 @@ function EditModal({
                 <span className="w-2 h-2 bg-red-500 rounded-full inline-block"/> รายหักหลัก
               </p>
               <div className="bg-slate-50 rounded-xl px-3 py-1.5">
-                <NumRow label="หักมาสาย"        k="deduct_late"           red/>
-                <NumRow label="หักขาดงาน/ลา"    k="deduct_absent"         red/>
-                <NumRow label="เงินหักอื่นๆ"      k="deduct_other"          red/>
-                <NumRow label="หักเงินกู้"        k="deduct_loan"           red/>
-                <NumRow label="ประกันสังคม"       k="social_security_amount" red/>
-                <NumRow label="ภาษีหัก ณ ที่จ่าย" k="monthly_tax_withheld"  red/>
+                {numRow("หักมาสาย", "deduct_late", false, true)}
+                {numRow("หักขาดงาน/ลา", "deduct_absent", false, true)}
+                {numRow("เงินหักอื่นๆ", "deduct_other", false, true)}
+                {numRow("หักเงินกู้", "deduct_loan", false, true)}
+                {numRow("ประกันสังคม", "social_security_amount", false, true)}
+                {numRow("ภาษีหัก ณ ที่จ่าย", "monthly_tax_withheld", false, true)}
               </div>
 
               {/* รายหักเพิ่มเติม (extras) */}
@@ -972,13 +971,13 @@ function EditModal({
                 <span className="w-2 h-2 bg-rose-400 rounded-full inline-block"/> รายหักเพิ่มเติม
               </p>
               <div className="bg-rose-50/50 rounded-xl px-3 py-1.5">
-                <NumRow label="พักงาน"               k="dx_suspension"         red/>
-                <NumRow label="บัตรหาย/ชำรุด"         k="dx_card_lost"          red/>
-                <NumRow label="ค่าซื้อเสื้อพนักงาน"    k="dx_uniform"            red/>
-                <NumRow label="ค่าบัตรจอดรถ"          k="dx_parking"            red/>
-                <NumRow label="สินค้าพนักงาน"          k="dx_employee_products"  red/>
-                <NumRow label="กรมบังคับคดี"           k="dx_legal_enforcement"  red/>
-                <NumRow label="กยศ."                 k="dx_student_loan"       red/>
+                {numRow("พักงาน", "dx_suspension", false, true)}
+                {numRow("บัตรหาย/ชำรุด", "dx_card_lost", false, true)}
+                {numRow("ค่าซื้อเสื้อพนักงาน", "dx_uniform", false, true)}
+                {numRow("ค่าบัตรจอดรถ", "dx_parking", false, true)}
+                {numRow("สินค้าพนักงาน", "dx_employee_products", false, true)}
+                {numRow("กรมบังคับคดี", "dx_legal_enforcement", false, true)}
+                {numRow("กยศ.", "dx_student_loan", false, true)}
               </div>
 
               <div className="flex justify-between px-3 py-2 mt-2 bg-red-50 rounded-xl">
@@ -994,20 +993,20 @@ function EditModal({
                   <span className="w-2 h-2 bg-amber-400 rounded-full inline-block"/> รายละเอียด OT (นาที)
                 </p>
                 <div className="bg-slate-50 rounded-xl px-3 py-1.5">
-                  <NumRow label="OT 1.5x วันทำงาน"     k="ot_weekday_minutes"/>
-                  <NumRow label="OT 1.0x วันหยุด"       k="ot_holiday_reg_minutes"/>
-                  <NumRow label="OT 3.0x วันหยุด+เลิก"  k="ot_holiday_ot_minutes"/>
+                  {numRow("OT 1.5x วันทำงาน", "ot_weekday_minutes")}
+                  {numRow("OT 1.0x วันหยุด", "ot_holiday_reg_minutes")}
+                  {numRow("OT 3.0x วันหยุด+เลิก", "ot_holiday_ot_minutes")}
                 </div>
               </div>
 
               <div>
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">สถิติการเข้างาน</p>
                 <div className="bg-slate-50 rounded-xl px-3 py-1.5">
-                  <NumRow label="วันมาทำงาน"     k="present_days"/>
-                  <NumRow label="วันขาดงาน"      k="absent_days"/>
-                  <NumRow label="ครั้งมาสาย"     k="late_count"/>
-                  <NumRow label="วันลา (จ่าย)"   k="leave_paid_days"/>
-                  <NumRow label="วันลา (ไม่จ่าย)" k="leave_unpaid_days"/>
+                  {numRow("วันมาทำงาน", "present_days")}
+                  {numRow("วันขาดงาน", "absent_days")}
+                  {numRow("ครั้งมาสาย", "late_count")}
+                  {numRow("วันลา (จ่าย)", "leave_paid_days")}
+                  {numRow("วันลา (ไม่จ่าย)", "leave_unpaid_days")}
                 </div>
               </div>
 

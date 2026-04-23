@@ -267,7 +267,7 @@ export async function GET(req: NextRequest) {
   // ── Overtime requests ──
   if (shouldFetch("overtime")) {
     let q = supa.from("overtime_requests")
-      .select(`id,employee_id,company_id,work_date,ot_start,ot_end,reason,status,reviewed_at,review_note,created_at`)
+      .select(`id,employee_id,company_id,work_date,ot_start,ot_end,ot_rate,reason,status,reviewed_at,review_note,created_at`)
       .order("created_at", { ascending: false }).limit(200)
     q = applyFilters(q, "work_date", status)
     const { data } = await q
@@ -275,10 +275,11 @@ export async function GET(req: NextRequest) {
     for (const r of (data || [])) {
       const s = r.ot_start ? new Date(r.ot_start).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : "-"
       const e = r.ot_end ? new Date(r.ot_end).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : "-"
+      const rate = r.ot_rate ? `${r.ot_rate}×` : "1.5×"
       results.push({
         ...r, request_type: "overtime",
         date_label: r.work_date,
-        detail: `OT ${s} - ${e}`,
+        detail: `OT ${s} - ${e} (${rate})`,
         is_cancel_requested: r.status === "approved" && (r.review_note || "").includes("CANCEL_REQ"),
       })
     }

@@ -47,7 +47,22 @@ export async function GET(req: NextRequest) {
     .eq("is_active", true)
     .order("name")
 
-  // 4) Departments (for filter)
+  // 4) Leave requests (approved) — แสดงว่าลาไปวันไหนบ้าง
+  let allLeaveReqs: any[] = []
+  for (let i = 0; i < empIds.length; i += BATCH) {
+    const batch = empIds.slice(i, i + BATCH)
+    const { data } = await supa.from("leave_requests")
+      .select("id, employee_id, leave_type_id, start_date, end_date, total_days, is_half_day, half_day_period, status, reason")
+      .in("employee_id", batch)
+      .eq("status", "approved")
+      .gte("start_date", `${year}-01-01`)
+      .lte("end_date", `${year}-12-31`)
+      .order("start_date")
+      .limit(2000)
+    if (data) allLeaveReqs = allLeaveReqs.concat(data)
+  }
+
+  // 5) Departments (for filter)
   let deptQ = supa.from("departments").select("id, name, company_id").order("name")
   if (companyId !== "all") deptQ = deptQ.eq("company_id", companyId)
   const { data: departments } = await deptQ
@@ -57,5 +72,6 @@ export async function GET(req: NextRequest) {
     balances: allBalances,
     leaveTypes: leaveTypes ?? [],
     departments: departments ?? [],
+    leaveRequests: allLeaveReqs,
   })
 }

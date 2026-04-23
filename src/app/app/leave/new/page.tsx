@@ -245,7 +245,7 @@ function LeaveNewInner() {
           work_date: form.work_date,
           ot_start: `${form.work_date}T${form.ot_start}:00+07:00`,
           ot_end:   `${form.work_date}T${form.ot_end}:00+07:00`,
-          reason: form.reason, status: "pending", ot_rate: 1.5,
+          reason: form.reason, status: "pending", ot_rate: Number((form as any).ot_rate) || 1.5,
         })
         if (error) throw error
         setSuccess(true)
@@ -769,10 +769,18 @@ function LeaveNewInner() {
                       <div><label className={labelCls}>เวลาสิ้นสุด OT</label>
                         <input type="time" value={form.ot_end} onChange={e => set("ot_end", e.target.value)} className={inputCls} required /></div>
                     </div>
+                    <div><label className={labelCls}>ประเภท OT (อัตราค่าจ้าง)</label>
+                      <select value={(form as any).ot_rate || "1.5"} onChange={e => setForm(f => ({ ...f, ot_rate: e.target.value }))} className={inputCls}>
+                        <option value="1.0">1.0× — วันหยุดปกติ (ค่าแรงรายวัน)</option>
+                        <option value="1.5">1.5× — วันทำงานปกติ</option>
+                        <option value="2.0">2.0× — วันหยุดนักขัตฤกษ์</option>
+                        <option value="3.0">3.0× — วันหยุดนักขัตฤกษ์ (OT)</option>
+                      </select>
+                    </div>
                     <div className="rounded-2xl px-4 py-3 flex items-start gap-2.5"
                       style={{ background: "linear-gradient(135deg,#fffbeb,#fef3c7)", border: "1px solid #fde68a" }}>
                       <Sparkles size={13} className="text-amber-600 mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-amber-700 font-semibold">OT rate เริ่มต้น 1.5× — HR จะตรวจสอบและอนุมัติ</p>
+                      <p className="text-xs text-amber-700 font-semibold">เลือกอัตรา OT ตามประเภทวันที่ทำ — หัวหน้าจะตรวจสอบและอนุมัติ</p>
                     </div>
                   </>}
 

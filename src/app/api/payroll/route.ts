@@ -507,7 +507,7 @@ async function calcAndSave(
   // ถ้า attendance ไม่มี OT เลย → fallback ดึงจาก overtime_requests ที่อนุมัติแล้ว
   if (weekdayOtMin === 0 && holidayOtMin === 0 && holidayRegMin === 0) {
     const { data: approvedOT } = await supa.from("overtime_requests")
-      .select("work_date, ot_start, ot_end")
+      .select("work_date, ot_start, ot_end, ot_rate")
       .eq("employee_id", employee_id)
       .eq("status", "approved")
       .gte("work_date", periodStart)
@@ -518,9 +518,12 @@ async function calcAndSave(
         const mins = Math.max(0, Math.round(
           (new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000
         ))
-        const wd = ot.work_date as string
-        if (!isWorkDay(wd, holidaySet, shiftMap, fixedDayoffs)) {
+        const rate = Number(ot.ot_rate) || 1.5
+        // จัดประเภทตาม rate ที่พนักงานเลือก
+        if (rate >= 3.0) {
           holidayOtMin += mins
+        } else if (rate <= 1.0) {
+          holidayRegMin += mins
         } else {
           weekdayOtMin += mins
         }
@@ -596,6 +599,27 @@ async function calcAndSave(
     ? Math.round((Number(sal.base_salary) / 30) * leaveUnpaidDays * 100) / 100
     : 0
 
+  // ── ดึง existing record เพื่อเก็บค่า manual ที่ HR กรอก ──
+  const { data: existingPR } = await supa.from("payroll_records")
+    .select("*")
+    .eq("payroll_period_id", payroll_period_id).eq("employee_id", employee_id).maybeSingle()
+
+  const isManual = !!existingPR?.is_manual_override
+
+  // ถ้า HR เคยแก้ไข manual → เก็บค่าที่แก้ไว้ทั้งหมด
+  const manualCommission     = Number(existingPR?.commission)        || 0
+  const manualOtherIncome    = Number(existingPR?.other_income)      || 0
+  const manualDeductOther    = Number(existingPR?.deduct_other)      || 0
+  const manualBonus          = isManual ? Number(existingPR?.bonus)  || 0 : kpiBonus.amount
+  const manualAllowPosition  = isManual ? Number(existingPR?.allowance_position)  : Number(sal.allowance_position)  || 0
+  const manualAllowTransport = isManual ? Number(existingPR?.allowance_transport) : 0
+  const manualAllowFood      = isManual ? Number(existingPR?.allowance_food)      : Number(sal.allowance_food)      || 0
+  const manualAllowPhone     = isManual ? Number(existingPR?.allowance_phone)     : Number(sal.allowance_phone)     || 0
+  const manualAllowHousing   = isManual ? Number(existingPR?.allowance_housing)   : Number(sal.allowance_housing)   || 0
+  const manualAllowOther     = isManual ? Number(existingPR?.allowance_other)     : 0
+  const existingExtras       = existingPR?.income_extras || null
+  const existingDeductExtras = existingPR?.deduction_extras || null
+
   // ── upsert ────────────────────────────────────────────────────
   const payload: Record<string, unknown> = {
     payroll_period_id,
@@ -603,14 +627,14 @@ async function calcAndSave(
     company_id:             emp.company_id,
     year:                   currentYear,
     month:                  currentMonth,
-    // รายได้
+    // รายได้ — ถ้า HR เคยแก้ manual ใช้ค่าที่แก้ ไม่งั้นใช้จาก salary_structures
     base_salary:            Number(sal.base_salary),
-    allowance_position:     Number(sal.allowance_position)  || 0,
-    allowance_transport:    0,
-    allowance_food:         Number(sal.allowance_food)      || 0,
-    allowance_phone:        Number(sal.allowance_phone)     || 0,
-    allowance_housing:      Number(sal.allowance_housing)   || 0,
-    allowance_other:        0,
+    allowance_position:     manualAllowPosition,
+    allowance_transport:    manualAllowTransport,
+    allowance_food:         manualAllowFood,
+    allowance_phone:        manualAllowPhone,
+    allowance_housing:      manualAllowHousing,
+    allowance_other:        manualAllowOther,
     ot_amount:              result.otAmount,
     ot_hours:               (
       otBreakdown.weekday_minutes +
@@ -620,18 +644,20 @@ async function calcAndSave(
     ot_weekday_minutes:     otBreakdown.weekday_minutes,
     ot_holiday_reg_minutes: otBreakdown.holiday_regular_minutes,
     ot_holiday_ot_minutes:  otBreakdown.holiday_ot_minutes,
-    bonus:                  kpiBonus.amount,
+    bonus:                  manualBonus,
     kpi_grade:              kpiBonus.grade,
     kpi_standard_amount:    kpiBonus.standardAmount,
-    commission:             0,
-    other_income:           0,
-    gross_income:           result.gross,
+    commission:             manualCommission,        // เก็บค่าที่ HR กรอก
+    other_income:           manualOtherIncome,        // เก็บค่าที่ HR กรอก
+    income_extras:          existingExtras,            // เก็บ extras ที่ HR กรอก
+    gross_income:           result.gross + manualCommission + manualOtherIncome,
     // การหัก
     deduct_absent:          result.deductAbsent,
     deduct_late:            result.deductLate,
     deduct_early_out:       result.deductEarlyOut,
     deduct_loan:            loanDeduction,
-    deduct_other:           deductUnpaidLeave,  // รวมหักลาไม่ได้เงินไว้ใน deduct_other
+    deduct_other:           deductUnpaidLeave + manualDeductOther,
+    deduction_extras:       existingDeductExtras,
     // ประกันสังคม
     social_security_base:   Number(sal.base_salary),
     social_security_rate:   0.05,
@@ -641,8 +667,8 @@ async function calcAndSave(
     monthly_tax_withheld:   result.tax,
     ytd_tax_withheld:       previousYtdTax + result.tax,
     // รวม
-    total_deductions:       result.totalDeduct + deductUnpaidLeave,
-    net_salary:             Math.max(result.net - deductUnpaidLeave, 0),
+    total_deductions:       result.totalDeduct + deductUnpaidLeave + manualDeductOther,
+    net_salary:             Math.max(result.net - deductUnpaidLeave - manualDeductOther + manualCommission + manualOtherIncome, 0),
     // สถิติ
     working_days:           pastWorkDays.length,
     present_days:           presentDays,
