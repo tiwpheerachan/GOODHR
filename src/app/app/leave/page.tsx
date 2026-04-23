@@ -114,6 +114,22 @@ export default function LeavePage() {
   const [tab,         setTab]        = useState<"balance" | "history">("balance")
   const [reqs,        setReqs]       = useState<AnyReq[]>([])
   const [loading,     setLoading]    = useState(false)
+  const [leaveHistory, setLeaveHistory] = useState<any[]>([])
+  const [expandedBalance, setExpandedBalance] = useState<string | null>(null)
+
+  // โหลดประวัติการลา (approved) ของปีนี้
+  useEffect(() => {
+    if (!empId) return
+    const year = new Date().getFullYear()
+    supabase.from("leave_requests")
+      .select("id, leave_type_id, start_date, end_date, total_days, is_half_day, half_day_period, status, reason, leave_type:leave_types(name, color_hex)")
+      .eq("employee_id", empId)
+      .eq("status", "approved")
+      .gte("start_date", `${year}-01-01`)
+      .lte("end_date", `${year}-12-31`)
+      .order("start_date")
+      .then(({ data }) => setLeaveHistory(data ?? []))
+  }, [empId]) // eslint-disable-line
   const [err,         setErr]        = useState<string | null>(null)
   const [cancelItem,  setCancelItem] = useState<AnyReq | null>(null)
   const [cancelling,  setCancelling] = useState(false)
@@ -319,38 +335,79 @@ export default function LeavePage() {
 
                 return (
                   <div key={b.id} {...up(100 + idx * 35)}
-                    className="press bg-white rounded-xl border border-slate-100 p-4">
+                    className="bg-white rounded-xl border border-slate-100 overflow-hidden">
 
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: hex }} />
-                        <div>
-                          <p className="font-bold text-slate-800 text-[13px] leading-tight">{b.leave_type?.name}</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            {b.leave_type?.is_paid ? "ได้รับเงิน" : "ไม่ได้รับเงิน"}
-                          </p>
+                    <button onClick={() => setExpandedBalance(expandedBalance === b.id ? null : b.id)}
+                      className="press w-full text-left p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: hex }} />
+                          <div>
+                            <p className="font-bold text-slate-800 text-[13px] leading-tight">{b.leave_type?.name}</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {b.leave_type?.is_paid ? "ได้รับเงิน" : "ไม่ได้รับเงิน"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-2xl font-extrabold leading-none" style={{ color: hex }}>
+                            {b.remaining_days ?? 0}
+                          </span>
+                          <span className="text-[10px] text-slate-400 ml-0.5">วัน</span>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-2xl font-extrabold leading-none" style={{ color: hex }}>
-                          {b.remaining_days ?? 0}
-                        </span>
-                        <span className="text-[10px] text-slate-400 ml-0.5">วัน</span>
+
+                      {/* Thin progress bar */}
+                      <div className="w-full h-1.5 rounded-full bg-slate-100 mb-2.5">
+                        <div className="h-full rounded-full transition-all duration-700"
+                          style={{ width: `${pct}%`, backgroundColor: hex }} />
                       </div>
-                    </div>
 
-                    {/* Thin progress bar */}
-                    <div className="w-full h-1.5 rounded-full bg-slate-100 mb-2.5">
-                      <div className="h-full rounded-full transition-all duration-700"
-                        style={{ width: `${pct}%`, backgroundColor: hex }} />
-                    </div>
+                      {/* Stats row */}
+                      <div className="flex justify-between text-[10px] text-slate-400">
+                        <span>ใช้ไป <b className="text-slate-600">{b.used_days}</b></span>
+                        <span>รอ <b className="text-amber-600">{b.pending_days}</b></span>
+                        <span>ทั้งหมด <b className="text-slate-600">{b.entitled_days}</b></span>
+                      </div>
 
-                    {/* Stats row — simple text */}
-                    <div className="flex justify-between text-[10px] text-slate-400">
-                      <span>ใช้ไป <b className="text-slate-600">{b.used_days}</b></span>
-                      <span>รอ <b className="text-amber-600">{b.pending_days}</b></span>
-                      <span>ทั้งหมด <b className="text-slate-600">{b.entitled_days}</b></span>
-                    </div>
+                      {/* Hint: กดดูรายละเอียด */}
+                      {(b.used_days > 0 || b.pending_days > 0) && (
+                        <p className={`text-center text-[9px] mt-2 flex items-center justify-center gap-1 ${expandedBalance === b.id ? "text-indigo-500" : "text-slate-300"}`}>
+                          <span>{expandedBalance === b.id ? "▲ ย่อ" : "▼ กดดูวันที่ลา"}</span>
+                        </p>
+                      )}
+                    </button>
+
+                    {/* ประวัติการลา — กดขยายดูวันที่ */}
+                    {expandedBalance === b.id && (() => {
+                      const typeLeaveDays = leaveHistory.filter(lr => lr.leave_type_id === b.leave_type_id)
+                      return (
+                        <div className="px-4 pb-3 border-t border-slate-100 pt-2">
+                          {typeLeaveDays.length === 0 ? (
+                            <p className="text-[10px] text-slate-300 text-center py-2">ยังไม่มีประวัติการลาประเภทนี้</p>
+                          ) : (
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-bold text-slate-400 mb-1">ลาไปวันที่</p>
+                              {typeLeaveDays.map((lr: any) => {
+                                const isSame = lr.start_date === lr.end_date
+                                return (
+                                  <div key={lr.id} className="flex items-center gap-2 text-[11px] py-1">
+                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: hex }} />
+                                    <span className="text-slate-600">
+                                      {new Date(lr.start_date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                                      {!isSame && ` – ${new Date(lr.end_date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}`}
+                                    </span>
+                                    <span className="text-slate-400">{lr.total_days} วัน</span>
+                                    {lr.is_half_day && <span className="text-blue-500 text-[9px]">(ครึ่งวัน)</span>}
+                                    {lr.reason && <span className="text-slate-300 truncate max-w-[100px]" title={lr.reason}>— {lr.reason}</span>}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                 )
               }) : (
