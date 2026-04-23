@@ -302,14 +302,12 @@ export async function POST(req: Request) {
           let holidayOtMin  = 0
 
           for (const r of records) {
-            const otM   = Number(r.ot_minutes)   || 0
-            const workM = Number(r.work_minutes) || 0
-            if (otM <= 0 && workM <= 0) continue
+            const otM = Number(r.ot_minutes) || 0
+            if (otM <= 0) continue  // ไม่มี OT จาก attendance → skip
 
             const wd = r.work_date as string
             if (!isWorkDay(wd, holidaySet, empShiftMap, empDayoffs)) {
-              holidayRegMin += Math.max(0, workM - otM)
-              holidayOtMin  += otM
+              holidayOtMin += otM
             } else {
               weekdayOtMin += otM
             }

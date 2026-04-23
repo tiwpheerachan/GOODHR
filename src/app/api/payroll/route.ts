@@ -492,14 +492,12 @@ async function calcAndSave(
 
   for (const r of records) {
     const otMin   = Number(r.ot_minutes)   || 0
-    const workMin = Number(r.work_minutes) || 0
-    if (otMin <= 0 && workMin <= 0) continue
+    if (otMin <= 0) continue  // ไม่มี OT จาก attendance → skip (ไม่นับ work_minutes เป็น OT)
 
     const wd = r.work_date as string
     if (!isWorkDay(wd, holidaySet, shiftMap, fixedDayoffs)) {
-      // วันหยุด/dayoff → ชม.ปกติ 1.0x, OT 3.0x
-      holidayRegMin += Math.max(0, workMin - otMin)
-      holidayOtMin  += otMin
+      // วันหยุด/dayoff → OT 3.0x
+      holidayOtMin += otMin
     } else {
       // วันทำงานปกติ → OT 1.5x
       weekdayOtMin += otMin
