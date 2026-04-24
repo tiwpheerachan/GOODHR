@@ -1982,9 +1982,11 @@ export default function PayrollPage() {
         <EditModal
           record={editing}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onSaved={(updated) => {
             setEditing(null)
-            loadRecords()
+            // อัพเดต record ใน state โดยตรง — ไม่ trigger bgRecalculate
+            // (bgRecalculate จะทับค่า manual ที่ HR เพิ่งบันทึก)
+            setRecords(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
           }}
         />
       )}

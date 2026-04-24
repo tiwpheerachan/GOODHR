@@ -251,14 +251,14 @@ export async function POST(req: Request) {
   // ดึงแยก 2 query: (1) year+month เพื่อรองรับกรณี period_id เปลี่ยน (2) period_id ปกติ
   let existPRData: any[] = []
   const { data: d1 } = await supa.from("payroll_records")
-    .select("employee_id, is_manual_override, bonus, commission, other_income, deduct_other, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_other, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, income_extras, deduction_extras")
+    .select("employee_id, is_manual_override, bonus, kpi_grade, kpi_standard_amount, commission, other_income, deduct_other, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_other, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, income_extras, deduction_extras")
     .eq("payroll_period_id", payroll_period_id)
     .in("employee_id", employee_ids)
   existPRData = d1 ?? []
   // Fallback: ถ้าไม่เจอ ลองดึงจาก year+month
   if (existPRData.length === 0) {
     const { data: d2 } = await supa.from("payroll_records")
-      .select("employee_id, is_manual_override, bonus, commission, other_income, deduct_other, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_other, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, income_extras, deduction_extras")
+      .select("employee_id, is_manual_override, bonus, kpi_grade, kpi_standard_amount, commission, other_income, deduct_other, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_other, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, income_extras, deduction_extras")
       .eq("year", period.year).eq("month", period.month)
       .in("employee_id", employee_ids)
     existPRData = d2 ?? []
@@ -444,9 +444,15 @@ export async function POST(req: Request) {
           const mDeductOther = Number(existPR?.deduct_other) || 0
           const mIsManual    = !!existPR?.is_manual_override
 
-          // KPI Bonus — ใช้ค่าจาก KPI เสมอ (ไม่อิง manual override)
+          // KPI Bonus — ถ้า HR กรอกมือ (manual override) → ใช้ค่าที่ HR เก็บไว้
           const kpiBonus = calcKpiBonus(eid)
-          const mBonus = kpiBonus.amount
+          const manualKpiGrade = existPR?.kpi_grade
+          // ใช้ค่า manual ถ้า: (1) is_manual_override=true AND (2) มี grade ที่ไม่ใช่ pending หรือ bonus > 0
+          const useManualKpi = mIsManual && (
+            (manualKpiGrade && manualKpiGrade !== "pending") ||
+            (Number(existPR?.bonus) || 0) > 0
+          )
+          const mBonus = useManualKpi ? (Number(existPR?.bonus) || 0) : kpiBonus.amount
 
           const result = calculatePayrollSummary({
             baseSalary, allowances: allAllowances,
@@ -486,8 +492,8 @@ export async function POST(req: Request) {
             ot_holiday_reg_minutes: mIsManual && existPR?.ot_holiday_reg_minutes != null ? Number(existPR.ot_holiday_reg_minutes) : holidayRegMin,
             ot_holiday_ot_minutes: mIsManual && existPR?.ot_holiday_ot_minutes != null ? Number(existPR.ot_holiday_ot_minutes) : holidayOtMin,
             bonus: Number(mBonus),
-            kpi_grade: kpiBonus.grade,
-            kpi_standard_amount: kpiBonus.standardAmount,
+            kpi_grade: useManualKpi ? manualKpiGrade : kpiBonus.grade,
+            kpi_standard_amount: useManualKpi ? (Number(existPR?.kpi_standard_amount) || kpiBonus.standardAmount) : kpiBonus.standardAmount,
             commission: mCommission, other_income: mOtherIncome,
             income_extras: existPR?.income_extras || null,
             gross_income: (() => {

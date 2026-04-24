@@ -79,7 +79,7 @@ export async function PATCH(req: Request) {
     "base_salary", "allowance_position", "allowance_transport", "allowance_food",
     "allowance_phone", "allowance_housing", "allowance_other", "ot_amount",
     "ot_weekday_minutes", "ot_holiday_reg_minutes", "ot_holiday_ot_minutes", "ot_hours",
-    "bonus", "commission", "other_income",
+    "bonus", "kpi_grade", "kpi_standard_amount", "commission", "other_income",
     "deduct_absent", "deduct_late", "deduct_early_out", "deduct_loan", "deduct_other",
     "social_security_amount", "monthly_tax_withheld",
     "absent_days", "late_count", "present_days", "leave_paid_days", "leave_unpaid_days",

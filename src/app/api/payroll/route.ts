@@ -579,12 +579,29 @@ async function calcAndSave(
   // ── ถ้า exempt → ไม่หักมาสาย/ขาดงาน/ออกก่อน ────────────────
   const isExempt = !!emp.is_attendance_exempt
 
+  // ── ดึง existing record เพื่อเก็บค่า manual ที่ HR กรอก ──
+  // (ต้องดึงก่อน calculatePayrollSummary เพราะ KPI/OT อาจถูก override)
+  const { data: existingPR } = await supa.from("payroll_records")
+    .select("*")
+    .eq("payroll_period_id", payroll_period_id).eq("employee_id", employee_id).maybeSingle()
+
+  const isManual = !!existingPR?.is_manual_override
+
+  // KPI Bonus: ถ้า HR กรอกมือ → ใช้ค่าที่ HR เก็บไว้
+  const manualKpiGrade = existingPR?.kpi_grade
+  // ใช้ค่า manual ถ้า: (1) is_manual_override=true AND (2) มี grade ที่ไม่ใช่ pending หรือ bonus > 0
+  const useManualKpi = isManual && (
+    (manualKpiGrade && manualKpiGrade !== "pending") ||
+    (Number(existingPR?.bonus) || 0) > 0
+  )
+  const manualBonus = useManualKpi ? (Number(existingPR?.bonus) || 0) : kpiBonus.amount
+
   // ── คำนวณ ─────────────────────────────────────────────────────
   const result = calculatePayrollSummary({
     baseSalary:      Number(sal.base_salary),
     allowances:      allAllowances,
     otBreakdown,
-    bonus:           kpiBonus.amount,
+    bonus:           manualBonus,
     absentDays:      isExempt ? 0 : absentDays,
     lateMinutes:     isExempt ? 0 : totalLateMin,
     earlyOutMinutes: isExempt ? 0 : totalEarlyMin,
@@ -615,20 +632,10 @@ async function calcAndSave(
     ? Math.round((Number(sal.base_salary) / 30) * leaveUnpaidDays * 100) / 100
     : 0
 
-  // ── ดึง existing record เพื่อเก็บค่า manual ที่ HR กรอก ──
-  const { data: existingPR } = await supa.from("payroll_records")
-    .select("*")
-    .eq("payroll_period_id", payroll_period_id).eq("employee_id", employee_id).maybeSingle()
-
-  const isManual = !!existingPR?.is_manual_override
-  // OT: ใช้เฉพาะค่าที่ HR กรอก (ไม่คำนวณอัตโนมัติ)
-  const manualOtAmount = Number(existingPR?.ot_amount) || 0
-
   // ถ้า HR เคยแก้ไข manual → เก็บค่าที่แก้ไว้ทั้งหมด
   const manualCommission     = Number(existingPR?.commission)        || 0
   const manualOtherIncome    = Number(existingPR?.other_income)      || 0
   const manualDeductOther    = Number(existingPR?.deduct_other)      || 0
-  const manualBonus          = kpiBonus.amount  // KPI Bonus ใช้ค่าจากผลประเมินเสมอ
   const manualAllowPosition  = isManual ? Number(existingPR?.allowance_position)  : Number(sal.allowance_position)  || 0
   const manualAllowTransport = isManual ? Number(existingPR?.allowance_transport) : 0
   const manualAllowFood      = isManual ? Number(existingPR?.allowance_food)      : Number(sal.allowance_food)      || 0
@@ -665,8 +672,8 @@ async function calcAndSave(
     ot_holiday_reg_minutes: isManual && existingPR?.ot_holiday_reg_minutes != null ? Number(existingPR.ot_holiday_reg_minutes) : otBreakdown.holiday_regular_minutes,
     ot_holiday_ot_minutes:  isManual && existingPR?.ot_holiday_ot_minutes != null ? Number(existingPR.ot_holiday_ot_minutes) : otBreakdown.holiday_ot_minutes,
     bonus:                  manualBonus,
-    kpi_grade:              kpiBonus.grade,
-    kpi_standard_amount:    kpiBonus.standardAmount,
+    kpi_grade:              useManualKpi ? manualKpiGrade : kpiBonus.grade,
+    kpi_standard_amount:    useManualKpi ? (Number(existingPR?.kpi_standard_amount) || kpiBonus.standardAmount) : kpiBonus.standardAmount,
     commission:             manualCommission,
     other_income:           manualOtherIncome,
     income_extras:          existingExtras,
