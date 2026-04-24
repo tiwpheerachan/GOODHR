@@ -1009,17 +1009,38 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
   const [editAttForm, setEditAttForm] = useState({ clock_in: "", clock_out: "", clock_in_date: "", clock_out_date: "" })
   const [editAttSaving, setEditAttSaving] = useState(false)
 
+  // Payroll period navigation (22 เดือนก่อน - 21 เดือนนี้)
+  const [attPeriodOffset, setAttPeriodOffset] = useState(0)
+  const getPayrollPeriod = (offset: number) => {
+    const now = new Date()
+    const d = now.getDate()
+    // ถ้าวันที่ ≥ 22 แสดงว่าอยู่ในงวดถัดไป
+    let baseMonth = d >= 22 ? now.getMonth() + 1 : now.getMonth()
+    let baseYear = now.getFullYear()
+    // Apply offset
+    baseMonth += offset
+    while (baseMonth > 11) { baseMonth -= 12; baseYear++ }
+    while (baseMonth < 0) { baseMonth += 12; baseYear-- }
+    // start = 22 ของเดือนก่อน
+    const startMonth = baseMonth === 0 ? 11 : baseMonth - 1
+    const startYear = baseMonth === 0 ? baseYear - 1 : baseYear
+    const start = `${startYear}-${String(startMonth + 1).padStart(2, "0")}-22`
+    const end = `${baseYear}-${String(baseMonth + 1).padStart(2, "0")}-21`
+    const MONTHS_TH = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
+    const label = `${MONTHS_TH[baseMonth]} ${baseYear + 543}`
+    return { start, end, label }
+  }
+  const currentPeriod = getPayrollPeriod(attPeriodOffset)
+
   useEffect(() => {
-    const today = new Date()
-    const firstOfMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-01`
-    const todayStr = today.toISOString().slice(0,10)
+    const todayStr = new Date().toISOString().slice(0,10)
 
     Promise.all([
-      // attendance stats เดือนนี้
+      // attendance stats ตามรอบตัดเงินเดือน
       supabase.from("attendance_records")
         .select("status, late_minutes, early_out_minutes, work_minutes")
         .eq("employee_id", employeeId)
-        .gte("work_date", firstOfMonth).lte("work_date", todayStr),
+        .gte("work_date", currentPeriod.start).lte("work_date", currentPeriod.end),
       // current shift schedule
       supabase.from("work_schedules")
         .select("*, shift:shift_templates(*)")
@@ -1030,11 +1051,11 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
       supabase.from("employee_allowed_locations")
         .select("branch:branches(id,name,latitude,longitude,geo_radius_m)")
         .eq("employee_id", employeeId),
-      // attendance ทั้งเดือนปัจจุบัน
+      // attendance ตามรอบตัดเงินเดือน
       supabase.from("attendance_records")
         .select("id, work_date, clock_in, clock_out, status, late_minutes, early_out_minutes, shift_template_id")
         .eq("employee_id", employeeId)
-        .gte("work_date", firstOfMonth)
+        .gte("work_date", currentPeriod.start).lte("work_date", currentPeriod.end)
         .order("work_date", { ascending: false }),
     ]).then(([att, sch, loc, rec]) => {
       const records = att.data ?? []
@@ -1054,7 +1075,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
       setRecent(rec.data ?? [])
       setLoading(false)
     })
-  }, [employeeId])
+  }, [employeeId, attPeriodOffset])
 
   if (loading) return <div className="flex items-center justify-center py-16 gap-2 text-slate-400"><Loader2 size={16} className="animate-spin"/>กำลังโหลด...</div>
 
@@ -1211,11 +1232,21 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
         )}
       </div>
 
-      {/* ── Recent attendance ── */}
+      {/* ── Attendance by payroll period ── */}
       <div className="rounded-2xl border border-slate-100 overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 bg-slate-50 border-b border-slate-100">
-          <CalendarClock size={14} className="text-slate-500"/>
-          <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">การเข้างานเดือนนี้</span>
+        <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <CalendarClock size={14} className="text-slate-500"/>
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">การเข้างาน</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setAttPeriodOffset(o => o - 1)}
+              className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:bg-slate-100 text-slate-500 text-xs font-bold">←</button>
+            <span className="text-xs font-bold text-indigo-600 min-w-[80px] text-center">{currentPeriod.label}</span>
+            <button onClick={() => setAttPeriodOffset(o => o + 1)} disabled={attPeriodOffset >= 0}
+              className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:bg-slate-100 text-slate-500 text-xs font-bold disabled:opacity-30">→</button>
+          </div>
+          <span className="text-[10px] text-slate-400">{currentPeriod.start.slice(5)} – {currentPeriod.end.slice(5)}</span>
         </div>
         <div className="divide-y divide-slate-50">
           {recent.length === 0 && <p className="text-sm text-slate-300 text-center py-6">ไม่มีข้อมูล</p>}
@@ -1304,11 +1335,12 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
                   if (data.success) {
                     toast.success("แก้ไขเวลาสำเร็จ")
                     setEditAttRec(null)
-                    // reload attendance เดือนปัจจุบัน
-                    const fm = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}-01`
+                    // reload attendance ตามรอบตัดเงินเดือน
                     const { data: newRec } = await supabase.from("attendance_records")
                       .select("id, work_date, clock_in, clock_out, status, late_minutes, early_out_minutes, shift_template_id")
-                      .eq("employee_id", employeeId).gte("work_date", fm).order("work_date", { ascending: false })
+                      .eq("employee_id", employeeId)
+                      .gte("work_date", currentPeriod.start).lte("work_date", currentPeriod.end)
+                      .order("work_date", { ascending: false })
                     setRecent(newRec ?? [])
                   } else toast.error(data.error || "เกิดข้อผิดพลาด")
                 } catch { toast.error("เกิดข้อผิดพลาด") }
