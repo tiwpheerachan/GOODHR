@@ -1030,11 +1030,12 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
       supabase.from("employee_allowed_locations")
         .select("branch:branches(id,name,latitude,longitude,geo_radius_m)")
         .eq("employee_id", employeeId),
-      // recent 5 attendance
+      // attendance ทั้งเดือนปัจจุบัน
       supabase.from("attendance_records")
         .select("id, work_date, clock_in, clock_out, status, late_minutes, early_out_minutes, shift_template_id")
         .eq("employee_id", employeeId)
-        .order("work_date", { ascending: false }).limit(7),
+        .gte("work_date", firstOfMonth)
+        .order("work_date", { ascending: false }),
     ]).then(([att, sch, loc, rec]) => {
       const records = att.data ?? []
       setStats({
@@ -1214,7 +1215,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
       <div className="rounded-2xl border border-slate-100 overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 bg-slate-50 border-b border-slate-100">
           <CalendarClock size={14} className="text-slate-500"/>
-          <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">การเข้างานล่าสุด</span>
+          <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">การเข้างานเดือนนี้</span>
         </div>
         <div className="divide-y divide-slate-50">
           {recent.length === 0 && <p className="text-sm text-slate-300 text-center py-6">ไม่มีข้อมูล</p>}
@@ -1303,10 +1304,11 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
                   if (data.success) {
                     toast.success("แก้ไขเวลาสำเร็จ")
                     setEditAttRec(null)
-                    // reload recent attendance
+                    // reload attendance เดือนปัจจุบัน
+                    const fm = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}-01`
                     const { data: newRec } = await supabase.from("attendance_records")
                       .select("id, work_date, clock_in, clock_out, status, late_minutes, early_out_minutes, shift_template_id")
-                      .eq("employee_id", employeeId).order("work_date", { ascending: false }).limit(7)
+                      .eq("employee_id", employeeId).gte("work_date", fm).order("work_date", { ascending: false })
                     setRecent(newRec ?? [])
                   } else toast.error(data.error || "เกิดข้อผิดพลาด")
                 } catch { toast.error("เกิดข้อผิดพลาด") }
