@@ -1,10 +1,11 @@
 "use client"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Loader2, RefreshCw,
   AlertCircle, CheckCircle2, Clock, TrendingDown, Banknote,
   Shield, Receipt, UserX, CreditCard, ChevronDown, ChevronUp,
+  CalendarDays, Timer, Palmtree, Minus,
 } from "lucide-react"
 import Link from "next/link"
 import { format, subMonths, addMonths } from "date-fns"
@@ -48,6 +49,8 @@ export default function SalaryPage() {
   const [showDebug, setShowDebug] = useState(false)
   const [showDetail, setShowDetail] = useState(false)
   const [msg,     setMsg]     = useState<{ type:"ok"|"err"; text:string }|null>(null)
+  const [showCelebration, setShowCelebration] = useState(false)
+  const celebratedRef = useRef(false)
 
   const empId: string | undefined =
     (user as any)?.employee_id ?? (user as any)?.employee?.id
@@ -100,6 +103,16 @@ export default function SalaryPage() {
     return () => clearInterval(interval)
   }, [empId, month, fetchPayroll])
 
+  // Celebration: แสดง animation ตอนโหลดข้อมูลเงินเดือนได้ครั้งแรก
+  useEffect(() => {
+    if (record && !loading && !celebratedRef.current) {
+      celebratedRef.current = true
+      setShowCelebration(true)
+      const t = setTimeout(() => setShowCelebration(false), 3000)
+      return () => clearTimeout(t)
+    }
+  }, [record, loading])
+
   const handleRecalc = async () => {
     if (!empId || working) return
     setWorking(true); setMsg(null)
@@ -126,7 +139,15 @@ export default function SalaryPage() {
   const dEarly   = Number(r?.deduct_early_out)       || 0
   const dAbsent  = Number(r?.deduct_absent)          || 0
   const dLoan    = Number(r?.deduct_loan)            || 0
+  const dOther   = Number(r?.deduct_other)           || 0
   const totalDed = Number(r?.total_deductions)       || 0
+  const commission  = Number(r?.commission)          || 0
+  const otherIncome = Number(r?.other_income)        || 0
+  const allowOther  = Number(r?.allowance_other)     || 0
+  const incomeExtras  = Array.isArray(r?.income_extras) ? r.income_extras : []
+  const deductExtras  = Array.isArray(r?.deduction_extras) ? r.deduction_extras : []
+  const leavePaid   = Number(r?.leave_paid_days)     || 0
+  const leaveUnpaid = Number(r?.leave_unpaid_days)   || 0
   const maxNet   = Math.max(...history.map(h => Number(h.net_salary)||0), net, 1)
   const canNext  = format(addMonths(month,1),"yyyy-MM") <= format(getCurrentPeriodDate(),"yyyy-MM")
 
@@ -178,6 +199,56 @@ export default function SalaryPage() {
         .fade-up-2 { animation: fadeUp 0.45s 0.16s ease both; }
         .fade-up-3 { animation: fadeUp 0.45s 0.24s ease both; }
         .bar-grow { animation: barGrow 0.7s ease both; }
+        @keyframes confettiFall {
+          0%   { transform:translateY(-100vh) rotate(0deg) scale(1); opacity:1; }
+          70%  { opacity:1; }
+          100% { transform:translateY(100vh) rotate(720deg) scale(0.5); opacity:0; }
+        }
+        @keyframes celebPulse {
+          0%   { transform:scale(0); opacity:0; }
+          40%  { transform:scale(1.15); opacity:1; }
+          60%  { transform:scale(0.95); }
+          80%  { transform:scale(1.05); }
+          100% { transform:scale(1); opacity:1; }
+        }
+        @keyframes celebFadeOut {
+          0%   { opacity:1; }
+          70%  { opacity:1; }
+          100% { opacity:0; }
+        }
+        @keyframes countUp {
+          0%   { opacity:0; transform:translateY(20px) scale(0.8); }
+          30%  { opacity:1; transform:translateY(-4px) scale(1.05); }
+          50%  { transform:translateY(0) scale(1); }
+          100% { transform:translateY(0) scale(1); }
+        }
+        @keyframes shimmer {
+          0%   { background-position:-200% center; }
+          100% { background-position:200% center; }
+        }
+        .celeb-overlay {
+          animation:celebFadeOut 3s ease-in-out forwards;
+          pointer-events:none;
+        }
+        .celeb-badge {
+          animation:celebPulse 0.7s cubic-bezier(0.34,1.56,0.64,1) both;
+        }
+        .celeb-amount {
+          animation:countUp 0.8s 0.3s cubic-bezier(0.34,1.56,0.64,1) both;
+        }
+        .celeb-label {
+          animation:countUp 0.6s 0.6s cubic-bezier(0.34,1.56,0.64,1) both;
+        }
+        .celeb-shimmer {
+          background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,0.5) 50%,transparent 70%);
+          background-size:200% 100%;
+          animation:shimmer 1.5s 0.5s ease-in-out infinite;
+        }
+        .confetti-piece {
+          position:absolute; width:10px; height:10px; border-radius:2px;
+          animation:confettiFall var(--duration) var(--delay) ease-in forwards;
+          opacity:0; animation-fill-mode:forwards;
+        }
         .glass-card {
           background:rgba(255,255,255,0.85);
           backdrop-filter:blur(12px);
@@ -186,7 +257,56 @@ export default function SalaryPage() {
         }
       ` }} />
 
-      <div className="flex flex-col min-h-screen pb-12" style={{ background:"linear-gradient(160deg,#f0fdf9 0%,#e0f2fe 50%,#f0fdf4 100%)" }}>
+      <div className="flex flex-col min-h-screen pb-12 relative" style={{ background:"linear-gradient(160deg,#f0fdf9 0%,#e0f2fe 50%,#f0fdf4 100%)" }}>
+
+        {/* ── Celebration overlay ───────────────────────────────── */}
+        {showCelebration && (
+          <div className="celeb-overlay fixed inset-0 z-50 flex items-center justify-center">
+            {/* confetti */}
+            {Array.from({ length: 40 }).map((_, i) => {
+              const colors = ["#10b981","#0ea5e9","#f59e0b","#ef4444","#8b5cf6","#ec4899","#14b8a6","#f97316"]
+              const left = Math.random() * 100
+              const size = 6 + Math.random() * 10
+              const dur  = 2 + Math.random() * 1.5
+              const del  = Math.random() * 0.8
+              const isCircle = Math.random() > 0.5
+              return (
+                <div
+                  key={i}
+                  className="confetti-piece"
+                  style={{
+                    left: `${left}%`,
+                    top: -20,
+                    width: size,
+                    height: isCircle ? size : size * 0.6,
+                    borderRadius: isCircle ? "50%" : "2px",
+                    backgroundColor: colors[i % colors.length],
+                    "--duration": `${dur}s`,
+                    "--delay": `${del}s`,
+                    opacity: 1,
+                  } as React.CSSProperties}
+                />
+              )
+            })}
+
+            {/* center badge */}
+            <div className="celeb-badge flex flex-col items-center">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 via-cyan-400 to-sky-500 flex items-center justify-center shadow-2xl shadow-emerald-300/50 mb-4 relative">
+                <div className="celeb-shimmer absolute inset-0 rounded-full"/>
+                <span className="text-4xl relative z-10">💰</span>
+              </div>
+              <div className="celeb-amount text-center">
+                <p className="text-3xl font-black text-slate-800 tracking-tight">
+                  ฿{thb(net)}
+                </p>
+              </div>
+              <div className="celeb-label text-center mt-1">
+                <p className="text-sm font-bold text-emerald-600">เงินเดือนสุทธิของคุณ</p>
+                <p className="text-xs text-slate-400 mt-0.5">{MONTHS[month.getMonth()]} {month.getFullYear()+543}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Header ─────────────────────────────────────────────── */}
         <div className="bg-white/80 backdrop-blur-sm px-4 pt-5 pb-4 border-b border-white/60 flex items-center gap-3 sticky top-0 z-20">
@@ -360,6 +480,20 @@ export default function SalaryPage() {
                 ))}
               </div>
 
+              {/* ── Attendance summary ────────────────────────── */}
+              <div className="glass-card rounded-3xl p-4 fade-up-2">
+                <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">สรุปการทำงาน</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <StatBadge icon={<CalendarDays size={13}/>} label="วันทำงาน" value={`${r.present_days ?? 0}/${r.working_days ?? 0} วัน`} color="emerald"/>
+                  <StatBadge icon={<UserX size={13}/>} label="ขาดงาน" value={`${r.absent_days ?? 0} วัน`} color={(r.absent_days??0) > 0 ? "red" : "slate"}/>
+                  <StatBadge icon={<Clock size={13}/>} label="มาสาย" value={`${r.late_count ?? 0} ครั้ง`} color={(r.late_count??0) > 0 ? "amber" : "slate"}/>
+                  <StatBadge icon={<Timer size={13}/>} label="OT" value={`${Number(r.ot_hours ?? 0).toFixed(1)} ชม.`} color={(r.ot_hours??0) > 0 ? "sky" : "slate"}/>
+                  {(leavePaid > 0 || leaveUnpaid > 0) && (
+                    <StatBadge icon={<Palmtree size={13}/>} label="วันลา" value={`${leavePaid + leaveUnpaid} วัน`} color="violet" sub={leaveUnpaid > 0 ? `(ไม่ได้เงิน ${leaveUnpaid} วัน)` : undefined}/>
+                  )}
+                </div>
+              </div>
+
               {/* ── Detail card ───────────────────────────────────── */}
               <div className="glass-card rounded-3xl overflow-hidden fade-up-2">
 
@@ -376,7 +510,9 @@ export default function SalaryPage() {
                     {(r.allowance_food     ??0)>0 && <IncomeRow label="ค่าอาหาร"         value={r.allowance_food}/>}
                     {(r.allowance_phone    ??0)>0 && <IncomeRow label="ค่าโทรศัพท์"      value={r.allowance_phone}/>}
                     {(r.allowance_housing  ??0)>0 && <IncomeRow label="ค่าที่อยู่อาศัย"  value={r.allowance_housing}/>}
-                    {(r.ot_amount          ??0)>0 && <IncomeRow label="ค่าล่วงเวลา (OT)" value={r.ot_amount} accent="emerald"/>}
+                    {allowOther > 0              && <IncomeRow label="เบี้ยเลี้ยงอื่นๆ"  value={allowOther}/>}
+                    {(r.ot_amount          ??0)>0 && <IncomeRow label={`ค่าล่วงเวลา (${Number(r.ot_hours??0).toFixed(1)} ชม.)`} value={r.ot_amount} accent="emerald"/>}
+                    {commission > 0              && <IncomeRow label="คอมมิชชั่น"        value={commission} accent="emerald"/>}
                     {(r.bonus              ??0)>0 && r.kpi_grade !== "pending" && <IncomeRow label={`KPI Bonus (เกรด ${r.kpi_grade})`} value={r.bonus} accent="sky"/>}
                     {r.kpi_grade === "pending" && r.kpi_standard_amount > 0 && (
                       <div className="flex items-center justify-between">
@@ -384,22 +520,45 @@ export default function SalaryPage() {
                         <span className="text-xs text-slate-400 italic">รอหัวหน้าประเมิน</span>
                       </div>
                     )}
+                    {otherIncome > 0             && <IncomeRow label="รายได้อื่นๆ"       value={otherIncome} accent="emerald"/>}
+                    {incomeExtras.map((ex: any, i: number) => (
+                      <IncomeRow key={`ie-${i}`} label={ex.name || `รายได้เพิ่มเติม ${i+1}`} value={Number(ex.amount) || 0} accent="emerald"/>
+                    ))}
                   </div>
                 </div>
 
+                <div className="mx-4 border-t border-dashed border-slate-200"/>
+
                 {/* deductions section */}
-                <div className="border-t border-slate-100/80 bg-gradient-to-b from-red-50/40 to-white/60 px-4 pt-3 pb-3">
+                <div className="bg-gradient-to-b from-red-50/40 to-white/60 px-4 pt-3 pb-3">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">รายการหัก</p>
                     <span className="text-xs font-black text-red-500">-฿{thb(totalDed)}</span>
                   </div>
                   <div className="space-y-2">
-                    <DeductRow label="ประกันสังคม"       value={sso}    icon={<Shield size={11} className="text-blue-400"/>}/>
+                    <DeductRow label={`ประกันสังคม (5%)`} value={sso}    icon={<Shield size={11} className="text-blue-400"/>}/>
                     {tax>0    && <DeductRow label="ภาษีหัก ณ ที่จ่าย"  value={tax}    icon={<Receipt size={11} className="text-violet-400"/>}/>}
-                    {dLate>0  && <DeductRow label={`มาสาย ${r.late_count??0} ครั้ง`} value={dLate}  icon={<Clock size={11} className="text-amber-500"/>} color="text-amber-700"/>}
-                    {dEarly>0 && <DeductRow label="ออกก่อนกำหนด"     value={dEarly} icon={<TrendingDown size={11} className="text-orange-400"/>} color="text-orange-600"/>}
-                    {dAbsent>0&& <DeductRow label={`ขาดงาน ${r.absent_days??0} วัน`} value={dAbsent} icon={<UserX size={11} className="text-red-400"/>} color="text-red-600"/>}
-                    {dLoan>0  && <DeductRow label="เงินกู้"            value={dLoan}  icon={<Banknote size={11} className="text-slate-400"/>}/>}
+                    {dLate>0  && <DeductRow label={`หักมาสาย (${r.late_count??0} ครั้ง)`} value={dLate}  icon={<Clock size={11} className="text-amber-500"/>} color="text-amber-700"/>}
+                    {dEarly>0 && <DeductRow label="หักออกก่อนกำหนด"     value={dEarly} icon={<TrendingDown size={11} className="text-orange-400"/>} color="text-orange-600"/>}
+                    {dAbsent>0&& <DeductRow label={`หักขาดงาน (${r.absent_days??0} วัน)`} value={dAbsent} icon={<UserX size={11} className="text-red-400"/>} color="text-red-600"/>}
+                    {dLoan>0  && <DeductRow label="หักเงินกู้"           value={dLoan}  icon={<Banknote size={11} className="text-slate-400"/>}/>}
+                    {dOther>0 && <DeductRow label={leaveUnpaid > 0 ? `หักลาไม่ได้เงิน (${leaveUnpaid} วัน)` : "หักอื่นๆ"} value={dOther} icon={<Minus size={11} className="text-slate-400"/>}/>}
+                    {deductExtras.map((ex: any, i: number) => (
+                      <DeductRow key={`de-${i}`} label={ex.name || `หักเพิ่มเติม ${i+1}`} value={Number(ex.amount) || 0} icon={<Minus size={11} className="text-slate-400"/>}/>
+                    ))}
+                  </div>
+                </div>
+
+                {/* calculation summary */}
+                <div className="mx-4 border-t border-dashed border-slate-200"/>
+                <div className="px-4 py-3 bg-slate-50/50">
+                  <div className="flex items-center justify-between text-[12px]">
+                    <span className="text-slate-400">รายได้รวม</span>
+                    <span className="font-bold text-slate-600">+฿{thb(gross)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[12px] mt-1">
+                    <span className="text-slate-400">หักรวม</span>
+                    <span className="font-bold text-red-500">-฿{thb(totalDed)}</span>
                   </div>
                 </div>
 
@@ -407,7 +566,7 @@ export default function SalaryPage() {
                 <div className="px-4 py-4 border-t border-slate-100 bg-gradient-to-r from-emerald-50/60 to-cyan-50/40">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">รับสุทธิ</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">เงินเดือนสุทธิ</p>
                       <p className="text-2xl font-black text-slate-800 tracking-tight mt-0.5">฿{thb(net)}</p>
                     </div>
                     <div className="text-right">
@@ -502,6 +661,29 @@ function DeductRow({ label, value, icon, color="text-slate-600" }: { label:strin
       <span className={`text-[13px] font-black ${color} tabular-nums shrink-0`}>
         -฿{Number(value||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}
       </span>
+    </div>
+  )
+}
+
+const STAT_COLORS: Record<string, { bg:string; text:string; icon:string }> = {
+  emerald: { bg:"bg-emerald-50", text:"text-emerald-700", icon:"text-emerald-500" },
+  red:     { bg:"bg-red-50",     text:"text-red-600",     icon:"text-red-400" },
+  amber:   { bg:"bg-amber-50",   text:"text-amber-700",   icon:"text-amber-500" },
+  sky:     { bg:"bg-sky-50",     text:"text-sky-700",     icon:"text-sky-500" },
+  violet:  { bg:"bg-violet-50",  text:"text-violet-700",  icon:"text-violet-500" },
+  slate:   { bg:"bg-slate-50",   text:"text-slate-500",   icon:"text-slate-400" },
+}
+
+function StatBadge({ icon, label, value, color = "slate", sub }: { icon: React.ReactNode; label: string; value: string; color?: string; sub?: string }) {
+  const c = STAT_COLORS[color] ?? STAT_COLORS.slate
+  return (
+    <div className={`${c.bg} rounded-2xl px-3 py-2.5 flex items-center gap-2.5`}>
+      <div className={c.icon}>{icon}</div>
+      <div className="min-w-0">
+        <p className="text-[10px] text-slate-400 font-medium">{label}</p>
+        <p className={`text-[13px] font-black ${c.text} leading-tight`}>{value}</p>
+        {sub && <p className="text-[9px] text-slate-400 mt-0.5">{sub}</p>}
+      </div>
     </div>
   )
 }
