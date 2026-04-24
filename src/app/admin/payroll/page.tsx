@@ -760,6 +760,12 @@ function EditModal({
 
   // editable fields — init เป็น string ทั้งหมด เพื่อให้ input type=number ทำงานถูก
   const s = (v: any) => v != null && v !== 0 ? String(v) : ""
+  // KPI grade dropdown
+  const [kpiGradeOverride, setKpiGradeOverride] = useState<string>(record.kpi_grade || "")
+  const kpiStd = Number(record.kpi_standard_amount) || 0
+  const kpiMultiplier = (g: string) => g === "A" ? 1.2 : g === "B" ? 1.0 : g === "C" ? 0.8 : 0
+  const calcKpiFromGrade = (g: string) => Math.round(kpiStd * kpiMultiplier(g))
+
   const [f, setF] = useState({
     base_salary:           s(record.base_salary),
     allowance_position:    s(record.allowance_position),
@@ -885,6 +891,7 @@ function EditModal({
     payload.total_deductions = totalDeduct
     payload.net_salary = net
     payload.is_manual_override = true
+    payload.kpi_grade = kpiGradeOverride || null
     payload.updated_at = new Date().toISOString()
 
     // ใช้ API route + service client เพื่อไม่ติด RLS
@@ -984,7 +991,30 @@ function EditModal({
               </p>
               <div className="bg-slate-50 rounded-xl px-3 py-1.5">
                 {numRow("เงินเดือน", "base_salary", true)}
-                {numRow(`KPI Bonus${record.kpi_grade ? ` (${record.kpi_grade})` : ""}`, "bonus", true)}
+                {/* KPI Bonus — dropdown เลือกเกรด + คำนวณอัตโนมัติ */}
+                <div className="flex items-center gap-2 py-1.5 border-b border-slate-100/50">
+                  <span className="text-xs text-slate-500 w-28 shrink-0">KPI Bonus</span>
+                  <select
+                    value={kpiGradeOverride}
+                    onChange={e => {
+                      const g = e.target.value
+                      setKpiGradeOverride(g)
+                      const bonus = calcKpiFromGrade(g)
+                      setF(prev => ({ ...prev, bonus: bonus > 0 ? String(bonus) : "" }))
+                    }}
+                    className="px-2 py-1 rounded-lg border border-slate-200 text-xs font-bold bg-white focus:outline-none focus:border-indigo-400 w-20"
+                  >
+                    <option value="">ไม่ระบุ</option>
+                    <option value="A">A (×1.2)</option>
+                    <option value="B">B (×1.0)</option>
+                    <option value="C">C (×0.8)</option>
+                    <option value="D">D (×0)</option>
+                  </select>
+                  <span className={`text-sm font-black flex-1 text-right ${num(f.bonus) > 0 ? "text-emerald-600" : "text-slate-300"}`}>
+                    {num(f.bonus) > 0 ? `฿${num(f.bonus).toLocaleString()}` : "—"}
+                  </span>
+                  {kpiStd > 0 && <span className="text-[9px] text-slate-400 shrink-0">ฐาน ฿{kpiStd.toLocaleString()}</span>}
+                </div>
                 {numRow("OT (฿ รวม)", "ot_amount", true)}
                 {numRow("ค่าตำแหน่ง", "allowance_position", true)}
                 {numRow("คอมมิชชั่น", "commission", true)}
