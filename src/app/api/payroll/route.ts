@@ -571,7 +571,7 @@ async function calcAndSave(
   const result = calculatePayrollSummary({
     baseSalary:      Number(sal.base_salary),
     allowances:      allAllowances,
-    otBreakdown:     { weekday_minutes: 0, holiday_regular_minutes: 0, holiday_ot_minutes: 0 },
+    otBreakdown,
     bonus:           kpiBonus.amount,
     absentDays:      isExempt ? 0 : absentDays,
     lateMinutes:     isExempt ? 0 : totalLateMin,
@@ -641,22 +641,22 @@ async function calcAndSave(
     allowance_phone:        manualAllowPhone,
     allowance_housing:      manualAllowHousing,
     allowance_other:        manualAllowOther,
-    // OT: ใช้เฉพาะค่าที่ HR กรอก (ไม่คำนวณอัตโนมัติ)
-    ot_amount:              manualOtAmount,
-    ot_hours:               0,
-    ot_weekday_minutes:     0,
-    ot_holiday_reg_minutes: 0,
-    ot_holiday_ot_minutes:  0,
+    // OT: คำนวณจากระบบ + ถ้า HR กรอกทับใช้ค่า HR
+    ot_amount:              (() => {
+      if (isManual && existingPR?.ot_amount != null) return Number(existingPR.ot_amount)
+      return result.otAmount
+    })(),
+    ot_hours:               isManual && existingPR?.ot_hours != null ? Number(existingPR.ot_hours) : (otBreakdown.weekday_minutes + otBreakdown.holiday_regular_minutes + otBreakdown.holiday_ot_minutes) / 60,
+    ot_weekday_minutes:     isManual && existingPR?.ot_weekday_minutes != null ? Number(existingPR.ot_weekday_minutes) : otBreakdown.weekday_minutes,
+    ot_holiday_reg_minutes: isManual && existingPR?.ot_holiday_reg_minutes != null ? Number(existingPR.ot_holiday_reg_minutes) : otBreakdown.holiday_regular_minutes,
+    ot_holiday_ot_minutes:  isManual && existingPR?.ot_holiday_ot_minutes != null ? Number(existingPR.ot_holiday_ot_minutes) : otBreakdown.holiday_ot_minutes,
     bonus:                  manualBonus,
     kpi_grade:              kpiBonus.grade,
     kpi_standard_amount:    kpiBonus.standardAmount,
     commission:             manualCommission,
     other_income:           manualOtherIncome,
     income_extras:          existingExtras,
-    // gross = base + allowances + OT(HR) + bonus + commission + other
-    gross_income:           Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
-      + manualAllowPhone + manualAllowHousing + manualAllowOther
-      + manualOtAmount + manualBonus + manualCommission + manualOtherIncome,
+    gross_income:           result.gross + manualCommission + manualOtherIncome,
     // การหัก
     deduct_absent:          result.deductAbsent,
     deduct_late:            result.deductLate,
@@ -669,17 +669,13 @@ async function calcAndSave(
     social_security_rate:   0.05,
     social_security_amount: result.sso,
     // ภาษี
-    taxable_income:         Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
-      + manualAllowPhone + manualAllowHousing + manualAllowOther
-      + manualOtAmount + manualBonus + manualCommission + manualOtherIncome - result.sso,
+    taxable_income:         result.gross + manualCommission + manualOtherIncome - result.sso,
     monthly_tax_withheld:   result.tax,
     ytd_tax_withheld:       previousYtdTax + result.tax,
     // รวม
     total_deductions:       result.totalDeduct + deductUnpaidLeave + manualDeductOther,
     net_salary:             Math.max(
-      Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
-      + manualAllowPhone + manualAllowHousing + manualAllowOther
-      + manualOtAmount + manualBonus + manualCommission + manualOtherIncome
+      result.gross + manualCommission + manualOtherIncome
       - result.totalDeduct - deductUnpaidLeave - manualDeductOther, 0),
     // สถิติ
     working_days:           pastWorkDays.length,

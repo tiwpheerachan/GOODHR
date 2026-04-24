@@ -67,7 +67,11 @@ const REG_COLS: RCol[] = [
   { key:"base",        label:"เงินเดือน",            group:"income", get:r=>n(r.base_salary) },
   { key:"bonus",       label:"โบนัส KPI",             group:"income", get:r=>n(r.bonus) },
   { key:"kpi_grade",   label:"เกรด",                  group:"income", get:r=>r.kpi_grade === "pending" ? "รอ" : r.kpi_grade||"" },
-  { key:"ot_total",    label:"รวม OT",              group:"income", get:r=>n(r.ot_amount) },
+  { key:"ot_total",    label:"รวม OT",              group:"income", get:r=>
+    calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
+    + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
+    + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
+  },
   { key:"ot15",        label:"OT ×1.5",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5) },
   { key:"ot10",        label:"OT ×1.0",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0) },
   { key:"ot30",        label:"OT ×3.0",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0) },
@@ -431,7 +435,10 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                   )}
                 </td>
                 <td className="px-3 py-3 text-right">{totalAllow > 0 ? <p className="font-semibold text-green-700">+฿{thb(totalAllow)}</p> : <span className="text-slate-200">—</span>}</td>
-                <td className="px-3 py-3">{n(r.ot_amount) > 0 ? <p className="font-bold text-amber-700">+฿{thb(r.ot_amount)}</p> : <span className="text-slate-200">—</span>}</td>
+                <td className="px-3 py-3">{(() => {
+                  const ot = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)+calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)+calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
+                  return ot > 0 ? <p className="font-bold text-amber-700">+฿{thb(ot)}</p> : <span className="text-slate-200">—</span>
+                })()}</td>
                 <td className="px-3 py-3 text-right">{totalDeductWork > 0 ? <p className="font-bold text-red-600">-฿{thb(totalDeductWork)}</p> : <span className="text-slate-200">—</span>}</td>
                 <td className="px-3 py-3 text-right text-slate-600">-฿{thb(r.social_security_amount)}</td>
                 <td className="px-3 py-3 text-right text-slate-600">-฿{thb(r.monthly_tax_withheld)}</td>
@@ -649,7 +656,11 @@ function exportXLSX(records: any[], period: any) {
 
   const incomeItems: [string, number][] = [
     ["เงินเดือนพื้นฐาน",          grand(r=>n(r.base_salary))],
-    ["รวม OT",                    grand(r=>n(r.ot_amount))],
+    ["รวม OT",                    grand(r=>
+      calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
+      + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
+      + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
+    )],
     ["ค่าตำแหน่ง",                grand(r=>n(r.allowance_position))],
     ["ค่าเดินทาง",                 grand(r=>n(r.allowance_transport))],
     ["ค่าอาหาร",                   grand(r=>n(r.allowance_food))],
@@ -809,9 +820,16 @@ function EditModal({
   const extraDeductTotal = num(f.dx_suspension) + num(f.dx_card_lost) + num(f.dx_uniform)
     + num(f.dx_parking) + num(f.dx_employee_products) + num(f.dx_legal_enforcement) + num(f.dx_student_loan)
 
+  // OT: คำนวณจาก minutes ที่กรอก หรือใช้ ot_amount ถ้ากรอกตรงๆ
+  const otFromMinutes = calcOTAmt(num(f.base_salary), num(f.ot_weekday_minutes), 1.5)
+    + calcOTAmt(num(f.base_salary), num(f.ot_holiday_reg_minutes), 1.0)
+    + calcOTAmt(num(f.base_salary), num(f.ot_holiday_ot_minutes), 3.0)
+  // OT = คำนวณจาก minutes เสมอ (ot_amount จะถูก sync ตอนบันทึก)
+  const effectiveOt = otFromMinutes > 0 ? otFromMinutes : num(f.ot_amount)
+
   const gross = num(f.base_salary) + num(f.allowance_position) + num(f.allowance_transport)
     + num(f.allowance_food) + num(f.allowance_phone) + num(f.allowance_housing)
-    + num(f.allowance_other) + num(f.ot_amount) + num(f.bonus) + num(f.commission)
+    + num(f.allowance_other) + effectiveOt + num(f.bonus) + num(f.commission)
     + num(f.other_income) + extraIncomeTotal
 
   const totalDeduct = num(f.deduct_absent) + num(f.deduct_late) + num(f.deduct_loan)
@@ -858,6 +876,8 @@ function EditModal({
     ]
     const payload: Record<string, unknown> = {}
     stdFields.forEach(k => { payload[k] = num((f as any)[k]) })
+    // ot_amount ต้อง sync กับ minutes ที่กรอก
+    payload.ot_amount = effectiveOt
     payload.note_override = f.note_override
     payload.income_extras = income_extras
     payload.deduction_extras = deduction_extras
@@ -1705,7 +1725,11 @@ export default function PayrollPage() {
   })
   const totalGross = filtered.reduce((s: number, r: any) => s + (r.gross_income||0), 0)
   const totalNet   = filtered.reduce((s: number, r: any) => s + (r.net_salary||0), 0)
-  const totalOT    = filtered.reduce((s: number, r: any) => s + (r.ot_amount||0), 0)
+  const totalOT    = filtered.reduce((s: number, r: any) =>
+    s + calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
+      + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
+      + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
+  , 0)
   const totalSSO   = filtered.reduce((s: number, r: any) => s + (r.social_security_amount||0), 0)
   const totalTax   = filtered.reduce((s: number, r: any) => s + (r.monthly_tax_withheld||0), 0)
   const totalKPI   = filtered.reduce((s: number, r: any) => s + (r.bonus||0), 0)
