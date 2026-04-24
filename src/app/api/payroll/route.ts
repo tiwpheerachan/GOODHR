@@ -1,6 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
-import { calculatePayrollSummary, type OTBreakdown } from "@/lib/utils/payroll"
+import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
 import { logPayroll } from "@/lib/auditLog"
 
 // ── Date helpers (pure string — ไม่มี timezone conversion) ───────────
@@ -482,16 +482,14 @@ async function calcAndSave(
     (r.status === "early_out" || (Number(r.early_out_minutes) || 0) > 0) && r.half_day_leave !== "afternoon"
   ).length
 
-  // ── นาทีสาย: ใช้ค่าจาก attendance ตรงๆ (หัก grace แล้วตอนเช็คอิน) ──
-  // ⚠️ late_minutes ที่เก็บใน attendance_records ถูกหัก grace period ไว้แล้วตั้งแต่ตอนเช็คอิน
-  //    เช่น สาย 8 นาที grace 5 → late_minutes = 3 (หักแล้ว)
-  //    ดังนั้น payroll ต้องนำมาใช้ตรงๆ ไม่ต้องหัก grace ซ้ำอีก
+  // ── นาทีสาย: หัก grace period ตามแผนก ──
+  // late_minutes เก็บค่า raw (นาทีที่สายจากเวลาเริ่มกะ) → ต้องหัก grace ที่นี่
   // ⚠️ ลาครึ่งวันเช้า → ไม่นับนาทีสาย / ลาครึ่งวันบ่าย → ไม่นับนาทีออกก่อน
+  const graceMinutes = getLateThreshold(emp.department?.name, emp.company?.code)
   const totalLateMin = records.reduce(
     (s: number, r: any) => {
       if (r.half_day_leave === "morning") return s  // ลาเช้า → ไม่หักสาย
-      const raw = Number(r.late_minutes) || 0
-      return s + raw
+      return s + Math.max(0, (Number(r.late_minutes) || 0) - graceMinutes)
     }, 0
   )
   const totalEarlyMin = records.reduce(
@@ -640,6 +638,11 @@ async function calcAndSave(
   const existingExtras       = existingPR?.income_extras || null
   const existingDeductExtras = existingPR?.deduction_extras || null
 
+  // OT สุดท้าย: ถ้า HR กรอกทับ → ใช้ค่า HR, ไม่งั้นใช้ค่าระบบ
+  const finalOtAmount = (isManual && existingPR?.ot_amount != null)
+    ? Number(existingPR.ot_amount)
+    : result.otAmount
+
   // ── upsert ────────────────────────────────────────────────────
   const payload: Record<string, unknown> = {
     payroll_period_id,
@@ -656,10 +659,7 @@ async function calcAndSave(
     allowance_housing:      manualAllowHousing,
     allowance_other:        manualAllowOther,
     // OT: คำนวณจากระบบ + ถ้า HR กรอกทับใช้ค่า HR
-    ot_amount:              (() => {
-      if (isManual && existingPR?.ot_amount != null) return Number(existingPR.ot_amount)
-      return result.otAmount
-    })(),
+    ot_amount:              finalOtAmount,
     ot_hours:               isManual && existingPR?.ot_hours != null ? Number(existingPR.ot_hours) : (otBreakdown.weekday_minutes + otBreakdown.holiday_regular_minutes + otBreakdown.holiday_ot_minutes) / 60,
     ot_weekday_minutes:     isManual && existingPR?.ot_weekday_minutes != null ? Number(existingPR.ot_weekday_minutes) : otBreakdown.weekday_minutes,
     ot_holiday_reg_minutes: isManual && existingPR?.ot_holiday_reg_minutes != null ? Number(existingPR.ot_holiday_reg_minutes) : otBreakdown.holiday_regular_minutes,
@@ -670,7 +670,8 @@ async function calcAndSave(
     commission:             manualCommission,
     other_income:           manualOtherIncome,
     income_extras:          existingExtras,
-    gross_income:           result.gross + manualCommission + manualOtherIncome,
+    // ✅ Gross ต้องปรับ OT: ลบ OT ระบบ + บวก OT จริง (manual หรือระบบ)
+    gross_income:           result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome,
     // การหัก
     deduct_absent:          result.deductAbsent,
     deduct_late:            result.deductLate,
@@ -682,14 +683,14 @@ async function calcAndSave(
     social_security_base:   Number(sal.base_salary),
     social_security_rate:   0.05,
     social_security_amount: result.sso,
-    // ภาษี
-    taxable_income:         result.gross + manualCommission + manualOtherIncome - result.sso,
+    // ภาษี — ใช้ gross ที่ปรับ OT แล้ว
+    taxable_income:         result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome - result.sso,
     monthly_tax_withheld:   result.tax,
     ytd_tax_withheld:       previousYtdTax + result.tax,
-    // รวม
+    // รวม — ใช้ gross ที่ปรับ OT แล้ว
     total_deductions:       result.totalDeduct + deductUnpaidLeave + manualDeductOther,
     net_salary:             Math.max(
-      result.gross + manualCommission + manualOtherIncome
+      result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome
       - result.totalDeduct - deductUnpaidLeave - manualDeductOther, 0),
     // สถิติ
     working_days:           pastWorkDays.length,
