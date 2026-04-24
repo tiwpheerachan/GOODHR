@@ -90,13 +90,28 @@ export async function GET(req: NextRequest) {
   const attMap = new Map<string, any>()
   for (const r of records) attMap.set(r.work_date, r)
 
-  // ── วันทำงาน (จ-ศ default — ไม่ query shift เพื่อความเร็ว) ──
+  // ── ดึง shift assignments เพื่อรู้ว่าวันไหนเป็น work/dayoff ──
+  const { data: shiftData } = await supa.from("monthly_shift_assignments")
+    .select("work_date, assignment_type")
+    .eq("employee_id", employeeId)
+    .gte("work_date", startDate).lte("work_date", endDate)
+  const shiftMap = new Map<string, string>()
+  for (const s of (shiftData ?? [])) shiftMap.set(s.work_date, s.assignment_type)
+
+  // ── วันทำงาน (อิง shift assignment → fallback จ-ศ) ──
   const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
   const workDays: string[] = []
   let cur = startDate
   while (cur <= endDate) {
     const dow = new Date(cur + "T00:00:00").getDay()
-    if (dow >= 1 && dow <= 5 && !holidaySet.has(cur)) workDays.push(cur)
+    const assignment = shiftMap.get(cur)
+    let isWorkDay: boolean
+    if (assignment) {
+      isWorkDay = assignment === "work"
+    } else {
+      isWorkDay = dow >= 1 && dow <= 5 && !holidaySet.has(cur)
+    }
+    if (isWorkDay) workDays.push(cur)
     cur = addDays(cur, 1)
   }
   const pastWorkDays = workDays.filter(d => d <= today)

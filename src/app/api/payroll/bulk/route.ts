@@ -3,6 +3,23 @@ import { NextResponse } from "next/server"
 import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
 import { logPayroll } from "@/lib/auditLog"
 
+// ── Supabase pagination helper (server max = 1000 rows) ──────────
+async function fetchAll<T = any>(
+  queryFn: (from: number, to: number) => any,
+  pageSize = 1000,
+): Promise<T[]> {
+  const all: T[] = []
+  let from = 0
+  while (true) {
+    const { data } = await queryFn(from, from + pageSize - 1)
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < pageSize) break
+    from += pageSize
+  }
+  return all
+}
+
 // ── Date helpers (copy จาก payroll/route.ts เพื่อ self-contained) ────
 function addDays(ds: string, n: number): string {
   const [y, m, d] = ds.split("-").map(Number)
@@ -112,12 +129,17 @@ export async function POST(req: Request) {
   const holidaySet = new Set<string>((holData ?? []).map((h: any) => h.date as string))
 
   // ── Pre-fetch shift assignments + schedule profiles (batch) ────
-  const [shiftAssignRes, schedProfileRes] = await Promise.all([
-    supa.from("monthly_shift_assignments")
-      .select("employee_id, work_date, assignment_type")
-      .in("employee_id", employee_ids)
-      .gte("work_date", periodStart)
-      .lte("work_date", periodEnd),
+  // ⚠️ Supabase hard limit = 1000 rows → ต้อง paginate (78 คน × 31 วัน = 2400+)
+  const [shiftAssignData, schedProfileRes] = await Promise.all([
+    fetchAll((from, to) =>
+      supa.from("monthly_shift_assignments")
+        .select("employee_id, work_date, assignment_type")
+        .in("employee_id", employee_ids)
+        .gte("work_date", periodStart)
+        .lte("work_date", periodEnd)
+        .order("employee_id").order("work_date")
+        .range(from, to)
+    ),
     supa.from("employee_schedule_profiles")
       .select("employee_id, fixed_dayoffs")
       .in("employee_id", employee_ids),
@@ -125,27 +147,34 @@ export async function POST(req: Request) {
 
   // Group shift assignments by employee → Map<employee_id, Map<date, assignment>>
   const shiftByEmp = new Map<string, Map<string, { assignment_type: string }>>()
-  for (const a of (shiftAssignRes.data ?? []) as any[]) {
+  for (const a of shiftAssignData as any[]) {
     if (!shiftByEmp.has(a.employee_id)) shiftByEmp.set(a.employee_id, new Map())
     shiftByEmp.get(a.employee_id)!.set(a.work_date, { assignment_type: a.assignment_type })
   }
 
   // Group schedule profiles by employee → Map<employee_id, string[] | undefined>
+  // ⚠️ fixed_dayoffs: [] (ว่าง) หมายถึง "ยังไม่ได้กำหนด" → ไม่ใช้ profile (fallback จ-ศ)
   const profileByEmp = new Map<string, string[]>()
   for (const p of (schedProfileRes.data ?? []) as any[]) {
-    if (p.fixed_dayoffs) profileByEmp.set(p.employee_id, p.fixed_dayoffs as string[])
+    if (Array.isArray(p.fixed_dayoffs) && p.fixed_dayoffs.length > 0) {
+      profileByEmp.set(p.employee_id, p.fixed_dayoffs as string[])
+    }
   }
 
-  // ── Pre-fetch attendance records ทุกคนในงวดนี้ (1 query แทน 500) ─
-  const { data: allAtt } = await supa
-    .from("attendance_records")
-    .select("employee_id, work_date, status, late_minutes, early_out_minutes, ot_minutes, work_minutes, half_day_leave")
-    .in("employee_id", employee_ids)
-    .gte("work_date", periodStart)
-    .lte("work_date", periodEnd)
+  // ── Pre-fetch attendance records ทุกคนในงวดนี้ ─
+  // ⚠️ Supabase hard limit = 1000 → ต้อง paginate
+  const allAtt = await fetchAll((from, to) =>
+    supa.from("attendance_records")
+      .select("employee_id, work_date, status, late_minutes, early_out_minutes, ot_minutes, work_minutes, half_day_leave")
+      .in("employee_id", employee_ids)
+      .gte("work_date", periodStart)
+      .lte("work_date", periodEnd)
+      .order("employee_id").order("work_date")
+      .range(from, to)
+  )
 
   const attByEmp = new Map<string, any[]>()
-  for (const a of (allAtt ?? [])) {
+  for (const a of allAtt) {
     const list = attByEmp.get(a.employee_id) || []
     list.push(a)
     attByEmp.set(a.employee_id, list)
@@ -266,13 +295,30 @@ export async function POST(req: Request) {
     return { amount: Math.round(std * multiplier), grade, standardAmount: std }
   }
 
+  // ── Guard: กรอง employee ที่ company_id ไม่ตรงกับ period ──────
+  const validEmployeeIds = employee_ids.filter(eid => {
+    const emp = empMap.get(eid)
+    return emp && emp.company_id === period.company_id
+  })
+  const skippedCount = employee_ids.length - validEmployeeIds.length
+  if (skippedCount > 0) {
+    console.warn(`[bulk] Skipped ${skippedCount} employees: company_id mismatch with period ${period.company_id}`)
+  }
+
   // ── Process each employee ───────────────────────────────────────
   const results: { employee_id: string; success: boolean; error?: string }[] = []
 
+  // Add skipped results
+  for (const eid of employee_ids) {
+    if (!validEmployeeIds.includes(eid)) {
+      results.push({ employee_id: eid, success: false, error: "company_id ไม่ตรงกับงวดเงินเดือน" })
+    }
+  }
+
   // Process in server-side batches of 25 (concurrent Promise.all)
   const SERVER_BATCH = 25
-  for (let i = 0; i < employee_ids.length; i += SERVER_BATCH) {
-    const batch = employee_ids.slice(i, i + SERVER_BATCH)
+  for (let i = 0; i < validEmployeeIds.length; i += SERVER_BATCH) {
+    const batch = validEmployeeIds.slice(i, i + SERVER_BATCH)
     const batchResults = await Promise.allSettled(
       batch.map(async (eid) => {
         try {

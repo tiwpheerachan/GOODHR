@@ -142,7 +142,7 @@ async function initRecord(
 ): Promise<CalcResult> {
   const [pRes, eRes, sRes] = await Promise.all([
     supa.from("payroll_periods")
-      .select("id, year, month, start_date, end_date")
+      .select("id, year, month, start_date, end_date, company_id")
       .eq("id", payroll_period_id)
       .single(),
     supa.from("employees")
@@ -163,6 +163,12 @@ async function initRecord(
 
   const period = pRes.data as any
   const emp    = eRes.data as any
+
+  // Guard: company_id ต้องตรงกัน
+  if (emp.company_id !== period.company_id) {
+    return { error: "พนักงานไม่ได้อยู่ในบริษัทเดียวกับงวดเงินเดือนนี้" }
+  }
+
   const sal    = sRes.data ?? {
     base_salary: 0, allowance_position: 0, allowance_transport: 0,
     allowance_food: 0, allowance_phone: 0, allowance_housing: 0,
@@ -303,7 +309,7 @@ async function calcAndSave(
   // ── ดึงข้อมูลพื้นฐานพร้อมกัน ──────────────────────────────────
   const [pRes, eRes, sRes] = await Promise.all([
     supa.from("payroll_periods")
-      .select("id, year, month, start_date, end_date")
+      .select("id, year, month, start_date, end_date, company_id")
       .eq("id", payroll_period_id)
       .single(),
     supa.from("employees")
@@ -324,6 +330,12 @@ async function calcAndSave(
 
   const period = pRes.data as any
   const emp    = eRes.data as any
+
+  // Guard: company_id ต้องตรงกัน
+  if (emp.company_id !== period.company_id) {
+    return { error: "พนักงานไม่ได้อยู่ในบริษัทเดียวกับงวดเงินเดือนนี้" }
+  }
+
   // ถ้ายังไม่มี salary_structures → ใช้ค่า default (เงินเดือน 0) เพื่อให้สร้าง record ได้
   const sal    = sRes.data ?? {
     base_salary: 0, allowance_position: 0, allowance_transport: 0,
@@ -362,9 +374,11 @@ async function calcAndSave(
   for (const a of (shiftAssignRes.data ?? []) as any[]) {
     shiftMap.set(a.work_date, { assignment_type: a.assignment_type })
   }
+  // ⚠️ fixed_dayoffs: [] (ว่าง) = ยังไม่ได้กำหนด → ไม่ใช้ profile (fallback จ-ศ)
+  const rawDayoffs = schedProfileRes.data?.fixed_dayoffs
   const fixedDayoffs: string[] | undefined =
-    schedProfileRes.data?.fixed_dayoffs
-      ? (schedProfileRes.data.fixed_dayoffs as string[])
+    Array.isArray(rawDayoffs) && rawDayoffs.length > 0
+      ? (rawDayoffs as string[])
       : undefined
 
   // ── ข้อมูลการเข้างานในงวด ──────────────────────────────────────
