@@ -65,21 +65,14 @@ const REG_COLS: RCol[] = [
   { key:"brand", label:"แบรนด์",         group:"info", get:r=>r.employee?.brand||"" },
   // income
   { key:"base",        label:"เงินเดือน",            group:"income", get:r=>n(r.base_salary) },
-  { key:"bonus",       label:"KPI Bonus",             group:"income", get:r=>n(r.bonus) },
-  { key:"kpi_grade",   label:"เกรด KPI",              group:"income", get:r=>r.kpi_grade === "pending" ? "รอประเมิน" : r.kpi_grade||"-" },
+  { key:"bonus",       label:"โบนัส KPI",             group:"income", get:r=>n(r.bonus) },
+  { key:"kpi_grade",   label:"เกรด",                  group:"income", get:r=>r.kpi_grade === "pending" ? "รอ" : r.kpi_grade||"" },
+  { key:"ot_total",    label:"รวม OT",              group:"income", get:r=>n(r.ot_amount) },
   { key:"ot15",        label:"OT ×1.5",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5) },
   { key:"ot10",        label:"OT ×1.0",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0) },
   { key:"ot30",        label:"OT ×3.0",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0) },
-  { key:"ot_manual",   label:"OT (กรอก)",           group:"income", get:r=>{
-    const calcOt = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
-      + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
-      + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
-    // แสดงเฉพาะส่วนที่กรอกเกินจาก OT คำนวณ หรือถ้าไม่มี OT คำนวณเลยแสดง ot_amount ทั้งหมด
-    const diff = n(r.ot_amount) - calcOt
-    return diff > 0.01 ? diff : 0
-  }},
   { key:"pos_allow",   label:"ค่าตำแหน่ง",           group:"income", get:r=>n(r.allowance_position) },
-  { key:"kpi",         label:"KPI",                 group:"income", get:r=>n((r.income_extras||{}).kpi) },
+  { key:"kpi",         label:"ค่า KPI (กรอก)",       group:"income", get:r=>n((r.income_extras||{}).kpi) },
   { key:"commission",  label:"Commission",          group:"income", get:r=>n(r.commission) },
   { key:"incentive",   label:"Incentive",           group:"income", get:r=>n((r.income_extras||{}).incentive) },
   { key:"perf",        label:"Performance Bonus",   group:"income", get:r=>n((r.income_extras||{}).performance_bonus) },
@@ -313,11 +306,18 @@ function FullRegisterTable({ records, onEdit, onView }: { records: any[]; onEdit
                   {/* Scrollable data cells */}
                   {DATA_C.map(col => {
                     const v = col.get(r, idx)
+                    const isStr = typeof v === "string"
                     const numVal = typeof v === "number" ? v : 0
-                    const zero = numVal === 0
+                    const zero = numVal === 0 && !isStr
                     const isSummary = col.group === "summary"
+                    const isGrade = col.key === "kpi_grade"
                     return (
-                      <td key={col.key} className={`px-2 py-1.5 text-right font-mono border-b border-slate-50 ${
+                      <td key={col.key} className={`px-2 py-1.5 border-b border-slate-50 ${isStr ? "text-center font-sans" : "text-right font-mono"} ${
+                        isGrade && v === "A" ? "font-black text-emerald-700 bg-emerald-50/40" :
+                        isGrade && v === "B" ? "font-black text-blue-700 bg-blue-50/40" :
+                        isGrade && v === "C" ? "font-black text-amber-700 bg-amber-50/40" :
+                        isGrade && v === "D" ? "font-black text-red-700 bg-red-50/40" :
+                        isGrade && v === "รอ" ? "text-[10px] text-slate-400" :
                         isSummary && col.key === "net" ? "font-black text-emerald-700 bg-emerald-50/40" :
                         isSummary && col.key === "total_ded" ? "font-bold text-rose-600" :
                         isSummary ? "font-bold text-indigo-700 bg-indigo-50/30" :
@@ -325,7 +325,7 @@ function FullRegisterTable({ records, onEdit, onView }: { records: any[]; onEdit
                         col.group === "income" && !zero ? "text-slate-700" :
                         "text-slate-300"
                       } ${selCol === col.key ? "!bg-indigo-50/60" : ""} ${isRowSel ? "!bg-indigo-50/40" : ""}`}>
-                        {zero && !isSummary ? "-" : thb(numVal)}
+                        {isStr ? (v || "-") : (zero && !isSummary ? "-" : thb(numVal))}
                       </td>
                     )
                   })}
@@ -382,6 +382,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
           <tr>
             <th className="px-4 py-3 text-left font-bold text-slate-500">พนักงาน</th>
             <th className="px-3 py-3 text-right font-bold text-slate-500">เงินเดือน</th>
+            <th className="px-3 py-3 text-center font-bold text-purple-600">KPI</th>
             <th className="px-3 py-3 text-right font-bold text-green-700">เบี้ย+อื่น</th>
             <th className="px-3 py-3 text-left font-bold text-amber-600">OT</th>
             <th className="px-3 py-3 text-right font-bold text-red-600">หักสาย/ออกก่อน/ขาด</th>
@@ -409,6 +410,26 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                   </div>
                 </td>
                 <td className="px-3 py-3 text-right"><p className="font-bold text-slate-700">฿{thb(r.base_salary)}</p></td>
+                <td className="px-3 py-3 text-center">
+                  {n(r.bonus) > 0 ? (
+                    <div>
+                      <p className="font-bold text-purple-700">฿{thb(r.bonus)}</p>
+                      {r.kpi_grade && r.kpi_grade !== "pending" && (
+                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
+                          r.kpi_grade === "A" ? "bg-emerald-100 text-emerald-700" :
+                          r.kpi_grade === "B" ? "bg-blue-100 text-blue-700" :
+                          r.kpi_grade === "C" ? "bg-amber-100 text-amber-700" :
+                          "bg-red-100 text-red-700"
+                        }`}>{r.kpi_grade}</span>
+                      )}
+                      {r.kpi_grade === "pending" && <span className="text-[9px] text-slate-400">รอประเมิน</span>}
+                    </div>
+                  ) : r.kpi_grade === "pending" ? (
+                    <span className="text-[10px] text-slate-400">รอประเมิน</span>
+                  ) : (
+                    <span className="text-slate-200">—</span>
+                  )}
+                </td>
                 <td className="px-3 py-3 text-right">{totalAllow > 0 ? <p className="font-semibold text-green-700">+฿{thb(totalAllow)}</p> : <span className="text-slate-200">—</span>}</td>
                 <td className="px-3 py-3">{n(r.ot_amount) > 0 ? <p className="font-bold text-amber-700">+฿{thb(r.ot_amount)}</p> : <span className="text-slate-200">—</span>}</td>
                 <td className="px-3 py-3 text-right">{totalDeductWork > 0 ? <p className="font-bold text-red-600">-฿{thb(totalDeductWork)}</p> : <span className="text-slate-200">—</span>}</td>
@@ -429,6 +450,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
           <tr>
             <td className="px-4 py-3 font-black text-slate-700">{records.length} คน</td>
             <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.base_salary),0))}</td>
+            <td className="px-3 py-3 text-center font-bold text-purple-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.bonus),0))}</td>
             <td className="px-3 py-3 text-right font-bold text-green-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing),0))}</td>
             <td className="px-3 py-3 font-bold text-amber-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.ot_amount),0))}</td>
             <td className="px-3 py-3 text-right font-bold text-red-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent),0))}</td>
@@ -627,16 +649,7 @@ function exportXLSX(records: any[], period: any) {
 
   const incomeItems: [string, number][] = [
     ["เงินเดือนพื้นฐาน",          grand(r=>n(r.base_salary))],
-    ["OT วันทำงาน ×1.5",         grand(r=>calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5))],
-    ["OT วันหยุด ×1.0 (งานปกติ)", grand(r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0))],
-    ["OT วันหยุด ×3.0",          grand(r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0))],
-    ["OT (กรอก)",                grand(r=>{
-      const calcOt = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
-        + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
-        + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
-      const diff = n(r.ot_amount) - calcOt
-      return diff > 0.01 ? diff : 0
-    })],
+    ["รวม OT",                    grand(r=>n(r.ot_amount))],
     ["ค่าตำแหน่ง",                grand(r=>n(r.allowance_position))],
     ["ค่าเดินทาง",                 grand(r=>n(r.allowance_transport))],
     ["ค่าอาหาร",                   grand(r=>n(r.allowance_food))],

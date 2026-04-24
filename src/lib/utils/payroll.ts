@@ -254,6 +254,10 @@ export function calculatePayrollSummary(args: {
   otRateWeekday?: number | null
   /** อัตรา OT วันหยุด (default 3.0) — จาก salary_structures.ot_rate_holiday */
   otRateHoliday?: number | null
+  /** ไม่หักประกันสังคม */
+  isSsoExempt?: boolean
+  /** หักภาษี ณ ที่จ่าย 3% แทนขั้นบันได */
+  isTax3pct?: boolean
 }) {
   const {
     baseSalary,
@@ -268,6 +272,8 @@ export function calculatePayrollSummary(args: {
     taxWithholdingPct,
     otRateWeekday,
     otRateHoliday,
+    isSsoExempt  = false,
+    isTax3pct    = false,
   } = args
 
   // ── รายได้ ──────────────────────────────────────────────────
@@ -287,14 +293,18 @@ export function calculatePayrollSummary(args: {
   const gross = baseSalary + allowances + otAmount + bonus
 
   // ── ประกันสังคม ─────────────────────────────────────────────
-  const sso = calcSSO(baseSalary)
+  const sso = isSsoExempt ? 0 : calcSSO(baseSalary)
 
   // ── ภาษีหัก ณ ที่จ่าย ─────────────────────────────────────────
   let tax: number
   let taxMethod: "auto" | "fixed_pct"
 
-  if (taxWithholdingPct != null && taxWithholdingPct >= 0) {
-    // ใช้ % ที่ตั้งไว้ (เช่น 3% ของ gross)
+  if (isTax3pct) {
+    // หัก 3% ของ gross (สำหรับฟรีแลนซ์ / ที่ปรึกษา)
+    tax = Math.round(gross * 0.03 * 100) / 100
+    taxMethod = "fixed_pct"
+  } else if (taxWithholdingPct != null && taxWithholdingPct >= 0) {
+    // ใช้ % ที่ตั้งไว้
     tax = Math.round(gross * (taxWithholdingPct / 100) * 100) / 100
     taxMethod = "fixed_pct"
   } else {

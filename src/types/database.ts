@@ -66,6 +66,8 @@ export interface SalaryStructure {
   allowance_phone: number; allowance_housing: number
   ot_rate_normal: number; ot_rate_holiday: number
   tax_withholding_pct?: number | null  // NULL = auto (ขั้นบันได), 0-35 = fixed %
+  is_sso_exempt?: boolean              // true = ไม่หักประกันสังคม
+  is_tax_3pct?: boolean                // true = หักภาษี ณ ที่จ่าย 3% แทนขั้นบันได
   effective_from: string; effective_to?: string; change_reason?: string
 }
 

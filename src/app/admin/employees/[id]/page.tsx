@@ -246,7 +246,7 @@ export default function EmployeeDetailPage() {
     if (!sf.base_salary) return toast.error("กรุณากรอกเงินเดือน")
     setLoading(true)
     if (salary?.id) await supabase.from("salary_structures").update({ effective_to:sf.effective_from }).eq("id",salary.id)
-    const { error } = await supabase.from("salary_structures").insert({ employee_id:id, base_salary:+sf.base_salary, allowance_position:+(sf.allowance_position||0), allowance_transport:+(sf.allowance_transport||0), allowance_food:+(sf.allowance_food||0), allowance_phone:+(sf.allowance_phone||0), allowance_housing:+(sf.allowance_housing||0), ot_rate_normal:+(sf.ot_rate_normal||1.5), ot_rate_holiday:+(sf.ot_rate_holiday||3), tax_withholding_pct: sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? +sf.tax_withholding_pct : null, effective_from:sf.effective_from||format(new Date(),"yyyy-MM-dd"), change_reason:sf.change_reason, created_by:user?.employee_id })
+    const { error } = await supabase.from("salary_structures").insert({ employee_id:id, base_salary:+sf.base_salary, allowance_position:+(sf.allowance_position||0), allowance_transport:+(sf.allowance_transport||0), allowance_food:+(sf.allowance_food||0), allowance_phone:+(sf.allowance_phone||0), allowance_housing:+(sf.allowance_housing||0), ot_rate_normal:+(sf.ot_rate_normal||1.5), ot_rate_holiday:+(sf.ot_rate_holiday||3), tax_withholding_pct: sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? +sf.tax_withholding_pct : null, is_sso_exempt: !!sf.is_sso_exempt, is_tax_3pct: !!sf.is_tax_3pct, effective_from:sf.effective_from||format(new Date(),"yyyy-MM-dd"), change_reason:sf.change_reason, created_by:user?.employee_id })
     if (error) toast.error("เกิดข้อผิดพลาด"); else toast.success("บันทึกเงินเดือนสำเร็จ")
     setLoading(false)
   }
@@ -645,34 +645,67 @@ export default function EmployeeDetailPage() {
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">เหตุผล</label><input value={sf.change_reason||""} onChange={e => setSf((f: any) => ({ ...f, change_reason:e.target.value }))} className={inp} placeholder="เช่น ปรับเงินเดือนประจำปี"/></div>
           </div>
 
-          {/* ── ภาษีหัก ณ ที่จ่าย ── */}
-          <div className="mt-6 p-4 rounded-2xl border-2 border-indigo-100 bg-indigo-50/50">
-            <h4 className="font-bold text-slate-800 text-sm mb-1">ภาษีหัก ณ ที่จ่าย</h4>
-            <p className="text-xs text-slate-400 mb-3">ตั้งค่า % ที่จะหักจาก Gross Income ทุกเดือน — เว้นว่างเพื่อคำนวณอัตโนมัติตามขั้นบันไดภาษี</p>
-            <div className="flex items-center gap-3">
-              <div className="flex-1 max-w-[200px]">
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    max="35"
-                    value={sf.tax_withholding_pct ?? ""}
-                    onChange={e => setSf((f: any) => ({ ...f, tax_withholding_pct: e.target.value === "" ? null : e.target.value }))}
-                    className={inp + " pr-8"}
-                    placeholder="อัตโนมัติ"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 font-bold">%</span>
+          {/* ── ประกันสังคม + ภาษี ── */}
+          <div className="mt-6 p-4 rounded-2xl border-2 border-indigo-100 bg-indigo-50/50 space-y-4">
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm mb-1">ภาษีหัก ณ ที่จ่าย</h4>
+              <p className="text-xs text-slate-400 mb-3">ตั้งค่า % ที่จะหักจาก Gross Income ทุกเดือน — เว้นว่างเพื่อคำนวณอัตโนมัติตามขั้นบันไดภาษี</p>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 max-w-[200px]">
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      max="35"
+                      value={sf.tax_withholding_pct ?? ""}
+                      onChange={e => setSf((f: any) => ({ ...f, tax_withholding_pct: e.target.value === "" ? null : e.target.value }))}
+                      className={inp + " pr-8"}
+                      placeholder="อัตโนมัติ"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 font-bold">%</span>
+                  </div>
+                </div>
+                <div className="text-xs text-slate-500 space-y-0.5">
+                  {sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? (
+                    <p className="text-indigo-600 font-bold">หักคงที่ {sf.tax_withholding_pct}% ของรายได้รวม</p>
+                  ) : (
+                    <p className="text-emerald-600 font-bold">คำนวณอัตโนมัติตามขั้นบันไดภาษี</p>
+                  )}
                 </div>
               </div>
-              <div className="text-xs text-slate-500 space-y-0.5">
-                {sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? (
-                  <p className="text-indigo-600 font-bold">หักคงที่ {sf.tax_withholding_pct}% ของรายได้รวม</p>
-                ) : (
-                  <p className="text-emerald-600 font-bold">คำนวณอัตโนมัติตามขั้นบันไดภาษี</p>
-                )}
-                <p className="text-slate-400">ประกันสังคม: 5% สูงสุด 875 บาท/เดือน</p>
-              </div>
+            </div>
+
+            <div className="border-t border-indigo-200 pt-4 space-y-3">
+              {/* ประกันสังคม */}
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={!!sf.is_sso_exempt}
+                  onChange={e => setSf((f: any) => ({ ...f, is_sso_exempt: e.target.checked }))}
+                  className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <div>
+                  <p className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">ไม่หักประกันสังคม</p>
+                  <p className="text-[11px] text-slate-400">พนักงานไม่เข้าร่วมประกันสังคม — จะไม่หัก 5% (สูงสุด 875 บาท/เดือน)</p>
+                </div>
+                {sf.is_sso_exempt && <span className="ml-auto text-xs font-black text-red-500 bg-red-50 px-2 py-1 rounded-lg">ไม่หัก SSO</span>}
+              </label>
+
+              {/* ภาษี 3% */}
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={!!sf.is_tax_3pct}
+                  onChange={e => setSf((f: any) => ({ ...f, is_tax_3pct: e.target.checked }))}
+                  className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <div>
+                  <p className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">หักภาษี ณ ที่จ่าย 3%</p>
+                  <p className="text-[11px] text-slate-400">หักภาษี 3% ของรายได้รวมแทนการคำนวณขั้นบันได (เช่น ฟรีแลนซ์, ที่ปรึกษา)</p>
+                </div>
+                {sf.is_tax_3pct && <span className="ml-auto text-xs font-black text-amber-600 bg-amber-50 px-2 py-1 rounded-lg">หัก 3%</span>}
+              </label>
             </div>
           </div>
 

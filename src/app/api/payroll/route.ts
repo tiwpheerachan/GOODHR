@@ -104,14 +104,14 @@ async function getKpiBonus(
 
   const std = Number(kpiSetting.standard_amount)
 
-  // ดึงเกรด KPI เดือนนี้ (ต้อง submitted หรือ acknowledged)
+  // ดึงเกรด KPI เดือนนี้ (ต้อง submitted, approved หรือ acknowledged)
   const { data: kpiForm } = await supa
     .from("kpi_forms")
     .select("grade, total_score")
     .eq("employee_id", employeeId)
     .eq("year", year)
     .eq("month", month)
-    .in("status", ["submitted", "acknowledged"])
+    .in("status", ["submitted", "approved", "acknowledged"])
     .maybeSingle()
 
   if (!kpiForm?.grade) {
@@ -150,7 +150,7 @@ async function initRecord(
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
-      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, ot_rate_normal, ot_rate_holiday")
+      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct")
       .eq("employee_id", employee_id)
       .is("effective_to", null)
       .order("effective_from", { ascending: false })
@@ -207,6 +207,8 @@ async function initRecord(
     otRateWeekday:   sal.ot_rate_normal  != null ? Number(sal.ot_rate_normal)  : null,
     otRateHoliday:   sal.ot_rate_holiday != null ? Number(sal.ot_rate_holiday) : null,
     taxWithholdingPct,
+    isSsoExempt:     !!sal.is_sso_exempt,
+    isTax3pct:       !!sal.is_tax_3pct,
   })
 
   const payload: Record<string, unknown> = {
@@ -309,7 +311,7 @@ async function calcAndSave(
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
-      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, effective_from, effective_to")
+      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, effective_from, effective_to")
       .eq("employee_id", employee_id)
       .is("effective_to", null)
       .order("effective_from", { ascending: false })
@@ -569,7 +571,7 @@ async function calcAndSave(
   const result = calculatePayrollSummary({
     baseSalary:      Number(sal.base_salary),
     allowances:      allAllowances,
-    otBreakdown,
+    otBreakdown:     { weekday_minutes: 0, holiday_regular_minutes: 0, holiday_ot_minutes: 0 },
     bonus:           kpiBonus.amount,
     absentDays:      isExempt ? 0 : absentDays,
     lateMinutes:     isExempt ? 0 : totalLateMin,
@@ -578,6 +580,8 @@ async function calcAndSave(
     taxWithholdingPct,
     otRateWeekday:   sal.ot_rate_normal  != null ? Number(sal.ot_rate_normal)  : null,
     otRateHoliday:   sal.ot_rate_holiday != null ? Number(sal.ot_rate_holiday) : null,
+    isSsoExempt:     !!sal.is_sso_exempt,
+    isTax3pct:       !!sal.is_tax_3pct,
   })
 
   // ── YTD ภาษี: ดึงยอดสะสมจากเดือนก่อนหน้าในปีเดียวกัน ──
@@ -605,6 +609,8 @@ async function calcAndSave(
     .eq("payroll_period_id", payroll_period_id).eq("employee_id", employee_id).maybeSingle()
 
   const isManual = !!existingPR?.is_manual_override
+  // OT: ใช้เฉพาะค่าที่ HR กรอก (ไม่คำนวณอัตโนมัติ)
+  const manualOtAmount = Number(existingPR?.ot_amount) || 0
 
   // ถ้า HR เคยแก้ไข manual → เก็บค่าที่แก้ไว้ทั้งหมด
   const manualCommission     = Number(existingPR?.commission)        || 0
@@ -635,30 +641,22 @@ async function calcAndSave(
     allowance_phone:        manualAllowPhone,
     allowance_housing:      manualAllowHousing,
     allowance_other:        manualAllowOther,
-    ot_amount:              isManual ? (existingPR?.ot_amount != null ? Number(existingPR.ot_amount) : result.otAmount) : result.otAmount,
-    ot_hours:               isManual ? (existingPR?.ot_hours != null ? Number(existingPR.ot_hours) : 0) : (
-      otBreakdown.weekday_minutes +
-      otBreakdown.holiday_regular_minutes +
-      otBreakdown.holiday_ot_minutes
-    ) / 60,
-    ot_weekday_minutes:     isManual ? (existingPR?.ot_weekday_minutes != null ? Number(existingPR.ot_weekday_minutes) : 0) : otBreakdown.weekday_minutes,
-    ot_holiday_reg_minutes: isManual ? (existingPR?.ot_holiday_reg_minutes != null ? Number(existingPR.ot_holiday_reg_minutes) : 0) : otBreakdown.holiday_regular_minutes,
-    ot_holiday_ot_minutes:  isManual ? (existingPR?.ot_holiday_ot_minutes != null ? Number(existingPR.ot_holiday_ot_minutes) : 0) : otBreakdown.holiday_ot_minutes,
+    // OT: ใช้เฉพาะค่าที่ HR กรอก (ไม่คำนวณอัตโนมัติ)
+    ot_amount:              manualOtAmount,
+    ot_hours:               0,
+    ot_weekday_minutes:     0,
+    ot_holiday_reg_minutes: 0,
+    ot_holiday_ot_minutes:  0,
     bonus:                  manualBonus,
     kpi_grade:              kpiBonus.grade,
     kpi_standard_amount:    kpiBonus.standardAmount,
-    commission:             manualCommission,        // เก็บค่าที่ HR กรอก
-    other_income:           manualOtherIncome,        // เก็บค่าที่ HR กรอก
-    income_extras:          existingExtras,            // เก็บ extras ที่ HR กรอก
-    gross_income:           (() => {
-      if (isManual) {
-        const mOt = existingPR?.ot_amount != null ? Number(existingPR.ot_amount) : result.otAmount
-        return Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
-          + manualAllowPhone + manualAllowHousing + manualAllowOther
-          + mOt + manualBonus + manualCommission + manualOtherIncome
-      }
-      return result.gross + manualCommission + manualOtherIncome
-    })(),
+    commission:             manualCommission,
+    other_income:           manualOtherIncome,
+    income_extras:          existingExtras,
+    // gross = base + allowances + OT(HR) + bonus + commission + other
+    gross_income:           Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
+      + manualAllowPhone + manualAllowHousing + manualAllowOther
+      + manualOtAmount + manualBonus + manualCommission + manualOtherIncome,
     // การหัก
     deduct_absent:          result.deductAbsent,
     deduct_late:            result.deductLate,
@@ -671,30 +669,18 @@ async function calcAndSave(
     social_security_rate:   0.05,
     social_security_amount: result.sso,
     // ภาษี
-    taxable_income:         (() => {
-      if (isManual) {
-        const mOt = existingPR?.ot_amount != null ? Number(existingPR.ot_amount) : result.otAmount
-        const mGross = Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
-          + manualAllowPhone + manualAllowHousing + manualAllowOther
-          + mOt + manualBonus + manualCommission + manualOtherIncome
-        return mGross - result.sso
-      }
-      return result.gross - result.sso
-    })(),
+    taxable_income:         Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
+      + manualAllowPhone + manualAllowHousing + manualAllowOther
+      + manualOtAmount + manualBonus + manualCommission + manualOtherIncome - result.sso,
     monthly_tax_withheld:   result.tax,
     ytd_tax_withheld:       previousYtdTax + result.tax,
     // รวม
     total_deductions:       result.totalDeduct + deductUnpaidLeave + manualDeductOther,
-    net_salary:             (() => {
-      if (isManual) {
-        const mOt = existingPR?.ot_amount != null ? Number(existingPR.ot_amount) : result.otAmount
-        const mGross = Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
-          + manualAllowPhone + manualAllowHousing + manualAllowOther
-          + mOt + manualBonus + manualCommission + manualOtherIncome
-        return Math.max(mGross - result.totalDeduct - deductUnpaidLeave - manualDeductOther, 0)
-      }
-      return Math.max(result.net - deductUnpaidLeave - manualDeductOther + manualCommission + manualOtherIncome, 0)
-    })(),
+    net_salary:             Math.max(
+      Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
+      + manualAllowPhone + manualAllowHousing + manualAllowOther
+      + manualOtAmount + manualBonus + manualCommission + manualOtherIncome
+      - result.totalDeduct - deductUnpaidLeave - manualDeductOther, 0),
     // สถิติ
     working_days:           pastWorkDays.length,
     present_days:           presentDays,
