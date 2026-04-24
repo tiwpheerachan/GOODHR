@@ -255,13 +255,15 @@ export default function EmployeeDetailPage() {
     setLoading(true)
     const amt = parseFloat(kpiAmount) || 0
     if (kpiSetting?.id) {
-      // update existing
       const { error } = await supabase.from("kpi_bonus_settings").update({ standard_amount: amt }).eq("id", kpiSetting.id)
-      if (error) toast.error("เกิดข้อผิดพลาด"); else { toast.success("บันทึก KPI สำเร็จ"); setKpiSetting({ ...kpiSetting, standard_amount: amt }) }
+      if (error) { console.error("KPI update error:", error); toast.error("เกิดข้อผิดพลาด: " + error.message) }
+      else { toast.success("บันทึก KPI สำเร็จ"); setKpiSetting({ ...kpiSetting, standard_amount: amt }) }
     } else {
-      // insert new
-      const { data, error } = await supabase.from("kpi_bonus_settings").insert({ employee_id: id, standard_amount: amt, is_active: true }).select().single()
-      if (error) toast.error("เกิดข้อผิดพลาด"); else { toast.success("บันทึก KPI สำเร็จ"); setKpiSetting(data) }
+      const { data, error } = await supabase.from("kpi_bonus_settings")
+        .insert({ employee_id: id, company_id: emp?.company_id, standard_amount: amt, is_active: true })
+        .select().single()
+      if (error) { console.error("KPI insert error:", error); toast.error("เกิดข้อผิดพลาด: " + error.message) }
+      else { toast.success("บันทึก KPI สำเร็จ"); setKpiSetting(data) }
     }
     setLoading(false)
   }
