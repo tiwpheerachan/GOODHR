@@ -398,9 +398,9 @@ export async function POST(req: Request) {
           const mDeductOther = Number(existPR?.deduct_other) || 0
           const mIsManual    = !!existPR?.is_manual_override
 
-          // KPI Bonus
+          // KPI Bonus — ใช้ค่าจาก KPI เสมอ (ไม่อิง manual override)
           const kpiBonus = calcKpiBonus(eid)
-          const mBonus = mIsManual ? (existPR?.bonus ?? kpiBonus.amount) : kpiBonus.amount
+          const mBonus = kpiBonus.amount
 
           const result = calculatePayrollSummary({
             baseSalary, allowances: allAllowances,

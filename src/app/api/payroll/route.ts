@@ -616,7 +616,7 @@ async function calcAndSave(
   const manualCommission     = Number(existingPR?.commission)        || 0
   const manualOtherIncome    = Number(existingPR?.other_income)      || 0
   const manualDeductOther    = Number(existingPR?.deduct_other)      || 0
-  const manualBonus          = isManual ? Number(existingPR?.bonus)  || 0 : kpiBonus.amount
+  const manualBonus          = kpiBonus.amount  // KPI Bonus ใช้ค่าจากผลประเมินเสมอ
   const manualAllowPosition  = isManual ? Number(existingPR?.allowance_position)  : Number(sal.allowance_position)  || 0
   const manualAllowTransport = isManual ? Number(existingPR?.allowance_transport) : 0
   const manualAllowFood      = isManual ? Number(existingPR?.allowance_food)      : Number(sal.allowance_food)      || 0

@@ -3,12 +3,12 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useLanguage, useEmployeeName, useLeaveTypeName } from "@/lib/i18n"
 import { createClient } from "@/lib/supabase/client"
-import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp, Bell, ArrowRightLeft, Paperclip, AlertTriangle, Users } from "lucide-react"
+import { Check, X, Clock, CalendarDays, Loader2, UserX, ChevronDown, ChevronUp, Bell, ArrowRightLeft, Paperclip, AlertTriangle, Users, Camera, MapPin } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th, enUS, zhCN } from "date-fns/locale"
 
-type Tab = "leave" | "overtime" | "adjustment" | "resignation" | "shift_change"
+type Tab = "leave" | "overtime" | "adjustment" | "resignation" | "shift_change" | "offsite"
 
 const DATE_LOCALES = { th, en: enUS, cn: zhCN } as const
 
@@ -23,7 +23,7 @@ export default function ApprovalsPage() {
   const [acting, setActing] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [counts, setCounts] = useState({ leave: 0, overtime: 0, adjustment: 0, resignation: 0, shift_change: 0 })
+  const [counts, setCounts] = useState({ leave: 0, overtime: 0, adjustment: 0, resignation: 0, shift_change: 0, offsite: 0 })
   // ── ป้องกัน double-click: เก็บ ID ที่ดำเนินการแล้ว ──
   const processedRef = useRef(new Set<string>())
   // ── realtime: แสดง badge "คำร้องใหม่" ──
@@ -171,6 +171,14 @@ export default function ApprovalsPage() {
           toast.error(json.error ?? t("approvals.toast_error"))
           setItems([])
         }
+
+      } else if (tab === "offsite") {
+        const { data, error } = await fetchPending(
+          "offsite_checkin_requests",
+          "*, employee:employees!employee_id(id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,employee_code,avatar_url,position:positions(name),department:departments(name))"
+        )
+        if (error) toast.error(error.message)
+        setItems(data ?? [])
       }
     } catch (e: any) {
       console.error("Load approvals error:", e)
@@ -209,10 +217,11 @@ export default function ApprovalsPage() {
       return Promise.resolve({ count: 0 })
     }
 
-    const [lv, ot, adj] = await Promise.all([
+    const [lv, ot, adj, offsite] = await Promise.all([
       countQuery("leave_requests"),
       countQuery("overtime_requests"),
       countQuery("time_adjustment_requests"),
+      countQuery("offsite_checkin_requests"),
     ])
 
     const resResult = await countQuery("resignation_requests", "pending_manager")
@@ -229,7 +238,7 @@ export default function ApprovalsPage() {
       shiftChangeCount = sc ?? 0
     }
 
-    setCounts({ leave: lv.count ?? 0, overtime: ot.count ?? 0, adjustment: adj.count ?? 0, resignation: resCount, shift_change: shiftChangeCount })
+    setCounts({ leave: lv.count ?? 0, overtime: ot.count ?? 0, adjustment: adj.count ?? 0, resignation: resCount, shift_change: shiftChangeCount, offsite: offsite.count ?? 0 })
   }
 
   // ── เปลี่ยน tab → reset state + โหลดใหม่ ──
@@ -457,6 +466,7 @@ export default function ApprovalsPage() {
     { key: "leave",        label: t("approvals.tab_leave"),    color: "bg-sky-500" },
     { key: "overtime",     label: t("approvals.tab_ot"),       color: "bg-amber-500" },
     { key: "adjustment",   label: t("approvals.tab_adjustment"), color: "bg-violet-500" },
+    { key: "offsite",      label: "นอกสถานที่",                color: "bg-teal-500" },
     { key: "shift_change", label: t("approvals.tab_shift_change"), color: "bg-emerald-500" },
     { key: "resignation",  label: t("approvals.tab_resignation"),   color: "bg-rose-500" },
   ]
@@ -719,6 +729,90 @@ export default function ApprovalsPage() {
                 <ActionButtons id={item.id}
                   onReject={() => handleAdjustment(item.id, "reject")}
                   onApprove={() => handleAdjustment(item.id, "approve")} />
+              </div>
+            </div>
+          )
+        })}
+
+        {/* ── OFFSITE CHECK-IN ── */}
+        {!loading && tab === "offsite" && items.map(item => {
+          const emp = item.employee
+          return (
+            <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-4 pt-3 pb-2 flex items-center gap-2 border-b border-gray-50">
+                <Camera size={13} className="text-teal-500 shrink-0" />
+                <span className="text-xs font-bold text-teal-600">
+                  {item.check_type === "clock_in" ? "เช็คอิน" : "เช็คเอาท์"} นอกสถานที่
+                </span>
+                <span className="ml-auto text-[10px] text-gray-400">{fmtDate(item.work_date)}</span>
+              </div>
+              <div className="px-4 py-4">
+                <div className="flex items-center gap-3">
+                  <Avatar emp={emp} bgColor="bg-teal-100" textColor="text-teal-600" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-gray-900 text-sm leading-tight">{empName(emp)}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{emp?.employee_code} · {emp?.department?.name}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-gray-800">{fmtTime(item.checked_at)}</p>
+                  </div>
+                </div>
+
+                {/* Photo */}
+                {(item.photo_url || item.photo_stamped_url) && (
+                  <div className="mt-3">
+                    <img src={item.photo_stamped_url || item.photo_url} alt="offsite" className="w-full max-h-48 object-cover rounded-xl border border-gray-100" />
+                  </div>
+                )}
+
+                {/* Location */}
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  <MapPin size={12} className="text-teal-500 shrink-0" />
+                  {item.latitude && item.longitude ? (
+                    <a href={`https://www.google.com/maps?q=${item.latitude},${item.longitude}`} target="_blank" rel="noopener noreferrer"
+                      className="text-teal-600 font-medium hover:underline">
+                      {item.location_name || `${Number(item.latitude).toFixed(4)}, ${Number(item.longitude).toFixed(4)}`}
+                    </a>
+                  ) : (
+                    <span className="text-gray-400">{item.location_name || "ไม่ระบุตำแหน่ง"}</span>
+                  )}
+                </div>
+
+                {item.note && (
+                  <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
+                    <p className="text-gray-400 mb-0.5">หมายเหตุ</p>
+                    <p className="text-gray-700">{item.note}</p>
+                  </div>
+                )}
+
+                <ActionButtons id={item.id}
+                  onReject={async () => {
+                    setActing(item.id)
+                    try {
+                      const res = await fetch("/api/checkin/offsite/review", {
+                        method: "PATCH", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ request_id: item.id, action: "reject", reject_reason: notes[item.id] || "หัวหน้าปฏิเสธ" }),
+                      })
+                      if (!res.ok) throw new Error("ปฏิเสธไม่สำเร็จ")
+                      optimisticRemove(item.id)
+                      toast.success("ปฏิเสธแล้ว")
+                    } catch (e: any) { toast.error(e.message) }
+                    setActing(null)
+                  }}
+                  onApprove={async () => {
+                    setActing(item.id)
+                    try {
+                      const res = await fetch("/api/checkin/offsite/review", {
+                        method: "PATCH", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ request_id: item.id, action: "approve" }),
+                      })
+                      if (!res.ok) throw new Error("อนุมัติไม่สำเร็จ")
+                      optimisticRemove(item.id)
+                      toast.success("อนุมัติแล้ว")
+                    } catch (e: any) { toast.error(e.message) }
+                    setActing(null)
+                  }}
+                />
               </div>
             </div>
           )
