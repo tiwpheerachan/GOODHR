@@ -476,17 +476,25 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
 function exportXLSX(records: any[], period: any) {
   if (records.length === 0) { toast.error("ไม่มีข้อมูลที่จะ Export"); return }
 
-  const pLabel  = period ? `${period.year}-${String(period.month).padStart(2,"0")}` : "payroll"
-  const pTh     = period ? `${format(new Date(period.year, period.month-1), "MMMM yyyy", { locale: th })}` : ""
+  const pYear = period?.year || new Date().getFullYear()
+  const pMonth = period?.month || (new Date().getMonth() + 1)
+  const pLabel  = `${pYear}-${String(pMonth).padStart(2,"0")}`
+  const MONTHS_TH = ["","ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
+  const pTh     = `${MONTHS_TH[pMonth]} ${pYear + 543}`
   const exportedAt = `ออกรายงาน: ${format(new Date(),"d MMMM yyyy HH:mm",{locale:th})}`
   const wb = XLSX.utils.book_new()
+
+  // ตั้งชื่อไฟล์: เงินเดือน_เม.ย.2569_SHD.xlsx หรือ เงินเดือน_เม.ย.2569_รวม.xlsx
+  const companyCodes = Array.from(new Set(records.map(r => r.employee?.company?.code).filter(Boolean)))
+  const coLabel = companyCodes.length === 1 ? companyCodes[0] : companyCodes.length > 1 ? "รวม" : "all"
+  const fileName = `เงินเดือน_${MONTHS_TH[pMonth]}${pYear + 543}_${coLabel}_${records.length}คน`
 
   // ── helpers ────────────────────────────────────────────────────────
   const dlWb = () => {
     const buf = XLSX.write(wb, { bookType:"xlsx", type:"array" })
     const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement("a"); a.href=url; a.download=`payroll-${pLabel}.xlsx`; a.click()
+    const a = document.createElement("a"); a.href=url; a.download=`${fileName}.xlsx`; a.click()
     URL.revokeObjectURL(url)
   }
 
@@ -570,7 +578,7 @@ function exportXLSX(records: any[], period: any) {
   applyNumFmt(wsAll)
   XLSX.utils.book_append_sheet(wb, wsAll, "ทะเบียนเงินเดือน")
 
-  // ── Sheet 2+: แยกตามบริษัท (ถ้ามีหลายบริษัท) ─────────────────
+  // ── Sheet 2+: แยกตามบริษัท ─────────────────────────────────────
   const companyGroups = new Map<string, any[]>()
   records.forEach(r => {
     const c = r.employee?.company?.code || "ไม่ระบุ"
@@ -578,14 +586,13 @@ function exportXLSX(records: any[], period: any) {
     companyGroups.get(c)!.push(r)
   })
   const hasMultiCompany = companyGroups.size > 1
-  if (hasMultiCompany) {
-    const sortedCos = Array.from(companyGroups.entries()).sort((a, b) => b[1].length - a[1].length)
-    sortedCos.forEach(([co, recs]) => {
-      const ws = buildRegSheet(recs, `บริษัท: ${co}`)
-      applyNumFmt(ws)
-      XLSX.utils.book_append_sheet(wb, ws, `${co}`.slice(0, 31))
-    })
-  }
+  // สร้าง sheet บริษัทเสมอ (ไม่ว่าจะมีกี่บริษัท)
+  const sortedCos = Array.from(companyGroups.entries()).sort((a, b) => b[1].length - a[1].length)
+  sortedCos.forEach(([co, recs]) => {
+    const ws = buildRegSheet(recs, `บริษัท: ${co} (${recs.length} คน)`)
+    applyNumFmt(ws)
+    XLSX.utils.book_append_sheet(wb, ws, `${co}`.slice(0, 31))
+  })
 
   // ── Sheet แยกตามแผนก ───────────────────────────────────────────
   const deptGroups = new Map<string, any[]>()
@@ -677,10 +684,10 @@ function exportXLSX(records: any[], period: any) {
   const dsi = deptSumInfo.length
   wsDeptSum["!autofilter"] = { ref: XLSX.utils.encode_range({ s:{r:dsi,c:0}, e:{r:dsi+deptSumData.length,c:deptSumHeaders.length-1} }) }
   applyNumFmt(wsDeptSum)
-  XLSX.utils.book_append_sheet(wb, wsDeptSum, hasMultiCompany ? "สรุปตามแผนก(รวม)" : "สรุปตามแผนก")
+  XLSX.utils.book_append_sheet(wb, wsDeptSum, "สรุปตามแผนก")
 
-  // ── Sheet สรุปตามบริษัท (ถ้ามีหลายบริษัท) ────────────────────
-  if (hasMultiCompany) {
+  // ── Sheet สรุปตามบริษัท ────────────────────────────────────────
+  {
     const coSumInfo = [[`สรุปเงินเดือนตามบริษัท — ${pTh}`], [exportedAt], []]
     const coSumData = Array.from(companyGroups.entries()).sort((a,b)=>b[1].length-a[1].length).map(([co, recs]) => {
       const sum = (fn:(r:any)=>number) => recs.reduce((s:number,r:any)=>s+fn(r),0)
@@ -819,6 +826,8 @@ function EditModal({
 
   // editable fields — init เป็น string ทั้งหมด เพื่อให้ input type=number ทำงานถูก
   const s = (v: any) => v != null && v !== 0 ? String(v) : ""
+  // สำหรับ fields สถิติ: แสดง 0 ด้วย (ไม่เว้นว่าง)
+  const s0 = (v: any) => v != null ? String(v) : ""
   // KPI grade dropdown
   const [kpiGradeOverride, setKpiGradeOverride] = useState<string>(record.kpi_grade || "")
   const kpiStd = Number(record.kpi_standard_amount) || 0
@@ -840,17 +849,17 @@ function EditModal({
     bonus:                 s(record.bonus),
     commission:            s(record.commission),
     other_income:          s(record.other_income),
-    deduct_absent:         s(record.deduct_absent),
-    deduct_late:           s(record.deduct_late),
-    deduct_loan:           s(record.deduct_loan),
-    deduct_other:          s(record.deduct_other),
-    social_security_amount:s(record.social_security_amount),
-    monthly_tax_withheld:  s(record.monthly_tax_withheld),
-    absent_days:           s(record.absent_days),
-    late_count:            s(record.late_count),
-    present_days:          s(record.present_days),
-    leave_paid_days:       s(record.leave_paid_days),
-    leave_unpaid_days:     s(record.leave_unpaid_days),
+    deduct_absent:         s0(record.deduct_absent),
+    deduct_late:           s0(record.deduct_late),
+    deduct_loan:           s0(record.deduct_loan),
+    deduct_other:          s0(record.deduct_other),
+    social_security_amount:s0(record.social_security_amount),
+    monthly_tax_withheld:  s0(record.monthly_tax_withheld),
+    absent_days:           s0(record.absent_days),
+    late_count:            s0(record.late_count),
+    present_days:          s0(record.present_days),
+    leave_paid_days:       s0(record.leave_paid_days),
+    leave_unpaid_days:     s0(record.leave_unpaid_days),
     note_override:         record.note_override ?? "",
     ex_kpi:                s(ie.kpi),
     ex_incentive:          s(ie.incentive),
@@ -874,7 +883,24 @@ function EditModal({
   })
   const [saving, setSaving] = useState(false)
 
-  const set = (k: string, v: string) => setF(prev => ({ ...prev, [k]: v }))
+  // Smart set: เมื่อแก้ OT นาที → คำนวณ OT บาท ให้ล้อกัน
+  const set = (k: string, v: string) => {
+    setF(prev => {
+      const next = { ...prev, [k]: v }
+      const base = num(next.base_salary)
+      const ratePerMin = base / 30 / 8 / 60
+
+      // OT minutes เปลี่ยน → คำนวณ OT amount ใหม่
+      if (k === "ot_weekday_minutes" || k === "ot_holiday_reg_minutes" || k === "ot_holiday_ot_minutes") {
+        const ot15 = calcOTAmt(base, num(next.ot_weekday_minutes), 1.5)
+        const ot10 = calcOTAmt(base, num(next.ot_holiday_reg_minutes), 1.0)
+        const ot30 = calcOTAmt(base, num(next.ot_holiday_ot_minutes), 3.0)
+        next.ot_amount = String(Math.round((ot15 + ot10 + ot30) * 100) / 100)
+      }
+
+      return next
+    })
+  }
 
   // live-calc gross / total_deductions / net — including extras
   const extraIncomeTotal = num(f.ex_kpi) + num(f.ex_incentive) + num(f.ex_performance_bonus)
@@ -1461,50 +1487,50 @@ export default function PayrollPage() {
   }, [isSA])
 
   const loadPeriods = useCallback(async () => {
-    if (isAllCo) {
-      // โหลด periods ทุกบริษัทในครั้งเดียว แล้วรวม unique year/month
-      // พร้อมเก็บ period_ids ทั้งหมดของแต่ละ year/month ไว้ใน object เลย
-      // เพื่อให้ loadRecords ใช้โดยไม่ต้อง query ซ้ำ (ป้องกัน RLS race)
-      const { data, error } = await supabase.from("payroll_periods")
-        .select("id,year,month,period_name,start_date,end_date,pay_date,status,company_id")
-        .order("year", { ascending: false }).order("month", { ascending: false })
-      if (error) { console.error("loadPeriods (all):", error); return }
+    try {
+      // ใช้ API route (service client) → ไม่ติด RLS
+      const url = isAllCo
+        ? "/api/payroll/register?mode=periods"
+        : `/api/payroll/register?mode=periods&company_id=${companyId}`
+      if (!isAllCo && !companyId) return
+      const res = await fetch(url)
+      const json = await res.json()
+      if (!res.ok) { console.error("loadPeriods:", json.error); return }
+      const data = json.periods ?? []
 
-      // จัดกลุ่มตาม year/month พร้อมเก็บ period_ids และนับจำนวนบริษัท
-      const byKey = new Map<string, { ids: string[]; companies: Set<string>; rep: any }>()
-      for (const p of (data ?? [])) {
-        const key = `${p.year}-${String(p.month).padStart(2,"0")}`
-        if (!byKey.has(key)) byKey.set(key, { ids: [], companies: new Set(), rep: p })
-        byKey.get(key)!.ids.push(p.id)
-        byKey.get(key)!.companies.add(p.company_id)
-      }
-
-      const merged: any[] = Array.from(byKey.entries()).map(([key, g]) => ({
-        ...g.rep,
-        id: key,                          // fake id สำหรับ dropdown เท่านั้น
-        _isAllCo: true,
-        _periodIds: g.ids,                // UUID จริงทุก period ของ month นี้ — ใช้ใน loadRecords
-        _companyCount: g.companies.size,
-      }))
-
-      setPeriods(merged)
-      setSelected((prev: any) => {
-        // ถ้ามี selected เดิมที่เป็น all-co อยู่แล้ว → หา month เดิม ถ้าไม่เจอก็ใช้อันแรก
-        if (prev?._isAllCo) {
-          const same = merged.find((m: any) => m.year === prev.year && m.month === prev.month)
-          return same ?? merged[0] ?? null
+      if (isAllCo) {
+        // จัดกลุ่มตาม year/month
+        const byKey = new Map<string, { ids: string[]; companies: Set<string>; rep: any }>()
+        for (const p of data) {
+          const key = `${p.year}-${String(p.month).padStart(2,"0")}`
+          if (!byKey.has(key)) byKey.set(key, { ids: [], companies: new Set(), rep: p })
+          byKey.get(key)!.ids.push(p.id)
+          byKey.get(key)!.companies.add(p.company_id)
         }
-        return merged[0] ?? null
-      })
-      return
+
+        const merged: any[] = Array.from(byKey.entries()).map(([key, g]) => ({
+          ...g.rep,
+          id: key,
+          _isAllCo: true,
+          _periodIds: g.ids,
+          _companyCount: g.companies.size,
+        }))
+
+        setPeriods(merged)
+        setSelected((prev: any) => {
+          if (prev?._isAllCo) {
+            const same = merged.find((m: any) => m.year === prev.year && m.month === prev.month)
+            return same ?? merged[0] ?? null
+          }
+          return merged[0] ?? null
+        })
+      } else {
+        setPeriods(data)
+        setSelected(data[0] ?? null)
+      }
+    } catch (e) {
+      console.error("loadPeriods:", e)
     }
-    if (!companyId) return
-    const { data, error } = await supabase.from("payroll_periods")
-      .select("*").eq("company_id", companyId)
-      .order("year", { ascending: false }).order("month", { ascending: false })
-    if (error) { console.error("loadPeriods:", error); return }
-    setPeriods(data ?? [])
-    setSelected(data?.[0] ?? null)
   }, [companyId, isAllCo])
 
   useEffect(() => { loadPeriods() }, [loadPeriods])

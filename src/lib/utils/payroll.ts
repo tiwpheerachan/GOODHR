@@ -300,8 +300,8 @@ export function calculatePayrollSummary(args: {
   let taxMethod: "auto" | "fixed_pct"
 
   if (isTax3pct) {
-    // หัก 3% ของ gross (สำหรับฟรีแลนซ์ / ที่ปรึกษา)
-    tax = Math.round(gross * 0.03 * 100) / 100
+    // หัก 3% ของฐานเงินเดือน (ไม่รวม OT, bonus, เบี้ยเลี้ยง)
+    tax = Math.round(baseSalary * 0.03 * 100) / 100
     taxMethod = "fixed_pct"
   } else if (taxWithholdingPct != null && taxWithholdingPct >= 0) {
     // ใช้ % ที่ตั้งไว้

@@ -5,11 +5,33 @@ import { logPayroll } from "@/lib/auditLog"
 /**
  * GET /api/payroll/register?period_id=xxx
  * GET /api/payroll/register?period_ids=id1,id2,id3  (หลาย periods — สำหรับ "ทุกบริษัท")
- * ดึง payroll_records ทั้งหมดของงวด พร้อม employee info, department, company
+ * GET /api/payroll/register?mode=periods&company_id=xxx  (ดึง periods)
+ * GET /api/payroll/register?mode=periods  (ดึง periods ทุกบริษัท)
  * ใช้ service client → ไม่ติด RLS
  */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
+  const mode = searchParams.get("mode")
+
+  // ── Mode: periods — ดึง payroll_periods ──
+  if (mode === "periods") {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const supa = createServiceClient()
+    const companyId = searchParams.get("company_id")
+
+    let query = supa.from("payroll_periods")
+      .select("id, year, month, period_name, start_date, end_date, pay_date, status, company_id")
+      .order("year", { ascending: false }).order("month", { ascending: false })
+    if (companyId) query = query.eq("company_id", companyId)
+
+    const { data, error } = await query
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ periods: data ?? [] })
+  }
+
   const periodId = searchParams.get("period_id")
   const periodIdsParam = searchParams.get("period_ids")
 
