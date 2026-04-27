@@ -885,7 +885,25 @@ export async function GET(req: Request) {
     )
   }
 
-  // ✅ คำนวณใหม่เสมอ — ไม่ return stale record
+  // ถ้า HR เคยแก้มือ (is_manual_override) → อ่าน record ตรงๆ ไม่ recalculate ทับ
+  const { data: existingRecord } = await supa.from("payroll_records")
+    .select("*")
+    .eq("payroll_period_id", period.id)
+    .eq("employee_id", employee_id)
+    .maybeSingle()
+
+  if (existingRecord?.is_manual_override) {
+    // ดึงประวัติ 6 เดือน
+    const { data: histData } = await supa.from("payroll_records")
+      .select("year, month, net_salary, gross_income, total_deductions")
+      .eq("employee_id", employee_id)
+      .order("year", { ascending: false }).order("month", { ascending: false })
+      .limit(6)
+    const history = ((histData ?? []) as any[]).reverse()
+    return NextResponse.json({ success: true, record: existingRecord, debug: { note: "manual_override — ใช้ค่าที่ HR กรอก" }, history })
+  }
+
+  // ไม่มี manual override → คำนวณใหม่ตามปกติ
   const result = await calcAndSave(supa, employee_id, period.id as string)
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 })
   return NextResponse.json(result)
