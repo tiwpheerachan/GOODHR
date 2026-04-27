@@ -487,7 +487,10 @@ export default function SalaryPage() {
                   <StatBadge icon={<CalendarDays size={13}/>} label="วันทำงาน" value={`${r.present_days ?? 0}/${r.working_days ?? 0} วัน`} color="emerald"/>
                   <StatBadge icon={<UserX size={13}/>} label="ขาดงาน" value={`${r.absent_days ?? 0} วัน`} color={(r.absent_days??0) > 0 ? "red" : "slate"}/>
                   <StatBadge icon={<Clock size={13}/>} label="มาสาย" value={`${r.late_count ?? 0} ครั้ง`} color={(r.late_count??0) > 0 ? "amber" : "slate"}/>
-                  <StatBadge icon={<Timer size={13}/>} label="OT" value={`${Number(r.ot_hours ?? 0).toFixed(1)} ชม.`} color={(r.ot_hours??0) > 0 ? "sky" : "slate"}/>
+                  {(() => {
+                    const totalOtMin = (Number(r.ot_weekday_minutes)||0) + (Number(r.ot_holiday_reg_minutes)||0) + (Number(r.ot_holiday_ot_minutes)||0)
+                    return <StatBadge icon={<Timer size={13}/>} label="OT" value={`${(totalOtMin/60).toFixed(1)} ชม.`} color={totalOtMin > 0 ? "sky" : "slate"}/>
+                  })()}
                   {(leavePaid > 0 || leaveUnpaid > 0) && (
                     <StatBadge icon={<Palmtree size={13}/>} label="วันลา" value={`${leavePaid + leaveUnpaid} วัน`} color="violet" sub={leaveUnpaid > 0 ? `(ไม่ได้เงิน ${leaveUnpaid} วัน)` : undefined}/>
                   )}
@@ -511,9 +514,21 @@ export default function SalaryPage() {
                     {(r.allowance_phone    ??0)>0 && <IncomeRow label="ค่าโทรศัพท์"      value={r.allowance_phone}/>}
                     {(r.allowance_housing  ??0)>0 && <IncomeRow label="ค่าที่อยู่อาศัย"  value={r.allowance_housing}/>}
                     {allowOther > 0              && <IncomeRow label="เบี้ยเลี้ยงอื่นๆ"  value={allowOther}/>}
-                    {(r.ot_amount          ??0)>0 && <IncomeRow label={`ค่าล่วงเวลา (${Number(r.ot_hours??0).toFixed(1)} ชม.)`} value={r.ot_amount} accent="emerald"/>}
+                    {(() => {
+                      const base = Number(r.base_salary) || 0
+                      const rph = base / 30 / 8
+                      const wdMin = Number(r.ot_weekday_minutes) || 0
+                      const hrMin = Number(r.ot_holiday_reg_minutes) || 0
+                      const hoMin = Number(r.ot_holiday_ot_minutes) || 0
+                      const fmtH = (m: number) => `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`
+                      return <>
+                        {wdMin > 0 && <IncomeRow label={`OT วันทำงาน ×1.5 (${fmtH(wdMin)})`} value={Math.round(rph*wdMin/60*1.5*100)/100} accent="emerald"/>}
+                        {hrMin > 0 && <IncomeRow label={`OT วันหยุด ×1.0 (${fmtH(hrMin)})`} value={Math.round(rph*hrMin/60*100)/100} accent="emerald"/>}
+                        {hoMin > 0 && <IncomeRow label={`OT วันหยุด ×3.0 (${fmtH(hoMin)})`} value={Math.round(rph*hoMin/60*3.0*100)/100} accent="emerald"/>}
+                      </>
+                    })()}
                     {commission > 0              && <IncomeRow label="คอมมิชชั่น"        value={commission} accent="emerald"/>}
-                    {(r.bonus              ??0)>0 && r.kpi_grade !== "pending" && <IncomeRow label={`KPI Bonus (เกรด ${r.kpi_grade})`} value={r.bonus} accent="sky"/>}
+                    {(r.bonus              ??0)>0 && r.kpi_grade !== "pending" && <IncomeRow label={`โบนัส KPI (เกรด ${r.kpi_grade})`} value={r.bonus} accent="sky"/>}
                     {r.kpi_grade === "pending" && r.kpi_standard_amount > 0 && (
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-slate-400">KPI Bonus</span>

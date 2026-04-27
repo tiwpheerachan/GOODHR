@@ -50,17 +50,28 @@ export async function GET(req: NextRequest) {
   const earnings: { label: string; amount: number; number?: string }[] = []
   const n = (v: any) => Number(v) || 0
 
+  const rate = n(record.base_salary) / 30 / 8
+  const fmtMin = (m: number) => `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`
+
   if (n(record.base_salary)) earnings.push({ label: "อัตรา\nเงินเดือน", amount: n(record.base_salary) })
-  if (n(record.bonus)) earnings.push({ label: "โบนัส", amount: n(record.bonus) })
+  if (n(record.bonus)) {
+    const gradeLabel = record.kpi_grade && record.kpi_grade !== "pending" ? ` (เกรด ${record.kpi_grade})` : ""
+    earnings.push({ label: `โบนัส KPI${gradeLabel}`, amount: n(record.bonus) })
+  }
   if (n(record.ot_weekday_minutes)) {
-    const rate = n(record.base_salary) / 30 / 8
-    earnings.push({ label: "โอทีล่วงเวลา (x1.5)", amount: Math.round(rate * n(record.ot_weekday_minutes) / 60 * 1.5), number: `${Math.floor(n(record.ot_weekday_minutes)/60)}:${String(n(record.ot_weekday_minutes)%60).padStart(2,"0")}` })
+    earnings.push({ label: "OT วันทำงาน (×1.5)", amount: Math.round(rate * n(record.ot_weekday_minutes) / 60 * 1.5 * 100) / 100, number: fmtMin(n(record.ot_weekday_minutes)) })
   }
   if (n(record.ot_holiday_reg_minutes)) {
-    const rate = n(record.base_salary) / 30 / 8
-    earnings.push({ label: "โอทีวันหยุด (x1.0)", amount: Math.round(rate * n(record.ot_holiday_reg_minutes) / 60), number: `${Math.floor(n(record.ot_holiday_reg_minutes)/60)}:${String(n(record.ot_holiday_reg_minutes)%60).padStart(2,"0")}` })
+    earnings.push({ label: "OT วันหยุด (×1.0)", amount: Math.round(rate * n(record.ot_holiday_reg_minutes) / 60 * 100) / 100, number: fmtMin(n(record.ot_holiday_reg_minutes)) })
+  }
+  if (n(record.ot_holiday_ot_minutes)) {
+    earnings.push({ label: "OT วันหยุด (×3.0)", amount: Math.round(rate * n(record.ot_holiday_ot_minutes) / 60 * 3.0 * 100) / 100, number: fmtMin(n(record.ot_holiday_ot_minutes)) })
   }
   if (n(record.allowance_position)) earnings.push({ label: "ค่าตำแหน่ง", amount: n(record.allowance_position) })
+  if (n(record.allowance_food)) earnings.push({ label: "ค่าอาหาร", amount: n(record.allowance_food) })
+  if (n(record.allowance_phone)) earnings.push({ label: "ค่าโทรศัพท์", amount: n(record.allowance_phone) })
+  if (n(record.allowance_housing)) earnings.push({ label: "ค่าที่พัก", amount: n(record.allowance_housing) })
+  if (n(record.allowance_other)) earnings.push({ label: "เบี้ยอื่นๆ", amount: n(record.allowance_other) })
   if (n(record.commission)) earnings.push({ label: "Commission", amount: n(record.commission) })
   if (n(ie.kpi)) earnings.push({ label: "KPI", amount: n(ie.kpi) })
   if (n(ie.incentive)) earnings.push({ label: "Incentive", amount: n(ie.incentive) })
@@ -89,7 +100,7 @@ export async function GET(req: NextRequest) {
   if (n(record.deduct_loan)) deductions.push({ label: "หักเงินกู้", amount: n(record.deduct_loan) })
   if (n(record.social_security_amount)) deductions.push({ label: "ประกันสังคม", amount: n(record.social_security_amount) })
   if (n(record.monthly_tax_withheld)) deductions.push({ label: "ภาษี", amount: n(record.monthly_tax_withheld) })
-  if (n(record.deduct_other)) deductions.push({ label: "หักอื่นๆ", amount: n(record.deduct_other) })
+  if (n(record.deduct_other)) deductions.push({ label: "หักลาไม่รับค่าจ้าง/อื่นๆ", amount: n(record.deduct_other) })
 
   const payslipData = {
     company: {

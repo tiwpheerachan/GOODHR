@@ -1497,24 +1497,34 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
               <TrendingUp size={15}/> รายได้
             </h4>
             <div className="space-y-1.5">
-              {[
-                ["เงินเดือนฐาน", r.base_salary],
-                ["ค่าตำแหน่ง", r.allowance_position],
-                ["ค่าเดินทาง", r.allowance_transport],
-                ["ค่าอาหาร", r.allowance_food],
-                ["ค่าโทรศัพท์", r.allowance_phone],
-                ["ค่าที่พัก", r.allowance_housing],
-                ["เบี้ยอื่นๆ", r.allowance_other],
-                ["OT", r.ot_amount],
-                ["โบนัส", r.bonus],
-                ["คอมมิชชั่น", r.commission],
-                ["รายได้อื่นๆ", r.other_income],
-              ].filter(([, v]) => (v as number) > 0).map(([label, val]) => (
-                <div key={label as string} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2">
-                  <span className="text-slate-600 font-medium">{label as string}</span>
-                  <span className="font-bold text-emerald-700">+฿{fmt(val as number)}</span>
-                </div>
-              ))}
+              {(() => {
+                const base = Number(r.base_salary) || 0
+                const rph = base / 30 / 8
+                const ot15 = Math.round(rph * (Number(r.ot_weekday_minutes)||0) / 60 * 1.5 * 100) / 100
+                const ot10 = Math.round(rph * (Number(r.ot_holiday_reg_minutes)||0) / 60 * 100) / 100
+                const ot30 = Math.round(rph * (Number(r.ot_holiday_ot_minutes)||0) / 60 * 3.0 * 100) / 100
+                const items: [string, number][] = [
+                  ["เงินเดือนฐาน", base],
+                  ["ค่าตำแหน่ง", Number(r.allowance_position)||0],
+                  ["ค่าเดินทาง", Number(r.allowance_transport)||0],
+                  ["ค่าอาหาร", Number(r.allowance_food)||0],
+                  ["ค่าโทรศัพท์", Number(r.allowance_phone)||0],
+                  ["ค่าที่พัก", Number(r.allowance_housing)||0],
+                  ["เบี้ยอื่นๆ", Number(r.allowance_other)||0],
+                  [`OT วันทำงาน ×1.5 (${minToHr(r.ot_weekday_minutes)})`, ot15],
+                  [`OT วันหยุด ×1.0 (${minToHr(r.ot_holiday_reg_minutes)})`, ot10],
+                  [`OT วันหยุด ×3.0 (${minToHr(r.ot_holiday_ot_minutes)})`, ot30],
+                  [`โบนัส KPI${r.kpi_grade && r.kpi_grade !== "pending" ? ` (เกรด ${r.kpi_grade})` : ""}`, Number(r.bonus)||0],
+                  ["คอมมิชชั่น", Number(r.commission)||0],
+                  ["รายได้อื่นๆ", Number(r.other_income)||0],
+                ]
+                return items.filter(([,v]) => v > 0).map(([label, val]) => (
+                  <div key={label} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2">
+                    <span className="text-slate-600 font-medium">{label}</span>
+                    <span className="font-bold text-emerald-700">+฿{fmt(val)}</span>
+                  </div>
+                ))
+              })()}
               {/* Income extras */}
               {r.income_extras && Object.entries(r.income_extras as Record<string, number>).filter(([, v]) => v > 0).map(([key, val]) => (
                 <div key={key} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2">
@@ -1522,13 +1532,6 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                   <span className="font-bold text-emerald-700">+฿{fmt(val)}</span>
                 </div>
               ))}
-              {(r.ot_hours ?? 0) > 0 && (
-                <div className="text-[11px] text-slate-400 px-3 pt-1">
-                  {(r.ot_weekday_minutes ?? 0) > 0 && <span>ปกติ 1.5x: {minToHr(r.ot_weekday_minutes)} · </span>}
-                  {(r.ot_holiday_reg_minutes ?? 0) > 0 && <span>หยุด 1.0x: {minToHr(r.ot_holiday_reg_minutes)} · </span>}
-                  {(r.ot_holiday_ot_minutes ?? 0) > 0 && <span>หยุด OT 3.0x: {minToHr(r.ot_holiday_ot_minutes)}</span>}
-                </div>
-              )}
               <div className="flex items-center justify-between bg-emerald-100 rounded-xl px-3 py-2 mt-1">
                 <span className="text-xs font-bold text-emerald-800">รายได้รวม (Gross)</span>
                 <span className="font-black text-emerald-800 text-base">฿{fmt(r.gross_income)}</span>

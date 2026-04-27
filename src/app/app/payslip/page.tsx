@@ -32,7 +32,7 @@ export default function PayslipPage() {
     if (!empId) return
     setLoading(true)
     const { data } = await supabase.from("payroll_records")
-      .select("id, year, month, base_salary, gross_income, total_deductions, net_salary, status, payroll_period_id, late_count, absent_days, present_days")
+      .select("id, year, month, base_salary, gross_income, total_deductions, net_salary, status, payroll_period_id, late_count, absent_days, present_days, leave_paid_days, leave_unpaid_days, working_days, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, bonus, kpi_grade, kpi_standard_amount, commission, other_income, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_other, deduct_late, deduct_absent, deduct_early_out, deduct_loan, deduct_other, social_security_amount, monthly_tax_withheld, income_extras, deduction_extras")
       .eq("employee_id", empId)
       .order("year", { ascending: false })
       .order("month", { ascending: false })
