@@ -67,12 +67,13 @@ const REG_COLS: RCol[] = [
   { key:"base",        label:"เงินเดือน",            group:"income", get:r=>n(r.base_salary) },
   { key:"bonus",       label:"โบนัส KPI",             group:"income", get:r=>n(r.bonus) },
   { key:"kpi_grade",   label:"เกรด",                  group:"income", get:r=>r.kpi_grade === "pending" ? "รอ" : r.kpi_grade||"" },
-  { key:"ot_total",    label:"รวม OT",              group:"income", get:r=>
-    calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
-    + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
-    + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
-  },
-  { key:"ot15",        label:"OT ×1.5",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5) },
+  { key:"ot_total",    label:"รวม OT",              group:"income", get:r=>{
+    const fromMin = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
+      + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
+      + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
+    return fromMin > 0 ? fromMin : n(r.ot_amount)
+  }},
+  { key:"ot15",        label:"OT ×1.5",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5) || (n(r.ot_holiday_reg_minutes)+n(r.ot_holiday_ot_minutes)===0 ? n(r.ot_amount) : 0) },
   { key:"ot10",        label:"OT ×1.0",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0) },
   { key:"ot30",        label:"OT ×3.0",             group:"income", get:r=>calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0) },
   { key:"pos_allow",   label:"ค่าตำแหน่ง",           group:"income", get:r=>n(r.allowance_position) },
@@ -1586,10 +1587,13 @@ export default function PayrollPage() {
     } catch {} finally { bgCalcRef.current = false }
   }, [selected, companyId, calculating])
 
+  // ── Flag: skip bgRecalculate หลัง manual save ──
+  const skipBgRecalcRef = useRef(false)
+
   // เมื่อเลือกงวด → โหลด records ก่อน → แล้วคำนวณเบื้องหลัง
   useEffect(() => {
     loadRecords().then(() => {
-      // หน่วงเล็กน้อยเพื่อให้ UI โหลดก่อน
+      if (skipBgRecalcRef.current) { skipBgRecalcRef.current = false; return }
       const t = setTimeout(() => bgRecalculate(), 500)
       return () => clearTimeout(t)
     })
@@ -2043,11 +2047,11 @@ export default function PayrollPage() {
         <EditModal
           record={editing}
           onClose={() => setEditing(null)}
-          onSaved={(updated) => {
+          onSaved={() => {
             setEditing(null)
-            // อัพเดต record ใน state โดยตรง — ไม่ trigger bgRecalculate
-            // (bgRecalculate จะทับค่า manual ที่ HR เพิ่งบันทึก)
-            setRecords(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
+            // โหลดข้อมูลใหม่จาก server แต่ไม่ trigger bgRecalculate
+            skipBgRecalcRef.current = true
+            loadRecords()
           }}
         />
       )}

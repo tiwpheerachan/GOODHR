@@ -653,6 +653,17 @@ async function calcAndSave(
     ? Number(existingPR.ot_amount)
     : result.otAmount
 
+  // ✅ คำนวณ gross/tax จริง (รวม manual OT + commission + other_income)
+  const finalGross = result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome
+  const taxWithholdingPctVal = sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
+  const finalTax = (() => {
+    if (!!sal.is_tax_3pct) return Math.round(finalGross * 0.03 * 100) / 100
+    if (taxWithholdingPctVal != null && taxWithholdingPctVal >= 0) return Math.round(finalGross * (taxWithholdingPctVal / 100) * 100) / 100
+    return result.tax
+  })()
+  const finalSso = result.sso
+  const finalTotalDeduct = result.deductAbsent + result.deductLate + result.deductEarlyOut + loanDeduction + finalSso + finalTax + deductUnpaidLeave + manualDeductOther
+
   // ── upsert ────────────────────────────────────────────────────
   const payload: Record<string, unknown> = {
     payroll_period_id,
@@ -660,7 +671,6 @@ async function calcAndSave(
     company_id:             emp.company_id,
     year:                   currentYear,
     month:                  currentMonth,
-    // รายได้ — ถ้า HR เคยแก้ manual ใช้ค่าที่แก้ ไม่งั้นใช้จาก salary_structures
     base_salary:            Number(sal.base_salary),
     allowance_position:     manualAllowPosition,
     allowance_transport:    manualAllowTransport,
@@ -668,7 +678,6 @@ async function calcAndSave(
     allowance_phone:        manualAllowPhone,
     allowance_housing:      manualAllowHousing,
     allowance_other:        manualAllowOther,
-    // OT: คำนวณจากระบบ + ถ้า HR กรอกทับใช้ค่า HR
     ot_amount:              finalOtAmount,
     ot_hours:               isManual && existingPR?.ot_hours != null ? Number(existingPR.ot_hours) : (otBreakdown.weekday_minutes + otBreakdown.holiday_regular_minutes + otBreakdown.holiday_ot_minutes) / 60,
     ot_weekday_minutes:     isManual && existingPR?.ot_weekday_minutes != null ? Number(existingPR.ot_weekday_minutes) : otBreakdown.weekday_minutes,
@@ -680,28 +689,22 @@ async function calcAndSave(
     commission:             manualCommission,
     other_income:           manualOtherIncome,
     income_extras:          existingExtras,
-    // ✅ Gross ต้องปรับ OT: ลบ OT ระบบ + บวก OT จริง (manual หรือระบบ)
-    gross_income:           result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome,
-    // การหัก
+    // ✅ ค่าผลคำนวณ → คำนวณใหม่เสมอจาก finalGross/finalTax
+    gross_income:           finalGross,
     deduct_absent:          result.deductAbsent,
     deduct_late:            result.deductLate,
     deduct_early_out:       result.deductEarlyOut,
     deduct_loan:            loanDeduction,
     deduct_other:           deductUnpaidLeave + manualDeductOther,
     deduction_extras:       existingDeductExtras,
-    // ประกันสังคม
     social_security_base:   Number(sal.base_salary),
     social_security_rate:   0.05,
-    social_security_amount: result.sso,
-    // ภาษี — ใช้ gross ที่ปรับ OT แล้ว
-    taxable_income:         result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome - result.sso,
-    monthly_tax_withheld:   result.tax,
-    ytd_tax_withheld:       previousYtdTax + result.tax,
-    // รวม — ใช้ gross ที่ปรับ OT แล้ว
-    total_deductions:       result.totalDeduct + deductUnpaidLeave + manualDeductOther,
-    net_salary:             Math.max(
-      result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome
-      - result.totalDeduct - deductUnpaidLeave - manualDeductOther, 0),
+    social_security_amount: finalSso,
+    taxable_income:         finalGross - finalSso,
+    monthly_tax_withheld:   finalTax,
+    ytd_tax_withheld:       previousYtdTax + finalTax,
+    total_deductions:       finalTotalDeduct,
+    net_salary:             Math.max(finalGross - finalTotalDeduct, 0),
     // สถิติ
     working_days:           pastWorkDays.length,
     present_days:           presentDays,

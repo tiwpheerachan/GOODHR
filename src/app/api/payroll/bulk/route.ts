@@ -479,6 +479,17 @@ export async function POST(req: Request) {
             ? Number(existPR.ot_amount)
             : result.otAmount
 
+          // ✅ คำนวณ gross จริง (รวม manual OT + commission + other_income)
+          const finalGross = result.gross - result.otAmount + finalOtAmount + mCommission + mOtherIncome
+          // ✅ คำนวณ tax ใหม่จาก gross จริง (ไม่ใช้ result.tax ที่คำนวณจาก gross เดิม)
+          const finalTax = (() => {
+            if (!!sal.is_tax_3pct) return Math.round(finalGross * 0.03 * 100) / 100
+            if (taxPct != null && taxPct >= 0) return Math.round(finalGross * (taxPct / 100) * 100) / 100
+            return result.tax // auto → ใช้ค่าจาก calculatePayrollSummary (gross ภายในอาจต่าง แต่ใกล้เคียง)
+          })()
+          const finalSso = result.sso
+          const finalTotalDeduct = result.deductAbsent + result.deductLate + result.deductEarlyOut + loanDeduction + finalSso + finalTax + deductUnpaidLeave + mDeductOther
+
           const payload: Record<string, unknown> = {
             payroll_period_id, employee_id: eid, company_id: emp.company_id,
             year: currentYear, month: currentMonth,
@@ -500,32 +511,41 @@ export async function POST(req: Request) {
             kpi_standard_amount: useManualKpi ? (Number(existPR?.kpi_standard_amount) || kpiBonus.standardAmount) : kpiBonus.standardAmount,
             commission: mCommission, other_income: mOtherIncome,
             income_extras: existPR?.income_extras || null,
-            // เมื่อ manual override → ใช้ค่าที่ HR กรอกทั้งหมด (gross, deductions, tax, sso, net)
-            gross_income:           mIsManual && existPR?.gross_income != null ? Number(existPR.gross_income) : (() => {
-              return result.gross - result.otAmount + finalOtAmount + mCommission + mOtherIncome
+            // ✅ ค่าที่ HR กรอกมือ → เก็บรักษา | ค่า formula (tax,gross,net) → คำนวณใหม่
+            deduct_absent:    mIsManual && existPR?.deduct_absent != null    ? Number(existPR.deduct_absent)    : result.deductAbsent,
+            deduct_late:      mIsManual && existPR?.deduct_late != null      ? Number(existPR.deduct_late)      : result.deductLate,
+            deduct_early_out: mIsManual && existPR?.deduct_early_out != null ? Number(existPR.deduct_early_out) : result.deductEarlyOut,
+            deduct_loan:      loanDeduction,
+            deduct_other:     mIsManual && existPR?.deduct_other != null     ? Number(existPR.deduct_other)     : deductUnpaidLeave + mDeductOther,
+            deduction_extras: existPR?.deduction_extras || null,
+            social_security_base: baseSalary, social_security_rate: 0.05,
+            social_security_amount: mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso,
+            // ── ค่า formula → คำนวณใหม่จากค่าที่เก็บด้านบน ──
+            ...(() => {
+              // รวมค่า deductions จริงที่ใช้ (manual หรือ system)
+              const fDeductAbsent = mIsManual && existPR?.deduct_absent != null ? Number(existPR.deduct_absent) : result.deductAbsent
+              const fDeductLate   = mIsManual && existPR?.deduct_late != null ? Number(existPR.deduct_late) : result.deductLate
+              const fDeductEarly  = mIsManual && existPR?.deduct_early_out != null ? Number(existPR.deduct_early_out) : result.deductEarlyOut
+              const fDeductOther  = mIsManual && existPR?.deduct_other != null ? Number(existPR.deduct_other) : deductUnpaidLeave + mDeductOther
+              const fSso          = mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso
+              // tax คำนวณจาก finalGross เสมอ (3% / fixed% / auto)
+              const fTax          = finalTax
+              const fTotalDeduct  = fDeductAbsent + fDeductLate + fDeductEarly + loanDeduction + fDeductOther + fSso + fTax
+              return {
+                gross_income:         finalGross,
+                taxable_income:       finalGross - fSso,
+                monthly_tax_withheld: fTax,
+                ytd_tax_withheld:     previousYtdTax + fTax,
+                total_deductions:     fTotalDeduct,
+                net_salary:           Math.max(finalGross - fTotalDeduct, 0),
+              }
             })(),
-            deduct_absent:          mIsManual && existPR?.deduct_absent != null ? Number(existPR.deduct_absent) : result.deductAbsent,
-            deduct_late:            mIsManual && existPR?.deduct_late != null ? Number(existPR.deduct_late) : result.deductLate,
-            deduct_early_out:       mIsManual && existPR?.deduct_early_out != null ? Number(existPR.deduct_early_out) : result.deductEarlyOut,
-            deduct_loan:            loanDeduction,
-            deduct_other:           mIsManual && existPR?.deduct_other != null ? Number(existPR.deduct_other) : deductUnpaidLeave + mDeductOther,
-            deduction_extras:       existPR?.deduction_extras || null,
-            social_security_base:   baseSalary, social_security_rate: 0.05,
-            social_security_amount: mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : result.sso,
-            taxable_income:         mIsManual && existPR?.taxable_income != null ? Number(existPR.taxable_income) : (() => {
-              const mGross = result.gross - result.otAmount + finalOtAmount + mCommission + mOtherIncome
-              return mGross - result.sso
-            })(),
-            monthly_tax_withheld:   mIsManual && existPR?.monthly_tax_withheld != null ? Number(existPR.monthly_tax_withheld) : result.tax,
-            ytd_tax_withheld:       previousYtdTax + (mIsManual && existPR?.monthly_tax_withheld != null ? Number(existPR.monthly_tax_withheld) : result.tax),
-            total_deductions:       mIsManual && existPR?.total_deductions != null ? Number(existPR.total_deductions) : result.totalDeduct + deductUnpaidLeave + mDeductOther,
-            net_salary:             mIsManual && existPR?.net_salary != null ? Number(existPR.net_salary) : (() => {
-              const mGross = result.gross - result.otAmount + finalOtAmount + mCommission + mOtherIncome
-              return Math.max(mGross - result.totalDeduct - deductUnpaidLeave - mDeductOther, 0)
-            })(),
-            working_days: pastWorkDays.length, present_days: presentDays,
-            absent_days: absentDays, late_count: records.filter((r: any) => (r.status === "late" || (Number(r.late_minutes) || 0) > 0) && r.half_day_leave !== "morning").length,
-            leave_paid_days: leavePaidDays, leave_unpaid_days: leaveUnpaidDays,
+            working_days:   mIsManual && existPR?.working_days != null   ? Number(existPR.working_days)   : pastWorkDays.length,
+            present_days:   mIsManual && existPR?.present_days != null   ? Number(existPR.present_days)   : presentDays,
+            absent_days:    mIsManual && existPR?.absent_days != null    ? Number(existPR.absent_days)    : absentDays,
+            late_count:     mIsManual && existPR?.late_count != null     ? Number(existPR.late_count)     : records.filter((r: any) => (r.status === "late" || (Number(r.late_minutes) || 0) > 0) && r.half_day_leave !== "morning").length,
+            leave_paid_days:   mIsManual && existPR?.leave_paid_days != null   ? Number(existPR.leave_paid_days)   : leavePaidDays,
+            leave_unpaid_days: mIsManual && existPR?.leave_unpaid_days != null ? Number(existPR.leave_unpaid_days) : leaveUnpaidDays,
             status: "draft", updated_at: new Date().toISOString(),
           }
 
