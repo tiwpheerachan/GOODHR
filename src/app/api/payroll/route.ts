@@ -1,6 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
-import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
+import { calculatePayrollSummary, type OTBreakdown } from "@/lib/utils/payroll"
 import { logPayroll } from "@/lib/auditLog"
 
 // ── Date helpers (pure string — ไม่มี timezone conversion) ───────────
@@ -482,14 +482,13 @@ async function calcAndSave(
     (r.status === "early_out" || (Number(r.early_out_minutes) || 0) > 0) && r.half_day_leave !== "afternoon"
   ).length
 
-  // ── นาทีสาย: หัก grace period ตามแผนก ──
-  // late_minutes เก็บค่า raw (นาทีที่สายจากเวลาเริ่มกะ) → ต้องหัก grace ที่นี่
+  // ── นาทีสาย: ใช้ค่าจาก attendance ตรงๆ ──
+  // ⚠️ late_minutes ถูกหัก grace period ไว้แล้วตอนเช็คอิน (เช็คอิน 09:15, กะ 09:00, grace 10 → late_minutes=5)
   // ⚠️ ลาครึ่งวันเช้า → ไม่นับนาทีสาย / ลาครึ่งวันบ่าย → ไม่นับนาทีออกก่อน
-  const graceMinutes = getLateThreshold(emp.department?.name, emp.company?.code)
   const totalLateMin = records.reduce(
     (s: number, r: any) => {
       if (r.half_day_leave === "morning") return s  // ลาเช้า → ไม่หักสาย
-      return s + Math.max(0, (Number(r.late_minutes) || 0) - graceMinutes)
+      return s + (Number(r.late_minutes) || 0)
     }, 0
   )
   const totalEarlyMin = records.reduce(
@@ -635,7 +634,11 @@ async function calcAndSave(
   // ถ้า HR เคยแก้ไข manual → เก็บค่าที่แก้ไว้ทั้งหมด
   const manualCommission     = Number(existingPR?.commission)        || 0
   const manualOtherIncome    = Number(existingPR?.other_income)      || 0
-  const manualDeductOther    = Number(existingPR?.deduct_other)      || 0
+  // deduct extras จาก deduction_extras เท่านั้น (ไม่ใช้ deduct_other ที่สะสม unpaid leave)
+  const existDE = existingPR?.deduction_extras ?? {}
+  const manualDeductOther    = Number(existDE.suspension || 0) + Number(existDE.card_lost || 0) + Number(existDE.uniform || 0)
+    + Number(existDE.parking || 0) + Number(existDE.employee_products || 0)
+    + Number(existDE.legal_enforcement || 0) + Number(existDE.student_loan || 0)
   const manualAllowPosition  = isManual ? Number(existingPR?.allowance_position)  : Number(sal.allowance_position)  || 0
   const manualAllowTransport = isManual ? Number(existingPR?.allowance_transport) : 0
   const manualAllowFood      = isManual ? Number(existingPR?.allowance_food)      : Number(sal.allowance_food)      || 0

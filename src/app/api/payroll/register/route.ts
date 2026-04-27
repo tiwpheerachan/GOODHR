@@ -4,14 +4,21 @@ import { logPayroll } from "@/lib/auditLog"
 
 /**
  * GET /api/payroll/register?period_id=xxx
+ * GET /api/payroll/register?period_ids=id1,id2,id3  (หลาย periods — สำหรับ "ทุกบริษัท")
  * ดึง payroll_records ทั้งหมดของงวด พร้อม employee info, department, company
+ * ใช้ service client → ไม่ติด RLS
  */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const periodId = searchParams.get("period_id")
+  const periodIdsParam = searchParams.get("period_ids")
 
-  if (!periodId) {
-    return NextResponse.json({ error: "period_id จำเป็น" }, { status: 400 })
+  const periodIds: string[] = periodIdsParam
+    ? periodIdsParam.split(",").filter(Boolean)
+    : periodId ? [periodId] : []
+
+  if (periodIds.length === 0) {
+    return NextResponse.json({ error: "period_id หรือ period_ids จำเป็น" }, { status: 400 })
   }
 
   const supabase = createClient()
@@ -20,29 +27,38 @@ export async function GET(req: Request) {
 
   const supa = createServiceClient()
 
-  const { data, error } = await supa
-    .from("payroll_records")
-    .select(`
-      *,
-      employee:employees(
-        id, employee_code, first_name_th, last_name_th, nickname,
-        brand, updated_at,
-        position:positions(id, name),
-        department:departments(id, name),
-        company:companies(id, code, name_th)
-      )
-    `)
-    .eq("payroll_period_id", periodId)
-    .order("employee(employee_code)", { ascending: true } as any)
+  const empSelect = `
+    *,
+    employee:employees(
+      id, employee_code, first_name_th, last_name_th, nickname,
+      avatar_url, brand, updated_at,
+      position:positions(id, name),
+      department:departments(id, name),
+      company:companies(id, code, name_th)
+    )`
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  // ดึงทีละ period เพื่อไม่ให้เกิน Supabase row limit
+  let allData: any[] = []
+  for (const pid of periodIds) {
+    let from = 0
+    while (true) {
+      const { data, error } = await supa
+        .from("payroll_records")
+        .select(empSelect)
+        .eq("payroll_period_id", pid)
+        .order("created_at")
+        .range(from, from + 999)
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (!data || data.length === 0) break
+      allData = allData.concat(data)
+      if (data.length < 1000) break
+      from += 1000
+    }
   }
 
-  // Deduplicate by employee_code: ถ้ามีพนักงาน code เดียวกันหลาย record
-  // เก็บเฉพาะ record ที่ employee.updated_at ใหม่สุด (ข้อมูลจาก import ใหม่)
+  // Deduplicate by employee_code
   const byCode = new Map<string, any>()
-  for (const r of (data ?? [])) {
+  for (const r of allData) {
     const code = r.employee?.employee_code
     if (!code) { byCode.set(r.id, r); continue }
     const existing = byCode.get(code)

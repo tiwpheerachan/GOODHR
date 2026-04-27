@@ -557,23 +557,56 @@ function exportXLSX(records: any[], period: any) {
     return ws
   }
 
+  // ── Validation: ตรวจสอบข้อมูลก่อน export ──
+  const coCount = new Map<string, number>()
+  records.forEach(r => {
+    const c = r.employee?.company?.code || "?"
+    coCount.set(c, (coCount.get(c) || 0) + 1)
+  })
+  console.log(`[Export] ${records.length} records — ${Array.from(coCount.entries()).map(([c,n])=>`${c}:${n}`).join(", ")}`)
+
   // ── Sheet 1: ทะเบียนเงินเดือนทั้งหมด ────────────────────────────
-  const wsAll = buildRegSheet(records, "ทะเบียนเงินเดือน")
+  const wsAll = buildRegSheet(records, `ทะเบียนเงินเดือน (${records.length} คน)`)
   applyNumFmt(wsAll)
   XLSX.utils.book_append_sheet(wb, wsAll, "ทะเบียนเงินเดือน")
 
-  // ── Sheet 2+: แยกตามแผนก ────────────────────────────────────────
+  // ── Sheet 2+: แยกตามบริษัท (ถ้ามีหลายบริษัท) ─────────────────
+  const companyGroups = new Map<string, any[]>()
+  records.forEach(r => {
+    const c = r.employee?.company?.code || "ไม่ระบุ"
+    if (!companyGroups.has(c)) companyGroups.set(c, [])
+    companyGroups.get(c)!.push(r)
+  })
+  const hasMultiCompany = companyGroups.size > 1
+  if (hasMultiCompany) {
+    const sortedCos = Array.from(companyGroups.entries()).sort((a, b) => b[1].length - a[1].length)
+    sortedCos.forEach(([co, recs]) => {
+      const ws = buildRegSheet(recs, `บริษัท: ${co}`)
+      applyNumFmt(ws)
+      XLSX.utils.book_append_sheet(wb, ws, `${co}`.slice(0, 31))
+    })
+  }
+
+  // ── Sheet แยกตามแผนก ───────────────────────────────────────────
   const deptGroups = new Map<string, any[]>()
   records.forEach(r => {
-    const d = r.employee?.department?.name || "ไม่ระบุแผนก"
-    if (!deptGroups.has(d)) deptGroups.set(d, [])
-    deptGroups.get(d)!.push(r)
+    // ใช้ company code + department name (trim) เป็น key — ไม่ใช้ id เพราะอาจมี duplicate dept
+    const deptName = (r.employee?.department?.name || "ไม่ระบุแผนก").trim()
+    const prefix = hasMultiCompany ? `${r.employee?.company?.code || "?"}-` : ""
+    const key = prefix + deptName
+    if (!deptGroups.has(key)) deptGroups.set(key, [])
+    deptGroups.get(key)!.push(r)
   })
-  // เรียงแผนกตามจำนวนพนักงานมากสุด
   const sortedDepts = Array.from(deptGroups.entries()).sort((a, b) => b[1].length - a[1].length)
-  sortedDepts.forEach(([dept, recs]) => {
-    const sheetName = dept.slice(0, 28) + (dept.length > 28 ? "..." : "")
-    const wsDept = buildRegSheet(recs, `แผนก: ${dept}`)
+  const usedSheetNames = new Set<string>()
+  sortedDepts.forEach(([key, recs]) => {
+    const fullName = key
+    // สร้างชื่อ sheet ที่ไม่ซ้ำ (Excel จำกัด 31 ตัวอักษร + ห้ามซ้ำ)
+    let sheetName = fullName.replace(/[\\/*?:\[\]]/g, "").slice(0, 28)
+    let suffix = 2
+    while (usedSheetNames.has(sheetName)) { sheetName = fullName.slice(0, 25) + `(${suffix++})`}
+    usedSheetNames.add(sheetName)
+    const wsDept = buildRegSheet(recs, `แผนก: ${fullName} (${recs.length} คน)`)
     applyNumFmt(wsDept)
     XLSX.utils.book_append_sheet(wb, wsDept, sheetName)
   })
@@ -597,12 +630,9 @@ function exportXLSX(records: any[], period: any) {
     const ie  = (r:any) => r.income_extras ?? {}
     const de  = (r:any) => r.deduction_extras ?? {}
     const otAmt = (r:any) => {
-      // ใช้ ot_amount เป็นหลัก (รองรับทั้ง OT คำนวณจากนาที และ OT ที่ HR กรอกเอง)
-      if (n(r.ot_amount) > 0) return n(r.ot_amount)
-      const base = n(r.base_salary)
-      return calcOTAmt(base,n(r.ot_weekday_minutes),1.5)
-           + calcOTAmt(base,n(r.ot_holiday_reg_minutes),1.0)
-           + calcOTAmt(base,n(r.ot_holiday_ot_minutes),3.0)
+      return calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
+           + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
+           + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
     }
     const allowTotal = (r:any) => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)
     const bonusTotal = (r:any) => n(r.bonus)+n(ie(r).kpi||0)+n(ie(r).incentive||0)+n(ie(r).performance_bonus||0)+n(ie(r).diligence_bonus||0)+n(ie(r).referral_bonus||0)
@@ -647,7 +677,35 @@ function exportXLSX(records: any[], period: any) {
   const dsi = deptSumInfo.length
   wsDeptSum["!autofilter"] = { ref: XLSX.utils.encode_range({ s:{r:dsi,c:0}, e:{r:dsi+deptSumData.length,c:deptSumHeaders.length-1} }) }
   applyNumFmt(wsDeptSum)
-  XLSX.utils.book_append_sheet(wb, wsDeptSum, "สรุปตามแผนก")
+  XLSX.utils.book_append_sheet(wb, wsDeptSum, hasMultiCompany ? "สรุปตามแผนก(รวม)" : "สรุปตามแผนก")
+
+  // ── Sheet สรุปตามบริษัท (ถ้ามีหลายบริษัท) ────────────────────
+  if (hasMultiCompany) {
+    const coSumInfo = [[`สรุปเงินเดือนตามบริษัท — ${pTh}`], [exportedAt], []]
+    const coSumData = Array.from(companyGroups.entries()).sort((a,b)=>b[1].length-a[1].length).map(([co, recs]) => {
+      const sum = (fn:(r:any)=>number) => recs.reduce((s:number,r:any)=>s+fn(r),0)
+      const ie = (r:any) => r.income_extras ?? {}
+      const de = (r:any) => r.deduction_extras ?? {}
+      const otA = (r:any) => calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)+calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)+calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
+      return [
+        co, recs.length,
+        sum(r=>n(r.base_salary)), sum(otA),
+        sum(r=>n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)),
+        sum(r=>n(r.bonus)), sum(r=>n(r.commission)), sum(r=>n(r.other_income)),
+        sum(r=>n(r.gross_income)),
+        sum(r=>n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)),
+        sum(r=>n(r.social_security_amount)), sum(r=>n(r.monthly_tax_withheld)),
+        sum(r=>n(r.deduct_loan)+n(r.deduct_other)),
+        sum(r=>n(r.total_deductions)), sum(r=>n(r.net_salary)),
+      ]
+    })
+    const coTotRow = deptSumHeaders.map((_,ci) => ci===0 ? "รวมทั้งหมด" : coSumData.reduce((s,r)=>s+(typeof r[ci]==="number"?r[ci] as number:0),0))
+    coSumData.push(coTotRow as any[])
+    const wsCoSum = XLSX.utils.aoa_to_sheet([...coSumInfo, deptSumHeaders, ...coSumData])
+    wsCoSum["!cols"] = wsDeptSum["!cols"]
+    applyNumFmt(wsCoSum)
+    XLSX.utils.book_append_sheet(wb, wsCoSum, "สรุปตามบริษัท")
+  }
 
   // ── Sheet สรุปรายจ่ายรวม ─────────────────────────────────────────
   const grand = (fn:(r:any)=>number) => records.reduce((s:number,r:any)=>s+fn(r),0)
@@ -726,7 +784,8 @@ function exportXLSX(records: any[], period: any) {
   XLSX.utils.book_append_sheet(wb, wsSum, "สรุปรายจ่าย")
 
   dlWb()
-  toast.success(`Export สำเร็จ: ${records.length} คน · ${sortedDepts.length} แผนก`)
+  const coBreakdown = Array.from(coCount.entries()).map(([c,cnt])=>`${c}(${cnt})`).join(" · ")
+  toast.success(`Export สำเร็จ: ${records.length} คน · ${coBreakdown} · ${sortedDepts.length} แผนก`, { duration: 5000 })
 }
 
 // งวดเงินเดือน: 22 เดือนก่อน → 21 เดือนปัจจุบัน
@@ -1453,38 +1512,21 @@ export default function PayrollPage() {
   const loadRecords = useCallback(async () => {
     if (!selected) { setRecords([]); return }
     setLoading(true)
-    const empSelect = `*, employee:employees!payroll_records_employee_id_fkey(
-      id,employee_code,first_name_th,last_name_th,nickname,avatar_url,brand,updated_at,
-      position:positions(name),
-      department:departments(id,name),
-      company:companies(id,code,name_th))`
-
-    if (selected._isAllCo) {
-      // ใช้ _periodIds ที่เก็บไว้ตอน loadPeriods — ไม่ต้อง query ซ้ำ (เสถียรกว่า)
-      const periodIds: string[] = selected._periodIds ?? []
+    try {
+      // ใช้ API route (service client) → ไม่ติด RLS, รองรับ pagination
+      const periodIds: string[] = selected._isAllCo
+        ? (selected._periodIds ?? [])
+        : [selected.id]
       if (periodIds.length === 0) {
-        console.warn("loadRecords(all): no period IDs found for", selected.year, selected.month)
         setRecords([]); setLoading(false); return
       }
-      try {
-        const { data, error } = await supabase.from("payroll_records")
-          .select(empSelect).in("payroll_period_id", periodIds).order("created_at")
-        if (error) throw error
-        setRecords(dedupePayrollRecords(data ?? []))
-      } catch (e) {
-        console.error("loadRecords(all):", e)
-        setRecords([])
-      }
-    } else {
-      try {
-        const { data, error } = await supabase.from("payroll_records")
-          .select(empSelect).eq("payroll_period_id", selected.id).order("created_at")
-        if (error) throw error
-        setRecords(dedupePayrollRecords(data ?? []))
-      } catch (e) {
-        console.error("loadRecords:", e)
-        setRecords([])
-      }
+      const res = await fetch(`/api/payroll/register?period_ids=${periodIds.join(",")}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || "โหลดข้อมูลไม่สำเร็จ")
+      setRecords(dedupePayrollRecords(json.records ?? []))
+    } catch (e: any) {
+      console.error("loadRecords:", e)
+      setRecords([])
     }
     setLoading(false)
   }, [selected])
@@ -1513,16 +1555,8 @@ export default function PayrollPage() {
           }),
         }).catch(() => {})
       }
-      // โหลดข้อมูลใหม่
-      const { data } = await supabase.from("payroll_records")
-        .select(`*, employee:employees!payroll_records_employee_id_fkey(
-          id,employee_code,first_name_th,last_name_th,nickname,avatar_url,brand,updated_at,
-          position:positions(name),
-          department:departments(id,name),
-          company:companies(id,code,name_th))`)
-        .eq("payroll_period_id", selected.id)
-        .order("created_at")
-      setRecords(dedupePayrollRecords(data ?? []))
+      // โหลดข้อมูลใหม่ผ่าน API (service client)
+      await loadRecords()
     } catch {} finally { bgCalcRef.current = false }
   }, [selected, companyId, calculating])
 
@@ -1938,8 +1972,9 @@ export default function PayrollPage() {
               </div>
               <p className="text-xs text-slate-400 ml-auto">{filtered.length} / {records.length} คน</p>
               {/* Export Excel */}
-              <button onClick={() => exportXLSX(filtered, selected)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors">
+              <button onClick={() => exportXLSX(records, selected)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors"
+                title={`Export ทั้งหมด ${records.length} คน`}>
                 <Download size={11}/> Excel
               </button>
               <button onClick={() => { setShowTxtExport(true); setTxtExclude(new Set()); setTxtSearch(""); setTxtFilterDept("") }}
