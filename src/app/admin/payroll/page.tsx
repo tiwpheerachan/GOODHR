@@ -884,6 +884,18 @@ function EditModal({
     dx_student_loan:       s(de.student_loan),
   })
   const [saving, setSaving] = useState(false)
+  // Tax %: ตรวจว่า record ปัจจุบันใช้ % อะไร
+  const [taxPctInput, setTaxPctInput] = useState<string>(() => {
+    const tax = Number(record.monthly_tax_withheld) || 0
+    const gr = Number(record.gross_income) || 0
+    if (gr > 0 && tax > 0) {
+      const pct = Math.round(tax / gr * 10000) / 100
+      if (pct > 0 && pct <= 100 && Math.abs(tax - Math.round(gr * pct / 100 * 100) / 100) < 0.02) {
+        return String(pct)
+      }
+    }
+    return ""
+  })
 
   // Smart set: เมื่อแก้ OT นาที → คำนวณ OT บาท ให้ล้อกัน
   const set = (k: string, v: string) => {
@@ -920,10 +932,23 @@ function EditModal({
   // OT = คำนวณจาก minutes เสมอ (ot_amount จะถูก sync ตอนบันทึก)
   const effectiveOt = otFromMinutes > 0 ? otFromMinutes : num(f.ot_amount)
 
+  // ── Auto-recalc tax เมื่อ gross เปลี่ยน + ใช้ % mode ──
+  const prevGrossRef = useRef(0)
+
   const gross = num(f.base_salary) + num(f.allowance_position) + num(f.allowance_transport)
     + num(f.allowance_food) + num(f.allowance_phone) + num(f.allowance_housing)
     + num(f.allowance_other) + effectiveOt + num(f.bonus) + num(f.commission)
     + num(f.other_income) + extraIncomeTotal
+
+  // Auto-sync tax เมื่อ gross เปลี่ยน + มี % กรอกอยู่
+  if (taxPctInput && Number(taxPctInput) > 0 && gross !== prevGrossRef.current) {
+    prevGrossRef.current = gross
+    const pct = Number(taxPctInput)
+    const newTax = Math.round(gross * pct / 100 * 100) / 100
+    if (Math.abs(num(f.monthly_tax_withheld) - newTax) > 0.01) {
+      setTimeout(() => set("monthly_tax_withheld", String(newTax)), 0)
+    }
+  }
 
   const totalDeduct = num(f.deduct_absent) + num(f.deduct_late) + num(f.deduct_early_out)
     + num(f.deduct_loan) + num(f.deduct_other) + num(f.social_security_amount) + num(f.monthly_tax_withheld)
@@ -1149,7 +1174,43 @@ function EditModal({
                 {numRow("เงินหักอื่นๆ", "deduct_other", false, true)}
                 {numRow("หักเงินกู้", "deduct_loan", false, true)}
                 {numRow("ประกันสังคม", "social_security_amount", false, true)}
-                {numRow("ภาษีหัก ณ ที่จ่าย", "monthly_tax_withheld", false, true)}
+                {/* ภาษี: กรอก % → คำนวณจาก gross อัตโนมัติ หรือกรอกจำนวนเงินตรง */}
+                <div className="flex items-center justify-between py-1 border-b border-slate-50">
+                  <label className="text-[11px] text-slate-600 shrink-0">ภาษีหัก ณ ที่จ่าย</label>
+                  <div className="flex items-center gap-1">
+                    <div className="relative w-[68px]">
+                      <input
+                        type="number" step="0.1" min="0" max="100"
+                        placeholder="อัตโนมัติ"
+                        value={taxPctInput}
+                        onChange={e => {
+                          const val = e.target.value
+                          setTaxPctInput(val)
+                          const pct = Number(val)
+                          if (val && pct >= 0) {
+                            const taxAmt = Math.round(gross * pct / 100 * 100) / 100
+                            set("monthly_tax_withheld", String(taxAmt))
+                          }
+                        }}
+                        className="w-full px-2 py-1 rounded-lg border border-slate-200 text-[11px] font-bold text-right bg-white outline-none focus:border-indigo-400 pr-5"
+                      />
+                      <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">%</span>
+                    </div>
+                    <div className="w-28">
+                      <input
+                        type="number" step="0.01"
+                        value={f.monthly_tax_withheld ?? ""}
+                        onChange={e => { set("monthly_tax_withheld", e.target.value); setTaxPctInput("") }}
+                        className={inpCls + " text-red-600"}
+                      />
+                    </div>
+                  </div>
+                </div>
+                {taxPctInput && Number(taxPctInput) > 0 && (
+                  <p className="text-[9px] text-slate-400 text-right -mt-0.5 mb-0.5">
+                    {taxPctInput}% × ฿{thb(gross)} = ฿{thb(num(f.monthly_tax_withheld))}
+                  </p>
+                )}
               </div>
 
               {/* รายหักเพิ่มเติม (extras) */}

@@ -656,11 +656,13 @@ async function calcAndSave(
   // ✅ คำนวณ gross/tax จริง (รวม manual OT + commission + other_income)
   const finalGross = result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome
   const taxWithholdingPctVal = sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
-  const finalTax = (() => {
-    if (!!sal.is_tax_3pct) return Math.round(finalGross * 0.03 * 100) / 100
-    if (taxWithholdingPctVal != null && taxWithholdingPctVal >= 0) return Math.round(finalGross * (taxWithholdingPctVal / 100) * 100) / 100
-    return result.tax
-  })()
+  const finalTax = (isManual && existingPR?.monthly_tax_withheld != null)
+    ? Number(existingPR.monthly_tax_withheld)
+    : (() => {
+        if (!!sal.is_tax_3pct) return Math.round(finalGross * 0.03 * 100) / 100
+        if (taxWithholdingPctVal != null && taxWithholdingPctVal >= 0) return Math.round(finalGross * (taxWithholdingPctVal / 100) * 100) / 100
+        return result.tax
+      })()
   const finalSso = result.sso
   const finalTotalDeduct = result.deductAbsent + result.deductLate + result.deductEarlyOut + loanDeduction + finalSso + finalTax + deductUnpaidLeave + manualDeductOther
 

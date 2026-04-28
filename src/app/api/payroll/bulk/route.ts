@@ -481,14 +481,15 @@ export async function POST(req: Request) {
 
           // ✅ คำนวณ gross จริง (รวม manual OT + commission + other_income)
           const finalGross = result.gross - result.otAmount + finalOtAmount + mCommission + mOtherIncome
-          // ✅ คำนวณ tax ใหม่จาก gross จริง (ไม่ใช้ result.tax ที่คำนวณจาก gross เดิม)
-          const finalTax = (() => {
-            if (!!sal.is_tax_3pct) return Math.round(finalGross * 0.03 * 100) / 100
-            if (taxPct != null && taxPct >= 0) return Math.round(finalGross * (taxPct / 100) * 100) / 100
-            return result.tax // auto → ใช้ค่าจาก calculatePayrollSummary (gross ภายในอาจต่าง แต่ใกล้เคียง)
-          })()
+          // ✅ Tax: ถ้า HR กรอกมือ → ใช้ค่า HR, ไม่งั้นคำนวณจาก gross
+          const finalTax = (mIsManual && existPR?.monthly_tax_withheld != null)
+            ? Number(existPR.monthly_tax_withheld)
+            : (() => {
+                if (!!sal.is_tax_3pct) return Math.round(finalGross * 0.03 * 100) / 100
+                if (taxPct != null && taxPct >= 0) return Math.round(finalGross * (taxPct / 100) * 100) / 100
+                return result.tax
+              })()
           const finalSso = result.sso
-          const finalTotalDeduct = result.deductAbsent + result.deductLate + result.deductEarlyOut + loanDeduction + finalSso + finalTax + deductUnpaidLeave + mDeductOther
 
           const payload: Record<string, unknown> = {
             payroll_period_id, employee_id: eid, company_id: emp.company_id,
