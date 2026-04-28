@@ -852,6 +852,7 @@ function EditModal({
     other_income:          s(record.other_income),
     deduct_absent:         s0(record.deduct_absent),
     deduct_late:           s0(record.deduct_late),
+    deduct_early_out:      s0(record.deduct_early_out),
     deduct_loan:           s0(record.deduct_loan),
     deduct_other:          s0(record.deduct_other),
     social_security_amount:s0(record.social_security_amount),
@@ -924,8 +925,8 @@ function EditModal({
     + num(f.allowance_other) + effectiveOt + num(f.bonus) + num(f.commission)
     + num(f.other_income) + extraIncomeTotal
 
-  const totalDeduct = num(f.deduct_absent) + num(f.deduct_late) + num(f.deduct_loan)
-    + num(f.deduct_other) + num(f.social_security_amount) + num(f.monthly_tax_withheld)
+  const totalDeduct = num(f.deduct_absent) + num(f.deduct_late) + num(f.deduct_early_out)
+    + num(f.deduct_loan) + num(f.deduct_other) + num(f.social_security_amount) + num(f.monthly_tax_withheld)
     + extraDeductTotal
 
   const net = Math.max(gross - totalDeduct, 0)
@@ -962,7 +963,7 @@ function EditModal({
       "allowance_phone","allowance_housing","allowance_other","ot_amount",
       "ot_weekday_minutes","ot_holiday_reg_minutes","ot_holiday_ot_minutes",
       "bonus","commission","other_income",
-      "deduct_absent","deduct_late","deduct_loan","deduct_other",
+      "deduct_absent","deduct_late","deduct_early_out","deduct_loan","deduct_other",
       "social_security_amount","monthly_tax_withheld",
       "absent_days","late_count","present_days","leave_paid_days","leave_unpaid_days",
     ]
@@ -1143,6 +1144,7 @@ function EditModal({
               </p>
               <div className="bg-slate-50 rounded-xl px-3 py-1.5">
                 {numRow("หักมาสาย", "deduct_late", false, true)}
+                {numRow("หักออกก่อนกำหนด", "deduct_early_out", false, true)}
                 {numRow("หักขาดงาน/ลา", "deduct_absent", false, true)}
                 {numRow("เงินหักอื่นๆ", "deduct_other", false, true)}
                 {numRow("หักเงินกู้", "deduct_loan", false, true)}
@@ -1847,7 +1849,12 @@ export default function PayrollPage() {
           </Link>
           {/* company */}
           {isSA && companies.length > 0 && (
-            <select value={selectedCo} onChange={e => setSelectedCo(e.target.value)}
+            <select value={selectedCo} onChange={e => {
+              setSelectedCo(e.target.value)
+              // clear ข้อมูลเก่าทันทีเมื่อเปลี่ยนบริษัท → ป้องกันเห็นข้อมูลบริษัทก่อนหน้า
+              setRecords([])
+              setSelected(null)
+            }}
               className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400">
               <option value="all">ทุกบริษัท (รวม)</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
