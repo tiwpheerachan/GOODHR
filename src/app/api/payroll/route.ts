@@ -658,7 +658,10 @@ async function calcAndSave(
   const decExtras = existingDeductExtras || {}
   const incExtrasTotal = typeof incExtras === 'object' ? Object.values(incExtras).reduce((s: number, v: any) => s + (Number(v) || 0), 0) : 0
   const decExtrasTotal = typeof decExtras === 'object' ? Object.values(decExtras).reduce((s: number, v: any) => s + (Number(v) || 0), 0) : 0
-  const finalGross = result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome + incExtrasTotal
+  // รวมทุก allowances จริง (manual หรือ system) + OT + bonus + extras
+  const finalGross = Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
+    + manualAllowPhone + manualAllowHousing + manualAllowOther
+    + finalOtAmount + manualBonus + manualCommission + manualOtherIncome + incExtrasTotal
   const taxWithholdingPctVal = sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
   const finalTax = (isManual && existingPR?.monthly_tax_withheld != null)
     ? Number(existingPR.monthly_tax_withheld)

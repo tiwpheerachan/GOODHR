@@ -479,12 +479,20 @@ export async function POST(req: Request) {
             ? Number(existPR.ot_amount)
             : result.otAmount
 
-          // ✅ คำนวณ gross จริง (รวม manual OT + commission + other_income + extras)
+          // ✅ คำนวณ gross จริง — จาก payload จริง ไม่ใช่ result.gross
           const incExtras = existPR?.income_extras || {}
           const decExtras = existPR?.deduction_extras || {}
           const incExtrasTotal = Object.values(incExtras).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
           const decExtrasTotal = Object.values(decExtras).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
-          const finalGross = result.gross - result.otAmount + finalOtAmount + mCommission + mOtherIncome + incExtrasTotal
+          // รวมทุก allowances จริง (manual หรือ system)
+          const fAllowPos   = mIsManual ? Number(existPR?.allowance_position)  : Number(sal.allowance_position)  || 0
+          const fAllowTrans = mIsManual ? Number(existPR?.allowance_transport) : 0
+          const fAllowFood  = mIsManual ? Number(existPR?.allowance_food)      : Number(sal.allowance_food)      || 0
+          const fAllowPhone = mIsManual ? Number(existPR?.allowance_phone)     : Number(sal.allowance_phone)     || 0
+          const fAllowHouse = mIsManual ? Number(existPR?.allowance_housing)   : Number(sal.allowance_housing)   || 0
+          const fAllowOther = mIsManual ? Number(existPR?.allowance_other)     : 0
+          const finalGross = baseSalary + fAllowPos + fAllowTrans + fAllowFood + fAllowPhone + fAllowHouse + fAllowOther
+            + finalOtAmount + Number(mBonus) + mCommission + mOtherIncome + incExtrasTotal
           // ✅ Tax: ถ้า HR กรอกมือ → ใช้ค่า HR, ไม่งั้นคำนวณจาก gross
           const finalTax = (mIsManual && existPR?.monthly_tax_withheld != null)
             ? Number(existPR.monthly_tax_withheld)
