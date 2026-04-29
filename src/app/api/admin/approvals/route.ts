@@ -3,6 +3,7 @@ import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
 import { logApproval, logAudit } from "@/lib/auditLog"
 import { calculatePayrollSummary, type OTBreakdown } from "@/lib/utils/payroll"
+import { isPayrollPeriodLocked } from "@/lib/utils/periodLock"
 
 // ── recalculate payroll_records หลังอนุมัติ OT ──────────────────────────────
 // เรียกใช้หลังจาก attendance_records.ot_minutes ถูก update แล้ว
@@ -16,6 +17,10 @@ async function recalcPayrollAfterOT(supa: any, employeeId: string, workDate: str
       .eq("id", employeeId)
       .single()
     if (!empData?.company_id) return
+
+    // ตรวจ: งวดถูกล็อกหรือยัง → ถ้าล็อกไม่ recalculate
+    const { locked } = await isPayrollPeriodLocked(supa, empData.company_id, workDate)
+    if (locked) { console.log(`[recalcPayrollAfterOT] period locked for ${workDate}, skip`); return }
 
     // ── 2. หา payroll_period ที่ครอบคลุม workDate (filter by company_id) ──
     const { data: period } = await supa

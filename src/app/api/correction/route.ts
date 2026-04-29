@@ -2,6 +2,7 @@ import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
 import { getLateThreshold } from "@/lib/utils/payroll"
+import { isPayrollPeriodLocked } from "@/lib/utils/periodLock"
 import { logApproval } from "@/lib/auditLog"
 
 export async function POST(request: Request) {
@@ -39,6 +40,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "กรุณากรอกข้อมูลให้ครบ" })
     if (!requested_clock_in && !requested_clock_out)
       return NextResponse.json({ success: false, error: "กรุณาระบุเวลาที่ต้องการแก้ไขอย่างน้อย 1 รายการ" })
+
+    // ตรวจ: งวดเงินเดือนถูกล็อกหรือยัง
+    if (emp?.company_id) {
+      const { locked, periodName } = await isPayrollPeriodLocked(supa, emp.company_id, work_date)
+      if (locked) return NextResponse.json({ success: false, error: `งวด${periodName || ""}ปิดแล้ว ไม่สามารถยื่นแก้ไขเวลาได้ กรุณาติดต่อ HR` })
+    }
 
     // วันที่ออก: ใช้ clock_out_date ถ้ามี (กะข้ามคืน) ไม่งั้นใช้ work_date
     const outDate = clock_out_date || work_date

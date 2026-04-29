@@ -881,7 +881,7 @@ export async function GET(req: Request) {
   // หา payroll_period
   const { data: period } = await supa
     .from("payroll_periods")
-    .select("id")
+    .select("id, status")
     .eq("year",       year)
     .eq("month",      month)
     .eq("company_id", empData.company_id)
@@ -894,12 +894,20 @@ export async function GET(req: Request) {
     )
   }
 
-  // ถ้า HR เคยแก้มือ (is_manual_override) → อ่าน record ตรงๆ ไม่ recalculate ทับ
+  // ถ้างวดถูกล็อก (paid) หรือ HR เคยแก้มือ → อ่าน record จาก DB ไม่ recalculate
   const { data: existingRecord } = await supa.from("payroll_records")
     .select("*")
     .eq("payroll_period_id", period.id)
     .eq("employee_id", employee_id)
     .maybeSingle()
+
+  if (period.status === "paid" && existingRecord) {
+    const { data: histData } = await supa.from("payroll_records")
+      .select("year, month, net_salary, gross_income, total_deductions")
+      .eq("employee_id", employee_id)
+      .order("year", { ascending: false }).order("month", { ascending: false }).limit(6)
+    return NextResponse.json({ success: true, record: existingRecord, debug: { note: "งวดปิดแล้ว (paid) — ใช้ค่าที่บันทึกไว้" }, history: ((histData ?? []) as any[]).reverse() })
+  }
 
   if (existingRecord?.is_manual_override) {
     // ดึงประวัติ 6 เดือน

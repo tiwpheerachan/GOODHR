@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
-  Download, Play, CheckCircle, Loader2, Plus,
+  Download, Play, CheckCircle, Loader2, Plus, RefreshCw,
   ChevronDown, AlertCircle, TrendingUp, Users, Banknote,
   Clock, Info, Search, Eye, Edit2, Save, X, RotateCcw, Table2, Filter,
   Copy, ClipboardCheck, Columns3
@@ -1857,13 +1857,25 @@ export default function PayrollPage() {
     loadRecords()
   }
 
-  const approvePeriod = async () => {
-    if (!selected || !confirm(`อนุมัติจ่ายงวด "${periodLabel(selected)}" ใช่หรือไม่?`)) return
+  const [showApproveModal, setShowApproveModal] = useState(false)
+
+  const doApprove = async () => {
+    if (!selected) return
     await supabase.from("payroll_periods").update({
       status: "paid", approved_by: user?.employee?.id ?? null, approved_at: new Date().toISOString(),
     }).eq("id", selected.id)
-    toast.success("✓ อนุมัติจ่ายเงินเดือนแล้ว")
+    toast.success("✓ อนุมัติจ่ายเงินเดือน + ล็อกงวดแล้ว")
     const updated = { ...selected, status: "paid" }
+    setSelected(updated)
+    setPeriods(ps => ps.map(p => p.id === selected.id ? updated : p))
+    setShowApproveModal(false)
+  }
+
+  const unlockPeriod = async () => {
+    if (!selected || !confirm("ปลดล็อกงวดนี้? พนักงานจะสามารถยื่นคำขอแก้ไขเวลา/ลาได้อีกครั้ง")) return
+    await supabase.from("payroll_periods").update({ status: "draft" }).eq("id", selected.id)
+    toast.success("✓ ปลดล็อกงวดแล้ว")
+    const updated = { ...selected, status: "draft" }
     setSelected(updated)
     setPeriods(ps => ps.map(p => p.id === selected.id ? updated : p))
   }
@@ -1982,6 +1994,11 @@ export default function PayrollPage() {
               <span>{format(new Date(selected.start_date), "d MMM", { locale: th })} – {format(new Date(selected.end_date), "d MMM yyyy", { locale: th })}</span>
               <span className="text-slate-200">|</span>
               <span>จ่าย {format(new Date(selected.pay_date), "d MMM yyyy", { locale: th })}</span>
+              {selected.status === "paid" && (
+                <span className="flex items-center gap-1 text-green-700 bg-green-100 px-2 py-0.5 rounded-lg font-bold text-xs">
+                  <CheckCircle size={11}/> อนุมัติจ่ายแล้ว (ล็อก)
+                </span>
+              )}
               {overrideCount > 0 && (
                 <span className="flex items-center gap-1 text-amber-600 font-semibold">
                   <Edit2 size={11}/> แก้ไขแล้ว {overrideCount} คน
@@ -1998,9 +2015,15 @@ export default function PayrollPage() {
                 </button>
               )}
               {!isAllCo && records.length > 0 && selected.status === "draft" && (
-                <button onClick={approvePeriod}
+                <button onClick={() => setShowApproveModal(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 transition-colors">
                   <CheckCircle size={13}/> อนุมัติจ่าย
+                </button>
+              )}
+              {!isAllCo && selected.status === "paid" && (
+                <button onClick={unlockPeriod}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-bold hover:bg-amber-600 transition-colors">
+                  <RefreshCw size={13}/> ปลดล็อกงวด
                 </button>
               )}
               {isAllCo && selected && (
@@ -2140,6 +2163,110 @@ export default function PayrollPage() {
           }}
         />
       )}
+
+      {/* ═══ Approval Summary Modal ═══ */}
+      {showApproveModal && (() => {
+        // Group by department
+        const deptGroups = new Map<string, any[]>()
+        records.forEach((r: any) => {
+          const dept = r.employee?.department?.name || "ไม่ระบุแผนก"
+          if (!deptGroups.has(dept)) deptGroups.set(dept, [])
+          deptGroups.get(dept)!.push(r)
+        })
+        const sortedDepts = Array.from(deptGroups.entries()).sort((a, b) => b[1].length - a[1].length)
+        const sumField = (recs: any[], fn: (r: any) => number) => recs.reduce((s, r) => s + fn(r), 0)
+        const ie = (r: any) => r.income_extras && typeof r.income_extras === "object" ? Object.values(r.income_extras).reduce((s: number, v: any) => s + (Number(v)||0), 0) : 0
+        const de = (r: any) => r.deduction_extras && typeof r.deduction_extras === "object" ? Object.values(r.deduction_extras).reduce((s: number, v: any) => s + (Number(v)||0), 0) : 0
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowApproveModal(false)}/>
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+              <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-4 rounded-t-2xl">
+                <h3 className="text-lg font-black">สรุปก่อนอนุมัติจ่ายเงินเดือน</h3>
+                <p className="text-sm opacity-80">{periodLabel(selected)} · {records.length} คน</p>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                {/* Summary cards */}
+                <div className="grid grid-cols-4 gap-3">
+                  {[
+                    { l: "พนักงาน", v: records.length + " คน", c: "bg-blue-50 text-blue-700" },
+                    { l: "รวมรายรับ", v: "฿" + thb(sumField(records, r => n(r.gross_income))), c: "bg-green-50 text-green-700" },
+                    { l: "รวมรายหัก", v: "฿" + thb(sumField(records, r => n(r.total_deductions))), c: "bg-red-50 text-red-600" },
+                    { l: "จ่ายสุทธิ", v: "฿" + thb(sumField(records, r => n(r.net_salary))), c: "bg-indigo-50 text-indigo-700" },
+                  ].map(s => (
+                    <div key={s.l} className={`rounded-xl p-3 ${s.c}`}>
+                      <p className="text-[10px] font-bold opacity-60">{s.l}</p>
+                      <p className="text-sm font-black mt-0.5">{s.v}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Detail by department */}
+                <div className="bg-slate-50 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-100">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-bold text-slate-600">แผนก</th>
+                        <th className="px-2 py-2 text-right font-bold text-slate-600">จำนวน</th>
+                        <th className="px-2 py-2 text-right font-bold text-green-700">เงินเดือน</th>
+                        <th className="px-2 py-2 text-right font-bold text-amber-700">OT</th>
+                        <th className="px-2 py-2 text-right font-bold text-green-600">เบี้ยเลี้ยง+อื่นๆ</th>
+                        <th className="px-2 py-2 text-right font-bold text-green-800">รวมรายรับ</th>
+                        <th className="px-2 py-2 text-right font-bold text-red-600">รวมรายหัก</th>
+                        <th className="px-2 py-2 text-right font-bold text-indigo-700">สุทธิ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {sortedDepts.map(([dept, recs]) => (
+                        <tr key={dept} className="hover:bg-white">
+                          <td className="px-3 py-2 font-semibold text-slate-700">{dept}</td>
+                          <td className="px-2 py-2 text-right">{recs.length}</td>
+                          <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.base_salary)))}</td>
+                          <td className="px-2 py-2 text-right text-amber-700">{thb(sumField(recs, r => n(r.ot_amount)))}</td>
+                          <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
+                          <td className="px-2 py-2 text-right font-bold text-green-800">{thb(sumField(recs, r => n(r.gross_income)))}</td>
+                          <td className="px-2 py-2 text-right font-bold text-red-600">{thb(sumField(recs, r => n(r.total_deductions)))}</td>
+                          <td className="px-2 py-2 text-right font-black text-indigo-700">{thb(sumField(recs, r => n(r.net_salary)))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-indigo-50 border-t-2 border-indigo-200">
+                      <tr className="font-black text-sm">
+                        <td className="px-3 py-2 text-slate-800">รวมทั้งหมด</td>
+                        <td className="px-2 py-2 text-right">{records.length}</td>
+                        <td className="px-2 py-2 text-right">{thb(sumField(records, r => n(r.base_salary)))}</td>
+                        <td className="px-2 py-2 text-right text-amber-700">{thb(sumField(records, r => n(r.ot_amount)))}</td>
+                        <td className="px-2 py-2 text-right">{thb(sumField(records, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
+                        <td className="px-2 py-2 text-right text-green-800">{thb(sumField(records, r => n(r.gross_income)))}</td>
+                        <td className="px-2 py-2 text-right text-red-600">{thb(sumField(records, r => n(r.total_deductions)))}</td>
+                        <td className="px-2 py-2 text-right text-indigo-700">{thb(sumField(records, r => n(r.net_salary)))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Warning */}
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+                  <p className="font-bold">หลังอนุมัติจ่าย งวดจะถูกล็อก:</p>
+                  <ul className="mt-1 space-y-0.5 list-disc pl-4 text-amber-700">
+                    <li>พนักงานไม่สามารถยื่นแก้ไขเวลา/ลาย้อนหลังในงวดนี้ได้</li>
+                    <li>ระบบจะไม่คำนวณเงินเดือนซ้ำอีก</li>
+                    <li>HR ยังแก้ไขในหน้าเงินเดือนได้ตามปกติ</li>
+                    <li>สามารถ "ปลดล็อก" ได้ภายหลังถ้าจำเป็น</li>
+                  </ul>
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
+                <button onClick={() => setShowApproveModal(false)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">ยกเลิก</button>
+                <button onClick={doApprove} className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-black hover:bg-green-700 transition-colors">
+                  <CheckCircle size={14}/> ยืนยันอนุมัติจ่าย
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ═══ TXT Export Modal ═══ */}
       {showTxtExport && (() => {
