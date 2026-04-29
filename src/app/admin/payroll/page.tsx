@@ -437,7 +437,8 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                 </td>
                 <td className="px-3 py-3 text-right">{totalAllow > 0 ? <p className="font-semibold text-green-700">+฿{thb(totalAllow)}</p> : <span className="text-slate-200">—</span>}</td>
                 <td className="px-3 py-3">{(() => {
-                  const ot = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)+calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)+calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
+                  const otMin = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)+calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)+calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
+                  const ot = otMin > 0 ? otMin : n(r.ot_amount)
                   return ot > 0 ? <p className="font-bold text-amber-700">+฿{thb(ot)}</p> : <span className="text-slate-200">—</span>
                 })()}</td>
                 <td className="px-3 py-3 text-right">{totalDeductWork > 0 ? <p className="font-bold text-red-600">-฿{thb(totalDeductWork)}</p> : <span className="text-slate-200">—</span>}</td>
@@ -1421,6 +1422,14 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
               </div>
             )}
             {record.commission > 0 && <Row l="คอมมิชชั่น" v={record.commission}/>}
+            {record.other_income > 0 && <Row l="รายได้อื่นๆ" v={record.other_income}/>}
+            {/* income extras */}
+            {(() => {
+              const ie = record.income_extras
+              if (!ie || typeof ie !== 'object') return null
+              const labels: Record<string,string> = { kpi:"KPI", incentive:"Incentive", performance_bonus:"Performance Bonus", service_fee:"ค่าบริการ", depreciation:"ค่าเสื่อมสภาพ", expressway:"ค่าทางด่วน", fuel:"ค่าน้ำมัน", campaign:"แคมเปญ", retirement_fund:"กองทุนเกษียณ", per_diem:"เบี้ยเลี้ยง", diligence_bonus:"เบี้ยขยัน", referral_bonus:"แนะนำเพื่อน" }
+              return Object.entries(ie).map(([k, v]) => Number(v) > 0 ? <Row key={k} l={labels[k] || k} v={Number(v)}/> : null)
+            })()}
             <div className="flex items-center justify-between px-4 py-2 bg-green-50">
               <p className="text-sm font-black">รวมรายรับ</p>
               <p className="text-sm font-black text-green-700">฿{thb(record.gross_income)}</p>
@@ -1432,10 +1441,18 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
             <div className="px-4 py-2 bg-red-50"><p className="text-[10px] font-black text-red-800 uppercase tracking-wide">รายหัก</p></div>
             {record.deduct_absent > 0 && <Row l={`หักขาดงาน ${record.absent_days} วัน`} v={record.deduct_absent} neg/>}
             {record.deduct_late   > 0 && <Row l="หักมาสาย" v={record.deduct_late} neg/>}
+            {record.deduct_early_out > 0 && <Row l="หักออกก่อนกำหนด" v={record.deduct_early_out} neg/>}
             {record.deduct_loan   > 0 && <Row l="หักเงินกู้" v={record.deduct_loan} neg/>}
             {record.deduct_other  > 0 && <Row l="หักอื่นๆ" v={record.deduct_other} neg/>}
+            {/* deduction extras */}
+            {(() => {
+              const de = record.deduction_extras
+              if (!de || typeof de !== 'object') return null
+              const labels: Record<string,string> = { suspension:"พักงาน", card_lost:"บัตรหาย/ชำรุด", uniform:"ค่าเสื้อพนักงาน", parking:"ค่าบัตรจอดรถ", employee_products:"สินค้าพนักงาน", legal_enforcement:"กรมบังคับคดี", student_loan:"กยศ." }
+              return Object.entries(de).map(([k, v]) => Number(v) > 0 ? <Row key={k} l={labels[k] || k} v={Number(v)} neg/> : null)
+            })()}
             <Row l="ประกันสังคม 5%" v={record.social_security_amount} neg/>
-            <Row l="ภาษีหัก ณ ที่จ่าย" v={record.monthly_tax_withheld} neg/>
+            {record.monthly_tax_withheld > 0 && <Row l="ภาษีหัก ณ ที่จ่าย" v={record.monthly_tax_withheld} neg/>}
             <div className="flex items-center justify-between px-4 py-2 bg-red-50">
               <p className="text-sm font-black">รวมรายหัก</p>
               <p className="text-sm font-black text-red-600">-฿{thb(record.total_deductions)}</p>

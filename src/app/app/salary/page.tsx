@@ -144,8 +144,23 @@ export default function SalaryPage() {
   const commission  = Number(r?.commission)          || 0
   const otherIncome = Number(r?.other_income)        || 0
   const allowOther  = Number(r?.allowance_other)     || 0
-  const incomeExtras  = Array.isArray(r?.income_extras) ? r.income_extras : []
-  const deductExtras  = Array.isArray(r?.deduction_extras) ? r.deduction_extras : []
+  // income_extras / deduction_extras เป็น object {key: amount} → แปลงเป็น array
+  const EXTRA_LABELS: Record<string,string> = {
+    kpi:"KPI", incentive:"Incentive", performance_bonus:"Performance Bonus",
+    service_fee:"ค่าบริการ", depreciation:"ค่าเสื่อมสภาพ", expressway:"ค่าทางด่วน",
+    fuel:"ค่าน้ำมัน", campaign:"แคมเปญ", retirement_fund:"กองทุนเกษียณ",
+    per_diem:"เบี้ยเลี้ยง", diligence_bonus:"เบี้ยขยัน", referral_bonus:"แนะนำเพื่อน",
+    suspension:"พักงาน", card_lost:"บัตรหาย/ชำรุด", uniform:"ค่าเสื้อพนักงาน",
+    parking:"ค่าบัตรจอดรถ", employee_products:"สินค้าพนักงาน",
+    legal_enforcement:"กรมบังคับคดี", student_loan:"กยศ.",
+  }
+  const toExtrasArr = (obj: any) => {
+    if (!obj || typeof obj !== 'object') return []
+    if (Array.isArray(obj)) return obj
+    return Object.entries(obj).filter(([,v]) => Number(v) > 0).map(([k,v]) => ({ name: EXTRA_LABELS[k] || k, amount: Number(v) }))
+  }
+  const incomeExtras  = toExtrasArr(r?.income_extras)
+  const deductExtras  = toExtrasArr(r?.deduction_extras)
   const leavePaid   = Number(r?.leave_paid_days)     || 0
   const leaveUnpaid = Number(r?.leave_unpaid_days)   || 0
   const maxNet   = Math.max(...history.map(h => Number(h.net_salary)||0), net, 1)

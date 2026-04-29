@@ -653,8 +653,12 @@ async function calcAndSave(
     ? Number(existingPR.ot_amount)
     : result.otAmount
 
-  // ✅ คำนวณ gross/tax จริง (รวม manual OT + commission + other_income)
-  const finalGross = result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome
+  // ✅ คำนวณ gross/tax จริง (รวม manual OT + commission + other_income + extras)
+  const incExtras = existingExtras || {}
+  const decExtras = existingDeductExtras || {}
+  const incExtrasTotal = typeof incExtras === 'object' ? Object.values(incExtras).reduce((s: number, v: any) => s + (Number(v) || 0), 0) : 0
+  const decExtrasTotal = typeof decExtras === 'object' ? Object.values(decExtras).reduce((s: number, v: any) => s + (Number(v) || 0), 0) : 0
+  const finalGross = result.gross - result.otAmount + finalOtAmount + manualCommission + manualOtherIncome + incExtrasTotal
   const taxWithholdingPctVal = sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
   const finalTax = (isManual && existingPR?.monthly_tax_withheld != null)
     ? Number(existingPR.monthly_tax_withheld)
@@ -664,7 +668,7 @@ async function calcAndSave(
         return result.tax
       })()
   const finalSso = result.sso
-  const finalTotalDeduct = result.deductAbsent + result.deductLate + result.deductEarlyOut + loanDeduction + finalSso + finalTax + deductUnpaidLeave + manualDeductOther
+  const finalTotalDeduct = result.deductAbsent + result.deductLate + result.deductEarlyOut + loanDeduction + finalSso + finalTax + deductUnpaidLeave + manualDeductOther + decExtrasTotal
 
   // ── upsert ────────────────────────────────────────────────────
   const payload: Record<string, unknown> = {

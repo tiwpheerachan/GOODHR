@@ -479,8 +479,12 @@ export async function POST(req: Request) {
             ? Number(existPR.ot_amount)
             : result.otAmount
 
-          // ✅ คำนวณ gross จริง (รวม manual OT + commission + other_income)
-          const finalGross = result.gross - result.otAmount + finalOtAmount + mCommission + mOtherIncome
+          // ✅ คำนวณ gross จริง (รวม manual OT + commission + other_income + extras)
+          const incExtras = existPR?.income_extras || {}
+          const decExtras = existPR?.deduction_extras || {}
+          const incExtrasTotal = Object.values(incExtras).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
+          const decExtrasTotal = Object.values(decExtras).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
+          const finalGross = result.gross - result.otAmount + finalOtAmount + mCommission + mOtherIncome + incExtrasTotal
           // ✅ Tax: ถ้า HR กรอกมือ → ใช้ค่า HR, ไม่งั้นคำนวณจาก gross
           const finalTax = (mIsManual && existPR?.monthly_tax_withheld != null)
             ? Number(existPR.monthly_tax_withheld)
@@ -531,7 +535,7 @@ export async function POST(req: Request) {
               const fSso          = mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso
               // tax คำนวณจาก finalGross เสมอ (3% / fixed% / auto)
               const fTax          = finalTax
-              const fTotalDeduct  = fDeductAbsent + fDeductLate + fDeductEarly + loanDeduction + fDeductOther + fSso + fTax
+              const fTotalDeduct  = fDeductAbsent + fDeductLate + fDeductEarly + loanDeduction + fDeductOther + fSso + fTax + decExtrasTotal
               return {
                 gross_income:         finalGross,
                 taxable_income:       finalGross - fSso,
