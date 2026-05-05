@@ -52,8 +52,8 @@ export default function ManagerProbationEvalPage() {
   const getRoundStatus = (form: any) => {
     if (!form) return { label: t("probation.not_evaluated"), color: "text-slate-400", bg: "bg-slate-100", icon: FilePlus2 }
     if (form.status === "approved") return { label: t("probation.approved"), color: "text-emerald-600", bg: "bg-emerald-50", icon: CheckCircle2 }
-    if (form.status === "submitted") return { label: t("probation.awaiting_hr"), color: "text-orange-600", bg: "bg-orange-50", icon: Clock }
-    if (form.status === "rejected") return { label: t("probation.returned"), color: "text-red-600", bg: "bg-red-50", icon: AlertCircle }
+    if (form.status === "submitted") return { label: t("probation.submitted"), color: "text-orange-600", bg: "bg-orange-50", icon: Clock }
+    if (form.status === "rejected") return { label: t("probation.rejected"), color: "text-red-600", bg: "bg-red-50", icon: AlertCircle }
     return { label: t("probation.draft"), color: "text-amber-600", bg: "bg-amber-50", icon: FilePen }
   }
 

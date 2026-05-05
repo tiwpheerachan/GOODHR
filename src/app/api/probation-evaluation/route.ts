@@ -122,12 +122,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ forms: forms ?? [] })
   }
 
-  // Admin: ดูทั้งบริษัท
+  // Admin: ดูทั้งบริษัท (super_admin เห็นทุกบริษัท)
   if (mode === "admin") {
-    const { data: forms } = await svc.from("probation_evaluations")
+    let q = svc.from("probation_evaluations")
       .select("*, employee:employees!probation_evaluations_employee_id_fkey(first_name_th, last_name_th, employee_code, avatar_url, hire_date, position:positions(name), department:departments(name)), evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th)")
-      .eq("company_id", companyId)
       .order("created_at", { ascending: false })
+    if (dbUser.role !== "super_admin") q = q.eq("company_id", companyId)
+    const { data: forms } = await q
     return NextResponse.json({ forms: forms ?? [] })
   }
 
