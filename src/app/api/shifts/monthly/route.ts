@@ -48,13 +48,30 @@ export async function GET(request: Request) {
   const days = getDaysInMonth(year, mon)
   const endDate = days[days.length - 1]
 
+  // ── ดึงรายชื่อพนักงานที่จะแสดง ───────────────────────────────────
+  // - SA / HR Admin: ทั้งบริษัท (เลือกได้)
+  // - Manager: เฉพาะลูกน้องตรงจาก employee_manager_history (ข้ามบริษัทได้)
+  let subEmployeeIds: string[] | null = null
+  if (!isSA) {
+    if (!userData?.employee_id) return NextResponse.json({ success: true, days, shifts: [], grid: [], departments: [], total_employees: 0 })
+    const { data: subRows } = await supa
+      .from("employee_manager_history")
+      .select("employee_id")
+      .eq("manager_id", userData.employee_id)
+      .is("effective_to", null)
+    subEmployeeIds = Array.from(new Set((subRows ?? []).map((r: any) => r.employee_id).filter(Boolean)))
+    if (subEmployeeIds.length === 0) return NextResponse.json({ success: true, days, shifts: [], grid: [], departments: [], total_employees: 0 })
+  }
+
   // ── ดึงพนักงาน + profile ────────────────────────────────────────
   let empQuery = supa
     .from("employees")
-    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, department_id, can_self_schedule, department:departments(name), schedule_profile:employee_schedule_profiles(*)")
-    .eq("company_id", companyId)
+    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, department_id, company_id, can_self_schedule, department:departments(name), schedule_profile:employee_schedule_profiles(*)")
     .eq("is_active", true)
     .order("employee_code", { ascending: true })
+
+  if (subEmployeeIds) empQuery = empQuery.in("id", subEmployeeIds)
+  else                empQuery = empQuery.eq("company_id", companyId)
 
   if (deptId) empQuery = empQuery.eq("department_id", deptId)
 
@@ -93,11 +110,14 @@ export async function GET(request: Request) {
   }
 
   // ── ดึง shift_templates (for reference) ──────────────────────
-  const { data: shifts } = await supa
-    .from("shift_templates")
-    .select("*")
-    .eq("company_id", companyId)
-    .order("work_start")
+  // Manager: ดึง templates ของทุกบริษัทที่ลูกน้องอยู่ (รองรับ cross-company)
+  // SA: ดึงเฉพาะบริษัทที่กำลังดู
+  const tplCompanyIds = subEmployeeIds
+    ? Array.from(new Set(filteredEmps.map((e: any) => e.company_id).filter(Boolean)))
+    : [companyId]
+  const { data: shifts } = tplCompanyIds.length > 0
+    ? await supa.from("shift_templates").select("*").in("company_id", tplCompanyIds).order("work_start")
+    : { data: [] as any[] }
 
   // ── ดึง pending shift_change_requests ──────────────────────
   let pendingRequests: any[] = []
@@ -312,9 +332,28 @@ export async function POST(request: Request) {
 
     if (!assignments?.length) return NextResponse.json({ success: false, error: "No assignments" })
 
+    const empIdSet = Array.from(new Set(assignments.map(a => a.employee_id)))
+
+    // Manager: scope ให้แก้ได้เฉพาะลูกน้องตัวเอง
+    if (!isSA) {
+      if (!userData?.employee_id) return NextResponse.json({ success: false, error: "No employee profile" })
+      const { data: subRows } = await supa
+        .from("employee_manager_history")
+        .select("employee_id")
+        .eq("manager_id", userData.employee_id)
+        .is("effective_to", null)
+      const allowed = new Set((subRows ?? []).map((r: any) => r.employee_id))
+      const blocked = empIdSet.filter(id => !allowed.has(id))
+      if (blocked.length > 0) return NextResponse.json({ success: false, error: "ไม่มีสิทธิ์จัดกะให้พนักงานนอกทีม" }, { status: 403 })
+    }
+
+    // ดึง company_id จริงของพนักงานแต่ละคน (รองรับ cross-company subordinate)
+    const { data: empCos } = await supa.from("employees").select("id, company_id").in("id", empIdSet)
+    const empCoMap = new Map<string, string>((empCos ?? []).map((e: any) => [e.id, e.company_id]))
+
     const rows = assignments.map(a => ({
       employee_id: a.employee_id,
-      company_id: companyId,
+      company_id: empCoMap.get(a.employee_id) ?? companyId,
       work_date: a.work_date,
       shift_id: a.shift_id,
       assignment_type: a.assignment_type,
@@ -349,22 +388,44 @@ export async function POST(request: Request) {
     const fromDays = getDaysInMonth(fy, fm)
     const toDays = getDaysInMonth(ty, tm)
 
+    // Manager: จำกัด scope เป็นลูกน้องตัวเอง (ข้ามบริษัทได้)
+    let scopedEmployeeIds: string[] | null = employee_ids?.length ? employee_ids : null
+    if (!isSA) {
+      if (!userData?.employee_id) return NextResponse.json({ success: false, error: "No employee profile" })
+      const { data: subRows } = await supa
+        .from("employee_manager_history")
+        .select("employee_id")
+        .eq("manager_id", userData.employee_id)
+        .is("effective_to", null)
+      const subIds = (subRows ?? []).map((r: any) => r.employee_id)
+      if (subIds.length === 0) return NextResponse.json({ success: true, copied: 0 })
+      scopedEmployeeIds = scopedEmployeeIds
+        ? scopedEmployeeIds.filter((id: string) => subIds.includes(id))
+        : subIds
+    }
+
     // ดึง assignments จากเดือนก่อน
     let srcQuery = supa
       .from("monthly_shift_assignments")
       .select("*")
-      .eq("company_id", companyId)
       .gte("work_date", fromDays[0])
       .lte("work_date", fromDays[fromDays.length - 1])
 
-    if (employee_ids?.length) {
-      srcQuery = srcQuery.in("employee_id", employee_ids)
+    if (scopedEmployeeIds && scopedEmployeeIds.length > 0) {
+      srcQuery = srcQuery.in("employee_id", scopedEmployeeIds)
+    } else if (isSA) {
+      srcQuery = srcQuery.eq("company_id", companyId)
     }
 
     const { data: srcData, error: srcErr } = await srcQuery
     if (srcErr) return NextResponse.json({ success: false, error: srcErr.message })
 
     if (!srcData?.length) return NextResponse.json({ success: true, copied: 0 })
+
+    // ดึง company_id จริงของพนักงานแต่ละคน (รองรับ cross-company)
+    const srcEmpIds = Array.from(new Set(srcData.map((r: any) => r.employee_id)))
+    const { data: empCos } = await supa.from("employees").select("id, company_id").in("id", srcEmpIds)
+    const empCoMap = new Map<string, string>((empCos ?? []).map((e: any) => [e.id, e.company_id]))
 
     // Map by employee → day_of_month → assignment
     const empMap: Record<string, Record<number, any>> = {}
@@ -383,7 +444,7 @@ export async function POST(request: Request) {
 
         rows.push({
           employee_id: empId,
-          company_id: companyId,
+          company_id: empCoMap.get(empId) ?? companyId,
           work_date: toDate,
           shift_id: src.shift_id,
           assignment_type: src.assignment_type,

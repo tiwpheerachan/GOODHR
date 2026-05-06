@@ -165,6 +165,10 @@ export async function PATCH(req: NextRequest) {
         })
       }
 
+      // เปลี่ยนหัวหน้า → เคลียร์ kpi_evaluator_id เพื่อให้หัวหน้าตรงเป็นผู้ประเมินโดยอัตโนมัติ
+      // (override จะตั้งใหม่ได้ที่หน้าตั้งค่าผู้ประเมิน KPI)
+      await supa.from("employees").update({ kpi_evaluator_id: null }).eq("id", employee_id)
+
       // ดึงชื่อหัวหน้าใหม่ + ชื่อพนักงาน สำหรับ audit log
       const { data: newManager } = payload.supervisor_id
         ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", payload.supervisor_id).single()
