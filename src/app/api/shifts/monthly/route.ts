@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 
   // ── ดึงรายชื่อพนักงานที่จะแสดง ───────────────────────────────────
   // - SA / HR Admin: ทั้งบริษัท (เลือกได้)
-  // - Manager: เฉพาะลูกน้องตรงจาก employee_manager_history (ข้ามบริษัทได้)
+  // - Manager: ลูกน้องตรงจาก employee_manager_history + ตัวหัวหน้าเอง (ข้ามบริษัทได้)
   let subEmployeeIds: string[] | null = null
   if (!isSA) {
     if (!userData?.employee_id) return NextResponse.json({ success: true, days, shifts: [], grid: [], departments: [], total_employees: 0 })
@@ -59,8 +59,9 @@ export async function GET(request: Request) {
       .select("employee_id")
       .eq("manager_id", userData.employee_id)
       .is("effective_to", null)
-    subEmployeeIds = Array.from(new Set((subRows ?? []).map((r: any) => r.employee_id).filter(Boolean)))
-    if (subEmployeeIds.length === 0) return NextResponse.json({ success: true, days, shifts: [], grid: [], departments: [], total_employees: 0 })
+    const subSet = new Set((subRows ?? []).map((r: any) => r.employee_id).filter(Boolean))
+    subSet.add(userData.employee_id) // หัวหน้าจัดกะให้ตัวเองได้ + เห็นตัวเองในตาราง
+    subEmployeeIds = Array.from(subSet)
   }
 
   // ── ดึงพนักงาน + profile ────────────────────────────────────────
@@ -219,9 +220,10 @@ export async function POST(request: Request) {
 
   // ═══════════════════════════════════════════════════════════════
   // ACTION: generate — สร้างตาราง fixed อัตโนมัติ
+  // (default: เติมเฉพาะวันที่ยังไม่มีกะ; ส่ง force=true ถึงจะทับของเดิม)
   // ═══════════════════════════════════════════════════════════════
   if (action === "generate") {
-    const { month, target_company_ids, employee_id: genEmployeeId } = body // e.g. "2026-03"
+    const { month, target_company_ids, employee_id: genEmployeeId, force } = body // e.g. "2026-03"
     if (!month) return NextResponse.json({ success: false, error: "month required" })
 
     const [yearStr, monthStr] = month.split("-")
@@ -236,6 +238,7 @@ export async function POST(request: Request) {
     }
 
     let totalGenerated = 0
+    let totalSkipped = 0
 
     for (const coId of targetCompanies) {
       // ดึง fixed profiles + default shift
@@ -297,21 +300,39 @@ export async function POST(request: Request) {
       }
 
       if (rows.length > 0) {
-        for (let i = 0; i < rows.length; i += 500) {
-          const chunk = rows.slice(i, i + 500)
+        // ── ป้องกันการทับ (default) ───────────────────────────────
+        // ถ้าไม่ได้ส่ง force=true → ดึง assignments ที่มีอยู่แล้ว แล้ว filter ออก
+        let toWrite = rows
+        if (!force) {
+          const empIdsForGen = Array.from(new Set(rows.map((r: any) => r.employee_id)))
+          const { data: existing } = await supa
+            .from("monthly_shift_assignments")
+            .select("employee_id, work_date")
+            .in("employee_id", empIdsForGen)
+            .gte("work_date", days[0])
+            .lte("work_date", days[days.length - 1])
+          const existingSet = new Set((existing ?? []).map((e: any) => `${e.employee_id}|${e.work_date}`))
+          toWrite = rows.filter((r: any) => !existingSet.has(`${r.employee_id}|${r.work_date}`))
+          totalSkipped += rows.length - toWrite.length
+        }
+
+        for (let i = 0; i < toWrite.length; i += 500) {
+          const chunk = toWrite.slice(i, i + 500)
           const { error } = await supa
             .from("monthly_shift_assignments")
             .upsert(chunk, { onConflict: "employee_id,work_date" })
           if (error) return NextResponse.json({ success: false, error: error.message })
         }
-        totalGenerated += rows.length
+        totalGenerated += toWrite.length
       }
     }
 
     return NextResponse.json({
       success: true,
       generated: totalGenerated,
+      skipped: totalSkipped,
       companies: targetCompanies.length,
+      force: !!force,
     })
   }
 
@@ -334,7 +355,7 @@ export async function POST(request: Request) {
 
     const empIdSet = Array.from(new Set(assignments.map(a => a.employee_id)))
 
-    // Manager: scope ให้แก้ได้เฉพาะลูกน้องตัวเอง
+    // Manager: scope ให้แก้ได้เฉพาะลูกน้องตัวเอง + ตัวเอง
     if (!isSA) {
       if (!userData?.employee_id) return NextResponse.json({ success: false, error: "No employee profile" })
       const { data: subRows } = await supa
@@ -343,6 +364,7 @@ export async function POST(request: Request) {
         .eq("manager_id", userData.employee_id)
         .is("effective_to", null)
       const allowed = new Set((subRows ?? []).map((r: any) => r.employee_id))
+      allowed.add(userData.employee_id) // หัวหน้าจัดกะให้ตัวเองได้
       const blocked = empIdSet.filter(id => !allowed.has(id))
       if (blocked.length > 0) return NextResponse.json({ success: false, error: "ไม่มีสิทธิ์จัดกะให้พนักงานนอกทีม" }, { status: 403 })
     }
@@ -388,7 +410,7 @@ export async function POST(request: Request) {
     const fromDays = getDaysInMonth(fy, fm)
     const toDays = getDaysInMonth(ty, tm)
 
-    // Manager: จำกัด scope เป็นลูกน้องตัวเอง (ข้ามบริษัทได้)
+    // Manager: จำกัด scope เป็นลูกน้องตัวเอง + ตัวเอง (ข้ามบริษัทได้)
     let scopedEmployeeIds: string[] | null = employee_ids?.length ? employee_ids : null
     if (!isSA) {
       if (!userData?.employee_id) return NextResponse.json({ success: false, error: "No employee profile" })
@@ -397,8 +419,9 @@ export async function POST(request: Request) {
         .select("employee_id")
         .eq("manager_id", userData.employee_id)
         .is("effective_to", null)
-      const subIds = (subRows ?? []).map((r: any) => r.employee_id)
-      if (subIds.length === 0) return NextResponse.json({ success: true, copied: 0 })
+      const subSet = new Set((subRows ?? []).map((r: any) => r.employee_id))
+      subSet.add(userData.employee_id)
+      const subIds = Array.from(subSet)
       scopedEmployeeIds = scopedEmployeeIds
         ? scopedEmployeeIds.filter((id: string) => subIds.includes(id))
         : subIds

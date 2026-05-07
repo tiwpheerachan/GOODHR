@@ -319,7 +319,8 @@ export default function ShiftSchedulingPage() {
       if (genData.error) {
         toast.error(`สร้างตารางล้มเหลว: ${genData.error}`)
       } else {
-        toast.success(`บันทึกกะของ ${profileEditor.empName} แล้ว (สร้าง ${genData.generated ?? 0} วัน)`)
+        const skipped = genData.skipped ?? 0
+        toast.success(`บันทึกกะของ ${profileEditor.empName} แล้ว (สร้าง ${genData.generated ?? 0} วัน${skipped ? `, ข้าม ${skipped} วันที่จัดไว้แล้ว` : ""})`)
       }
       setProfileEditor(null)
       load()
@@ -340,7 +341,8 @@ export default function ShiftSchedulingPage() {
     })
     const data = await res.json()
     if (data.success) {
-      toast.success(`สร้างอัตโนมัติ ${data.generated} รายการ`)
+      const skipped = data.skipped ?? 0
+      toast.success(`สร้างอัตโนมัติ ${data.generated} รายการ${skipped ? ` (ข้าม ${skipped} วันที่จัดไว้แล้ว)` : ""}`)
       load()
     } else {
       toast.error(data.error)
@@ -366,7 +368,8 @@ export default function ShiftSchedulingPage() {
     const data = await res.json()
     setGenAllRunning(false)
     if (data.success) {
-      toast.success(`สร้างอัตโนมัติ ${data.generated} รายการ (${data.companies} บริษัท)`)
+      const skipped = data.skipped ?? 0
+      toast.success(`สร้างอัตโนมัติ ${data.generated} รายการ (${data.companies} บริษัท)${skipped ? `, ข้าม ${skipped} วันที่จัดไว้แล้ว` : ""}`)
       load()
     } else {
       toast.error(data.error)
