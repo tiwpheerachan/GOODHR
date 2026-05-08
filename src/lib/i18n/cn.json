@@ -317,7 +317,12 @@
     "comment_placeholder": "补充评语...",
     "overall_note_placeholder": "补充评语，综合概述...",
     "mandatory_badge": "必填",
-    "draft_saved": "草稿已保存"
+    "draft_saved": "草稿已保存",
+    "success_desc": "评估已成功提交",
+    "grade": "等级",
+    "success_sent_to_hr": "数据已发送给HR审核",
+    "success_when_approved": "HR批准后，{name}将看到评估结果",
+    "back_to_list": "返回列表"
   },
   "probation": {
     "title": "试用期评估",
@@ -364,7 +369,13 @@
     "cannot_delete_mandatory": "无法删除必填项",
     "weight_error": "总权重必须等于100%",
     "score_error": "请为所有项目输入分数（1-100）",
-    "draft_saved": "草稿已保存"
+    "draft_saved": "草稿已保存",
+    "confirm_title": "确认提交评估？",
+    "confirm_desc": "提交后需等待HR审核，HR退回前无法编辑。",
+    "grade": "等级",
+    "success_sent_to_hr": "数据已发送给HR审核",
+    "success_when_approved": "HR批准后，员工将看到评估结果",
+    "back_to_list": "返回列表"
   },
   "shifts": {
     "calendar_link": "排班日历",

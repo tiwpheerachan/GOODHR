@@ -419,14 +419,16 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                   {n(r.bonus) > 0 ? (
                     <div>
                       <p className="font-bold text-purple-700">฿{thb(r.bonus)}</p>
-                      {r.kpi_grade && r.kpi_grade !== "pending" && (
+                      {r.kpi_grade === "manual" ? (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" title="หัวหน้าใส่จำนวนเงินเอง">฿ ใส่เอง</span>
+                      ) : r.kpi_grade && r.kpi_grade !== "pending" ? (
                         <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
                           r.kpi_grade === "A" ? "bg-emerald-100 text-emerald-700" :
                           r.kpi_grade === "B" ? "bg-blue-100 text-blue-700" :
                           r.kpi_grade === "C" ? "bg-amber-100 text-amber-700" :
                           "bg-red-100 text-red-700"
                         }`}>{r.kpi_grade}</span>
-                      )}
+                      ) : null}
                       {r.kpi_grade === "pending" && <span className="text-[9px] text-slate-400">รอประเมิน</span>}
                     </div>
                   ) : r.kpi_grade === "pending" ? (

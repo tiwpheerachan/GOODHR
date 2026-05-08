@@ -5,10 +5,11 @@ import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import {
   ChevronLeft, Plus, Trash2, Save, Send, Loader2, Shield, AlertCircle,
-  CheckCircle2, MessageSquare, Clock,
+  CheckCircle2, MessageSquare, Clock, Sparkles,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
+import CopyFromPicker, { CopyFromItem } from "@/components/manager/CopyFromPicker"
 
 const ROUND_LABELS: Record<number, string> = { 1: "รอบที่ 1 (60 วัน)", 2: "รอบที่ 2 (90 วัน)", 3: "รอบที่ 3 (119 วัน)" }
 
@@ -66,6 +67,7 @@ export default function ProbationEvalFormPage() {
   const [submitResult, setSubmitResult] = useState<{ grade: string; score: number } | null>(null)
   const [rejectionNote, setRejectionNote] = useState("")
   const [expandedComment, setExpandedComment] = useState<number | null>(null)
+  const [showCopyPicker, setShowCopyPicker] = useState(false)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -229,6 +231,17 @@ export default function ProbationEvalFormPage() {
         </div>
       )}
 
+      {/* Copy from past evaluation */}
+      {!isSubmitted && (
+        <button
+          onClick={() => setShowCopyPicker(true)}
+          className="w-full card flex items-center justify-center gap-2 py-3 text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors border border-indigo-200 bg-indigo-50/40 active:scale-[0.98]"
+        >
+          <Sparkles size={15} />
+          เริ่มจากแม่แบบ — คัดลอกจากการประเมินที่ผ่านมา
+        </button>
+      )}
+
       {/* Items */}
       <div className="space-y-3">
         {items.map((item, idx) => {
@@ -360,6 +373,25 @@ export default function ProbationEvalFormPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Copy-from picker */}
+      {showCopyPicker && (
+        <CopyFromPicker
+          mode="probation"
+          forEmployeeId={employeeId}
+          forRound={round}
+          hasExistingData={items.some(i => (i.actual_score ?? 0) > 0 || (i.comment?.trim().length ?? 0) > 0) || items.length > MANDATORY_ITEMS.length}
+          onApply={(newItems: CopyFromItem[], note: string | null) => {
+            setItems(newItems.map(i => ({
+              category: i.category, description: i.description,
+              is_mandatory: i.is_mandatory, weight_pct: i.weight_pct,
+              actual_score: 0, comment: i.comment ?? "",
+            })))
+            if (note !== null) setEvaluatorNote(note)
+          }}
+          onClose={() => setShowCopyPicker(false)}
+        />
       )}
 
       {/* Success Modal */}

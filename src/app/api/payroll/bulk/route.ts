@@ -267,7 +267,9 @@ export async function POST(req: Request) {
   for (const p of existPRData) existingPayrolls.set(p.employee_id, p)
   console.log(`[bulk] existPR found: ${existPRData.length} records, OT>0: ${existPRData.filter(p => Number(p.ot_amount) > 0).length}`)
 
-  // ── KPI Bonus: ดึงฐาน KPI + เกรดสำหรับทุกคนในงวด ──
+  // ── KPI Bonus: ดึงฐาน KPI + เกรด + 3 evaluation_type สำหรับทุกคนในงวด ──
+  const GRADE_INCENTIVE_TABLE_BULK: Record<string, number> = { A: 5000, B: 4000, C: 3000, D: 2000 }
+
   const { data: kpiSettings } = await supa
     .from("kpi_bonus_settings")
     .select("employee_id, standard_amount")
@@ -278,21 +280,35 @@ export async function POST(req: Request) {
 
   const { data: kpiForms } = await supa
     .from("kpi_forms")
-    .select("employee_id, grade, total_score")
+    .select("employee_id, grade, total_score, evaluation_type, incentive_amount, bonus_amount")
     .in("employee_id", employee_ids)
     .eq("year", currentYear)
     .eq("month", currentMonth)
     .in("status", ["submitted", "approved", "acknowledged"])
-  const kpiGradeMap = new Map<string, string>()
-  for (const f of (kpiForms ?? [])) kpiGradeMap.set(f.employee_id, f.grade)
+  const kpiFormMap = new Map<string, any>()
+  for (const f of (kpiForms ?? [])) kpiFormMap.set(f.employee_id, f)
 
-  function calcKpiBonus(eid: string): { amount: number; grade: string | null; standardAmount: number } {
+  function calcKpiBonus(eid: string): { amount: number; grade: string | null; standardAmount: number; evaluationType: string; bonusAmount: number } {
+    const form = kpiFormMap.get(eid)
+    const evalType = form?.evaluation_type ?? "standard"
+    const bonusAdd = Number(form?.bonus_amount) || 0
+
+    if (form && evalType === "money_only") {
+      const amt = Number(form.incentive_amount) || 0
+      return { amount: Math.round(amt + bonusAdd), grade: "manual", standardAmount: amt, evaluationType: "money_only", bonusAmount: bonusAdd }
+    }
+    if (form && evalType === "grade_incentive" && form.grade) {
+      const std = GRADE_INCENTIVE_TABLE_BULK[form.grade] ?? 0
+      return { amount: Math.round(std + bonusAdd), grade: form.grade, standardAmount: std, evaluationType: "grade_incentive", bonusAmount: bonusAdd }
+    }
+
+    // standard mode (logic เดิม)
     const std = kpiSettingMap.get(eid) ?? 0
-    if (!std) return { amount: 0, grade: null, standardAmount: 0 }
-    const grade = kpiGradeMap.get(eid)
-    if (!grade) return { amount: 0, grade: "pending", standardAmount: std }
+    if (!std) return { amount: Math.round(bonusAdd), grade: form?.grade ?? null, standardAmount: 0, evaluationType: evalType, bonusAmount: bonusAdd }
+    const grade = form?.grade
+    if (!grade) return { amount: 0, grade: "pending", standardAmount: std, evaluationType: "standard", bonusAmount: 0 }
     const multiplier = grade === "A" ? 1.2 : grade === "B" ? 1.0 : grade === "C" ? 0.8 : 0
-    return { amount: Math.round(std * multiplier), grade, standardAmount: std }
+    return { amount: Math.round(std * multiplier + bonusAdd), grade, standardAmount: std, evaluationType: "standard", bonusAmount: bonusAdd }
   }
 
   // ── Guard: กรอง employee ที่ company_id ไม่ตรงกับ period ──────

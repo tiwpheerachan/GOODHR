@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { logAudit } from "@/lib/auditLog"
-
-function calcGrade(score: number): string {
-  if (score >= 91) return "A"
-  if (score >= 81) return "B"
-  if (score >= 71) return "C"
-  return "D"
-}
+import {
+  KPI_GRADE_INCENTIVE_TABLE,
+  calcGrade,
+  calcGradeIncentive,
+  VALID_EVAL_TYPES,
+  type EvaluationType,
+} from "@/lib/utils/kpi"
 
 const MONTH_NAMES = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
@@ -131,6 +131,73 @@ export async function GET(req: NextRequest) {
     const { data: forms } = await query
 
     return NextResponse.json({ forms: forms ?? [] })
+  }
+
+  // Manager: ดึง "แม่แบบ" จากการประเมิน KPI ที่ผ่านมา (ของลูกน้องตัวเอง — ข้ามบริษัทได้)
+  // ใช้ตอนกด "เริ่มจาก..." เพื่อคัดลอกหัวข้อ/น้ำหนัก/คำอธิบายของฟอร์มเก่า
+  if (mode === "copy_sources") {
+    const managerId = dbUser.employee_id
+    if (!managerId) return NextResponse.json({ same_employee: [], team: [] })
+
+    const forEmployeeId = url.get("for_employee_id")
+    const forYear = Number(url.get("for_year")) || year
+    const forMonth = Number(url.get("for_month")) || month || 0
+
+    // ลูกน้องตัวเอง (active)
+    const { data: subRows } = await svc
+      .from("employee_manager_history")
+      .select("employee_id")
+      .eq("manager_id", managerId)
+      .is("effective_to", null)
+    const teamIds = Array.from(new Set((subRows ?? []).map((r: any) => r.employee_id).filter(Boolean)))
+
+    const SELECT = "id, employee_id, year, month, total_score, grade, status, evaluator_note, evaluator_id, evaluation_type, incentive_amount, bonus_amount, bonus_reason, money_reason, submitted_at, items:kpi_items(*), evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th), employee:employees!kpi_forms_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, position:positions(name))"
+
+    // ฟอร์มทั้งหมดของพนักงานคนนี้ (ใครเคยประเมินก็ได้)
+    let sameQuery: any = null
+    if (forEmployeeId) {
+      sameQuery = svc.from("kpi_forms")
+        .select(SELECT)
+        .eq("employee_id", forEmployeeId)
+        .neq("status", "draft")
+        .order("year", { ascending: false })
+        .order("month", { ascending: false })
+    }
+
+    // ฟอร์มของลูกน้องคนอื่นในทีมเดียวกัน (ใครเคยประเมินก็ได้)
+    let teamQuery: any = null
+    if (teamIds.length > 0) {
+      teamQuery = svc.from("kpi_forms")
+        .select(SELECT)
+        .in("employee_id", teamIds)
+        .neq("status", "draft")
+        .order("year", { ascending: false })
+        .order("month", { ascending: false })
+    }
+
+    const [sameRes, teamRes] = await Promise.all([
+      sameQuery ?? Promise.resolve({ data: [] as any[] }),
+      teamQuery ?? Promise.resolve({ data: [] as any[] }),
+    ])
+
+    const same_employee: any[] = []
+    const team: any[] = []
+    const seen = new Set<string>()
+    const sortItems = (f: any) => { if (Array.isArray(f.items)) f.items.sort((a: any, b: any) => a.order_no - b.order_no); return f }
+
+    for (const f of (sameRes.data ?? [])) {
+      if (f.year === forYear && f.month === forMonth) continue
+      seen.add(f.id)
+      same_employee.push(sortItems(f))
+    }
+
+    for (const f of (teamRes.data ?? [])) {
+      if (seen.has(f.id)) continue
+      if (f.employee_id === forEmployeeId) continue
+      team.push(sortItems(f))
+    }
+
+    return NextResponse.json({ same_employee, team })
   }
 
   return NextResponse.json({ error: "Invalid mode" }, { status: 400 })
@@ -267,33 +334,71 @@ export async function POST(req: NextRequest) {
   // ══════════════════════════════════════════════════════════════
   // Save Draft / Submit (Manager)
   // ══════════════════════════════════════════════════════════════
-  const { employee_id, year, month, items, evaluator_note } = body
+  const {
+    employee_id, year, month, items, evaluator_note,
+    evaluation_type: rawEvalType,
+    incentive_amount: rawIncentive,
+    bonus_amount: rawBonus,
+    bonus_reason, money_reason,
+  } = body
 
-  // Validate weight sum
-  const totalWeight = (items ?? []).reduce((s: number, i: any) => s + (Number(i.weight_pct) || 0), 0)
-  if (action === "submit" && Math.abs(totalWeight - 100) > 0.01) {
-    return NextResponse.json({ error: "ค่าน้ำหนักรวมต้องเท่ากับ 100%" }, { status: 400 })
-  }
+  const evaluation_type: EvaluationType = VALID_EVAL_TYPES.includes(rawEvalType)
+    ? rawEvalType : "standard"
+  const isMoneyOnly = evaluation_type === "money_only"
+  const isGradeIncentive = evaluation_type === "grade_incentive"
 
-  // Validate scores on submit
+  // ── Validate per mode (เฉพาะตอน submit) ──
   if (action === "submit") {
-    for (const item of items ?? []) {
-      if (!item.actual_score || item.actual_score < 1 || item.actual_score > 100) {
-        return NextResponse.json({ error: `กรุณากรอกคะแนน (1-100) ทุกข้อ` }, { status: 400 })
+    if (isMoneyOnly) {
+      const amt = Number(rawIncentive)
+      if (!Number.isFinite(amt) || amt < 0) {
+        return NextResponse.json({ error: "กรุณากรอกจำนวนเงิน" }, { status: 400 })
+      }
+    } else {
+      // standard / grade_incentive ต้องมี items + คะแนน + น้ำหนักรวม 100
+      const totalWeight = (items ?? []).reduce((s: number, i: any) => s + (Number(i.weight_pct) || 0), 0)
+      if (Math.abs(totalWeight - 100) > 0.01) {
+        return NextResponse.json({ error: "ค่าน้ำหนักรวมต้องเท่ากับ 100%" }, { status: 400 })
+      }
+      for (const item of items ?? []) {
+        if (!item.actual_score || item.actual_score < 1 || item.actual_score > 100) {
+          return NextResponse.json({ error: `กรุณากรอกคะแนน (1-100) ทุกข้อ` }, { status: 400 })
+        }
       }
     }
   }
 
-  // Calculate scores
-  const scoredItems = (items ?? []).map((item: any, idx: number) => {
+  // ── Calculate scores + grade ตาม mode ──
+  const scoredItems = isMoneyOnly ? [] : (items ?? []).map((item: any, idx: number) => {
     const w = Number(item.weight_pct) || 0
     const a = Number(item.actual_score) || 0
     const weighted = Math.round((w * a / 100) * 100) / 100
     return { ...item, order_no: idx + 1, weight_pct: w, actual_score: a, weighted_score: weighted }
   })
 
-  const totalScore = Math.round(scoredItems.reduce((s: number, i: any) => s + i.weighted_score, 0) * 100) / 100
-  const grade = calcGrade(totalScore)
+  const totalScore = isMoneyOnly
+    ? 0
+    : Math.round(scoredItems.reduce((s: number, i: any) => s + i.weighted_score, 0) * 100) / 100
+
+  const grade = isMoneyOnly
+    ? null
+    : (isGradeIncentive ? calcGradeIncentive(totalScore) : calcGrade(totalScore))
+
+  // ── คำนวณ amounts ตาม mode ──
+  // - Mode A (standard): incentive_amount = null (payroll ใช้ kpi_bonus_settings เดิม)
+  // - Mode B (money_only): incentive_amount = manager กรอกเอง
+  // - Mode C (grade_incentive): incentive_amount = TABLE[grade] auto
+  const incentive_amount: number | null = isMoneyOnly
+    ? Math.round((Number(rawIncentive) || 0) * 100) / 100
+    : isGradeIncentive
+      ? (KPI_GRADE_INCENTIVE_TABLE[grade as string] ?? 0)
+      : null
+
+  // bonus optional ทุก mode
+  const bonus_amount: number | null = (rawBonus !== undefined && rawBonus !== null && rawBonus !== "")
+    ? Math.round((Number(rawBonus) || 0) * 100) / 100
+    : null
+
   const status = action === "submit" ? "submitted" : "draft"
 
   // ตรวจสอบว่าพนักงานมี kpi_evaluator_id กำหนดไว้หรือไม่
@@ -319,13 +424,13 @@ export async function POST(req: NextRequest) {
   let formId = existing?.id
 
   if (formId) {
-    // กำหนด status ใหม่:
-    // - Admin แก้ไข → คง approved ได้ (ถ้า action=submit จะเป็น approved เลย)
-    // - Manager แก้ไข → ต้องส่ง HR อนุมัติใหม่ (submitted)
     const newStatus = isAdmin && action === "submit" ? "approved" : status
 
     await svc.from("kpi_forms").update({
       total_score: totalScore, grade, status: newStatus, evaluator_note,
+      evaluation_type, incentive_amount, bonus_amount,
+      bonus_reason: bonus_reason ?? null,
+      money_reason: money_reason ?? null,
       rejection_note: null,
       approved_by: isAdmin && action === "submit" ? dbUser.employee_id : (newStatus === "submitted" ? null : undefined),
       approved_at: isAdmin && action === "submit" ? new Date().toISOString() : (newStatus === "submitted" ? null : undefined),
@@ -333,37 +438,40 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     }).eq("id", formId)
 
-    // Delete old items
+    // Delete old items (will re-insert below; empty for money_only)
     await svc.from("kpi_items").delete().eq("kpi_form_id", formId)
   } else {
-    // Insert
     const { data: newForm, error } = await svc.from("kpi_forms").insert({
       company_id: dbUser.company_id,
       employee_id,
       evaluator_id: effectiveEvaluatorId,
       year, month,
       total_score: totalScore, grade, status, evaluator_note,
+      evaluation_type, incentive_amount, bonus_amount,
+      bonus_reason: bonus_reason ?? null,
+      money_reason: money_reason ?? null,
       submitted_at: action === "submit" ? new Date().toISOString() : null,
     }).select("id").single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     formId = newForm.id
   }
 
-  // Insert items
-  const itemRows = scoredItems.map((item: any) => ({
-    kpi_form_id: formId,
-    order_no: item.order_no,
-    category: item.category || "",
-    description: item.description || "",
-    weight_pct: item.weight_pct,
-    actual_score: item.actual_score,
-    weighted_score: item.weighted_score,
-    is_mandatory: item.is_mandatory ?? false,
-    comment: item.comment || "",
-  }))
-
-  const { error: itemErr } = await svc.from("kpi_items").insert(itemRows)
-  if (itemErr) return NextResponse.json({ error: itemErr.message }, { status: 500 })
+  // Insert items (empty array for money_only)
+  if (scoredItems.length > 0) {
+    const itemRows = scoredItems.map((item: any) => ({
+      kpi_form_id: formId,
+      order_no: item.order_no,
+      category: item.category || "",
+      description: item.description || "",
+      weight_pct: item.weight_pct,
+      actual_score: item.actual_score,
+      weighted_score: item.weighted_score,
+      is_mandatory: item.is_mandatory ?? false,
+      comment: item.comment || "",
+    }))
+    const { error: itemErr } = await svc.from("kpi_items").insert(itemRows)
+    if (itemErr) return NextResponse.json({ error: itemErr.message }, { status: 500 })
+  }
 
   // ── Notifications on submit: แจ้ง HR เท่านั้น (ไม่แจ้งพนักงาน) ──
   if (action === "submit") {
@@ -393,5 +501,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ success: true, form_id: formId, total_score: totalScore, grade })
+  return NextResponse.json({
+    success: true,
+    form_id: formId,
+    total_score: totalScore,
+    grade,
+    evaluation_type,
+    incentive_amount,
+    bonus_amount,
+  })
 }

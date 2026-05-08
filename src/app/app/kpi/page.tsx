@@ -113,6 +113,8 @@ export default function EmployeeKpiPage() {
       ) : (
         <div className="space-y-3">
           {forms.map((form: any) => {
+            const isMoneyOnly = form.evaluation_type === "money_only"
+            const totalMoney = (Number(form.incentive_amount) || 0) + (Number(form.bonus_amount) || 0)
             const gc = GRADE_CONFIG[form.grade] || GRADE_CONFIG.D
             const isOpen = expanded === form.id
             const items = (form.items ?? []).sort((a: any, b: any) => a.order_no - b.order_no)
@@ -122,12 +124,21 @@ export default function EmployeeKpiPage() {
                 {/* Summary row */}
                 <button onClick={() => setExpanded(isOpen ? null : form.id)}
                   className="w-full flex items-center gap-3 text-left">
-                  <div className={`w-12 h-12 rounded-2xl ${gc.bg} ring-1 ${gc.ring} flex items-center justify-center shrink-0`}>
-                    <span className={`text-xl font-black ${gc.color}`}>{form.grade}</span>
+                  <div className={`w-12 h-12 rounded-2xl ${isMoneyOnly ? "bg-emerald-50 ring-emerald-200" : `${gc.bg} ring-${gc.ring}`} ring-1 flex items-center justify-center shrink-0`}>
+                    <span className={`text-xl font-black ${isMoneyOnly ? "text-emerald-700" : gc.color}`}>
+                      {isMoneyOnly ? "฿" : form.grade}
+                    </span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-slate-800">{MONTHS[form.month]} {form.year}</p>
-                    <p className="text-sm text-slate-500">คะแนน {form.total_score.toFixed(1)}%</p>
+                    {isMoneyOnly ? (
+                      <p className="text-sm text-emerald-600 font-bold">{totalMoney.toLocaleString()} บาท</p>
+                    ) : (
+                      <p className="text-sm text-slate-500">
+                        คะแนน {form.total_score.toFixed(1)}%
+                        {totalMoney > 0 && <span className="ml-2 text-emerald-600 font-bold">+ {totalMoney.toLocaleString()} ฿</span>}
+                      </p>
+                    )}
                   </div>
                   {form.evaluator && (
                     <div className="text-right shrink-0">
@@ -140,6 +151,32 @@ export default function EmployeeKpiPage() {
                 {/* Expanded detail */}
                 {isOpen && (
                   <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+                    {/* Money breakdown (Mode B/C or with bonus) */}
+                    {totalMoney > 0 && (
+                      <div className="bg-emerald-50 rounded-xl p-3 space-y-1.5">
+                        <p className="text-xs font-bold text-emerald-700 mb-1">เงินรางวัล KPI</p>
+                        {Number(form.incentive_amount) > 0 && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-emerald-600">{isMoneyOnly ? "หัวหน้าใส่เงิน" : "ตามเกรด " + form.grade}</span>
+                            <span className="font-bold text-emerald-700">{Number(form.incentive_amount).toLocaleString()} ฿</span>
+                          </div>
+                        )}
+                        {Number(form.bonus_amount) > 0 && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-amber-600">ค่าผลงานพิเศษ {form.bonus_reason ? `(${form.bonus_reason})` : ""}</span>
+                            <span className="font-bold text-amber-700">+ {Number(form.bonus_amount).toLocaleString()} ฿</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between pt-1.5 border-t border-emerald-200 text-sm">
+                          <span className="font-bold text-emerald-700">รวม</span>
+                          <span className="font-black text-emerald-700">{totalMoney.toLocaleString()} ฿</span>
+                        </div>
+                        {form.money_reason && (
+                          <p className="text-[11px] text-slate-500 italic mt-1">{form.money_reason}</p>
+                        )}
+                      </div>
+                    )}
+
                     {items.map((item: any, idx: number) => (
                       <div key={item.id || idx} className="space-y-1">
                         <div className="flex items-start gap-2">

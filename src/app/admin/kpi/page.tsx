@@ -418,8 +418,25 @@ export default function AdminKpiPage() {
                   </div>
                   <span className="text-sm text-slate-600 hidden lg:block truncate">{emp?.department?.name}</span>
                   <span className="text-sm text-slate-600">{MONTHS[form.month]}</span>
-                  <span className="text-sm font-bold text-slate-800">{form.total_score?.toFixed(1)}%</span>
-                  <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black ring-1 ${gc.bg} ${gc.text} ${gc.ring}`}>{form.grade}</span>
+                  <span className="text-sm font-bold text-slate-800">
+                    {form.evaluation_type === "money_only" ? "—" : `${form.total_score?.toFixed(1) ?? 0}%`}
+                  </span>
+                  <div className="flex flex-col items-start gap-0.5">
+                    <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black ring-1 ${gc.bg} ${gc.text} ${gc.ring}`}>
+                      {form.evaluation_type === "money_only" ? "฿" : (form.grade ?? "-")}
+                    </span>
+                    {form.evaluation_type === "money_only" && (
+                      <span className="text-[9px] font-bold text-emerald-600 whitespace-nowrap">หัวหน้าใส่เงิน</span>
+                    )}
+                    {form.evaluation_type === "grade_incentive" && (
+                      <span className="text-[9px] font-bold text-amber-600 whitespace-nowrap">เกรด→เงิน</span>
+                    )}
+                    {((Number(form.incentive_amount) || 0) + (Number(form.bonus_amount) || 0)) > 0 && (
+                      <span className="text-[10px] font-bold text-indigo-600 whitespace-nowrap">
+                        {((Number(form.incentive_amount) || 0) + (Number(form.bonus_amount) || 0)).toLocaleString()}฿
+                      </span>
+                    )}
+                  </div>
                   <span className="text-xs text-slate-500 hidden lg:block truncate">
                     {form.evaluator?.first_name_th} {form.evaluator?.last_name_th}
                   </span>
@@ -491,6 +508,33 @@ export default function AdminKpiPage() {
                             </div>
                           </div>
                         ))}
+                        {/* ── เงินรางวัล + ค่าผลงาน (ถ้ามี) ── */}
+                        {(detail?.evaluation_type === "money_only" || detail?.evaluation_type === "grade_incentive" || (Number(detail?.bonus_amount) || 0) > 0) && (
+                          <div className="bg-white rounded-xl p-3 space-y-1.5">
+                            <p className="text-xs font-bold text-slate-500 mb-1">เงินรางวัล KPI</p>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              {Number(detail?.incentive_amount) > 0 && (
+                                <div className="bg-emerald-50 rounded-lg px-3 py-2">
+                                  <p className="text-[10px] text-emerald-600 font-bold">
+                                    {detail?.evaluation_type === "money_only" ? "หัวหน้าใส่เงินเอง" : "ตามเกรด"}
+                                  </p>
+                                  <p className="text-lg font-black text-emerald-700">{Number(detail.incentive_amount).toLocaleString()} ฿</p>
+                                </div>
+                              )}
+                              {Number(detail?.bonus_amount) > 0 && (
+                                <div className="bg-amber-50 rounded-lg px-3 py-2">
+                                  <p className="text-[10px] text-amber-600 font-bold">ค่าผลงานพิเศษ</p>
+                                  <p className="text-lg font-black text-amber-700">{Number(detail.bonus_amount).toLocaleString()} ฿</p>
+                                  {detail.bonus_reason && <p className="text-[10px] text-amber-600 italic mt-1">{detail.bonus_reason}</p>}
+                                </div>
+                              )}
+                            </div>
+                            {detail?.money_reason && (
+                              <p className="text-[11px] text-slate-500 italic">หมายเหตุ: {detail.money_reason}</p>
+                            )}
+                          </div>
+                        )}
+
                         {detail?.evaluator_note && (
                           <div className="bg-white rounded-xl p-3">
                             <p className="text-xs font-bold text-slate-500 mb-1">ความเห็นภาพรวม</p>

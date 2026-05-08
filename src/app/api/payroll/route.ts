@@ -85,12 +85,53 @@ function todayTH(): string {
 }
 
 // ── KPI Bonus Calculator ──────────────────────────────────────────
-// ดึงฐาน KPI จาก kpi_bonus_settings + เกรดจาก kpi_forms
-// คำนวณโบนัส: A=standard*1.2, B=standard, C=standard*0.8, D=0
+// 3 evaluation_type:
+// - 'standard'        → ใช้ฐาน KPI × multiplier (A=1.2/B=1.0/C=0.8/D=0) + bonus_amount
+// - 'money_only'      → หัวหน้ากรอกจำนวนเงินมาเลย, ไม่มีเกรด
+// - 'grade_incentive' → ตารางเงินเด้งตามเกรด (A=5000/B=4000/C=3000/D=2000) + bonus_amount
+const GRADE_INCENTIVE_TABLE: Record<string, number> = { A: 5000, B: 4000, C: 3000, D: 2000 }
+
 async function getKpiBonus(
   supa: any, employeeId: string, year: number, month: number
-): Promise<{ amount: number; grade: string | null; standardAmount: number }> {
-  // ดึงฐาน KPI ที่ active
+): Promise<{ amount: number; grade: string | null; standardAmount: number; evaluationType: string; bonusAmount: number }> {
+  // ดึงฟอร์ม KPI เดือนนี้ก่อน — ถ้ามีและ status เป็น submitted/approved/acknowledged
+  const { data: kpiForm } = await supa
+    .from("kpi_forms")
+    .select("grade, total_score, evaluation_type, incentive_amount, bonus_amount, status")
+    .eq("employee_id", employeeId)
+    .eq("year", year)
+    .eq("month", month)
+    .in("status", ["submitted", "approved", "acknowledged"])
+    .maybeSingle()
+
+  const evalType = kpiForm?.evaluation_type ?? "standard"
+  const bonusAdd = Number(kpiForm?.bonus_amount) || 0
+
+  // ── Mode B: money_only — ใช้ incentive_amount ที่หัวหน้าใส่เลย ──
+  if (kpiForm && evalType === "money_only") {
+    const amt = Number(kpiForm.incentive_amount) || 0
+    return {
+      amount: Math.round(amt + bonusAdd),
+      grade: "manual",
+      standardAmount: amt,
+      evaluationType: "money_only",
+      bonusAmount: bonusAdd,
+    }
+  }
+
+  // ── Mode C: grade_incentive — ใช้ตารางเด้งตามเกรด (ไม่อิงฐาน) ──
+  if (kpiForm && evalType === "grade_incentive" && kpiForm.grade) {
+    const std = GRADE_INCENTIVE_TABLE[kpiForm.grade as string] ?? 0
+    return {
+      amount: Math.round(std + bonusAdd),
+      grade: kpiForm.grade,
+      standardAmount: std,
+      evaluationType: "grade_incentive",
+      bonusAmount: bonusAdd,
+    }
+  }
+
+  // ── Mode A: standard — logic เดิม (kpi_bonus_settings × multiplier) + bonus ──
   const { data: kpiSetting } = await supa
     .from("kpi_bonus_settings")
     .select("standard_amount")
@@ -99,29 +140,31 @@ async function getKpiBonus(
     .maybeSingle()
 
   if (!kpiSetting || !kpiSetting.standard_amount) {
-    return { amount: 0, grade: null, standardAmount: 0 }
+    // ไม่มีฐาน KPI — ถ้าเป็น standard mode ก็ได้แค่ bonus_amount (ถ้ามี)
+    return {
+      amount: Math.round(bonusAdd),
+      grade: kpiForm?.grade ?? null,
+      standardAmount: 0,
+      evaluationType: evalType,
+      bonusAmount: bonusAdd,
+    }
   }
 
   const std = Number(kpiSetting.standard_amount)
 
-  // ดึงเกรด KPI เดือนนี้ (ต้อง submitted, approved หรือ acknowledged)
-  const { data: kpiForm } = await supa
-    .from("kpi_forms")
-    .select("grade, total_score")
-    .eq("employee_id", employeeId)
-    .eq("year", year)
-    .eq("month", month)
-    .in("status", ["submitted", "approved", "acknowledged"])
-    .maybeSingle()
-
   if (!kpiForm?.grade) {
-    // ยังไม่ประเมิน → ยังไม่ให้โบนัส, รอหัวหน้าประเมินก่อน
-    return { amount: 0, grade: "pending", standardAmount: std }
+    return { amount: 0, grade: "pending", standardAmount: std, evaluationType: "standard", bonusAmount: 0 }
   }
 
   const grade = kpiForm.grade as string
   const multiplier = grade === "A" ? 1.2 : grade === "B" ? 1.0 : grade === "C" ? 0.8 : 0
-  return { amount: Math.round(std * multiplier), grade, standardAmount: std }
+  return {
+    amount: Math.round(std * multiplier + bonusAdd),
+    grade,
+    standardAmount: std,
+    evaluationType: "standard",
+    bonusAmount: bonusAdd,
+  }
 }
 
 // ── Init: สร้าง payroll_records ตั้งต้นด้วยฐานเงินเดือน (ยังไม่คำนวณ attendance) ──

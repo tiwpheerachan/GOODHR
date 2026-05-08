@@ -317,7 +317,12 @@
     "comment_placeholder": "Additional comment...",
     "overall_note_placeholder": "Additional comments, overall summary...",
     "mandatory_badge": "Required",
-    "draft_saved": "Draft saved successfully"
+    "draft_saved": "Draft saved successfully",
+    "success_desc": "Evaluation submitted successfully",
+    "grade": "Grade",
+    "success_sent_to_hr": "Data sent to HR for review",
+    "success_when_approved": "Once HR approves, {name} will see the results",
+    "back_to_list": "Back to list"
   },
   "probation": {
     "title": "Probation Evaluation",
@@ -364,7 +369,13 @@
     "cannot_delete_mandatory": "Cannot delete mandatory item",
     "weight_error": "Total weight must equal 100%",
     "score_error": "Please enter score (1-100) for all items",
-    "draft_saved": "Draft saved"
+    "draft_saved": "Draft saved",
+    "confirm_title": "Confirm submission?",
+    "confirm_desc": "Once submitted, HR will review before notifying. Cannot be edited until HR returns it.",
+    "grade": "Grade",
+    "success_sent_to_hr": "Data sent to HR for review",
+    "success_when_approved": "Once HR approves, the employee will see the results",
+    "back_to_list": "Back to list"
   },
   "shifts": {
     "calendar_link": "Schedule Calendar",

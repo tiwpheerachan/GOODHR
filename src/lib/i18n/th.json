@@ -317,7 +317,12 @@
     "comment_placeholder": "ความเห็นเพิ่มเติม...",
     "overall_note_placeholder": "ความเห็นเพิ่มเติม สรุปภาพรวม...",
     "mandatory_badge": "บังคับ",
-    "draft_saved": "บันทึกร่างสำเร็จ"
+    "draft_saved": "บันทึกร่างสำเร็จ",
+    "success_desc": "ส่งผลประเมินเรียบร้อยแล้ว",
+    "grade": "เกรด",
+    "success_sent_to_hr": "ข้อมูลถูกส่งให้ HR ตรวจสอบ",
+    "success_when_approved": "เมื่อ HR อนุมัติแล้ว {name} จะเห็นผลประเมิน",
+    "back_to_list": "กลับหน้ารายชื่อ"
   },
   "probation": {
     "title": "ประเมินทดลองงาน",
@@ -364,7 +369,13 @@
     "cannot_delete_mandatory": "ไม่สามารถลบข้อบังคับได้",
     "weight_error": "ค่าน้ำหนักรวมต้องเท่ากับ 100%",
     "score_error": "กรุณากรอกคะแนน (1-100) ทุกข้อ",
-    "draft_saved": "บันทึกร่างแล้ว"
+    "draft_saved": "บันทึกร่างแล้ว",
+    "confirm_title": "ยืนยันส่งผลประเมิน?",
+    "confirm_desc": "เมื่อส่งแล้วต้องรอ HR ตรวจสอบ ไม่สามารถแก้ไขได้จนกว่า HR จะส่งคืน",
+    "grade": "เกรด",
+    "success_sent_to_hr": "ข้อมูลถูกส่งให้ HR ตรวจสอบ",
+    "success_when_approved": "เมื่อ HR อนุมัติแล้ว พนักงานจะเห็นผลประเมิน",
+    "back_to_list": "กลับหน้ารายชื่อ"
   },
   "shifts": {
     "calendar_link": "ปฏิทินสรุปตารางงาน",

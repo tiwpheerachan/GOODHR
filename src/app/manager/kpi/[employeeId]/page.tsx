@@ -5,10 +5,17 @@ import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import {
   ChevronLeft, Plus, Trash2, Save, Send, Loader2, Target, AlertCircle,
-  CheckCircle2, GripVertical, MessageSquare, Info, Clock, Copy,
+  CheckCircle2, GripVertical, MessageSquare, Info, Clock, Copy, Sparkles,
+  Coins, Wallet, ListChecks,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
+import CopyFromPicker, { CopyFromItem } from "@/components/manager/CopyFromPicker"
+import {
+  KPI_GRADE_INCENTIVE_TABLE,
+  calcGradeIncentive,
+  type EvaluationType,
+} from "@/lib/utils/kpi"
 
 const MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
@@ -78,6 +85,13 @@ export default function KpiFormPage() {
   const [submitResult, setSubmitResult] = useState<{ grade: string; score: number } | null>(null)
   const [expandedComment, setExpandedComment] = useState<number | null>(null)
   const [rejectionNote, setRejectionNote] = useState("")
+  const [showCopyPicker, setShowCopyPicker] = useState(false)
+  // ── Mode B/C: ประเภทการประเมิน + จำนวนเงิน + bonus ──
+  const [evaluationType, setEvaluationType] = useState<EvaluationType>("standard")
+  const [incentiveAmount, setIncentiveAmount] = useState<string>("")  // Mode B
+  const [moneyReason, setMoneyReason] = useState<string>("")          // Mode B
+  const [bonusAmount, setBonusAmount] = useState<string>("")          // Mode A/C
+  const [bonusReason, setBonusReason] = useState<string>("")          // Mode A/C
   const mountedRef = useRef(true)
 
   // Load existing form
@@ -107,17 +121,24 @@ export default function KpiFormPage() {
           // Load full form with items
           const fRes = await fetch(`/api/kpi?mode=single&form_id=${form.id}`)
           const fData = await fRes.json()
-          if (fData.form?.items?.length > 0 && mountedRef.current) {
-            const sorted = fData.form.items.sort((a: any, b: any) => a.order_no - b.order_no)
-            setItems(sorted.map((it: any) => ({
-              category: it.category,
-              description: it.description || "",
-              is_mandatory: it.is_mandatory,
-              weight_pct: it.weight_pct,
-              actual_score: it.actual_score,
-              comment: it.comment || "",
-            })))
-            setEvaluatorNote(fData.form.evaluator_note || "")
+          if (fData.form && mountedRef.current) {
+            const f = fData.form
+            // โหลดข้อมูลทุกฟิลด์ของฟอร์ม (รองรับ 3 modes)
+            if (f.evaluation_type) setEvaluationType(f.evaluation_type)
+            if (f.incentive_amount !== null && f.incentive_amount !== undefined) setIncentiveAmount(String(f.incentive_amount))
+            if (f.bonus_amount !== null && f.bonus_amount !== undefined) setBonusAmount(String(f.bonus_amount))
+            if (f.money_reason) setMoneyReason(f.money_reason)
+            if (f.bonus_reason) setBonusReason(f.bonus_reason)
+            setEvaluatorNote(f.evaluator_note || "")
+
+            if (f.items?.length > 0) {
+              const sorted = f.items.sort((a: any, b: any) => a.order_no - b.order_no)
+              setItems(sorted.map((it: any) => ({
+                category: it.category, description: it.description || "",
+                is_mandatory: it.is_mandatory, weight_pct: it.weight_pct,
+                actual_score: it.actual_score, comment: it.comment || "",
+              })))
+            }
           }
         }
       } catch (e) {
@@ -131,15 +152,26 @@ export default function KpiFormPage() {
   }, [user?.employee_id, employeeId, year, month])
 
   // Calculations
+  const isMoneyOnly = evaluationType === "money_only"
+  const isGradeIncentive = evaluationType === "grade_incentive"
   const totalWeight = items.reduce((s, i) => s + (Number(i.weight_pct) || 0), 0)
-  const weightValid = Math.abs(totalWeight - 100) < 0.01
-  const totalScore = items.reduce((s, i) => {
+  const weightValid = isMoneyOnly || Math.abs(totalWeight - 100) < 0.01
+  const totalScore = isMoneyOnly ? 0 : items.reduce((s, i) => {
     const w = Number(i.weight_pct) || 0
     const a = Number(i.actual_score) || 0
     return s + Math.round((w * a / 100) * 100) / 100
   }, 0)
-  const grade = calcGrade(totalScore)
-  const gradeConf = GRADE_CONFIG[grade]
+  const grade = isMoneyOnly ? "" : (isGradeIncentive ? calcGradeIncentive(totalScore) : calcGrade(totalScore))
+  const gradeConf = GRADE_CONFIG[grade] ?? GRADE_CONFIG.D
+
+  // จำนวนเงินที่จะได้ (preview)
+  const previewIncentive = isMoneyOnly
+    ? (Number(incentiveAmount) || 0)
+    : isGradeIncentive
+      ? (KPI_GRADE_INCENTIVE_TABLE[grade] ?? 0)
+      : 0
+  const previewBonus = Number(bonusAmount) || 0
+  const previewTotalMoney = previewIncentive + previewBonus
 
   // Actions
   const updateItem = useCallback((idx: number, field: keyof KpiRow, value: any) => {
@@ -190,11 +222,16 @@ export default function KpiFormPage() {
 
   const handleSave = async (action: "save_draft" | "submit") => {
     if (action === "submit") {
-      if (!weightValid) { toast.error(t("kpi.weight_error")); return }
-      const missing = items.some(i => !i.actual_score || i.actual_score < 1 || i.actual_score > 100)
-      if (missing) { toast.error(t("kpi.score_error")); return }
-      const emptyCat = items.some(i => !i.category.trim())
-      if (emptyCat) { toast.error(t("kpi.category_error")); return }
+      if (isMoneyOnly) {
+        const amt = Number(incentiveAmount)
+        if (!Number.isFinite(amt) || amt < 0) { toast.error("กรุณากรอกจำนวนเงิน"); return }
+      } else {
+        if (!weightValid) { toast.error(t("kpi.weight_error")); return }
+        const missing = items.some(i => !i.actual_score || i.actual_score < 1 || i.actual_score > 100)
+        if (missing) { toast.error(t("kpi.score_error")); return }
+        const emptyCat = items.some(i => !i.category.trim())
+        if (emptyCat) { toast.error(t("kpi.category_error")); return }
+      }
       setShowConfirm(true)
       return
     }
@@ -208,7 +245,16 @@ export default function KpiFormPage() {
       const res = await fetch("/api/kpi", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_id: employeeId, year, month, items, evaluator_note: evaluatorNote, action }),
+        body: JSON.stringify({
+          employee_id: employeeId, year, month, action,
+          evaluation_type: evaluationType,
+          items: isMoneyOnly ? [] : items,
+          evaluator_note: evaluatorNote,
+          incentive_amount: isMoneyOnly ? (Number(incentiveAmount) || 0) : null,
+          bonus_amount: isMoneyOnly ? null : (bonusAmount === "" ? null : Number(bonusAmount) || 0),
+          bonus_reason: isMoneyOnly ? null : (bonusReason || null),
+          money_reason: isMoneyOnly ? (moneyReason || null) : null,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || t("common.error"))
@@ -260,42 +306,163 @@ export default function KpiFormPage() {
         </div>
       )}
 
-      {/* Live Score Card */}
-      <div className={`rounded-2xl p-4 ring-1 ${gradeConf.bg} ${gradeConf.ring} transition-all`}>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-slate-500 mb-1">{t("kpi.total_score")}</p>
-            <div className="flex items-baseline gap-2">
-              <span className={`text-3xl font-black ${gradeConf.color}`}>{totalScore.toFixed(1)}</span>
-              <span className="text-sm text-slate-400">/ 100</span>
-            </div>
-          </div>
-          <div className="text-center">
-            <div className={`w-14 h-14 rounded-2xl ${gradeConf.bg} ring-2 ${gradeConf.ring} flex items-center justify-center`}>
-              <span className={`text-2xl font-black ${gradeConf.color}`}>{grade}</span>
-            </div>
-            <p className={`text-[10px] font-bold mt-1 ${gradeConf.color}`}>{gradeConf.range}</p>
+      {/* ── ประเภทการประเมิน (Mode selector) ── */}
+      {!isSubmitted && (
+        <div className="card space-y-2">
+          <p className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
+            <Target size={12} /> ประเภทการประเมิน
+          </p>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <button onClick={() => setEvaluationType("standard")}
+              className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all ${
+                evaluationType === "standard" ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"
+              }`}>
+              <ListChecks size={16} />
+              <span className="font-bold">มาตรฐาน</span>
+              <span className="text-[10px] text-slate-400">หัวข้อ + เกรด</span>
+            </button>
+            <button onClick={() => setEvaluationType("money_only")}
+              className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all ${
+                evaluationType === "money_only" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"
+              }`}>
+              <Wallet size={16} />
+              <span className="font-bold">ใส่เงินเอง</span>
+              <span className="text-[10px] text-slate-400">ไม่ต้องประเมิน</span>
+            </button>
+            <button onClick={() => setEvaluationType("grade_incentive")}
+              className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all ${
+                evaluationType === "grade_incentive" ? "border-amber-500 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"
+              }`}>
+              <Coins size={16} />
+              <span className="font-bold">เกรด→เงิน</span>
+              <span className="text-[10px] text-slate-400">ตามตาราง</span>
+            </button>
           </div>
         </div>
+      )}
 
-        {/* Weight bar */}
-        <div className="mt-3">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-bold text-slate-500">{t("kpi.weight_sum")}</span>
-            <span className={`text-[11px] font-black ${weightValid ? "text-emerald-600" : "text-red-500"}`}>
-              {totalWeight}% / 100%
-            </span>
+      {/* Live Score Card — ซ่อนใน money_only */}
+      {!isMoneyOnly && (
+        <div className={`rounded-2xl p-4 ring-1 ${gradeConf.bg} ${gradeConf.ring} transition-all`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-slate-500 mb-1">{t("kpi.total_score")}</p>
+              <div className="flex items-baseline gap-2">
+                <span className={`text-3xl font-black ${gradeConf.color}`}>{totalScore.toFixed(1)}</span>
+                <span className="text-sm text-slate-400">/ 100</span>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className={`w-14 h-14 rounded-2xl ${gradeConf.bg} ring-2 ${gradeConf.ring} flex items-center justify-center`}>
+                <span className={`text-2xl font-black ${gradeConf.color}`}>{grade}</span>
+              </div>
+              <p className={`text-[10px] font-bold mt-1 ${gradeConf.color}`}>{gradeConf.range}</p>
+            </div>
           </div>
-          <div className="h-2 bg-white/60 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                weightValid ? "bg-emerald-500" : totalWeight > 100 ? "bg-red-500" : "bg-amber-400"
-              }`}
-              style={{ width: `${Math.min(totalWeight, 100)}%` }}
-            />
+
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] font-bold text-slate-500">{t("kpi.weight_sum")}</span>
+              <span className={`text-[11px] font-black ${weightValid ? "text-emerald-600" : "text-red-500"}`}>
+                {totalWeight}% / 100%
+              </span>
+            </div>
+            <div className="h-2 bg-white/60 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  weightValid ? "bg-emerald-500" : totalWeight > 100 ? "bg-red-500" : "bg-amber-400"
+                }`}
+                style={{ width: `${Math.min(totalWeight, 100)}%` }}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* ── Mode C: ตารางเงินรางวัลตามเกรด ── */}
+      {isGradeIncentive && (
+        <div className="card space-y-2">
+          <p className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
+            <Coins size={12} className="text-amber-500" /> ตารางเงินรางวัลตามเกรด
+          </p>
+          <div className="grid grid-cols-4 gap-1.5 text-center text-xs">
+            {(["A","B","C","D"] as const).map(g => (
+              <div key={g} className={`rounded-lg py-2 px-1 border-2 ${grade === g ? "border-amber-400 bg-amber-50 ring-2 ring-amber-200" : "border-slate-100 bg-slate-50"}`}>
+                <p className="text-base font-black text-slate-700">{g}</p>
+                <p className="text-[10px] text-slate-500">
+                  {g === "A" && "≥ 90"}
+                  {g === "B" && "80-89"}
+                  {g === "C" && "65-79"}
+                  {g === "D" && "< 65"}
+                </p>
+                <p className="text-[11px] font-bold text-amber-600">{KPI_GRADE_INCENTIVE_TABLE[g].toLocaleString()}฿</p>
+              </div>
+            ))}
+          </div>
+          {grade && (
+            <p className="text-[11px] text-slate-500 mt-1 text-center">
+              เกรดปัจจุบัน <span className="font-bold text-amber-700">{grade}</span> → จะได้ <span className="font-bold text-amber-700">{KPI_GRADE_INCENTIVE_TABLE[grade]?.toLocaleString() ?? 0} บาท</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Mode B: กล่องกรอกเงิน ── */}
+      {isMoneyOnly && (
+        <div className="card space-y-3 ring-2 ring-emerald-200 bg-emerald-50/40">
+          <div className="flex items-center gap-1.5">
+            <Wallet size={14} className="text-emerald-600" />
+            <p className="text-sm font-black text-emerald-700">จำนวนเงินที่จะได้</p>
+          </div>
+          <input type="number" inputMode="decimal" min={0} step={1}
+            value={incentiveAmount}
+            onChange={e => setIncentiveAmount(e.target.value)}
+            disabled={isSubmitted}
+            placeholder="เช่น 1500"
+            className="w-full text-center text-2xl font-black text-emerald-700 bg-white rounded-xl py-3 ring-1 ring-emerald-300 focus:ring-2 focus:ring-emerald-400 outline-none disabled:opacity-60" />
+          <textarea
+            value={moneyReason}
+            onChange={e => setMoneyReason(e.target.value)}
+            disabled={isSubmitted}
+            placeholder="หมายเหตุ (ไม่บังคับ) — เช่น ที่มาของจำนวนเงิน"
+            rows={2}
+            className="w-full text-xs text-slate-600 bg-white rounded-xl p-3 outline-none focus:ring-1 focus:ring-emerald-300 resize-none placeholder:text-slate-300 disabled:opacity-60" />
+        </div>
+      )}
+
+      {/* ── ค่าผลงานพิเศษ (Mode A & C) ── */}
+      {!isMoneyOnly && !isSubmitted && (
+        <div className="card space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Coins size={13} className="text-amber-500" />
+            <p className="text-sm font-bold text-slate-700">ค่าผลงานพิเศษ <span className="text-[11px] font-normal text-slate-400">(ไม่บังคับ)</span></p>
+          </div>
+          <input type="number" inputMode="decimal" min={0} step={1}
+            value={bonusAmount}
+            onChange={e => setBonusAmount(e.target.value)}
+            placeholder="0"
+            className="w-full text-right text-base font-bold text-slate-800 bg-slate-50 rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-amber-300 placeholder:text-slate-300" />
+          {Number(bonusAmount) > 0 && (
+            <textarea
+              value={bonusReason}
+              onChange={e => setBonusReason(e.target.value)}
+              placeholder="เหตุผล (ไม่บังคับ)"
+              rows={1}
+              className="w-full text-xs text-slate-600 bg-slate-50 rounded-xl p-2 outline-none focus:ring-1 focus:ring-amber-300 resize-none placeholder:text-slate-300" />
+          )}
+        </div>
+      )}
+
+      {/* ── สรุปยอดเงินรวม (Mode B + C) ── */}
+      {(isMoneyOnly || isGradeIncentive || previewBonus > 0) && (
+        <div className="card flex items-center justify-between bg-gradient-to-r from-indigo-50 to-violet-50 ring-1 ring-indigo-200">
+          <div className="flex items-center gap-1.5">
+            <Wallet size={14} className="text-indigo-600" />
+            <p className="text-sm font-bold text-indigo-700">รวมเงินที่จะได้</p>
+          </div>
+          <p className="text-xl font-black text-indigo-700">{previewTotalMoney.toLocaleString()} บาท</p>
+        </div>
+      )}
 
       {isSubmitted && (
         <div className="flex items-center justify-between bg-orange-50 text-orange-700 text-sm font-bold px-4 py-3 rounded-2xl ring-1 ring-orange-200">
@@ -320,8 +487,19 @@ export default function KpiFormPage() {
         </div>
       )}
 
-      {/* KPI Items */}
-      <div className="space-y-3">
+      {/* Copy from past evaluation */}
+      {!isSubmitted && (
+        <button
+          onClick={() => setShowCopyPicker(true)}
+          className="w-full card flex items-center justify-center gap-2 py-3 text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors border border-indigo-200 bg-indigo-50/40 active:scale-[0.98]"
+        >
+          <Sparkles size={15} />
+          เริ่มจากแม่แบบ — คัดลอกจาก KPI ที่ผ่านมา
+        </button>
+      )}
+
+      {/* KPI Items — ซ่อนใน money_only */}
+      {!isMoneyOnly && <div className="space-y-3">
         {items.map((item, idx) => {
           const weighted = Math.round(((Number(item.weight_pct) || 0) * (Number(item.actual_score) || 0) / 100) * 100) / 100
           return (
@@ -429,18 +607,18 @@ export default function KpiFormPage() {
             </div>
           )
         })}
-      </div>
+      </div>}
 
-      {/* Add Button */}
-      {!isSubmitted && items.length < 15 && (
+      {/* Add Button — ซ่อนใน money_only */}
+      {!isMoneyOnly && !isSubmitted && items.length < 15 && (
         <button onClick={addItem}
           className="w-full card flex items-center justify-center gap-2 py-4 text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors border-dashed border-2 border-indigo-200 bg-transparent shadow-none active:scale-[0.98]">
           <Plus size={16} /> {t("kpi.add_item")}
         </button>
       )}
 
-      {/* Copy as Template for Next Month */}
-      {items.length > 0 && existingFormId && (
+      {/* Copy as Template for Next Month — ซ่อนใน money_only */}
+      {!isMoneyOnly && items.length > 0 && existingFormId && (
         <button onClick={copyAsTemplate} disabled={saving}
           className="w-full card flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-emerald-600 hover:bg-emerald-50 transition-colors border border-emerald-200 bg-transparent shadow-none active:scale-[0.98] disabled:opacity-50">
           <Copy size={15} />
@@ -448,34 +626,38 @@ export default function KpiFormPage() {
         </button>
       )}
 
-      {/* Evaluator Note */}
-      <div className="card space-y-2">
-        <p className="text-sm font-bold text-slate-700">ความเห็นภาพรวมจากหัวหน้า</p>
-        <textarea
-          value={evaluatorNote}
-          onChange={e => setEvaluatorNote(e.target.value)}
-          disabled={isSubmitted}
-          placeholder="ความเห็นเพิ่มเติม สรุปภาพรวม..."
-          rows={3}
-          className="w-full text-sm text-slate-600 bg-slate-50 rounded-xl p-3 outline-none focus:ring-1 focus:ring-indigo-200 resize-none placeholder:text-slate-300 disabled:opacity-60"
-        />
-      </div>
+      {/* Evaluator Note — ซ่อนใน money_only */}
+      {!isMoneyOnly && (
+        <div className="card space-y-2">
+          <p className="text-sm font-bold text-slate-700">ความเห็นภาพรวมจากหัวหน้า</p>
+          <textarea
+            value={evaluatorNote}
+            onChange={e => setEvaluatorNote(e.target.value)}
+            disabled={isSubmitted}
+            placeholder="ความเห็นเพิ่มเติม สรุปภาพรวม..."
+            rows={3}
+            className="w-full text-sm text-slate-600 bg-slate-50 rounded-xl p-3 outline-none focus:ring-1 focus:ring-indigo-200 resize-none placeholder:text-slate-300 disabled:opacity-60"
+          />
+        </div>
+      )}
 
-      {/* Grade Reference */}
-      <div className="card">
-        <div className="flex items-center gap-1.5 mb-2">
-          <Info size={13} className="text-slate-400" />
-          <p className="text-xs font-bold text-slate-500">เกณฑ์การให้เกรด</p>
+      {/* Grade Reference — ซ่อนใน money_only */}
+      {!isMoneyOnly && (
+        <div className="card">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Info size={13} className="text-slate-400" />
+            <p className="text-xs font-bold text-slate-500">เกณฑ์การให้เกรด</p>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {Object.entries(GRADE_CONFIG).map(([g, c]) => (
+              <div key={g} className={`text-center rounded-xl p-2 ${c.bg} ring-1 ${c.ring}`}>
+                <p className={`text-lg font-black ${c.color}`}>{g}</p>
+                <p className={`text-[10px] font-bold ${c.color}`}>{c.range}</p>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="grid grid-cols-4 gap-2">
-          {Object.entries(GRADE_CONFIG).map(([g, c]) => (
-            <div key={g} className={`text-center rounded-xl p-2 ${c.bg} ring-1 ${c.ring}`}>
-              <p className={`text-lg font-black ${c.color}`}>{g}</p>
-              <p className={`text-[10px] font-bold ${c.color}`}>{c.range}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+      )}
 
       {/* Action Buttons */}
       {!isSubmitted && (
@@ -556,6 +738,26 @@ export default function KpiFormPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Copy-from picker */}
+      {showCopyPicker && (
+        <CopyFromPicker
+          mode="kpi"
+          forEmployeeId={employeeId}
+          forYear={year}
+          forMonth={month}
+          hasExistingData={items.some(i => (i.actual_score ?? 0) > 0 || (i.comment?.trim().length ?? 0) > 0) || items.length > DEFAULT_ITEMS.length}
+          onApply={(newItems: CopyFromItem[], note: string | null) => {
+            setItems(newItems.map(i => ({
+              category: i.category, description: i.description,
+              is_mandatory: i.is_mandatory, weight_pct: i.weight_pct,
+              actual_score: 0, comment: i.comment ?? "",
+            })))
+            if (note !== null) setEvaluatorNote(note)
+          }}
+          onClose={() => setShowCopyPicker(false)}
+        />
       )}
 
       {/* Success Modal */}

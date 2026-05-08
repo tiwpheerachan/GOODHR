@@ -122,6 +122,70 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ forms: forms ?? [] })
   }
 
+  // Manager: ดึง "แม่แบบ" จากการประเมินที่ผ่านมา (ของลูกน้องตัวเอง — ข้ามบริษัทได้)
+  // ใช้ตอนกด "เริ่มจาก..." เพื่อคัดลอกหัวข้อ/น้ำหนัก/คำอธิบายของฟอร์มเก่า
+  if (mode === "copy_sources") {
+    const managerId = dbUser.employee_id
+    if (!managerId) return NextResponse.json({ same_employee: [], team: [] })
+
+    const forEmployeeId = url.get("for_employee_id")
+    const forRound = Number(url.get("for_round")) || 0
+
+    // ลูกน้องของตัวเอง (active subs)
+    const { data: subRows } = await svc
+      .from("employee_manager_history")
+      .select("employee_id")
+      .eq("manager_id", managerId)
+      .is("effective_to", null)
+    const teamIds = Array.from(new Set((subRows ?? []).map((r: any) => r.employee_id).filter(Boolean)))
+
+    const SELECT = "id, employee_id, round, total_score, grade, status, evaluator_note, evaluator_id, submitted_at, items:probation_evaluation_items(*), evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th), employee:employees!probation_evaluations_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, position:positions(name))"
+
+    // ฟอร์มทั้งหมดของพนักงานคนนี้ (ใครเคยประเมินก็ได้)
+    let sameQuery: any = null
+    if (forEmployeeId) {
+      sameQuery = svc.from("probation_evaluations")
+        .select(SELECT)
+        .eq("employee_id", forEmployeeId)
+        .neq("status", "draft")
+        .order("submitted_at", { ascending: false })
+    }
+
+    // ฟอร์มของลูกน้องคนอื่นในทีมเดียวกัน (ใครเคยประเมินก็ได้)
+    let teamQuery: any = null
+    if (teamIds.length > 0) {
+      teamQuery = svc.from("probation_evaluations")
+        .select(SELECT)
+        .in("employee_id", teamIds)
+        .neq("status", "draft")
+        .order("submitted_at", { ascending: false })
+    }
+
+    const [sameRes, teamRes] = await Promise.all([
+      sameQuery ?? Promise.resolve({ data: [] as any[] }),
+      teamQuery ?? Promise.resolve({ data: [] as any[] }),
+    ])
+
+    const same_employee: any[] = []
+    const team: any[] = []
+    const seen = new Set<string>()
+    const sortItems = (f: any) => { if (Array.isArray(f.items)) f.items.sort((a: any, b: any) => a.order_no - b.order_no); return f }
+
+    for (const f of (sameRes.data ?? [])) {
+      if (forRound && f.round === forRound) continue
+      seen.add(f.id)
+      same_employee.push(sortItems(f))
+    }
+
+    for (const f of (teamRes.data ?? [])) {
+      if (seen.has(f.id)) continue
+      if (f.employee_id === forEmployeeId) continue
+      team.push(sortItems(f))
+    }
+
+    return NextResponse.json({ same_employee, team })
+  }
+
   // Admin: ดูทั้งบริษัท (super_admin เห็นทุกบริษัท)
   if (mode === "admin") {
     let q = svc.from("probation_evaluations")
