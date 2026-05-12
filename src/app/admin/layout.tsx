@@ -14,6 +14,7 @@ import {
 const SIDEBAR = [
   { href: "/admin/dashboard",            icon: LayoutDashboard, label: "ภาพรวม",        badge: null as string|null },
   { href: "/admin/org",                  icon: Network,         label: "โครงสร้าง",      badge: null as string|null },
+  { href: "/admin/org-chart",            icon: Network,         label: "ผังองค์กร",      badge: null as string|null },
   { href: "/admin/employees",            icon: Users,           label: "พนักงาน",       badge: null as string|null },
   { href: "/admin/approvals",            icon: ClipboardCheck,  label: "คำร้อง",         badge: null as string|null },
   { href: "/admin/announcements",        icon: Megaphone,       label: "ประกาศ",         badge: null as string|null },
