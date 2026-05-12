@@ -437,9 +437,33 @@ export default function AdminKpiPage() {
                       </span>
                     )}
                   </div>
-                  <span className="text-xs text-slate-500 hidden lg:block truncate">
-                    {form.evaluator?.first_name_th} {form.evaluator?.last_name_th}
-                  </span>
+                  <div className="text-xs hidden lg:block min-w-0">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-slate-700 font-medium truncate">{form.evaluator?.first_name_th} {form.evaluator?.last_name_th}</span>
+                      {form.evaluator_role === "skip_level" && (
+                        <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded whitespace-nowrap">ระดับสูง</span>
+                      )}
+                      {form.evaluator_role === "additional" && (
+                        <span className="text-[9px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded whitespace-nowrap">เพิ่มเติม</span>
+                      )}
+                      {form.evaluator_role === "hr_admin" && (
+                        <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded whitespace-nowrap">HR</span>
+                      )}
+                      {form.evaluator_role === "direct_manager" && (
+                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded whitespace-nowrap">หัวหน้าตรง</span>
+                      )}
+                    </div>
+                    {form.direct_manager && form.evaluator?.first_name_th !== form.direct_manager?.first_name_th && (
+                      <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                        หัวหน้าตรง: {form.direct_manager.first_name_th} {form.direct_manager.last_name_th}
+                      </div>
+                    )}
+                    {form.submitted_at && (
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {new Date(form.submitted_at).toLocaleString("th-TH", { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" })} น.
+                      </div>
+                    )}
+                  </div>
                   {/* Quick action buttons */}
                   <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
                     {form.status === "submitted" ? (
@@ -475,13 +499,45 @@ export default function AdminKpiPage() {
                       <div className="flex justify-center py-6"><Loader2 size={18} className="animate-spin text-slate-300" /></div>
                     ) : (
                       <div className="bg-slate-50 rounded-xl p-4 space-y-3">
-                        <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
-                          <Eye size={12} />
-                          <span>ประเมินโดย {detail?.evaluator?.first_name_th} {detail?.evaluator?.last_name_th}</span>
+                        {/* ── สรุปสายผู้ประเมิน ── */}
+                        <div className="bg-white rounded-xl p-3 space-y-1.5 border border-slate-100">
+                          <p className="text-[10px] font-bold text-slate-500 mb-1">สายผู้ประเมิน</p>
+                          <div className="flex items-center gap-2 flex-wrap text-xs">
+                            <Eye size={12} className="text-slate-400"/>
+                            <span className="text-slate-500">ประเมินโดย</span>
+                            <span className="font-bold text-slate-800">{detail?.evaluator?.first_name_th} {detail?.evaluator?.last_name_th}</span>
+                            {form.evaluator_role === "skip_level" && (
+                              <span className="text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded">หัวหน้าระดับสูง (skip-level)</span>
+                            )}
+                            {form.evaluator_role === "additional" && (
+                              <span className="text-[9px] font-bold text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded">ผู้ประเมินเพิ่มเติม</span>
+                            )}
+                            {form.evaluator_role === "hr_admin" && (
+                              <span className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded">HR</span>
+                            )}
+                            {form.evaluator_role === "direct_manager" && (
+                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">หัวหน้าตรง</span>
+                            )}
+                          </div>
                           {detail?.submitted_at && (
-                            <span className="text-slate-400">
-                              · {format(new Date(detail.submitted_at), "d MMM yyyy HH:mm", { locale: th })}
-                            </span>
+                            <p className="text-[11px] text-slate-400">
+                              ส่งประเมินเมื่อ: {format(new Date(detail.submitted_at), "d MMM yyyy HH:mm", { locale: th })} น.
+                            </p>
+                          )}
+                          {detail?.approved_at && (
+                            <p className="text-[11px] text-emerald-600">
+                              HR อนุมัติเมื่อ: {format(new Date(detail.approved_at), "d MMM yyyy HH:mm", { locale: th })} น.
+                            </p>
+                          )}
+                          {/* หัวหน้าตรงปัจจุบัน (ถ้าต่างจากผู้ประเมิน — แสดงให้ตรวจสอบ) */}
+                          {form.direct_manager && (
+                            form.direct_manager.first_name_th !== detail?.evaluator?.first_name_th ||
+                            form.direct_manager.last_name_th !== detail?.evaluator?.last_name_th
+                          ) && (
+                            <p className="text-[11px] text-slate-500">
+                              <span className="font-bold">หัวหน้าตรงปัจจุบัน:</span> {form.direct_manager.first_name_th} {form.direct_manager.last_name_th}
+                              <span className="text-amber-600 ml-1">⚠️ (ไม่ใช่คนเดียวกับผู้ประเมิน)</span>
+                            </p>
                           )}
                         </div>
                         {items.map((item: any, idx: number) => (

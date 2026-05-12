@@ -2,8 +2,9 @@
 import { useEffect, useState, useMemo } from "react"
 import { X, Loader2, ChevronDown, ChevronRight, Search, Sparkles, Check, AlertTriangle } from "lucide-react"
 import toast from "react-hot-toast"
+import { useLanguage } from "@/lib/i18n"
 
-const ROUND_LABELS: Record<number, string> = { 1: "รอบ 1 (60 วัน)", 2: "รอบ 2 (90 วัน)", 3: "รอบ 3 (119 วัน)" }
+const ROUND_DAYS: Record<number, number> = { 1: 60, 2: 90, 3: 119 }
 const TH_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
 const GRADE_COLOR: Record<string, string> = {
@@ -75,8 +76,11 @@ type Props = {
   onClose: () => void
 }
 
-function sourceLabel(s: CopySource, mode: "probation" | "kpi"): string {
-  if (mode === "probation") return ROUND_LABELS[s.round ?? 0] || `รอบ ${s.round}`
+function sourceLabel(s: CopySource, mode: "probation" | "kpi", t: (k: string, p?: any) => string): string {
+  if (mode === "probation") {
+    const n = s.round ?? 0
+    return t("copy_picker.round_label", { n, days: ROUND_DAYS[n] ?? "" })
+  }
   return `${TH_MONTHS[s.month ?? 0]} ${s.year}`
 }
 
@@ -89,6 +93,7 @@ export default function CopyFromPicker({
   mode, forEmployeeId, forRound, forYear, forMonth,
   hasExistingData, onApply, onClose,
 }: Props) {
+  const { t } = useLanguage()
   const [loading, setLoading] = useState(true)
   const [sources, setSources] = useState<Sources>({ same_employee: [], team: [] })
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -136,7 +141,7 @@ export default function CopyFromPicker({
           setActiveTab("team")
         }
       })
-      .catch(err => { if (err.name !== "AbortError") toast.error("โหลดแม่แบบไม่สำเร็จ") })
+      .catch(err => { if (err.name !== "AbortError") toast.error(t("copy_picker.load_failed")) })
       .finally(() => setLoading(false))
 
     return () => ctrl.abort()
@@ -161,7 +166,7 @@ export default function CopyFromPicker({
   const totalCount = sources.same_employee.length + sources.team.length
 
   function handleApplyClick() {
-    if (!selected) { toast.error("กรุณาเลือกแม่แบบ"); return }
+    if (!selected) { toast.error(t("copy_picker.select_template")); return }
     if (hasExistingData && !confirmOverwrite) { setConfirmOverwrite(true); return }
     doApply()
   }
@@ -182,7 +187,7 @@ export default function CopyFromPicker({
       }))
     const note = copyEvaluatorNote ? (selected.evaluator_note ?? "") : null
     onApply(items, note)
-    toast.success(`นำหัวข้อจาก ${describeSource(selected, mode)} มาแล้ว ${items.length} หัวข้อ`)
+    toast.success(t("copy_picker.apply_success", { source: describeSource(selected, mode, t), count: items.length }))
     onClose()
   }
 
@@ -197,23 +202,23 @@ export default function CopyFromPicker({
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
               <Sparkles size={18} className="text-indigo-500" />
-              <h3 className="text-lg font-black text-slate-800">เริ่มจากแม่แบบ</h3>
+              <h3 className="text-lg font-black text-slate-800">{t("copy_picker.title")}</h3>
             </div>
             <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200">
               <X size={14} />
             </button>
           </div>
-          <p className="text-xs text-slate-400">เลือกฟอร์มที่เคยประเมิน — หัวข้อ/น้ำหนักจะถูกคัดลอกมา ส่วนคะแนนเริ่มจาก 0</p>
+          <p className="text-xs text-slate-400">{t("copy_picker.subtitle")}</p>
         </div>
 
         {/* Tabs */}
         <div className="px-5 pt-3">
           <div className="flex bg-slate-100 rounded-xl p-1 text-xs font-bold">
             <TabButton active={activeTab === "same"} onClick={() => setActiveTab("same")} disabled={!sources.same_employee.length}>
-              คนนี้ก่อนหน้า ({sources.same_employee.length})
+              {t("copy_picker.tab_same_employee")} ({sources.same_employee.length})
             </TabButton>
             <TabButton active={activeTab === "team"} onClick={() => setActiveTab("team")} disabled={!sources.team.length}>
-              ลูกน้องของฉัน ({sources.team.length})
+              {t("copy_picker.tab_team")} ({sources.team.length})
             </TabButton>
           </div>
         </div>
@@ -226,7 +231,7 @@ export default function CopyFromPicker({
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="ค้นหาชื่อ / รหัส / ตำแหน่ง"
+                placeholder={t("copy_picker.search_placeholder")}
                 className="w-full pl-8 pr-3 py-2 bg-slate-50 rounded-xl text-sm border border-slate-200 outline-none focus:border-indigo-400"
               />
             </div>
@@ -240,7 +245,7 @@ export default function CopyFromPicker({
           ) : totalCount === 0 ? (
             <EmptyHint mode={mode} />
           ) : visible.length === 0 ? (
-            <p className="text-center text-sm text-slate-400 py-8">ไม่พบในแถบนี้</p>
+            <p className="text-center text-sm text-slate-400 py-8">{t("copy_picker.empty_tab")}</p>
           ) : visible.map(s => (
             <SourceRow
               key={s.id}
@@ -251,6 +256,7 @@ export default function CopyFromPicker({
               previewing={previewId === s.id}
               onSelect={() => setSelectedId(s.id)}
               onTogglePreview={() => setPreviewId(previewId === s.id ? null : s.id)}
+              t={t}
             />
           ))}
         </div>
@@ -259,26 +265,26 @@ export default function CopyFromPicker({
         <div className="border-t border-slate-100 bg-slate-50 px-5 py-3 space-y-2">
           <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
             <input type="checkbox" checked={copyComments} onChange={e => setCopyComments(e.target.checked)} className="accent-indigo-600" />
-            คัดลอก comment ของแต่ละหัวข้อด้วย
+            {t("copy_picker.copy_comments")}
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
             <input type="checkbox" checked={copyEvaluatorNote} onChange={e => setCopyEvaluatorNote(e.target.checked)} className="accent-indigo-600" />
-            คัดลอก ความเห็นภาพรวม
+            {t("copy_picker.copy_overall_note")}
           </label>
 
           {confirmOverwrite && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 flex items-start gap-2">
               <AlertTriangle size={14} className="shrink-0 mt-0.5" />
               <div>
-                <p className="font-bold">ฟอร์มมีข้อมูลอยู่แล้ว — จะถูกทับ</p>
-                <p>กดยืนยันอีกครั้งเพื่อใช้แม่แบบนี้</p>
+                <p className="font-bold">{t("copy_picker.warn_overwrite_title")}</p>
+                <p>{t("copy_picker.warn_overwrite_desc")}</p>
               </div>
             </div>
           )}
 
           <div className="flex gap-2 pt-1">
             <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-bold hover:bg-slate-50">
-              ยกเลิก
+              {t("copy_picker.cancel")}
             </button>
             <button
               onClick={handleApplyClick}
@@ -286,7 +292,7 @@ export default function CopyFromPicker({
               className="flex-[1.5] py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
               <Check size={14} />
-              {confirmOverwrite ? "ยืนยันทับของเดิม" : "นำมาใช้"}
+              {confirmOverwrite ? t("copy_picker.confirm_overwrite") : t("copy_picker.apply")}
             </button>
           </div>
         </div>
@@ -297,9 +303,9 @@ export default function CopyFromPicker({
 
 // ──────────────────────────────────────────────────────────────────────────────
 
-function describeSource(s: CopySource, mode: "probation" | "kpi"): string {
+function describeSource(s: CopySource, mode: "probation" | "kpi", t: (k: string, p?: any) => string): string {
   const who = s.employee ? `${s.employee.first_name_th} ${s.employee.last_name_th}` : ""
-  return `${who} — ${sourceLabel(s, mode)}`
+  return `${who} — ${sourceLabel(s, mode, t)}`
 }
 
 function TabButton({ active, onClick, disabled, children }: any) {
@@ -317,20 +323,19 @@ function TabButton({ active, onClick, disabled, children }: any) {
 }
 
 function EmptyHint({ mode }: { mode: "probation" | "kpi" }) {
+  const { t } = useLanguage()
   return (
     <div className="text-center py-10 px-4">
       <Sparkles size={28} className="mx-auto text-slate-200 mb-2" />
-      <p className="text-sm text-slate-500 font-bold">ยังไม่มีฟอร์มเก่าที่จะคัดลอก</p>
+      <p className="text-sm text-slate-500 font-bold">{t("copy_picker.empty_title")}</p>
       <p className="text-xs text-slate-400 mt-1">
-        {mode === "probation"
-          ? "ฟอร์มประเมินทดลองงานก่อนหน้านี้ของลูกน้องคุณจะปรากฏที่นี่"
-          : "ฟอร์ม KPI ก่อนหน้านี้ของลูกน้องคุณจะปรากฏที่นี่"}
+        {mode === "probation" ? t("copy_picker.empty_desc_probation") : t("copy_picker.empty_desc_kpi")}
       </p>
     </div>
   )
 }
 
-function SourceRow({ source, mode, showEmployee, selected, previewing, onSelect, onTogglePreview }: {
+function SourceRow({ source, mode, showEmployee, selected, previewing, onSelect, onTogglePreview, t }: {
   source: CopySource
   mode: "probation" | "kpi"
   showEmployee: boolean
@@ -338,6 +343,7 @@ function SourceRow({ source, mode, showEmployee, selected, previewing, onSelect,
   previewing: boolean
   onSelect: () => void
   onTogglePreview: () => void
+  t: (k: string, p?: any) => string
 }) {
   const e = source.employee
   const gColor = GRADE_COLOR[source.grade] ?? "bg-slate-100 text-slate-600"
@@ -355,13 +361,13 @@ function SourceRow({ source, mode, showEmployee, selected, previewing, onSelect,
           {showEmployee && e ? (
             <p className="text-sm font-bold text-slate-800 truncate">{e.first_name_th} {e.last_name_th} <span className="text-slate-400 text-[11px] font-normal">{e.position?.name ?? ""}</span></p>
           ) : (
-            <p className="text-sm font-bold text-slate-800">{sourceLabel(source, mode)}</p>
+            <p className="text-sm font-bold text-slate-800">{sourceLabel(source, mode, t)}</p>
           )}
           <p className="text-[11px] text-slate-400 truncate">
-            {showEmployee && <span>{sourceLabel(source, mode)} · </span>}
-            {(source.items?.length ?? 0)} หัวข้อ
+            {showEmployee && <span>{sourceLabel(source, mode, t)} · </span>}
+            {(source.items?.length ?? 0)} {t("copy_picker.items_count")}
             {source.evaluator && (
-              <span className="ml-1">· ประเมินโดย {source.evaluator.first_name_th} {source.evaluator.last_name_th}</span>
+              <span className="ml-1">· {t("copy_picker.evaluated_by", { name: `${source.evaluator.first_name_th} ${source.evaluator.last_name_th}` })}</span>
             )}
           </p>
         </div>
@@ -375,7 +381,7 @@ function SourceRow({ source, mode, showEmployee, selected, previewing, onSelect,
         className="w-full px-3 py-1.5 text-[11px] text-slate-400 hover:text-slate-600 flex items-center gap-1 border-t border-slate-100"
       >
         {previewing ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-        {previewing ? "ซ่อนรายการหัวข้อ" : "ดูรายการหัวข้อ"}
+        {previewing ? t("copy_picker.preview_hide") : t("copy_picker.preview_show")}
       </button>
       {previewing && (
         <div className="px-3 pb-3 space-y-1">
@@ -384,7 +390,7 @@ function SourceRow({ source, mode, showEmployee, selected, previewing, onSelect,
               <span className="text-[10px] font-bold text-slate-400 w-4">{idx + 1}.</span>
               <span className="text-xs text-slate-700 flex-1 truncate">{it.category}</span>
               <span className="text-[10px] text-slate-500 font-bold">{it.weight_pct}%</span>
-              {it.is_mandatory && <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">บังคับ</span>}
+              {it.is_mandatory && <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">{t("copy_picker.mandatory_badge")}</span>}
             </div>
           ))}
         </div>

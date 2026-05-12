@@ -8,6 +8,7 @@ import {
   VALID_EVAL_TYPES,
   type EvaluationType,
 } from "@/lib/utils/kpi"
+import { getManageableEmployees, canEvaluate } from "@/lib/utils/evaluator-chain"
 
 const MONTH_NAMES = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
@@ -43,63 +44,26 @@ export async function GET(req: NextRequest) {
   // Manager: ดึง KPI ลูกน้องตัวเอง + คนที่กำหนดให้ประเมิน
   if (mode === "manager") {
     const managerId = dbUser.employee_id
-    if (!managerId) return NextResponse.json({ forms: [] })
+    if (!managerId) return NextResponse.json({ forms: [], members: [] })
 
-    // ดึงลูกน้อง (จาก employee_manager_history)
-    const { data: history } = await svc
-      .from("employee_manager_history")
-      .select("employee_id, employee:employees!employee_id(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, position:positions(name), department:departments(name))")
-      .eq("manager_id", managerId)
-      .is("effective_to", null)
+    // ดึงรายชื่อพนักงานที่ user คนนี้จัดการได้ (direct + skip-1 + additional)
+    const members = await getManageableEmployees(svc, managerId, "kpi")
+    const memberIds = members.map(m => m.id)
 
-    const directMembers = (history ?? []).map((h: any) => h.employee).filter(Boolean)
-
-    // ดึงพนักงานที่กำหนดให้คนนี้เป็นผู้ประเมิน KPI (kpi_evaluator_id)
-    // try/catch เพราะ column อาจยังไม่มี (ต้องรัน migration ก่อน)
-    let kpiAssigned: any[] = []
-    let overriddenSet = new Set<string>()
-    try {
-      const { data: kpiData } = await svc
-        .from("employees")
-        .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, position:positions(name), department:departments(name)")
-        .eq("kpi_evaluator_id", managerId)
-        .eq("is_active", true)
-      kpiAssigned = kpiData ?? []
-
-      // ตัดลูกน้องที่มีผู้ประเมิน KPI เป็นคนอื่น (ไม่ใช่ manager คนนี้)
-      if (directMembers.length > 0) {
-        const { data: overridden } = await svc
-          .from("employees")
-          .select("id, kpi_evaluator_id")
-          .in("id", directMembers.map((m: any) => m.id))
-          .not("kpi_evaluator_id", "is", null)
-
-        overriddenSet = new Set(
-          (overridden ?? [])
-            .filter((e: any) => e.kpi_evaluator_id !== managerId)
-            .map((e: any) => e.id)
-        )
-      }
-    } catch {
-      // column kpi_evaluator_id ยังไม่มี — ใช้ logic เดิม (แค่ลูกน้อง)
+    // ดึง KPI forms ของ "พนักงานเหล่านี้" (ไม่ filter โดย evaluator_id —
+    // เพราะ skip-level อาจดูฟอร์มที่ direct ประเมินไว้)
+    let forms: any[] = []
+    if (memberIds.length > 0) {
+      let query = svc.from("kpi_forms")
+        .select("id, employee_id, year, month, total_score, grade, status, evaluator_id, evaluator_role, submitted_at, rejection_note, evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th)")
+        .in("employee_id", memberIds)
+        .eq("year", year)
+      if (month) query = query.eq("month", month)
+      const { data } = await query
+      forms = data ?? []
     }
 
-    // รวมทั้งสองกลุ่ม (ลบซ้ำด้วย id)
-    const memberMap = new Map<string, any>()
-    for (const m of directMembers) memberMap.set(m.id, m)
-    for (const m of kpiAssigned) memberMap.set(m.id, m)
-
-    // ลบลูกน้องที่ถูก override ไปให้คนอื่นประเมิน
-    overriddenSet.forEach((eid: string) => memberMap.delete(eid))
-
-    const members = Array.from(memberMap.values())
-
-    // ดึง KPI forms ที่มีอยู่แล้ว
-    let query = svc.from("kpi_forms").select("id, employee_id, year, month, total_score, grade, status, submitted_at, rejection_note").eq("year", year).eq("evaluator_id", managerId)
-    if (month) query = query.eq("month", month)
-    const { data: forms } = await query
-
-    return NextResponse.json({ members, forms: forms ?? [] })
+    return NextResponse.json({ members, forms })
   }
 
   // Employee: ดึง KPI ตัวเอง — เห็นเฉพาะที่ HR อนุมัติแล้ว
@@ -130,7 +94,24 @@ export async function GET(req: NextRequest) {
     if (month) query = query.eq("month", month)
     const { data: forms } = await query
 
-    return NextResponse.json({ forms: forms ?? [] })
+    // ── Attach หัวหน้าตรง (จาก employee_manager_history) สำหรับทุก form ──
+    const empIds = Array.from(new Set((forms ?? []).map((f: any) => f.employee_id)))
+    let mgrMap = new Map<string, any>()
+    if (empIds.length > 0) {
+      const { data: histRows } = await svc.from("employee_manager_history")
+        .select("employee_id, manager_id, manager:employees!manager_id(first_name_th, last_name_th, nickname)")
+        .in("employee_id", empIds)
+        .is("effective_to", null)
+      for (const r of (histRows ?? [])) {
+        if (r.manager) mgrMap.set(r.employee_id, r.manager)
+      }
+    }
+    const enriched = (forms ?? []).map((f: any) => ({
+      ...f,
+      direct_manager: mgrMap.get(f.employee_id) ?? null,
+    }))
+
+    return NextResponse.json({ forms: enriched })
   }
 
   // Manager: ดึง "แม่แบบ" จากการประเมิน KPI ที่ผ่านมา (ของลูกน้องตัวเอง — ข้ามบริษัทได้)
@@ -401,15 +382,19 @@ export async function POST(req: NextRequest) {
 
   const status = action === "submit" ? "submitted" : "draft"
 
-  // ตรวจสอบว่าพนักงานมี kpi_evaluator_id กำหนดไว้หรือไม่
-  // ถ้ามี → ใช้ kpi_evaluator_id, ถ้าไม่มี → ใช้ manager ปัจจุบัน (คนที่กด submit)
-  let effectiveEvaluatorId = dbUser.employee_id
-  try {
-    const { data: targetEmp } = await svc.from("employees").select("kpi_evaluator_id").eq("id", employee_id).single()
-    if (targetEmp?.kpi_evaluator_id) effectiveEvaluatorId = targetEmp.kpi_evaluator_id
-  } catch {
-    // column kpi_evaluator_id ยังไม่มี — ใช้ default (manager ปัจจุบัน)
+  // ตรวจสิทธิ์ + คำนวณ role
+  const isAdminRole = ["hr_admin", "super_admin"].includes(dbUser.role)
+  let evaluatorRole: "direct_manager" | "skip_level" | "additional" | "hr_admin" = "direct_manager"
+  if (isAdminRole) {
+    evaluatorRole = "hr_admin"
+  } else {
+    const auth = await canEvaluate(svc, dbUser.employee_id, employee_id, "kpi")
+    if (!auth.allowed) {
+      return NextResponse.json({ error: "คุณไม่ใช่หัวหน้าของพนักงานคนนี้" }, { status: 403 })
+    }
+    evaluatorRole = auth.role
   }
+  const effectiveEvaluatorId = dbUser.employee_id
 
   // Check existing form
   const { data: existing } = await svc.from("kpi_forms")
@@ -431,6 +416,8 @@ export async function POST(req: NextRequest) {
       evaluation_type, incentive_amount, bonus_amount,
       bonus_reason: bonus_reason ?? null,
       money_reason: money_reason ?? null,
+      evaluator_id: effectiveEvaluatorId,
+      evaluator_role: evaluatorRole,
       rejection_note: null,
       approved_by: isAdmin && action === "submit" ? dbUser.employee_id : (newStatus === "submitted" ? null : undefined),
       approved_at: isAdmin && action === "submit" ? new Date().toISOString() : (newStatus === "submitted" ? null : undefined),
@@ -445,6 +432,7 @@ export async function POST(req: NextRequest) {
       company_id: dbUser.company_id,
       employee_id,
       evaluator_id: effectiveEvaluatorId,
+      evaluator_role: evaluatorRole,
       year, month,
       total_score: totalScore, grade, status, evaluator_note,
       evaluation_type, incentive_amount, bonus_amount,

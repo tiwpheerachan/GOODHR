@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { logAudit } from "@/lib/auditLog"
+import { getManageableEmployees, canEvaluate } from "@/lib/utils/evaluator-chain"
 
 function calcGrade(score: number): string {
   if (score >= 91) return "A"
@@ -43,54 +44,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ form })
   }
 
-  // Manager: ดึงลูกน้องที่อยู่ในช่วงทดลองงาน
+  // Manager: ดึงลูกน้องที่อยู่ในช่วงทดลองงาน (direct + skip-1 + additional)
   if (mode === "manager") {
     const managerId = dbUser.employee_id
     if (!managerId) return NextResponse.json({ members: [], forms: [] })
 
-    // ดึงลูกน้อง (จาก employee_manager_history)
-    const { data: history } = await svc
-      .from("employee_manager_history")
-      .select("employee_id, employee:employees!employee_id(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, employment_status, probation_end_date, position:positions(name), department:departments(name))")
-      .eq("manager_id", managerId)
-      .is("effective_to", null)
-
-    const directMembers = (history ?? []).map((h: any) => h.employee).filter(Boolean)
-    const memberMap = new Map<string, any>()
-    for (const m of directMembers) memberMap.set(m.id, m)
-
-    // ดึงพนักงานที่กำหนดให้คนนี้เป็นผู้ประเมิน KPI
-    // try/catch เพราะ column kpi_evaluator_id อาจยังไม่มี (ต้องรัน migration ก่อน)
-    try {
-      const { data: kpiAssigned } = await svc
-        .from("employees")
-        .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, employment_status, probation_end_date, position:positions(name), department:departments(name)")
-        .eq("kpi_evaluator_id", managerId)
-        .eq("is_active", true)
-      for (const m of (kpiAssigned ?? [])) memberMap.set(m.id, m)
-
-      // ตัดลูกน้องที่มีผู้ประเมินเป็นคนอื่น
-      if (directMembers.length > 0) {
-        const { data: overridden } = await svc
-          .from("employees")
-          .select("id, kpi_evaluator_id")
-          .in("id", directMembers.map((m: any) => m.id))
-          .not("kpi_evaluator_id", "is", null)
-        for (const e of (overridden ?? [])) {
-          if (e.kpi_evaluator_id !== managerId) memberMap.delete(e.id)
-        }
-      }
-    } catch {
-      // column kpi_evaluator_id ยังไม่มี — ใช้ logic เดิม (แค่ลูกน้อง)
-    }
+    const allManageable = await getManageableEmployees(svc, managerId, "probation")
 
     // เอาเฉพาะพนักงานที่ยังอยู่ในช่วงทดลองงาน
-    const allMembers = Array.from(memberMap.values())
     const today = new Date()
-    const members = allMembers.filter((m: any) => {
+    const members = allManageable.filter((m: any) => {
       if (!m.hire_date) return false
       const daysSinceHire = Math.ceil((today.getTime() - new Date(m.hire_date).getTime()) / 86400000)
-      // แสดงถ้า: สถานะเป็น probation, หรือ มี probation_end_date, หรือ อายุงาน ≤ 150 วัน (ยังไม่เกินรอบ 3 + buffer)
       if (m.employment_status === "probation") return true
       if (m.probation_end_date) return daysSinceHire <= 150
       return daysSinceHire <= 150
@@ -101,7 +66,7 @@ export async function GET(req: NextRequest) {
     let forms: any[] = []
     if (memberIds.length > 0) {
       const { data } = await svc.from("probation_evaluations")
-        .select("id, employee_id, round, due_date, total_score, grade, status, submitted_at, rejection_note")
+        .select("id, employee_id, round, due_date, total_score, grade, status, evaluator_id, evaluator_role, submitted_at, rejection_note, evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th)")
         .in("employee_id", memberIds)
       forms = data ?? []
     }
@@ -361,11 +326,22 @@ export async function POST(req: NextRequest) {
   if (!emp) return NextResponse.json({ error: "ไม่พบพนักงาน" }, { status: 404 })
   const dueDate = addDaysToDate(emp.hire_date, ROUND_DAYS[round] || 119)
 
+  // ตรวจสิทธิ์ + คำนวณ role
+  const isAdmin = ["hr_admin", "super_admin"].includes(dbUser.role)
+  let evaluatorRole: "direct_manager" | "skip_level" | "additional" | "hr_admin" = "direct_manager"
+  if (isAdmin) {
+    evaluatorRole = "hr_admin"
+  } else {
+    const auth = await canEvaluate(svc, dbUser.employee_id, employee_id, "probation")
+    if (!auth.allowed) {
+      return NextResponse.json({ error: "คุณไม่ใช่หัวหน้าของพนักงานคนนี้" }, { status: 403 })
+    }
+    evaluatorRole = auth.role
+  }
+
   // Check existing
   const { data: existing } = await svc.from("probation_evaluations")
     .select("id, status").eq("employee_id", employee_id).eq("round", round).single()
-
-  const isAdmin = ["hr_admin", "super_admin"].includes(dbUser.role)
 
   let formId = existing?.id
 
@@ -374,6 +350,7 @@ export async function POST(req: NextRequest) {
 
     await svc.from("probation_evaluations").update({
       total_score: totalScore, grade, status: newStatus, evaluator_note,
+      evaluator_id: dbUser.employee_id, evaluator_role: evaluatorRole,
       rejection_note: null,
       due_date: dueDate,
       approved_by: isAdmin && action === "submit" ? dbUser.employee_id : (newStatus === "submitted" ? null : undefined),
@@ -386,6 +363,7 @@ export async function POST(req: NextRequest) {
     const { data: newForm, error } = await svc.from("probation_evaluations").insert({
       company_id: emp.company_id,
       employee_id, evaluator_id: dbUser.employee_id,
+      evaluator_role: evaluatorRole,
       round, due_date: dueDate,
       total_score: totalScore, grade, status, evaluator_note,
       submitted_at: action === "submit" ? new Date().toISOString() : null,

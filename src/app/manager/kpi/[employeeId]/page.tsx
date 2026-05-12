@@ -179,12 +179,12 @@ export default function KpiFormPage() {
   }, [])
 
   const addItem = () => {
-    if (items.length >= 15) { toast.error("สูงสุด 15 หัวข้อ"); return }
+    if (items.length >= 15) { toast.error(t("kpi.max_items_15")); return }
     setItems(prev => [...prev, { category: "", description: "", is_mandatory: false, weight_pct: 0, actual_score: 0, comment: "" }])
   }
 
   const removeItem = (idx: number) => {
-    if (items.length <= 1) { toast.error("ต้องมีอย่างน้อย 1 หัวข้อ"); return }
+    if (items.length <= 1) { toast.error(t("kpi.min_items_1")); return }
     setItems(prev => prev.filter((_, i) => i !== idx))
   }
 
@@ -212,8 +212,8 @@ export default function KpiFormPage() {
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "ไม่สามารถคัดลอกได้")
-      toast.success(`คัดลอก template ไป ${MONTHS[nextMonth]} ${nextYear} แล้ว`)
+      if (!res.ok) throw new Error(data.error || t("kpi.cannot_copy"))
+      toast.success(t("kpi.copy_template_success", { month: MONTHS[nextMonth], year: nextYear }))
     } catch (err: any) {
       toast.error(err.message)
     }
@@ -224,7 +224,7 @@ export default function KpiFormPage() {
     if (action === "submit") {
       if (isMoneyOnly) {
         const amt = Number(incentiveAmount)
-        if (!Number.isFinite(amt) || amt < 0) { toast.error("กรุณากรอกจำนวนเงิน"); return }
+        if (!Number.isFinite(amt) || amt < 0) { toast.error(t("kpi.enter_amount")); return }
       } else {
         if (!weightValid) { toast.error(t("kpi.weight_error")); return }
         const missing = items.some(i => !i.actual_score || i.actual_score < 1 || i.actual_score > 100)
@@ -310,7 +310,7 @@ export default function KpiFormPage() {
       {!isSubmitted && (
         <div className="card space-y-2">
           <p className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
-            <Target size={12} /> ประเภทการประเมิน
+            <Target size={12} /> {t("kpi.mode_section_title")}
           </p>
           <div className="grid grid-cols-3 gap-2 text-xs">
             <button onClick={() => setEvaluationType("standard")}
@@ -318,24 +318,24 @@ export default function KpiFormPage() {
                 evaluationType === "standard" ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"
               }`}>
               <ListChecks size={16} />
-              <span className="font-bold">มาตรฐาน</span>
-              <span className="text-[10px] text-slate-400">หัวข้อ + เกรด</span>
+              <span className="font-bold">{t("kpi.mode_standard")}</span>
+              <span className="text-[10px] text-slate-400">{t("kpi.mode_standard_desc")}</span>
             </button>
             <button onClick={() => setEvaluationType("money_only")}
               className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all ${
                 evaluationType === "money_only" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"
               }`}>
               <Wallet size={16} />
-              <span className="font-bold">ใส่เงินเอง</span>
-              <span className="text-[10px] text-slate-400">ไม่ต้องประเมิน</span>
+              <span className="font-bold">{t("kpi.mode_money_only")}</span>
+              <span className="text-[10px] text-slate-400">{t("kpi.mode_money_only_desc")}</span>
             </button>
             <button onClick={() => setEvaluationType("grade_incentive")}
               className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all ${
                 evaluationType === "grade_incentive" ? "border-amber-500 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"
               }`}>
               <Coins size={16} />
-              <span className="font-bold">เกรด→เงิน</span>
-              <span className="text-[10px] text-slate-400">ตามตาราง</span>
+              <span className="font-bold">{t("kpi.mode_grade_incentive")}</span>
+              <span className="text-[10px] text-slate-400">{t("kpi.mode_grade_incentive_desc")}</span>
             </button>
           </div>
         </div>
@@ -383,7 +383,7 @@ export default function KpiFormPage() {
       {isGradeIncentive && (
         <div className="card space-y-2">
           <p className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
-            <Coins size={12} className="text-amber-500" /> ตารางเงินรางวัลตามเกรด
+            <Coins size={12} className="text-amber-500" /> {t("kpi.grade_incentive_table")}
           </p>
           <div className="grid grid-cols-4 gap-1.5 text-center text-xs">
             {(["A","B","C","D"] as const).map(g => (
@@ -401,7 +401,7 @@ export default function KpiFormPage() {
           </div>
           {grade && (
             <p className="text-[11px] text-slate-500 mt-1 text-center">
-              เกรดปัจจุบัน <span className="font-bold text-amber-700">{grade}</span> → จะได้ <span className="font-bold text-amber-700">{KPI_GRADE_INCENTIVE_TABLE[grade]?.toLocaleString() ?? 0} บาท</span>
+              {t("kpi.current_grade_money", { grade, amount: KPI_GRADE_INCENTIVE_TABLE[grade]?.toLocaleString() ?? "0" })}
             </p>
           )}
         </div>
@@ -412,19 +412,19 @@ export default function KpiFormPage() {
         <div className="card space-y-3 ring-2 ring-emerald-200 bg-emerald-50/40">
           <div className="flex items-center gap-1.5">
             <Wallet size={14} className="text-emerald-600" />
-            <p className="text-sm font-black text-emerald-700">จำนวนเงินที่จะได้</p>
+            <p className="text-sm font-black text-emerald-700">{t("kpi.money_amount_label")}</p>
           </div>
           <input type="number" inputMode="decimal" min={0} step={1}
             value={incentiveAmount}
             onChange={e => setIncentiveAmount(e.target.value)}
             disabled={isSubmitted}
-            placeholder="เช่น 1500"
+            placeholder={t("kpi.money_amount_placeholder")}
             className="w-full text-center text-2xl font-black text-emerald-700 bg-white rounded-xl py-3 ring-1 ring-emerald-300 focus:ring-2 focus:ring-emerald-400 outline-none disabled:opacity-60" />
           <textarea
             value={moneyReason}
             onChange={e => setMoneyReason(e.target.value)}
             disabled={isSubmitted}
-            placeholder="หมายเหตุ (ไม่บังคับ) — เช่น ที่มาของจำนวนเงิน"
+            placeholder={t("kpi.money_note_placeholder")}
             rows={2}
             className="w-full text-xs text-slate-600 bg-white rounded-xl p-3 outline-none focus:ring-1 focus:ring-emerald-300 resize-none placeholder:text-slate-300 disabled:opacity-60" />
         </div>
@@ -435,7 +435,7 @@ export default function KpiFormPage() {
         <div className="card space-y-2">
           <div className="flex items-center gap-1.5">
             <Coins size={13} className="text-amber-500" />
-            <p className="text-sm font-bold text-slate-700">ค่าผลงานพิเศษ <span className="text-[11px] font-normal text-slate-400">(ไม่บังคับ)</span></p>
+            <p className="text-sm font-bold text-slate-700">{t("kpi.bonus_label")} <span className="text-[11px] font-normal text-slate-400">{t("kpi.optional")}</span></p>
           </div>
           <input type="number" inputMode="decimal" min={0} step={1}
             value={bonusAmount}
@@ -446,7 +446,7 @@ export default function KpiFormPage() {
             <textarea
               value={bonusReason}
               onChange={e => setBonusReason(e.target.value)}
-              placeholder="เหตุผล (ไม่บังคับ)"
+              placeholder={t("kpi.bonus_reason_placeholder")}
               rows={1}
               className="w-full text-xs text-slate-600 bg-slate-50 rounded-xl p-2 outline-none focus:ring-1 focus:ring-amber-300 resize-none placeholder:text-slate-300" />
           )}
@@ -458,9 +458,9 @@ export default function KpiFormPage() {
         <div className="card flex items-center justify-between bg-gradient-to-r from-indigo-50 to-violet-50 ring-1 ring-indigo-200">
           <div className="flex items-center gap-1.5">
             <Wallet size={14} className="text-indigo-600" />
-            <p className="text-sm font-bold text-indigo-700">รวมเงินที่จะได้</p>
+            <p className="text-sm font-bold text-indigo-700">{t("kpi.total_money_label")}</p>
           </div>
-          <p className="text-xl font-black text-indigo-700">{previewTotalMoney.toLocaleString()} บาท</p>
+          <p className="text-xl font-black text-indigo-700">{previewTotalMoney.toLocaleString()} {t("kpi.baht")}</p>
         </div>
       )}
 
@@ -494,7 +494,7 @@ export default function KpiFormPage() {
           className="w-full card flex items-center justify-center gap-2 py-3 text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors border border-indigo-200 bg-indigo-50/40 active:scale-[0.98]"
         >
           <Sparkles size={15} />
-          เริ่มจากแม่แบบ — คัดลอกจาก KPI ที่ผ่านมา
+          {t("kpi.start_from_template")}
         </button>
       )}
 
@@ -518,7 +518,7 @@ export default function KpiFormPage() {
                     value={item.category}
                     onChange={e => updateItem(idx, "category", e.target.value)}
                     disabled={isSubmitted}
-                    placeholder="ชื่อหมวดหมู่งาน..."
+                    placeholder={t("kpi.category_placeholder")}
                     className="w-full font-bold text-slate-800 text-sm bg-transparent border-b border-dashed border-slate-200 pb-1 outline-none focus:border-indigo-400 placeholder:text-slate-300 disabled:opacity-60"
                   />
                 </div>
@@ -535,7 +535,7 @@ export default function KpiFormPage() {
                 value={item.description}
                 onChange={e => updateItem(idx, "description", e.target.value)}
                 disabled={isSubmitted}
-                placeholder="รายละเอียด / เป้าหมาย..."
+                placeholder={t("kpi.description_placeholder")}
                 rows={2}
                 className="ml-9 w-[calc(100%-36px)] text-xs text-slate-600 bg-slate-50 rounded-xl p-3 outline-none focus:ring-1 focus:ring-indigo-200 resize-none placeholder:text-slate-300 disabled:opacity-60"
               />
@@ -591,14 +591,14 @@ export default function KpiFormPage() {
                   className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
                 >
                   <MessageSquare size={11} />
-                  {item.comment ? "ดู/แก้ความเห็น" : "เพิ่มความเห็น"}
+                  {item.comment ? t("kpi.add_comment") : t("kpi.add_comment_btn")}
                 </button>
                 {expandedComment === idx && (
                   <textarea
                     value={item.comment}
                     onChange={e => updateItem(idx, "comment", e.target.value)}
                     disabled={isSubmitted}
-                    placeholder="ความเห็นเพิ่มเติม..."
+                    placeholder={t("kpi.comment_placeholder")}
                     rows={2}
                     className="mt-2 w-full text-xs text-slate-600 bg-slate-50 rounded-xl p-3 outline-none focus:ring-1 focus:ring-indigo-200 resize-none placeholder:text-slate-300 disabled:opacity-60"
                   />
@@ -634,7 +634,7 @@ export default function KpiFormPage() {
             value={evaluatorNote}
             onChange={e => setEvaluatorNote(e.target.value)}
             disabled={isSubmitted}
-            placeholder="ความเห็นเพิ่มเติม สรุปภาพรวม..."
+            placeholder={t("kpi.overall_note_placeholder")}
             rows={3}
             className="w-full text-sm text-slate-600 bg-slate-50 rounded-xl p-3 outline-none focus:ring-1 focus:ring-indigo-200 resize-none placeholder:text-slate-300 disabled:opacity-60"
           />

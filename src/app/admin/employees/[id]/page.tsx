@@ -12,8 +12,10 @@ import Link from "next/link"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
+import AdditionalEvaluatorsSection from "@/components/admin/AdditionalEvaluatorsSection"
+import EvaluationChainPanel from "@/components/admin/EvaluationChainPanel"
 
-const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท","โควต้าการลา"]
+const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท","โควต้าการลา","สาย/ผู้ประเมิน"]
 const inp = "input-field"
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -632,6 +634,9 @@ export default function EmployeeDetailPage() {
             )}
           </div>
 
+          {/* ── ผู้ประเมินเพิ่มเติม (multi) ── */}
+          <AdditionalEvaluatorsSection employeeId={id as string} allEmps={allEmps} loadAllEmps={loadAllEmps} />
+
           <button onClick={saveEmployment} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>
         </>}
 
@@ -818,6 +823,14 @@ export default function EmployeeDetailPage() {
 
         {/* ── Tab 9: โควต้าการลา ── */}
         {tab === 9 && <LeaveQuotaTab employeeId={id as string} companyId={emp?.company_id} />}
+
+        {/* ── Tab 10: สาย/ผู้ประเมิน ── */}
+        {tab === 10 && (
+          <>
+            <h3 className="font-bold text-slate-800 mb-4">สายผู้ประเมิน + ทีมในสาย</h3>
+            <EvaluationChainPanel employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`.trim()} />
+          </>
+        )}
 
       </div>
 
