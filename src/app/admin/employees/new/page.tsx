@@ -229,12 +229,17 @@ export default function NewEmployeePage() {
   }
 
   const createPosition = async () => {
-    if (!newPositionName.trim()) { toast.error("กรุณากรอกชื่อตำแหน่ง"); return }
+    const name = newPositionName.trim()
+    if (!name) { toast.error("กรุณากรอกชื่อตำแหน่ง"); return }
     if (!selectedCompanyId) { toast.error("กรุณาเลือกบริษัทก่อน"); return }
     setCreatingPosition(true)
     try {
+      // Auto-generate code (column NOT NULL)
+      const slug = name.slice(0, 20).replace(/[^A-Za-z0-9]/g, "_")
+      const hash = (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(16)).replace(/-/g, "").slice(0, 6)
+      const code = `${slug}_${hash}`
       const { data, error } = await supabase.from("positions").insert({
-        name: newPositionName.trim(),
+        name, code,
         company_id: selectedCompanyId,
       }).select("id, name").single()
       if (error) throw error

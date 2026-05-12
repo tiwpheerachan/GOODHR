@@ -100,12 +100,17 @@ export default function EmployeeDetailPage() {
 
   const createPosition = async () => {
     const cid = form?.company_id || emp?.company_id
-    if (!newPositionName.trim()) { toast.error("กรุณากรอกชื่อตำแหน่ง"); return }
+    const name = newPositionName.trim()
+    if (!name) { toast.error("กรุณากรอกชื่อตำแหน่ง"); return }
     if (!cid) { toast.error("ไม่พบบริษัท"); return }
     setCreatingPosition(true)
     try {
+      // Auto-generate code (column NOT NULL)
+      const slug = name.slice(0, 20).replace(/[^A-Za-z0-9]/g, "_")
+      const hash = (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(16)).replace(/-/g, "").slice(0, 6)
+      const code = `${slug}_${hash}`
       const { data, error } = await supabase.from("positions").insert({
-        name: newPositionName.trim(), company_id: cid,
+        name, code, company_id: cid,
       }).select("id, name").single()
       if (error) throw error
       setPositions((prev: any[]) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))

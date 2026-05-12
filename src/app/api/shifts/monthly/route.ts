@@ -1,5 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { getLateThreshold } from "@/lib/utils/payroll"
 
 // ── Helper: สร้างวันทั้งเดือน ─────────────────────────────────────
 function getDaysInMonth(year: number, month: number): string[] {
@@ -13,6 +14,98 @@ function getDaysInMonth(year: number, month: number): string[] {
 }
 
 const DAY_MAP: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 }
+
+// ── Helper: Recalculate late_minutes ของ attendance หลังกะเปลี่ยน ────────────
+// เรียกจาก POST action="assign" — recompute เฉพาะ records ของ (employee_id, work_date) ที่กะถูกอัปเดต
+async function recalcLateForChangedShifts(supa: any, assignments: any[]) {
+  if (!assignments?.length) return
+  const empIds = Array.from(new Set(assignments.map(a => a.employee_id)))
+  const dates = Array.from(new Set(assignments.map(a => a.work_date)))
+
+  // ดึง attendance ที่อาจกระทบ
+  const { data: atts } = await supa.from("attendance_records")
+    .select("id, employee_id, work_date, clock_in, clock_out, status")
+    .in("employee_id", empIds)
+    .in("work_date", dates)
+    .not("clock_in", "is", null)
+  if (!atts?.length) return
+
+  // ดึง employee + dept + company (สำหรับ grace)
+  const { data: emps } = await supa.from("employees")
+    .select("id, is_attendance_exempt, department:departments(name), company:companies(code)")
+    .in("id", empIds)
+  const empMap = new Map((emps ?? []).map((e: any) => [e.id, e]))
+
+  // ดึง shift_templates ของ assignments
+  const shiftIds = Array.from(new Set(assignments.map((a: any) => a.shift_id).filter(Boolean)))
+  const { data: shifts } = shiftIds.length
+    ? await supa.from("shift_templates").select("id, work_start, work_end, is_overnight").in("id", shiftIds)
+    : { data: [] }
+  const shiftMap = new Map((shifts ?? []).map((s: any) => [s.id, s]))
+
+  // Build assignment map: employee|date -> shift_id
+  const assignMap = new Map<string, string | null>()
+  for (const a of assignments) assignMap.set(`${a.employee_id}|${a.work_date}`, a.shift_id)
+
+  // Recalculate each
+  for (const r of atts) {
+    const emp: any = empMap.get(r.employee_id)
+    if (!emp) continue
+    if (emp.is_attendance_exempt) {
+      await supa.from("attendance_records").update({
+        late_minutes: 0, early_out_minutes: 0,
+        status: ["leave","absent"].includes(r.status) ? r.status : "present",
+        updated_at: new Date().toISOString(),
+      }).eq("id", r.id)
+      continue
+    }
+
+    const shiftId = assignMap.get(`${r.employee_id}|${r.work_date}`)
+    const shift: any = shiftId ? shiftMap.get(shiftId) : null
+    const clockIn = new Date(r.clock_in)
+    const clockOut = r.clock_out ? new Date(r.clock_out) : null
+
+    let newLate = 0, newEarly = 0
+
+    if (shift?.work_start) {
+      let expStart = new Date(`${r.work_date}T${shift.work_start}+07:00`)
+      let expEnd = shift.work_end ? new Date(`${r.work_date}T${shift.work_end}+07:00`) : null
+      if (expEnd && shift.is_overnight) expEnd = new Date(expEnd.getTime() + 86_400_000)
+
+      let raw = Math.floor((clockIn.getTime() - expStart.getTime()) / 60_000)
+      // Overnight fix: ถ้า raw > 12 ชม. + overnight → ลอง expected = next day
+      if (raw > 12 * 60 && shift.is_overnight) {
+        const nextDay = new Date(expStart.getTime() + 86_400_000)
+        const diffNext = Math.floor((clockIn.getTime() - nextDay.getTime()) / 60_000)
+        if (Math.abs(diffNext) < Math.abs(raw)) {
+          expStart = nextDay
+          if (expEnd) expEnd = new Date(expEnd.getTime() + 86_400_000)
+          raw = diffNext
+        }
+      }
+
+      const grace = getLateThreshold(emp.department?.name, emp.company?.code)
+      newLate = Math.max(0, raw - grace)
+      if (clockOut && expEnd) {
+        const earlyDiff = Math.floor((expEnd.getTime() - clockOut.getTime()) / 60_000)
+        newEarly = Math.max(0, earlyDiff)
+      }
+    }
+
+    let newStatus = r.status
+    if (!["leave","absent"].includes(r.status)) {
+      newStatus = newLate > 0 ? "late" : (newEarly > 0 ? "early_out" : "present")
+    }
+
+    await supa.from("attendance_records").update({
+      late_minutes: newLate,
+      early_out_minutes: newEarly,
+      status: newStatus,
+      expected_start: shift?.work_start ? new Date(`${r.work_date}T${shift.work_start}+07:00`).toISOString() : null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", r.id)
+  }
+}
 
 // GET — ดึงตารางกะรายเดือน
 export async function GET(request: Request) {
@@ -394,6 +487,10 @@ export async function POST(request: Request) {
         .upsert(chunk, { onConflict: "employee_id,work_date" })
       if (error) return NextResponse.json({ success: false, error: error.message })
     }
+
+    // ── Recalculate late_minutes สำหรับ attendance ที่กระทบ (กะเปลี่ยน) ──
+    // อิงตามกะที่ assign ใหม่ ใช้ logic จาก /api/attendance/recalc-late
+    await recalcLateForChangedShifts(supa, rows)
 
     return NextResponse.json({ success: true, updated: rows.length })
   }
