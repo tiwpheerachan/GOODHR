@@ -118,16 +118,16 @@ export default function ManagerProbationEvalPage() {
                   const form = empForms.find(f => f.round === round)
                   const rs = getRoundStatus(form)
                   const Icon = rs.icon
-                  const isAvailable = daysFromHire >= (ROUND_DAYS[round] - 14)
                   const isOverdue = daysFromHire > ROUND_DAYS[round] && !form
+                  const isEarly = daysFromHire < (ROUND_DAYS[round] - 14) && !form
 
                   return (
                     <Link key={round}
-                      href={canEdit && (isAvailable || form) ? `/manager/probation-eval/${m.id}?round=${round}` : "#"}
+                      href={canEdit ? `/manager/probation-eval/${m.id}?round=${round}` : "#"}
                       className={`rounded-xl p-2.5 text-center transition-all ${
                         !canEdit ? "opacity-50 pointer-events-none bg-slate-50" :
-                        !isAvailable && !form ? "opacity-40 pointer-events-none bg-slate-50" :
-                        isOverdue ? "bg-red-50 ring-1 ring-red-200" :
+                        isOverdue ? "bg-red-50 ring-1 ring-red-200 hover:shadow-md active:scale-[0.97]" :
+                        isEarly ? "bg-slate-50 ring-1 ring-slate-200 hover:shadow-md active:scale-[0.97]" :
                         `${rs.bg} hover:shadow-md active:scale-[0.97]`
                       }`}>
                       <p className="text-[10px] font-bold text-slate-500 mb-1">{t(`probation.round_${round === 1 ? "60" : round === 2 ? "90" : "119"}`)}</p>
@@ -141,6 +141,7 @@ export default function ManagerProbationEvalPage() {
                         </span>
                       )}
                       {isOverdue && <p className="text-[9px] text-red-500 font-bold mt-1">{t("probation.overdue")}</p>}
+                      {isEarly && !isOverdue && <p className="text-[9px] text-slate-400 font-bold mt-1">ล่วงหน้า</p>}
                     </Link>
                   )
                 })}
