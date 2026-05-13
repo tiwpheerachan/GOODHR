@@ -439,6 +439,29 @@ export default function AdminApprovalsPage() {
                               ยกเลิก
                             </button>
                           )}
+                          {r.status === "rejected" && !isCancel && (
+                            <>
+                              {r.request_type === "adjustment" && (
+                                <button onClick={() => {
+                                  const ci = r.requested_clock_in ? new Date(r.requested_clock_in).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : ""
+                                  const co = r.requested_clock_out ? new Date(r.requested_clock_out).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : ""
+                                  const ciDate = r.work_date || ""
+                                  const coDate = r.requested_clock_out ? new Date(r.requested_clock_out).toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" }) : ciDate
+                                  setEditAdj({ ...r, edit_clock_in: ci, edit_clock_out: co, edit_clock_in_date: ciDate, edit_clock_out_date: coDate })
+                                }}
+                                  disabled={isProc}
+                                  className="px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold hover:bg-indigo-100 disabled:opacity-50">
+                                  <Pencil size={10} className="inline mr-0.5"/> แก้ไข
+                                </button>
+                              )}
+                              <button onClick={() => handleAction("approve", r)}
+                                disabled={isProc}
+                                className="px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[10px] font-bold hover:bg-green-700 disabled:opacity-50">
+                                {isProc ? <Loader2 size={10} className="inline animate-spin"/> : <Check size={10} className="inline mr-0.5"/>}
+                                เปลี่ยนเป็นอนุมัติ
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>

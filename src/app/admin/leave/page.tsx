@@ -138,11 +138,34 @@ export default function AdminLeavePage() {
       if(statusTab === "cancel_requested") {
         const crRes = await fetch("/api/requests/cancel")
         const crData = await crRes.json()
-        const crReqs = (crData.requests ?? []).filter((r:any) => r.request_type === "leave")
+        let crReqs = (crData.requests ?? []).filter((r:any) => r.request_type === "leave")
+        if (search.trim()) {
+          const s = search.trim().toLowerCase()
+          crReqs = crReqs.filter((r:any) => {
+            const e = r.employee || {}
+            return [e.first_name_th, e.last_name_th, e.nickname, e.employee_code]
+              .some((v:string|undefined) => v && v.toLowerCase().includes(s))
+          })
+        }
         setRequests(crReqs)
         setTotal(crReqs.length)
         setLoading(false)
         return
+      }
+
+      // ── ค้นหาแบบหลายฟิลด์: ดึง employee IDs ที่ตรงก่อน แล้วค่อย filter leave_requests ──
+      let matchingEmpIds: string[] | null = null
+      if (search.trim()) {
+        const s = search.trim()
+        let empQ: any = supabase.from("employees").select("id")
+          .or(`first_name_th.ilike.%${s}%,last_name_th.ilike.%${s}%,nickname.ilike.%${s}%,employee_code.ilike.%${s}%`)
+        if (cid) empQ = empQ.eq("company_id", cid)
+        else if (!isSA) empQ = empQ.eq("company_id", myId!)
+        const { data: empRows } = await empQ
+        matchingEmpIds = (empRows ?? []).map((e:any) => e.id)
+        if ((matchingEmpIds?.length ?? 0) === 0) {
+          setRequests([]); setTotal(0); setLoading(false); return
+        }
       }
 
       let q=fc(supabase.from("leave_requests")
@@ -150,7 +173,7 @@ export default function AdminLeavePage() {
           start_date,end_date,total_days,is_half_day,half_day_period,
           reason,status,requested_at,reviewed_at,review_note,created_at,attachment_url,attachment_name,
           employee:employees!leave_requests_employee_id_fkey(
-            id,first_name_th,last_name_th,employee_code,avatar_url,
+            id,first_name_th,last_name_th,nickname,employee_code,avatar_url,
             position:positions(name),department:departments(name)),
           leave_type:leave_types(id,name,color_hex,is_paid)`,
           {count:"exact"})
@@ -164,7 +187,7 @@ export default function AdminLeavePage() {
         if(dateStart) q=q.gte("start_date",dateStart)
         if(dateEnd)   q=q.lte("end_date",dateEnd)
       }
-      if(search)    q=q.or(`first_name_th.ilike.%${search}%,last_name_th.ilike.%${search}%,employee_code.ilike.%${search}%`,{referencedTable:"employees"})
+      if(matchingEmpIds) q=q.in("employee_id", matchingEmpIds)
       const{data,count,error}=await q
       if(error) console.error("leave:",error)
       setRequests(data??[]); setTotal(count??0)
@@ -381,7 +404,7 @@ export default function AdminLeavePage() {
             <Filter size={13} className="text-slate-400 flex-shrink-0"/>
             <div className="relative flex-1 min-w-40">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-              <input value={search} onChange={e=>setF(()=>setSearch(e.target.value))} className={inp+" pl-8 w-full"} placeholder="ค้นหาชื่อ, รหัสพนักงาน..."/>
+              <input value={search} onChange={e=>setF(()=>setSearch(e.target.value))} className={inp+" pl-8 w-full"} placeholder="ค้นหา ชื่อ / ชื่อเล่น / นามสกุล / รหัสพนักงาน..."/>
             </div>
             <select value={ltFilter} onChange={e=>setF(()=>setLtFilter(e.target.value))} className={inp}>
               <option value="">ทุกประเภทลา</option>
@@ -417,11 +440,14 @@ export default function AdminLeavePage() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center font-black text-indigo-600 text-xs flex-shrink-0 overflow-hidden">
-                              {emp?.avatar_url?<img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>:emp?.first_name_th?.[0]}
+                              {emp?.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/> : (emp?.first_name_th?.[0] || emp?.nickname?.[0] || "?")}
                             </div>
                             <div>
-                              <p className="font-bold text-slate-700 whitespace-nowrap text-sm">{emp?.first_name_th} {emp?.last_name_th}</p>
-                              <p className="text-[10px] text-slate-400">{emp?.department?.name||emp?.position?.name||emp?.employee_code}</p>
+                              <p className="font-bold text-slate-700 whitespace-nowrap text-sm">
+                                {emp?.first_name_th ? `${emp.first_name_th} ${emp.last_name_th || ""}` : (emp?.employee_code || "ไม่ทราบชื่อ")}
+                                {emp?.nickname && <span className="text-slate-400 font-normal ml-1">({emp.nickname})</span>}
+                              </p>
+                              <p className="text-[10px] text-slate-400">{emp?.employee_code} {emp?.department?.name && `· ${emp.department.name}`}</p>
                             </div>
                           </div>
                         </td>

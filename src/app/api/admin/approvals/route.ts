@@ -342,7 +342,7 @@ export async function GET(req: NextRequest) {
 async function approveAdjustment(supa: any, requestId: string, reviewerId: string | null, reviewNote: string | null) {
   const { data: adjReq } = await supa
     .from("time_adjustment_requests").select("*").eq("id", requestId)
-    .in("status", ["pending", "approved"]).single()
+    .in("status", ["pending", "approved", "rejected"]).single()
   if (!adjReq) return { success: false, error: "ไม่พบคำขอ" }
 
   // ดึง attendance_record + shift
@@ -543,7 +543,9 @@ export async function POST(req: NextRequest) {
 
     if (scAction === "approve") {
       const { data: reqData } = await supa.from("shift_change_requests").select("*").eq("id", request_id).single()
-      if (!reqData || reqData.status !== "pending") return NextResponse.json({ error: "Request not found or not pending" }, { status: 400 })
+      if (!reqData || !["pending", "rejected"].includes(reqData.status)) {
+        return NextResponse.json({ error: "Request not found" }, { status: 400 })
+      }
 
       // อัปเดตหรือสร้าง assignment
       const { data: existAssign } = await supa.from("monthly_shift_assignments")
