@@ -173,20 +173,25 @@ export async function POST(request: Request) {
     }
   }
 
-  // ── สำหรับ clock_out ข้ามคืน: ถ้าเวลาปัจจุบัน < 05:00 (เช้ามืด)
-  //    ให้ลองดูว่ามี attendance record ของเมื่อวานที่ยังไม่ได้ clock_out อยู่ไหม
-  //    ถ้ามี → ถือว่าเป็น clock_out ของกะข้ามคืน
-  //    ⚠️ ตัดรอบที่ตี 5: หลังตี 5 ถือว่าเป็นวันใหม่ record เมื่อวานที่ค้าง = ลืมเช็คเอ้า
+  // ── สำหรับ clock_out ข้ามคืน:
+  //    ถ้า "ไม่มี record วันนี้ที่ยังเปิดอยู่" แต่ "เมื่อวานมี clock_in ที่ยังไม่ clock_out"
+  //    → ถือว่าเป็น clock_out ของกะข้ามคืน (รองรับทุกเวลา ไม่ใช่แค่ก่อนตี 5)
+  //    ⚠️ ถ้า record วันนี้เปิดอยู่ (clock_in 3am-5am) → ใช้วันนี้แทน ไม่ใช่เมื่อวาน
   let useYesterday = false
   let yesterdayDate: string | null = null
 
-  if (action === "clock_out" && bkkHour < 5) {
-    // คำนวณ "เมื่อวาน" ใน timezone ไทยอย่างปลอดภัย (ไม่ผ่าน toLocaleString → new Date → toISOString)
+  if (action === "clock_out") {
+    // คำนวณ "เมื่อวาน" ใน timezone ไทยอย่างปลอดภัย
     yesterdayDate = new Date(now.getTime() - 86_400_000)
       .toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
 
-    // ดึง shift ของเมื่อวาน + attendance record ที่ยังไม่ clock_out
-    const [yShiftRes, yRecRes] = await Promise.all([
+    // ดึงพร้อมกัน: record วันนี้ + shift เมื่อวาน + record เมื่อวาน
+    const [todayRecRes, yShiftRes, yRecRes] = await Promise.all([
+      supa.from("attendance_records")
+        .select("clock_in, clock_out")
+        .eq("employee_id", emp.id)
+        .eq("work_date", today)
+        .maybeSingle(),
       supa.from("monthly_shift_assignments")
         .select("*, shift:shift_templates(*)")
         .eq("employee_id", emp.id)
@@ -199,9 +204,10 @@ export async function POST(request: Request) {
         .maybeSingle(),
     ])
 
-    // ถ้ามี clock_in เมื่อวานที่ยังไม่ clock_out → นี่คือ clock_out ของกะข้ามคืน
-    // ไม่ต้องตรวจ is_overnight — การมี record ค้างอยู่คือหลักฐานเพียงพอ
-    if (yRecRes.data?.clock_in && !yRecRes.data.clock_out) {
+    const todayOpen = !!(todayRecRes.data?.clock_in && !todayRecRes.data.clock_out)
+
+    // ใช้เมื่อวาน เมื่อ: ไม่มี record วันนี้ที่เปิดอยู่ + เมื่อวานมี clock_in ที่ยังไม่ clock_out
+    if (!todayOpen && yRecRes.data?.clock_in && !yRecRes.data.clock_out) {
       useYesterday = true
       let yShift = yShiftRes.data?.shift ?? null
 

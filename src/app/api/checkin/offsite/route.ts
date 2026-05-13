@@ -52,21 +52,112 @@ export async function POST(request: Request) {
   const companyCode = emp.company?.code as string | undefined
   const now      = new Date()
   const today    = todayBKK()
+  const bkkHour  = parseInt(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hour12: false }))
 
-  // Shift template
-  const { data: schedule } = await supa
-    .from("work_schedules")
-    .select("*, shift:shift_templates(*)")
-    .eq("employee_id", emp.id)
-    .lte("effective_from", today)
-    .order("effective_from", { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  // ── ดึง shift จาก monthly_shift_assignments ก่อน, fallback เป็น work_schedules ──
+  const [monthlyRes, schedRes] = await Promise.all([
+    supa.from("monthly_shift_assignments")
+      .select("*, shift:shift_templates(*)")
+      .eq("employee_id", emp.id)
+      .eq("work_date", today)
+      .maybeSingle(),
+    supa.from("work_schedules")
+      .select("*, shift:shift_templates(*)")
+      .eq("employee_id", emp.id)
+      .lte("effective_from", today)
+      .order("effective_from", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
 
-  const shift = (schedule as any)?.shift as any | null
-  const workDate = shift?.is_overnight
-    ? calcWorkDate(now, true, "Asia/Bangkok")
-    : today
+  let shift: any = (monthlyRes.data as any)?.shift ?? null
+  let schedule: any = null
+  if (!shift && (monthlyRes.data as any)?.shift_id) {
+    const { data: shiftData } = await supa.from("shift_templates").select("*").eq("id", (monthlyRes.data as any).shift_id).single()
+    if (shiftData) shift = shiftData
+  }
+  if (!shift) {
+    schedule = schedRes.data
+    shift = (schedule as any)?.shift ?? null
+  }
+
+  // ── กะข้ามเที่ยงคืน: clock_in หลัง 22:00 และกะพรุ่งนี้เริ่ม 00:00-02:00 → ใช้กะพรุ่งนี้ ──
+  let useNextDayShift = false
+  if (action === "clock_in" && bkkHour >= 22) {
+    const tomorrow = new Date(now.getTime() + 86_400_000)
+      .toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
+    const { data: tomorrowShift } = await supa.from("monthly_shift_assignments")
+      .select("*, shift:shift_templates(*)")
+      .eq("employee_id", emp.id)
+      .eq("work_date", tomorrow)
+      .maybeSingle()
+    if (tomorrowShift?.shift) {
+      const startHour = parseInt((tomorrowShift as any).shift.work_start?.substring(0, 2) ?? "99")
+      if (startHour <= 2 && (tomorrowShift as any).assignment_type === "work") {
+        shift = (tomorrowShift as any).shift
+        useNextDayShift = true
+      }
+    }
+  }
+
+  // ── clock_out กะข้ามคืน: ถ้าไม่มี record วันนี้ แต่เมื่อวานมี clock_in ที่ยังไม่ clock_out → ใช้เมื่อวาน ──
+  let useYesterday = false
+  let yesterdayDate: string | null = null
+  if (action === "clock_out") {
+    const { data: todayRec } = await supa
+      .from("attendance_records")
+      .select("id, clock_in")
+      .eq("employee_id", emp.id)
+      .eq("work_date", today)
+      .maybeSingle()
+
+    if (!todayRec?.clock_in) {
+      yesterdayDate = new Date(now.getTime() - 86_400_000)
+        .toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
+      const [yShiftRes, yRecRes] = await Promise.all([
+        supa.from("monthly_shift_assignments")
+          .select("*, shift:shift_templates(*)")
+          .eq("employee_id", emp.id)
+          .eq("work_date", yesterdayDate)
+          .maybeSingle(),
+        supa.from("attendance_records")
+          .select("id, clock_in, clock_out, shift_template_id")
+          .eq("employee_id", emp.id)
+          .eq("work_date", yesterdayDate)
+          .maybeSingle(),
+      ])
+      if (yRecRes.data?.clock_in && !yRecRes.data.clock_out) {
+        useYesterday = true
+        let yShift = (yShiftRes.data as any)?.shift ?? null
+        if (!yShift) {
+          const { data: ySchedData } = await supa
+            .from("work_schedules")
+            .select("*, shift:shift_templates(*)")
+            .eq("employee_id", emp.id)
+            .lte("effective_from", yesterdayDate)
+            .order("effective_from", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          yShift = (ySchedData as any)?.shift ?? null
+        }
+        if (!yShift && yRecRes.data.shift_template_id) {
+          const { data: tplData } = await supa
+            .from("shift_templates").select("*")
+            .eq("id", yRecRes.data.shift_template_id).maybeSingle()
+          yShift = tplData ?? null
+        }
+        shift = yShift
+      }
+    }
+  }
+
+  const workDate = useYesterday
+    ? yesterdayDate!
+    : useNextDayShift
+      ? new Date(now.getTime() + 86_400_000).toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
+      : (shift?.is_overnight && bkkHour < 5)
+        ? calcWorkDate(now, true, "Asia/Bangkok")
+        : today
 
   const lateThreshold: number =
     (schedule as any)?.late_threshold_minutes ??

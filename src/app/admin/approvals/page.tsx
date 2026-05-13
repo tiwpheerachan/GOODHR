@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   Check, X, Clock, Calendar, Timer, FileEdit, Search, Filter,
   ChevronLeft, ChevronRight, Loader2, AlertCircle, Building2,
-  Download, Users, Ban, ArrowRightLeft, Paperclip, Pencil,
+  Download, Users, Ban, ArrowRightLeft, Paperclip, Pencil, CheckCheck,
 } from "lucide-react"
 import { format, startOfMonth, endOfMonth } from "date-fns"
 import { th } from "date-fns/locale"
@@ -66,6 +66,11 @@ export default function AdminApprovalsPage() {
   const [showExport, setShowExport] = useState(false)
   const [editAdj, setEditAdj] = useState<any>(null)
   const [editAdjSaving, setEditAdjSaving] = useState(false)
+
+  // Bulk approve
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false)
+  const [bulkRunning, setBulkRunning] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0, failed: 0 })
 
   // Load companies
   useEffect(() => {
@@ -149,6 +154,60 @@ export default function AdminApprovalsPage() {
     try { return format(new Date(d), fmt, { locale: th }) } catch { return d }
   }
 
+  // รายการที่จะถูก bulk approve ตาม tab ปัจจุบัน
+  const bulkMode: "approve" | "approve_cancel" | null =
+    filterStatus === "pending" ? "approve" :
+    filterStatus === "cancel_requested" ? "approve_cancel" : null
+
+  const bulkItems = bulkMode === "approve"
+    ? requests.filter(r => r.status === "pending" && !r.is_cancel_requested)
+    : bulkMode === "approve_cancel"
+      ? requests.filter(r => r.is_cancel_requested)
+      : []
+
+  const handleBulkApprove = async () => {
+    if (!bulkMode || bulkItems.length === 0) return
+    setBulkRunning(true)
+    setBulkProgress({ done: 0, total: bulkItems.length, failed: 0 })
+
+    let done = 0
+    let failed = 0
+    for (const item of bulkItems) {
+      try {
+        const res = await fetch("/api/admin/approvals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: bulkMode,
+            request_id: item.id,
+            request_type: item.request_type,
+          }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (res.ok && (data.success || data.status === "approved" || data.status === "rejected")) {
+          done++
+        } else {
+          failed++
+        }
+      } catch {
+        failed++
+      }
+      setBulkProgress({ done: done + failed, total: bulkItems.length, failed })
+    }
+
+    setBulkRunning(false)
+    setShowBulkConfirm(false)
+    if (failed === 0) {
+      toast.success(`อนุมัติสำเร็จ ${done} รายการ`)
+    } else if (done === 0) {
+      toast.error(`อนุมัติไม่สำเร็จทั้งหมด (${failed} รายการ)`)
+    } else {
+      toast(`สำเร็จ ${done} · ล้มเหลว ${failed}`, { icon: "⚠️" })
+    }
+    load()
+    window.dispatchEvent(new Event("approvals-changed"))
+  }
+
   // ── Render ──
   return (
     <div className="space-y-4">
@@ -166,6 +225,14 @@ export default function AdminApprovalsPage() {
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Users size={13}/> <b className="text-slate-800">{requests.length}</b> รายการ
           </div>
+          {bulkMode && bulkItems.length > 0 && (
+            <button onClick={() => setShowBulkConfirm(true)}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white rounded-xl text-xs font-bold hover:bg-green-700 transition-colors shadow-sm shadow-green-200">
+              <CheckCheck size={13}/>
+              {bulkMode === "approve_cancel" ? "อนุมัติยกเลิกทั้งหมด" : "อนุมัติทั้งหมด"}
+              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/20 text-[10px]">{bulkItems.length}</span>
+            </button>
+          )}
           <button onClick={() => setShowExport(true)}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-200">
             <Download size={13}/> Export Excel
@@ -427,6 +494,73 @@ export default function AdminApprovalsPage() {
                 className="flex-1 py-2.5 bg-red-500 text-white rounded-xl text-sm font-bold hover:bg-red-600 disabled:opacity-50">
                 {processing === rejectItem.id ? <Loader2 size={14} className="inline animate-spin mr-1"/> : null}
                 ปฏิเสธ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Bulk Approve Confirm Modal ═══ */}
+      {showBulkConfirm && bulkMode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => !bulkRunning && setShowBulkConfirm(false)}/>
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                bulkMode === "approve_cancel" ? "bg-orange-50" : "bg-green-50"
+              }`}>
+                <CheckCheck size={18} className={bulkMode === "approve_cancel" ? "text-orange-500" : "text-green-600"}/>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-black text-slate-800">
+                  ยืนยัน{bulkMode === "approve_cancel" ? "อนุมัติยกเลิก" : "อนุมัติ"}ทั้งหมด
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  จะ{bulkMode === "approve_cancel" ? "อนุมัติยกเลิก" : "อนุมัติ"}คำร้องที่แสดงในตารางทั้งหมด <b className="text-slate-800">{bulkItems.length}</b> รายการ
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl p-3 max-h-48 overflow-y-auto space-y-1.5">
+              {bulkItems.slice(0, 50).map(r => {
+                const tc = TYPE_CFG[r.request_type] || TYPE_CFG.leave
+                return (
+                  <div key={`${r.request_type}-${r.id}`} className="flex items-center gap-2 text-[11px]">
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${tc.bg} ${tc.color}`}>{tc.label}</span>
+                    <span className="font-bold text-slate-700 truncate">{r.employee?.first_name_th} {r.employee?.last_name_th}</span>
+                    <span className="text-slate-400 truncate">· {r.detail}</span>
+                  </div>
+                )
+              })}
+              {bulkItems.length > 50 && (
+                <p className="text-[10px] text-slate-400 text-center pt-1">...และอีก {bulkItems.length - 50} รายการ</p>
+              )}
+            </div>
+
+            {bulkRunning && (
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 mb-1">
+                  <span>กำลังดำเนินการ...</span>
+                  <span>{bulkProgress.done}/{bulkProgress.total}{bulkProgress.failed > 0 && ` · ล้มเหลว ${bulkProgress.failed}`}</span>
+                </div>
+                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-green-500 transition-all"
+                    style={{ width: `${(bulkProgress.done / Math.max(1, bulkProgress.total)) * 100}%` }}/>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button onClick={() => setShowBulkConfirm(false)} disabled={bulkRunning}
+                className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                ยกเลิก
+              </button>
+              <button onClick={handleBulkApprove} disabled={bulkRunning}
+                className={`flex-1 py-2.5 text-white rounded-xl text-sm font-bold disabled:opacity-50 ${
+                  bulkMode === "approve_cancel" ? "bg-orange-500 hover:bg-orange-600" : "bg-green-600 hover:bg-green-700"
+                }`}>
+                {bulkRunning ? <><Loader2 size={14} className="inline animate-spin mr-1"/> กำลังอนุมัติ</> : <>ยืนยัน{bulkMode === "approve_cancel" ? "อนุมัติยกเลิก" : "อนุมัติ"}</>}
               </button>
             </div>
           </div>
