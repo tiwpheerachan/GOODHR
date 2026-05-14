@@ -97,7 +97,8 @@ export default function AttendancePage() {
   const [month, setMonth] = useState(() => new Date(2026, 0, 1)) // fixed date, sync ใน useEffect
   const [hydrated, setHydrated] = useState(false)
   const empId = (user as any)?.employee_id ?? (user as any)?.employee?.id
-  const { records, periodRecords, period, holidayMap, leaveMap, correctionMap, loading } = useAttendance(empId, month)
+  // gate fetch ด้วย hydrated → ไม่ดึงข้อมูลเดือนผิดก่อน sync
+  const { records, periodRecords, period, holidayMap, leaveMap, correctionMap, loading } = useAttendance(hydrated ? empId : undefined, month)
 
   useEffect(() => {
     setMonth(getCurrentPeriodDate())

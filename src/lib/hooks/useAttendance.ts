@@ -43,110 +43,66 @@ export function useAttendance(employeeId?: string, month = new Date()) {
     if (!employeeId) return
     setLoading(true)
 
-    const { data: emp } = await supabase
-      .from("employees").select("company_id").eq("id", employeeId).single()
-
-    // ดึง attendance สำหรับ calendar (ทั้งเดือน)
-    // และดึง attendance สำหรับงวดเงินเดือน (22-21) แยกกัน
-    const [attRes, periodRes, todayRes, holRes, leaveRes, corrRes] = await Promise.all([
-      supabase.from("attendance_records").select("*")
-        .eq("employee_id", employeeId)
-        .gte("work_date", startDate).lte("work_date", endDate)
-        .order("work_date", { ascending: false }),
-
-      supabase.from("attendance_records").select("*")
-        .eq("employee_id", employeeId)
-        .gte("work_date", period.start).lte("work_date", period.end)
-        .order("work_date", { ascending: false }),
-
-      supabase.from("attendance_records").select("*")
-        .eq("employee_id", employeeId).eq("work_date", todayStr).maybeSingle(),
-
-      emp?.company_id
-        ? supabase.from("company_holidays").select("date,name")
-            .eq("company_id", emp.company_id).eq("is_active", true).eq("year", year)
-        : Promise.resolve({ data: [] }),
-
-      // ดึง leave_requests ที่ approved เพื่อแสดงสถานะ "ลา" แทน "ขาดงาน"
-      supabase.from("leave_requests")
-        .select("start_date, end_date, total_days, is_half_day, half_day_period, status, leave_type:leave_types(name, code)")
-        .eq("employee_id", employeeId)
-        .in("status", ["approved", "pending"])
-        .lte("start_date", endDate)
-        .gte("end_date", startDate),
-
-      // ดึง time_adjustment_requests เพื่อแสดงสถานะ "รออนุมัติ" / "อนุมัติแล้ว"
-      supabase.from("time_adjustment_requests")
-        .select("work_date, status, requested_clock_in, requested_clock_out")
-        .eq("employee_id", employeeId)
-        .gte("work_date", startDate).lte("work_date", endDate)
-        .order("created_at", { ascending: false }),
-    ])
-
-    // สร้าง leaveMap: { "2026-03-27": { type: "ลาพักร้อน", status: "approved" } }
-    const lm: Record<string, { type: string; status: string; isHalf?: boolean; halfPeriod?: string }> = {}
-    for (const l of (leaveRes.data ?? []) as any[]) {
-      const typeName = l.leave_type?.name || "ลา"
-      let cur = l.start_date
-      const end = l.end_date
-      while (cur <= end) {
-        lm[cur] = { type: typeName, status: l.status, isHalf: l.is_half_day, halfPeriod: l.half_day_period }
-        // Increment date
-        const d = new Date(cur + "T00:00:00")
-        d.setDate(d.getDate() + 1)
-        cur = format(d, "yyyy-MM-dd")
+    try {
+      const params = new URLSearchParams({
+        employee_id:    employeeId,
+        calendar_start: startDate,
+        calendar_end:   endDate,
+        period_start:   period.start,
+        period_end:     period.end,
+        year:           String(year),
+        today:          todayStr,
+      })
+      const res = await fetch(`/api/attendance/history?${params}`, { cache: "no-store" })
+      if (!res.ok) {
+        console.error("attendance history error:", res.status)
+        setRecords([]); setPeriodRecords([]); setHolidays([]); setLeaveMap({}); setCorrectionMap({})
+        setToday(null); setForgotCheckout(null)
+        return
       }
-    }
+      const data = await res.json()
 
-    // สร้าง correctionMap: { "2026-04-10": { status: "pending", ... } }
-    // เก็บเฉพาะ record ล่าสุดต่อวัน (อันแรกจาก order by created_at desc)
-    const cm: Record<string, { status: string; requested_clock_in?: string; requested_clock_out?: string }> = {}
-    for (const c of (corrRes.data ?? []) as any[]) {
-      if (!cm[c.work_date]) {
-        cm[c.work_date] = {
-          status: c.status,
-          requested_clock_in: c.requested_clock_in,
-          requested_clock_out: c.requested_clock_out,
+      // สร้าง leaveMap
+      const lm: Record<string, { type: string; status: string; isHalf?: boolean; halfPeriod?: string }> = {}
+      for (const l of (data.leaves ?? []) as any[]) {
+        const typeName = l.leave_type?.name || "ลา"
+        let cur = l.start_date
+        const end = l.end_date
+        while (cur <= end) {
+          lm[cur] = { type: typeName, status: l.status, isHalf: l.is_half_day, halfPeriod: l.half_day_period }
+          const d = new Date(cur + "T00:00:00")
+          d.setDate(d.getDate() + 1)
+          cur = format(d, "yyyy-MM-dd")
         }
       }
-    }
-    setCorrectionMap(cm)
 
-    setRecords(attRes.data ?? [])
-    setPeriodRecords(periodRes.data ?? [])
-
-    // ── กะข้ามคืน: ถ้าวันนี้ไม่มี record หรือยังไม่ clock_in
-    //    ให้เช็คว่าเมื่อวานมี record ที่ยังไม่ clock_out อยู่หรือไม่
-    //    ⚠️ ตัดรอบที่ตี 5: ก่อนตี 5 = อาจเป็นกะข้ามคืน ให้แสดงปุ่ม clock_out
-    //                      หลังตี 5 = ถือว่าลืมเช็คเอ้า ให้เริ่มวันใหม่
-    let todayData = todayRes.data
-    const bkkHourNow = parseInt(new Date().toLocaleTimeString("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hour12: false }))
-    let forgotYesterday: any = null
-
-    if (!todayData || !todayData.clock_in) {
-      const yesterday = new Date()
-      yesterday.setDate(yesterday.getDate() - 1)
-      const yesterdayStr = format(yesterday, "yyyy-MM-dd")
-      const { data: yRec } = await supabase.from("attendance_records").select("*")
-        .eq("employee_id", employeeId).eq("work_date", yesterdayStr).maybeSingle()
-
-      if (yRec?.clock_in && !yRec.clock_out) {
-        if (bkkHourNow < 5) {
-          // ก่อนตี 5: อาจเป็นกะข้ามคืน → แสดงปุ่ม clock_out
-          todayData = yRec
-        } else {
-          // หลังตี 5: ลืมเช็คเอ้า → เริ่มวันใหม่ + แจ้งเตือน
-          forgotYesterday = yRec
+      // สร้าง correctionMap (เก็บอันล่าสุดต่อวัน)
+      const cm: Record<string, { status: string; requested_clock_in?: string; requested_clock_out?: string }> = {}
+      for (const c of (data.corrections ?? []) as any[]) {
+        if (!cm[c.work_date]) {
+          cm[c.work_date] = {
+            status: c.status,
+            requested_clock_in: c.requested_clock_in,
+            requested_clock_out: c.requested_clock_out,
+          }
         }
       }
-    }
 
-    setToday(todayData)
-    setForgotCheckout(forgotYesterday)
-    setHolidays((holRes as any).data ?? [])
-    setLeaveMap(lm)
-    setLoading(false)
-  }, [employeeId, startDate, endDate, period.start, period.end])
+      setRecords(data.records ?? [])
+      setPeriodRecords(data.periodRecords ?? [])
+      setHolidays(data.holidays ?? [])
+      setLeaveMap(lm)
+      setCorrectionMap(cm)
+      setToday(data.todayRecord ?? null)
+      setForgotCheckout(data.forgotCheckout ?? null)
+    } catch (e) {
+      console.error("attendance history fetch error:", e)
+      setRecords([]); setPeriodRecords([]); setHolidays([]); setLeaveMap({}); setCorrectionMap({})
+      setToday(null); setForgotCheckout(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [employeeId, startDate, endDate, period.start, period.end, year, todayStr])
 
   useEffect(() => { run() }, [run])
 
