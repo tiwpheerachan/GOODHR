@@ -132,21 +132,29 @@ export async function POST(request: Request) {
   const bkkHour = parseInt(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hour12: false }))
 
   // ── Shift template ─────────────────────────────────────────────
+  // กฎ: ถ้ามี monthly_shift_assignments record → เคารพมัน (source of truth)
+  //     fallback ไป work_schedules ก็ต่อเมื่อ "ไม่มี" assignment เลยเท่านั้น
   let shift: any = null
   let schedule: any = null
   let useNextDayShift = false
 
-  if (monthlyAssignment?.shift) {
-    shift = monthlyAssignment.shift
-    if (monthlyAssignment.assignment_type === "dayoff") {
-      console.log(`[checkin] employee ${emp.id} checking in on dayoff (${today})`)
+  if (monthlyAssignment) {
+    // มี assignment สำหรับวันนี้
+    if (monthlyAssignment.shift) {
+      shift = monthlyAssignment.shift
+    } else if (monthlyAssignment.shift_id) {
+      // FK join fail → ดึงแยก
+      const { data: shiftData } = await supa.from("shift_templates").select("*").eq("id", monthlyAssignment.shift_id).single()
+      if (shiftData) shift = shiftData
+      console.log(`[checkin] FK join failed, fetched shift separately: ${shiftData?.work_start}`)
+    } else {
+      // assignment มีอยู่แต่ shift_id เป็น null (dayoff/leave/holiday)
+      // → ไม่มี shift ที่ต้องประเมิน ไม่ fallback ไป work_schedules
+      shift = null
+      console.log(`[checkin] employee ${emp.id} has ${monthlyAssignment.assignment_type} on ${today} (no shift)`)
     }
-  } else if (monthlyAssignment?.shift_id) {
-    // FK join ไม่ work → ดึง shift แยก
-    const { data: shiftData } = await supa.from("shift_templates").select("*").eq("id", monthlyAssignment.shift_id).single()
-    if (shiftData) shift = shiftData
-    console.log(`[checkin] FK join failed, fetched shift separately: ${shiftData?.work_start}`)
   } else {
+    // ไม่มี monthly assignment เลย → ใช้ work_schedules เป็น default
     schedule = schedRes.data
     shift = (schedule as any)?.shift ?? null
   }

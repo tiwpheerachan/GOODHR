@@ -1,6 +1,7 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
+import { getLateThreshold } from "@/lib/utils/payroll"
 
 /**
  * POST /api/shifts/self-schedule/approve
@@ -180,8 +181,8 @@ export async function POST(req: Request) {
       if (insertErr) return NextResponse.json({ success: false, error: insertErr.message })
     }
 
-    // อัปเดต request status
-    await supa
+    // อัปเดต request status — ต้องเช็ค error
+    const { error: statusErr } = await supa
       .from("shift_change_requests")
       .update({
         status: "approved",
@@ -190,6 +191,10 @@ export async function POST(req: Request) {
         review_note: review_note || null,
       })
       .eq("id", request_id)
+    if (statusErr) {
+      console.error("[approve] update request status failed:", statusErr.message)
+      return NextResponse.json({ success: false, error: "อัปเดตสถานะคำขอไม่สำเร็จ: " + statusErr.message }, { status: 500 })
+    }
 
     // ═══ ย้อนหลัง: ตรวจสอบ attendance + คำนวณ payroll ใหม่ ═══
     const todayBKK = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
@@ -214,18 +219,24 @@ export async function POST(req: Request) {
             .maybeSingle()
 
           if (attRec && attRec.clock_in) {
-            // คำนวณ late_minutes ใหม่ตามกะใหม่
+            // คำนวณ late_minutes ใหม่ตามกะใหม่ + grace ของแผนก/บริษัท
+            const { data: empData } = await supa
+              .from("employees")
+              .select("is_attendance_exempt, department:departments(name), company:companies(code)")
+              .eq("id", reqData.employee_id).single()
+            const grace = getLateThreshold((empData?.department as any)?.name, (empData?.company as any)?.code)
+            const isExempt = !!empData?.is_attendance_exempt
+
             const clockIn = new Date(attRec.clock_in)
             const expectedStart = new Date(reqData.work_date + "T" + newShift.work_start + "+07:00")
-            let newLateMin = calcLateMinutes(clockIn, expectedStart)
+            const rawLate = calcLateMinutes(clockIn, expectedStart)
+            let newLateMin = isExempt ? 0 : Math.max(0, rawLate - grace)
             let newStatus = attRec.status as string
 
-            // grace period: ≤5 นาที = ไม่สาย
-            if (newLateMin > 5) {
+            if (newLateMin > 0) {
               newStatus = "late"
             } else {
               newStatus = "present"
-              newLateMin = 0
             }
 
             // คำนวณ work_minutes ใหม่

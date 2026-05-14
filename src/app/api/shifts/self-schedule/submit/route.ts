@@ -158,13 +158,16 @@ export async function POST(req: Request) {
 
     if (reqErr) return NextResponse.json({ success: false, error: reqErr.message })
 
-    // Mark has_pending_change ใน monthly_shift_assignments
-    for (const date of pendingDates) {
-      await supa
-        .from("monthly_shift_assignments")
-        .update({ has_pending_change: true })
-        .eq("employee_id", emp.id)
-        .eq("work_date", date)
+    // Mark has_pending_change ใน monthly_shift_assignments — ใช้คำสั่งเดียวด้วย .in()
+    const { error: pendErr } = await supa
+      .from("monthly_shift_assignments")
+      .update({ has_pending_change: true })
+      .eq("employee_id", emp.id)
+      .in("work_date", pendingDates)
+
+    if (pendErr) {
+      console.error("[self-schedule submit] mark pending failed:", pendErr.message)
+      return NextResponse.json({ success: false, error: "บันทึกสถานะรออนุมัติไม่สำเร็จ: " + pendErr.message }, { status: 500 })
     }
 
     pendingCount = changeRequests.length

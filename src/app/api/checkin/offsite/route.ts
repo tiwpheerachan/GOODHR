@@ -70,13 +70,18 @@ export async function POST(request: Request) {
       .maybeSingle(),
   ])
 
-  let shift: any = (monthlyRes.data as any)?.shift ?? null
+  // กฎ: ถ้ามี monthly_assignment record → เคารพ (source of truth)
+  //     fallback ไป work_schedules เฉพาะกรณี "ไม่มี" assignment เลย
+  let shift: any = null
   let schedule: any = null
-  if (!shift && (monthlyRes.data as any)?.shift_id) {
-    const { data: shiftData } = await supa.from("shift_templates").select("*").eq("id", (monthlyRes.data as any).shift_id).single()
-    if (shiftData) shift = shiftData
-  }
-  if (!shift) {
+  if (monthlyRes.data) {
+    shift = (monthlyRes.data as any).shift ?? null
+    if (!shift && (monthlyRes.data as any).shift_id) {
+      const { data: shiftData } = await supa.from("shift_templates").select("*").eq("id", (monthlyRes.data as any).shift_id).single()
+      if (shiftData) shift = shiftData
+    }
+    // หาก shift_id=null (dayoff/leave/holiday) → shift = null (ไม่ fallback)
+  } else {
     schedule = schedRes.data
     shift = (schedule as any)?.shift ?? null
   }

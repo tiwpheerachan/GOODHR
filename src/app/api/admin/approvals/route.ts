@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
 import { logApproval, logAudit } from "@/lib/auditLog"
-import { calculatePayrollSummary, type OTBreakdown } from "@/lib/utils/payroll"
+import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
 import { isPayrollPeriodLocked } from "@/lib/utils/periodLock"
 
 // ── recalculate payroll_records หลังอนุมัติ OT ──────────────────────────────
@@ -369,12 +369,20 @@ async function approveAdjustment(supa: any, requestId: string, reviewerId: strin
   const newClockOut = adjReq.requested_clock_out ? new Date(adjReq.requested_clock_out) : (rec.clock_out ? new Date(rec.clock_out) : null)
   const shift = rec.shift as any
 
+  // grace period จากแผนก/บริษัทของพนักงาน + flag is_attendance_exempt
+  const { data: empGrace } = await supa.from("employees")
+    .select("is_attendance_exempt, department:departments(name), company:companies(code)")
+    .eq("id", adjReq.employee_id).single()
+  const grace = getLateThreshold((empGrace?.department as any)?.name, (empGrace?.company as any)?.code)
+  const isExempt = !!empGrace?.is_attendance_exempt
+
   let newLateMin = 0, newStatus = rec.status as string
   if (newClockIn && shift?.work_start) {
     const expectedStart = new Date(adjReq.work_date + "T" + shift.work_start + "+07:00")
-    newLateMin = calcLateMinutes(newClockIn, expectedStart)
+    const rawLate = calcLateMinutes(newClockIn, expectedStart)
+    newLateMin = isExempt ? 0 : Math.max(0, rawLate - grace)
   }
-  if (newLateMin > 5) { newStatus = "late" } else { newStatus = "present"; newLateMin = 0 }
+  if (newLateMin > 0) { newStatus = "late" } else { newStatus = "present" }
 
   let newWorkMin = rec.work_minutes ?? 0
   if (newClockIn && newClockOut) newWorkMin = calcWorkMinutes(newClockIn, newClockOut, shift?.break_minutes ?? 60)
@@ -584,11 +592,19 @@ export async function POST(req: NextRequest) {
               .select("*").eq("employee_id", reqData.employee_id).eq("work_date", reqData.work_date).maybeSingle()
 
             if (attRec && attRec.clock_in) {
+              // grace period ของพนักงาน
+              const { data: empGrace } = await supa.from("employees")
+                .select("is_attendance_exempt, department:departments(name), company:companies(code)")
+                .eq("id", reqData.employee_id).single()
+              const grace = getLateThreshold((empGrace?.department as any)?.name, (empGrace?.company as any)?.code)
+              const isExempt = !!empGrace?.is_attendance_exempt
+
               const clockIn = new Date(attRec.clock_in)
               const expectedStart = new Date(reqData.work_date + "T" + newShift.work_start + "+07:00")
-              let newLateMin = calcLateMinutes(clockIn, expectedStart)
+              const rawLate = calcLateMinutes(clockIn, expectedStart)
+              let newLateMin = isExempt ? 0 : Math.max(0, rawLate - grace)
               let newStatus = attRec.status as string
-              if (newLateMin > 5) { newStatus = "late" } else { newStatus = "present"; newLateMin = 0 }
+              if (newLateMin > 0) { newStatus = "late" } else { newStatus = "present" }
 
               let newWorkMin = attRec.work_minutes ?? 0
               if (attRec.clock_in && attRec.clock_out) {

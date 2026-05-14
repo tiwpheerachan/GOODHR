@@ -214,15 +214,31 @@ export async function POST(req: Request) {
         }
       }
 
-      // Batch upsert assignments
+      // Batch upsert assignments — ตรวจ error ทุกชุด
+      let okRows = 0
+      const failedBatches: string[] = []
       for (let i = 0; i < genRows.length; i += 500) {
         const chunk = genRows.slice(i, i + 500)
-        await supa.from("monthly_shift_assignments").upsert(
+        const { error } = await supa.from("monthly_shift_assignments").upsert(
           chunk,
           { onConflict: "employee_id,work_date" }
         )
+        if (error) {
+          console.error(`[import] upsert batch ${i}-${i + chunk.length} failed:`, error.message)
+          failedBatches.push(`${i}-${i + chunk.length}: ${error.message}`)
+          errorCount += chunk.length
+        } else {
+          okRows += chunk.length
+        }
       }
-      totalGenerated += genRows.length
+      totalGenerated += okRows
+      if (failedBatches.length > 0) {
+        return NextResponse.json({
+          success: false,
+          error: "บางชุดบันทึกไม่สำเร็จ — กรุณาตรวจสอบและลองใหม่",
+          partial: { saved: totalGenerated, failed_batches: failedBatches.slice(0, 5) },
+        }, { status: 500 })
+      }
     }
 
     return NextResponse.json({
