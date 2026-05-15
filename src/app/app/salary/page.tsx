@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { format, subMonths, addMonths } from "date-fns"
+import { recomputePayroll } from "@/lib/utils/payroll"
 
 // ── helpers ────────────────────────────────────────────────────────
 function thb(n?: number | null) {
@@ -131,19 +132,23 @@ export default function SalaryPage() {
   }
 
   const r        = record
-  const gross    = Number(r?.gross_income)           || 0
-  const net      = Number(r?.net_salary)             || 0
-  const sso      = Number(r?.social_security_amount) || 0
-  const tax      = Number(r?.monthly_tax_withheld)   || 0
-  const dLate    = Number(r?.deduct_late)            || 0
-  const dEarly   = Number(r?.deduct_early_out)       || 0
-  const dAbsent  = Number(r?.deduct_absent)          || 0
-  const dLoan    = Number(r?.deduct_loan)            || 0
-  const dOther   = Number(r?.deduct_other)           || 0
-  const totalDed = Number(r?.total_deductions)       || 0
-  const commission  = Number(r?.commission)          || 0
-  const otherIncome = Number(r?.other_income)        || 0
-  const allowOther  = Number(r?.allowance_other)     || 0
+  // ── ใช้ helper recompute (ครอบคลุม prorate + tax + SSO) ──
+  const N = (v: any) => Number(v) || 0
+  const rp = recomputePayroll(r)
+  const gross    = rp.gross
+  const sso      = rp.sso
+  const tax      = rp.tax
+  const totalDed = rp.totalDed
+  const net      = rp.net
+
+  const dLate    = N(r?.deduct_late)
+  const dEarly   = N(r?.deduct_early_out)
+  const dAbsent  = N(r?.deduct_absent)
+  const dLoan    = N(r?.deduct_loan)
+  const dOther   = N(r?.deduct_other)
+  const commission  = N(r?.commission)
+  const otherIncome = N(r?.other_income)
+  const allowOther  = N(r?.allowance_other)
   // income_extras / deduction_extras เป็น object {key: amount} → แปลงเป็น array
   const EXTRA_LABELS: Record<string,string> = {
     kpi:"KPI", incentive:"Incentive", performance_bonus:"Performance Bonus",
@@ -522,7 +527,16 @@ export default function SalaryPage() {
                     <span className="text-xs font-black text-emerald-600">+฿{thb(gross)}</span>
                   </div>
                   <div className="space-y-2.5">
-                    <IncomeRow label="เงินเดือนฐาน"       value={r.base_salary}/>
+                    {(() => {
+                      const fullBase = Number(r.base_salary) || 0
+                      const pd = Number(r.prorate_days) || 0
+                      const factor = (pd > 0 && pd < 30) ? pd / 30 : 1
+                      const eBase = Math.round(fullBase * factor * 100) / 100
+                      const eBonus = Math.round((Number(r.bonus) || 0) * factor * 100) / 100
+                      return <>
+                        <IncomeRow label={factor < 1 ? `เงินเดือนฐาน (${pd}/30 วัน)` : "เงินเดือนฐาน"} value={eBase}/>
+                      </>
+                    })()}
                     {(r.allowance_position ??0)>0 && <IncomeRow label="ค่าตำแหน่ง"      value={r.allowance_position}/>}
                     {(r.allowance_transport??0)>0 && <IncomeRow label="ค่าเดินทาง"       value={r.allowance_transport}/>}
                     {(r.allowance_food     ??0)>0 && <IncomeRow label="ค่าอาหาร"         value={r.allowance_food}/>}
@@ -530,7 +544,7 @@ export default function SalaryPage() {
                     {(r.allowance_housing  ??0)>0 && <IncomeRow label="ค่าที่อยู่อาศัย"  value={r.allowance_housing}/>}
                     {allowOther > 0              && <IncomeRow label="เบี้ยเลี้ยงอื่นๆ"  value={allowOther}/>}
                     {(() => {
-                      const base = Number(r.base_salary) || 0
+                      const base = Number(r.base_salary) || 0  // OT ใช้ฐานเต็มตามสัญญา
                       const rph = base / 30 / 8
                       const wdMin = Number(r.ot_weekday_minutes) || 0
                       const hrMin = Number(r.ot_holiday_reg_minutes) || 0
@@ -543,7 +557,12 @@ export default function SalaryPage() {
                       </>
                     })()}
                     {commission > 0              && <IncomeRow label="คอมมิชชั่น"        value={commission} accent="emerald"/>}
-                    {(r.bonus              ??0)>0 && r.kpi_grade !== "pending" && <IncomeRow label={`โบนัส KPI (เกรด ${r.kpi_grade})`} value={r.bonus} accent="sky"/>}
+                    {(r.bonus ??0)>0 && r.kpi_grade !== "pending" && (() => {
+                      const pd = Number(r.prorate_days) || 0
+                      const f = (pd > 0 && pd < 30) ? pd / 30 : 1
+                      const eBonus = Math.round((Number(r.bonus) || 0) * f * 100) / 100
+                      return <IncomeRow label={`โบนัส KPI (เกรด ${r.kpi_grade})`} value={eBonus} accent="sky"/>
+                    })()}
                     {r.kpi_grade === "pending" && r.kpi_standard_amount > 0 && (
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-slate-400">KPI Bonus</span>

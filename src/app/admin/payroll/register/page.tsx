@@ -9,6 +9,7 @@ import {
 import Link from "next/link"
 import toast from "react-hot-toast"
 import * as XLSX from "xlsx"
+import { recomputePayroll } from "@/lib/utils/payroll"
 
 // ── helpers ──────────────────────────────────────────────────────
 const thb = (v: number) =>
@@ -96,7 +97,7 @@ function getCellValue(rec: any, col: Col): number | string {
     case "position":       return emp.position?.name || ""
     case "department":     return emp.department?.name || ""
     case "company_code":   return emp.company?.code || ""
-    case "brand":          return emp.brand || ""
+    case "brand":          return Array.isArray(emp.brand) ? emp.brand.join(", ") : (emp.brand || "")
     // OT computed from minutes
     case "ot_weekday":     return n(rec.ot_weekday_minutes) > 0 ? calcOTAmount(n(rec.base_salary), n(rec.ot_weekday_minutes), 1.5) : 0
     case "ot_holiday_reg": return n(rec.ot_holiday_reg_minutes) > 0 ? calcOTAmount(n(rec.base_salary), n(rec.ot_holiday_reg_minutes), 1.0) : 0
@@ -104,6 +105,14 @@ function getCellValue(rec: any, col: Col): number | string {
     // Sub deduct = late + absent + suspension + other
     case "_sub_deduct":
       return n(rec.deduct_late) + n(rec.deduct_absent) + n(de.suspension) + n(rec.deduct_other)
+    // ── ใช้ helper recompute สำหรับ fields ที่ต้องคำนวณตาม prorate ──
+    case "base_salary":            return recomputePayroll(rec).effBase
+    case "bonus":                  return recomputePayroll(rec).effBonus
+    case "social_security_amount": return recomputePayroll(rec).sso
+    case "monthly_tax_withheld":   return recomputePayroll(rec).tax
+    case "gross_income":           return recomputePayroll(rec).gross
+    case "total_deductions":       return recomputePayroll(rec).totalDed
+    case "net_salary":             return recomputePayroll(rec).net
     default:
       break
   }
@@ -218,10 +227,11 @@ export default function PayrollRegisterPage() {
     filtered.forEach((r: any) => {
       const dept = r.employee?.department?.name || "ไม่ระบุ"
       const prev = map.get(dept) || { count: 0, gross: 0, deduct: 0, net: 0 }
+      const rc = recomputePayroll(r)
       prev.count++
-      prev.gross  += n(r.gross_income)
-      prev.deduct += n(r.total_deductions)
-      prev.net    += n(r.net_salary)
+      prev.gross  += rc.gross
+      prev.deduct += rc.totalDed
+      prev.net    += rc.net
       map.set(dept, prev)
     })
     return Array.from(map.entries()).sort((a, b) => b[1].net - a[1].net)

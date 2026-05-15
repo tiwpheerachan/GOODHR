@@ -20,6 +20,7 @@ export interface Employee {
   bank_account?: string; bank_name?: string; tax_id?: string; social_security_no?: string
   is_active: boolean; created_at: string; updated_at: string
   deleted_at?: string; deleted_by?: string
+  brand?: string[] | null
   company?: Company; branch?: Branch; department?: Department; position?: Position
 }
 

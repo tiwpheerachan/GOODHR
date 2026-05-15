@@ -636,11 +636,20 @@ async function calcAndSave(
     (manualKpiGrade && manualKpiGrade !== "pending") ||
     (Number(existingPR?.bonus) || 0) > 0
   )
-  const manualBonus = useManualKpi ? (Number(existingPR?.bonus) || 0) : kpiBonus.amount
+  // ── Prorate: ถ้าตั้งค่า prorate_days < 30 → คูณ factor กับเงินเดือน + KPI bonus ──
+  // null/30 = ไม่ prorate (ทำเต็มเดือน)
+  const prorateDays = Number(existingPR?.prorate_days) || null
+  const prorateFactor = (prorateDays != null && prorateDays > 0 && prorateDays < 30)
+    ? Math.round((prorateDays / 30) * 10000) / 10000
+    : 1
+  const fullBase = Number(sal.base_salary)
+  const effectiveBase = Math.round(fullBase * prorateFactor * 100) / 100
+  const fullBonus = useManualKpi ? (Number(existingPR?.bonus) || 0) : kpiBonus.amount
+  const manualBonus = Math.round(fullBonus * prorateFactor * 100) / 100
 
   // ── คำนวณ ─────────────────────────────────────────────────────
   const result = calculatePayrollSummary({
-    baseSalary:      Number(sal.base_salary),
+    baseSalary:      effectiveBase,
     allowances:      allAllowances,
     otBreakdown,
     bonus:           manualBonus,
@@ -669,9 +678,9 @@ async function calcAndSave(
     (s: number, r: any) => s + (Number(r.monthly_tax_withheld) || 0), 0
   )
 
-  // ── หักลาไม่ได้เงิน (unpaid leave) ──
+  // ── หักลาไม่ได้เงิน (unpaid leave) — ใช้ rate จาก full base (เพราะอัตราค่าจ้างต่อวันไม่เปลี่ยน) ──
   const deductUnpaidLeave = leaveUnpaidDays > 0
-    ? Math.round((Number(sal.base_salary) / 30) * leaveUnpaidDays * 100) / 100
+    ? Math.round((fullBase / 30) * leaveUnpaidDays * 100) / 100
     : 0
 
   // ถ้า HR เคยแก้ไข manual → เก็บค่าที่แก้ไว้ทั้งหมด
@@ -702,7 +711,8 @@ async function calcAndSave(
   const incExtrasTotal = typeof incExtras === 'object' ? Object.values(incExtras).reduce((s: number, v: any) => s + (Number(v) || 0), 0) : 0
   const decExtrasTotal = typeof decExtras === 'object' ? Object.values(decExtras).reduce((s: number, v: any) => s + (Number(v) || 0), 0) : 0
   // รวมทุก allowances จริง (manual หรือ system) + OT + bonus + extras
-  const finalGross = Number(sal.base_salary) + manualAllowPosition + manualAllowTransport + manualAllowFood
+  // ใช้ effectiveBase (prorated) สำหรับเงินเดือนส่วนที่ได้รับจริง
+  const finalGross = effectiveBase + manualAllowPosition + manualAllowTransport + manualAllowFood
     + manualAllowPhone + manualAllowHousing + manualAllowOther
     + finalOtAmount + manualBonus + manualCommission + manualOtherIncome + incExtrasTotal
   const taxWithholdingPctVal = sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
@@ -723,7 +733,8 @@ async function calcAndSave(
     company_id:             emp.company_id,
     year:                   currentYear,
     month:                  currentMonth,
-    base_salary:            Number(sal.base_salary),
+    base_salary:            fullBase,                  // ✅ เก็บค่าเต็มเดิมจาก salary_structures
+    prorate_days:           prorateDays,               // ✅ จำนวนวันทำงาน (ใช้คำนวณ effective)
     allowance_position:     manualAllowPosition,
     allowance_transport:    manualAllowTransport,
     allowance_food:         manualAllowFood,
@@ -735,12 +746,14 @@ async function calcAndSave(
     ot_weekday_minutes:     isManual && existingPR?.ot_weekday_minutes != null ? Number(existingPR.ot_weekday_minutes) : otBreakdown.weekday_minutes,
     ot_holiday_reg_minutes: isManual && existingPR?.ot_holiday_reg_minutes != null ? Number(existingPR.ot_holiday_reg_minutes) : otBreakdown.holiday_regular_minutes,
     ot_holiday_ot_minutes:  isManual && existingPR?.ot_holiday_ot_minutes != null ? Number(existingPR.ot_holiday_ot_minutes) : otBreakdown.holiday_ot_minutes,
-    bonus:                  manualBonus,
+    bonus:                  fullBonus,                 // ✅ เก็บ KPI bonus ค่าเต็ม (ก่อน prorate)
     kpi_grade:              useManualKpi ? manualKpiGrade : kpiBonus.grade,
     kpi_standard_amount:    useManualKpi ? (Number(existingPR?.kpi_standard_amount) || kpiBonus.standardAmount) : kpiBonus.standardAmount,
     commission:             manualCommission,
     other_income:           manualOtherIncome,
     income_extras:          existingExtras,
+    // เก็บ social_security_base เป็น effectiveBase ด้วย เพื่อให้ตรงกัน
+    // (calculatePayrollSummary ใช้ effectiveBase แล้ว)
     // ✅ ค่าผลคำนวณ → คำนวณใหม่เสมอจาก finalGross/finalTax
     gross_income:           finalGross,
     deduct_absent:          result.deductAbsent,
@@ -749,7 +762,7 @@ async function calcAndSave(
     deduct_loan:            loanDeduction,
     deduct_other:           deductUnpaidLeave + manualDeductOther,
     deduction_extras:       existingDeductExtras,
-    social_security_base:   Number(sal.base_salary),
+    social_security_base:   effectiveBase,             // ฐาน SSO ใช้ effective (กรณี prorate)
     social_security_rate:   0.05,
     social_security_amount: finalSso,
     taxable_income:         finalGross - finalSso,

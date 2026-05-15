@@ -123,6 +123,7 @@ export async function PATCH(req: Request) {
     "absent_days", "late_count", "present_days", "leave_paid_days", "leave_unpaid_days",
     "gross_income", "total_deductions", "net_salary",
     "income_extras", "deduction_extras", "note_override", "is_manual_override",
+    "prorate_days",  // ✅ จำนวนวันทำงานจริง (สำหรับ prorate)
   ]
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() }

@@ -3,6 +3,67 @@
 // ฐาน: เงินเดือน / 30 วัน / 8 ชั่วโมง
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * Prorate factor — สำหรับพนักงานเข้า/ออกกลางงวด
+ * - null/undefined/0/>=30 → 1.0 (ทำเต็มเดือน)
+ * - 1-29 → days / 30
+ */
+export function getProrateFactor(prorateDays: number | null | undefined): number {
+  const pd = Number(prorateDays) || 0
+  if (pd <= 0 || pd >= 30) return 1
+  return pd / 30
+}
+
+/** เงินเดือน × factor (ปัดทศนิยม 2 ตำแหน่ง) */
+export function applyProrate(amount: number, prorateDays: number | null | undefined): number {
+  const f = getProrateFactor(prorateDays)
+  return Math.round((Number(amount) || 0) * f * 100) / 100
+}
+
+/**
+ * recomputePayroll: คำนวณ gross/SSO/tax/net จาก record ของ payroll_records
+ * - ถ้ามี prorate (pd > 0 และ < 30) → ใช้ prorated base/bonus + recompute SSO + tax (ขั้นบันได)
+ * - ถ้าไม่มี prorate → ใช้ค่าที่เก็บใน record ตรงๆ (เคารพ manual override)
+ *
+ * ใช้ใน: PayslipModal, FullRegisterTable, CompactTable, /app/salary, PDF download
+ */
+export function recomputePayroll(record: any) {
+  const N = (v: any) => Number(v) || 0
+  const fullBase = N(record?.base_salary)
+  const pd = N(record?.prorate_days)
+  const factor = (pd > 0 && pd < 30) ? pd / 30 : 1
+  const isProrated = factor < 1
+
+  const effBase = Math.round(fullBase * factor * 100) / 100
+  const effBonus = Math.round(N(record?.bonus) * factor * 100) / 100
+  const ieTotal = record?.income_extras && typeof record.income_extras === "object"
+    ? Object.values(record.income_extras).reduce((s: number, v: any) => s + N(v), 0)
+    : 0
+  const deTotal = record?.deduction_extras && typeof record.deduction_extras === "object"
+    ? Object.values(record.deduction_extras).reduce((s: number, v: any) => s + N(v), 0)
+    : 0
+
+  const allowances = N(record?.allowance_position) + N(record?.allowance_transport)
+    + N(record?.allowance_food) + N(record?.allowance_phone)
+    + N(record?.allowance_housing) + N(record?.allowance_other)
+
+  const gross = effBase + effBonus + allowances
+    + N(record?.ot_amount) + N(record?.commission) + N(record?.other_income) + ieTotal
+
+  // ถ้า prorate → recompute SSO + tax เพื่อให้สะท้อนงวดจริง
+  // ถ้าไม่ prorate → ใช้ค่าที่บันทึกไว้ (เคารพ manual ของ HR)
+  const sso = isProrated ? calcSSO(effBase) : N(record?.social_security_amount)
+  const tax = isProrated ? calcMonthlyTax(gross, sso) : N(record?.monthly_tax_withheld)
+
+  const baseDeducts = N(record?.deduct_absent) + N(record?.deduct_late)
+    + N(record?.deduct_early_out) + N(record?.deduct_loan) + N(record?.deduct_other)
+
+  const totalDed = baseDeducts + sso + tax + deTotal
+  const net = Math.max(gross - totalDed, 0)
+
+  return { effBase, effBonus, gross, sso, tax, totalDed, net, isProrated, factor, prorateDays: pd }
+}
+
 /** อัตราค่าจ้างต่อนาที = เงินเดือน / 30 / 8 / 60 */
 export function calcRatePerMinute(base: number): number {
   return base / 30 / 8 / 60

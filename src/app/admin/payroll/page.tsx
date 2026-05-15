@@ -13,6 +13,8 @@ import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
 import * as XLSX from "xlsx"
+import { BRAND_OPTIONS, normalizeBrands } from "@/lib/utils/brands"
+import { calcSSO, calcMonthlyTax, recomputePayroll } from "@/lib/utils/payroll"
 
 // ── helpers ────────────────────────────────────────────────────────────
 const thb = (v: number | null | undefined) =>
@@ -62,10 +64,24 @@ const REG_COLS: RCol[] = [
   { key:"pos",   label:"ตำแหน่ง",        group:"info", get:r=>r.employee?.position?.name||"" },
   { key:"dept",  label:"แผนก",           group:"info", get:r=>r.employee?.department?.name||"" },
   { key:"comp",  label:"สังกัด",         group:"info", get:r=>r.employee?.company?.code||"" },
-  { key:"brand", label:"แบรนด์",         group:"info", get:r=>r.employee?.brand||"" },
+  { key:"brand", label:"แบรนด์",         group:"info", get:r=>{
+    const b = r.employee?.brand
+    if (Array.isArray(b)) return b.join(", ")
+    return b || ""
+  }},
+  { key:"days",  label:"วันทำงาน",       group:"info", get:r=>r.prorate_days ?? "" },
   // income
   { key:"base",        label:"เงินเดือน",            group:"income", get:r=>n(r.base_salary) },
-  { key:"bonus",       label:"โบนัส KPI",             group:"income", get:r=>n(r.bonus) },
+  { key:"base_eff",    label:"ฐานเงินเดือนเดือนนี้",  group:"income", get:r=>{
+    const pd = Number(r.prorate_days)
+    const factor = (pd > 0 && pd < 30) ? pd / 30 : 1
+    return Math.round(n(r.base_salary) * factor * 100) / 100
+  }},
+  { key:"bonus",       label:"โบนัส KPI",             group:"income", get:r=>{
+    const pd = Number(r.prorate_days)
+    const factor = (pd > 0 && pd < 30) ? pd / 30 : 1
+    return Math.round(n(r.bonus) * factor * 100) / 100
+  }},
   { key:"kpi_grade",   label:"เกรด",                  group:"income", get:r=>r.kpi_grade === "pending" ? "รอ" : r.kpi_grade||"" },
   { key:"ot_total",    label:"รวม OT",              group:"income", get:r=>{
     const fromMin = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
@@ -105,12 +121,12 @@ const REG_COLS: RCol[] = [
   { key:"emp_prod",    label:"สินค้าพนักงาน",         group:"deduction", get:r=>n((r.deduction_extras||{}).employee_products) },
   { key:"legal",       label:"กรมบังคับคดี",          group:"deduction", get:r=>n((r.deduction_extras||{}).legal_enforcement) },
   { key:"student",     label:"กยศ.",                group:"deduction", get:r=>n((r.deduction_extras||{}).student_loan) },
-  { key:"sso",         label:"ประกันสังคม",           group:"deduction", get:r=>n(r.social_security_amount) },
-  { key:"tax",         label:"ภาษีหัก ณ ที่จ่าย",     group:"deduction", get:r=>n(r.monthly_tax_withheld) },
+  { key:"sso",         label:"ประกันสังคม",           group:"deduction", get:r=>recomputePayroll(r).sso },
+  { key:"tax",         label:"ภาษีหัก ณ ที่จ่าย",     group:"deduction", get:r=>recomputePayroll(r).tax },
   // summary
-  { key:"gross",       label:"รวมรายรับ",             group:"summary", get:r=>n(r.gross_income) },
-  { key:"total_ded",   label:"รวมรายหัก",             group:"summary", get:r=>n(r.total_deductions) },
-  { key:"net",         label:"ยอดคงเหลือสุทธิ",       group:"summary", get:r=>n(r.net_salary) },
+  { key:"gross",       label:"รวมรายรับ",             group:"summary", get:r=>recomputePayroll(r).gross },
+  { key:"total_ded",   label:"รวมรายหัก",             group:"summary", get:r=>recomputePayroll(r).totalDed },
+  { key:"net",         label:"ยอดคงเหลือสุทธิ",       group:"summary", get:r=>recomputePayroll(r).net },
 ]
 
 const INFO_C = REG_COLS.filter(c => c.group === "info")
@@ -181,7 +197,7 @@ function FullRegisterTable({ records, onEdit, onView }: { records: any[]; onEdit
   // ── Sticky column widths (CSS variable approach) ──────────────────
   // We compute cumulative left offsets for each info column
   const INFO_WIDTHS: Record<string, number> = {
-    no: 42, code: 100, name: 160, nick: 80, pos: 120, dept: 100, comp: 60, brand: 70
+    no: 42, code: 100, name: 160, nick: 80, pos: 120, dept: 100, comp: 60, brand: 130, days: 65
   }
   const ACTION_W = 48
   const infoLeft: number[] = []
@@ -414,11 +430,23 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                     </div>
                   </div>
                 </td>
-                <td className="px-3 py-3 text-right"><p className="font-bold text-slate-700">฿{thb(r.base_salary)}</p></td>
+                <td className="px-3 py-3 text-right">{(() => {
+                  const pd = Number(r.prorate_days) || 0
+                  const f = (pd > 0 && pd < 30) ? pd / 30 : 1
+                  const eBase = n(r.base_salary) * f
+                  return <>
+                    <p className="font-bold text-slate-700">฿{thb(eBase)}</p>
+                    {f < 1 && <p className="text-[9px] text-amber-600 font-bold">({pd}/30 วัน)</p>}
+                  </>
+                })()}</td>
                 <td className="px-3 py-3 text-center">
-                  {n(r.bonus) > 0 ? (
+                  {n(r.bonus) > 0 ? (() => {
+                    const pd = Number(r.prorate_days) || 0
+                    const f = (pd > 0 && pd < 30) ? pd / 30 : 1
+                    const eBonus = n(r.bonus) * f
+                    return (
                     <div>
-                      <p className="font-bold text-purple-700">฿{thb(r.bonus)}</p>
+                      <p className="font-bold text-purple-700">฿{thb(eBonus)}</p>
                       {r.kpi_grade === "manual" ? (
                         <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" title="หัวหน้าใส่จำนวนเงินเอง">฿ ใส่เอง</span>
                       ) : r.kpi_grade && r.kpi_grade !== "pending" ? (
@@ -431,7 +459,8 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                       ) : null}
                       {r.kpi_grade === "pending" && <span className="text-[9px] text-slate-400">รอประเมิน</span>}
                     </div>
-                  ) : r.kpi_grade === "pending" ? (
+                    )
+                  })() : r.kpi_grade === "pending" ? (
                     <span className="text-[10px] text-slate-400">รอประเมิน</span>
                   ) : (
                     <span className="text-slate-200">—</span>
@@ -444,9 +473,14 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                   return ot > 0 ? <p className="font-bold text-amber-700">+฿{thb(ot)}</p> : <span className="text-slate-200">—</span>
                 })()}</td>
                 <td className="px-3 py-3 text-right">{totalDeductWork > 0 ? <p className="font-bold text-red-600">-฿{thb(totalDeductWork)}</p> : <span className="text-slate-200">—</span>}</td>
-                <td className="px-3 py-3 text-right text-slate-600">-฿{thb(r.social_security_amount)}</td>
-                <td className="px-3 py-3 text-right text-slate-600">-฿{thb(r.monthly_tax_withheld)}</td>
-                <td className="px-3 py-3 text-right"><p className="text-sm font-black text-indigo-700">฿{thb(r.net_salary)}</p></td>
+                {(() => {
+                  const rc = recomputePayroll(r)
+                  return <>
+                    <td className="px-3 py-3 text-right text-slate-600">-฿{thb(rc.sso)}</td>
+                    <td className="px-3 py-3 text-right text-slate-600">-฿{thb(rc.tax)}</td>
+                    <td className="px-3 py-3 text-right"><p className="text-sm font-black text-indigo-700">฿{thb(rc.net)}</p></td>
+                  </>
+                })()}
                 <td className="px-3 py-3">
                   <div className="flex items-center justify-center gap-1">
                     <button onClick={() => onView(r)} className="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-500"><Eye size={12}/></button>
@@ -460,14 +494,22 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
         <tfoot className="bg-indigo-50 border-t-2 border-indigo-100">
           <tr>
             <td className="px-4 py-3 font-black text-slate-700">{records.length} คน</td>
-            <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.base_salary),0))}</td>
-            <td className="px-3 py-3 text-center font-bold text-purple-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.bonus),0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s:number,r:any)=>{
+              const pd = Number(r.prorate_days) || 0
+              const f = (pd > 0 && pd < 30) ? pd / 30 : 1
+              return s + n(r.base_salary) * f
+            },0))}</td>
+            <td className="px-3 py-3 text-center font-bold text-purple-700">฿{thb(records.reduce((s:number,r:any)=>{
+              const pd = Number(r.prorate_days) || 0
+              const f = (pd > 0 && pd < 30) ? pd / 30 : 1
+              return s + n(r.bonus) * f
+            },0))}</td>
             <td className="px-3 py-3 text-right font-bold text-green-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing),0))}</td>
             <td className="px-3 py-3 font-bold text-amber-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.ot_amount),0))}</td>
             <td className="px-3 py-3 text-right font-bold text-red-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent),0))}</td>
-            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.social_security_amount),0))}</td>
-            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.monthly_tax_withheld),0))}</td>
-            <td className="px-3 py-3 text-right font-black text-indigo-700 text-sm">฿{thb(totalNet)}</td>
+            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).sso,0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).tax,0))}</td>
+            <td className="px-3 py-3 text-right font-black text-indigo-700 text-sm">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).net,0))}</td>
             <td/>
           </tr>
         </tfoot>
@@ -660,13 +702,13 @@ function exportXLSX(records: any[], period: any) {
       sum(bonusTotal),
       sum(commTotal),
       sum(otherInc),
-      sum(r=>n(r.gross_income)),
+      sum(r=>recomputePayroll(r).gross),
       sum(workDeduct),
-      sum(r=>n(r.social_security_amount)),
-      sum(r=>n(r.monthly_tax_withheld)),
+      sum(r=>recomputePayroll(r).sso),
+      sum(r=>recomputePayroll(r).tax),
       sum(extraDeduct),
-      sum(r=>n(r.total_deductions)),
-      sum(r=>n(r.net_salary)),
+      sum(r=>recomputePayroll(r).totalDed),
+      sum(r=>recomputePayroll(r).net),
     ]
   })
   // total row
@@ -703,11 +745,11 @@ function exportXLSX(records: any[], period: any) {
         sum(r=>n(r.base_salary)), sum(otA),
         sum(r=>n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)),
         sum(r=>n(r.bonus)), sum(r=>n(r.commission)), sum(r=>n(r.other_income)),
-        sum(r=>n(r.gross_income)),
+        sum(r=>recomputePayroll(r).gross),
         sum(r=>n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)),
-        sum(r=>n(r.social_security_amount)), sum(r=>n(r.monthly_tax_withheld)),
+        sum(r=>recomputePayroll(r).sso), sum(r=>recomputePayroll(r).tax),
         sum(r=>n(r.deduct_loan)+n(r.deduct_other)),
-        sum(r=>n(r.total_deductions)), sum(r=>n(r.net_salary)),
+        sum(r=>recomputePayroll(r).totalDed), sum(r=>recomputePayroll(r).net),
       ]
     })
     const coTotRow = deptSumHeaders.map((_,ci) => ci===0 ? "รวมทั้งหมด" : coSumData.reduce((s,r)=>s+(typeof r[ci]==="number"?r[ci] as number:0),0))
@@ -763,13 +805,13 @@ function exportXLSX(records: any[], period: any) {
     ["กรมบังคับคดี",               grand(r=>n(de2(r).legal_enforcement||0))],
     ["กยศ.",                       grand(r=>n(de2(r).student_loan||0))],
     ["หักเงินกู้",                  grand(r=>n(r.deduct_loan))],
-    ["ประกันสังคม (นายจ้าง)",       grand(r=>n(r.social_security_amount))],
-    ["ภาษีหัก ณ ที่จ่าย",           grand(r=>n(r.monthly_tax_withheld))],
+    ["ประกันสังคม (นายจ้าง)",       grand(r=>recomputePayroll(r).sso)],
+    ["ภาษีหัก ณ ที่จ่าย",           grand(r=>recomputePayroll(r).tax)],
   ]
 
-  const totalGross  = grand(r=>n(r.gross_income))
-  const totalDeduct = grand(r=>n(r.total_deductions))
-  const totalNet    = grand(r=>n(r.net_salary))
+  const totalGross  = grand(r=>recomputePayroll(r).gross)
+  const totalDeduct = grand(r=>recomputePayroll(r).totalDed)
+  const totalNet    = grand(r=>recomputePayroll(r).net)
 
   // filter only non-zero items
   const incFiltered = incomeItems.filter(([,v])=>v>0)
@@ -837,6 +879,38 @@ function EditModal({
   const kpiStd = Number(record.kpi_standard_amount) || 0
   const kpiMultiplier = (g: string) => g === "A" ? 1.2 : g === "B" ? 1.0 : g === "C" ? 0.8 : 0
   const calcKpiFromGrade = (g: string) => Math.round(kpiStd * kpiMultiplier(g))
+
+  // ── Prorate days (วันทำงานจริง) — null/30 = เต็มเดือน ──
+  const [prorateDaysInput, setProrateDaysInput] = useState<string>(
+    record.prorate_days != null ? String(record.prorate_days) : ""
+  )
+
+  // ── Multi-brand picker ──
+  const [brandList, setBrandList] = useState<string[]>(normalizeBrands(emp?.brand))
+  const [brandSaving, setBrandSaving] = useState(false)
+  const toggleBrand = (b: string) => {
+    setBrandList(prev => prev.includes(b) ? prev.filter(x => x !== b) : [...prev, b])
+  }
+  const saveBrands = async () => {
+    if (!emp?.id) return
+    setBrandSaving(true)
+    try {
+      const res = await fetch("/api/employees/brand", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_id: emp.id, brands: brandList }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) { toast.error(data.error || "บันทึกแบรนด์ไม่สำเร็จ"); return }
+      toast.success("บันทึกแบรนด์แล้ว")
+      // อัปเดต local เพื่อให้ header refresh
+      if (record.employee) record.employee.brand = data.brands
+    } catch (e: any) {
+      toast.error(e.message || "บันทึกแบรนด์ไม่สำเร็จ")
+    } finally {
+      setBrandSaving(false)
+    }
+  }
 
   const [f, setF] = useState({
     base_salary:           s(record.base_salary),
@@ -938,18 +1012,39 @@ function EditModal({
   // ── Auto-recalc tax เมื่อ gross เปลี่ยน + ใช้ % mode ──
   const prevGrossRef = useRef(0)
 
-  const gross = num(f.base_salary) + num(f.allowance_position) + num(f.allowance_transport)
+  // ── Prorate factor (ใช้คำนวณ effective base + bonus) ──
+  const prorateDaysNum = Number(prorateDaysInput)
+  const prorateFactor = (prorateDaysInput && prorateDaysNum > 0 && prorateDaysNum < 30)
+    ? prorateDaysNum / 30 : 1
+  const effectiveBase = Math.round(num(f.base_salary) * prorateFactor * 100) / 100
+  const effectiveBonus = Math.round(num(f.bonus) * prorateFactor * 100) / 100
+
+  const gross = effectiveBase + num(f.allowance_position) + num(f.allowance_transport)
     + num(f.allowance_food) + num(f.allowance_phone) + num(f.allowance_housing)
-    + num(f.allowance_other) + effectiveOt + num(f.bonus) + num(f.commission)
+    + num(f.allowance_other) + effectiveOt + effectiveBonus + num(f.commission)
     + num(f.other_income) + extraIncomeTotal
 
-  // Auto-sync tax เมื่อ gross เปลี่ยน + มี % กรอกอยู่
-  if (taxPctInput && Number(taxPctInput) > 0 && gross !== prevGrossRef.current) {
+  // Auto-sync tax เมื่อ gross เปลี่ยน
+  if (gross !== prevGrossRef.current) {
     prevGrossRef.current = gross
-    const pct = Number(taxPctInput)
-    const newTax = Math.round(gross * pct / 100 * 100) / 100
-    if (Math.abs(num(f.monthly_tax_withheld) - newTax) > 0.01) {
+    let newTax: number | null = null
+    if (taxPctInput && Number(taxPctInput) > 0) {
+      // โหมด % คงที่
+      newTax = Math.round(gross * Number(taxPctInput) / 100 * 100) / 100
+    } else if (prorateFactor < 1) {
+      // โหมด auto + มี prorate → recompute ภาษีตาม gross ใหม่ (ขั้นบันได)
+      const newSso = calcSSO(effectiveBase)
+      newTax = calcMonthlyTax(gross, newSso)
+    }
+    if (newTax != null && Math.abs(num(f.monthly_tax_withheld) - newTax) > 0.01) {
       setTimeout(() => set("monthly_tax_withheld", String(newTax)), 0)
+    }
+    // sync SSO ตาม effectiveBase
+    if (prorateFactor < 1) {
+      const newSso = calcSSO(effectiveBase)
+      if (Math.abs(num(f.social_security_amount) - newSso) > 0.01) {
+        setTimeout(() => set("social_security_amount", String(newSso)), 0)
+      }
     }
   }
 
@@ -1007,6 +1102,9 @@ function EditModal({
     payload.net_salary = net
     payload.is_manual_override = true
     payload.kpi_grade = kpiGradeOverride || null
+    // วันทำงานจริง (prorate) — ค่าว่าง = null (ทำเต็มเดือน)
+    const pd = Number(prorateDaysInput)
+    payload.prorate_days = (prorateDaysInput && pd > 0 && pd < 30) ? pd : null
     payload.updated_at = new Date().toISOString()
 
     // ใช้ API route + service client เพื่อไม่ติด RLS
@@ -1081,7 +1179,8 @@ function EditModal({
             <div>
               <p className="font-black text-slate-800">{emp?.first_name_th} {emp?.last_name_th} {emp?.nickname ? `(${emp.nickname})` : ""}</p>
               <p className="text-xs text-slate-400">
-                {emp?.employee_code} · {emp?.position?.name || "-"} · {emp?.department?.name || "-"} · {emp?.company?.code || "-"} {emp?.brand ? `· ${emp.brand}` : ""}
+                {emp?.employee_code} · {emp?.position?.name || "-"} · {emp?.department?.name || "-"} · {emp?.company?.code || "-"}
+                {Array.isArray(emp?.brand) && emp.brand.length > 0 ? ` · ${emp.brand.join(", ")}` : ""}
               </p>
             </div>
           </div>
@@ -1097,6 +1196,85 @@ function EditModal({
 
         {/* Body — scrollable */}
         <div className="flex-1 overflow-y-auto px-5 py-3">
+
+          {/* ── Prorate (วันทำงานจริง) + Brand multi-select ── */}
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            {/* Prorate days */}
+            <div className="bg-amber-50/60 border border-amber-100 rounded-xl px-3 py-2.5">
+              <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1.5">วันทำงานจริง (Prorate)</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1} max={30}
+                  value={prorateDaysInput}
+                  onChange={e => setProrateDaysInput(e.target.value)}
+                  placeholder="30 (เต็มเดือน)"
+                  className="w-24 px-2.5 py-1.5 rounded-lg border border-amber-200 text-sm font-bold text-slate-700 outline-none focus:border-amber-400"
+                />
+                <span className="text-[10px] text-amber-700">/ 30 วัน</span>
+              </div>
+              {/* แสดงผลลัพธ์ effective base + bonus เมื่อ prorate < 30 */}
+              {prorateFactor < 1 ? (
+                <div className="mt-2 pt-2 border-t border-amber-200/60 space-y-0.5">
+                  <p className="text-[10px] text-amber-700 flex items-center justify-between">
+                    <span>ฐานเงินเดือนเดือนนี้:</span>
+                    <span className="font-black text-amber-800">฿{effectiveBase.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </p>
+                  {num(f.bonus) > 0 && (
+                    <p className="text-[10px] text-amber-700 flex items-center justify-between">
+                      <span>โบนัส KPI เดือนนี้:</span>
+                      <span className="font-black text-amber-800">฿{effectiveBonus.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </p>
+                  )}
+                  <p className="text-[9px] text-amber-600/70 leading-snug pt-0.5">
+                    คูณด้วย {prorateDaysNum}/30 = {(prorateFactor * 100).toFixed(2)}%
+                  </p>
+                </div>
+              ) : (
+                <p className="text-[9px] text-amber-600/70 mt-1.5 leading-snug">
+                  ค่าว่าง = เต็มเดือน. ใส่ค่า {"<"}30 → เงินเดือน + KPI จะถูกคูณด้วย (วัน/30)
+                </p>
+              )}
+            </div>
+
+            {/* Brand multi-select */}
+            <div className="col-span-2 bg-indigo-50/40 border border-indigo-100 rounded-xl px-3 py-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest">แบรนด์ที่ดูแล (เลือกได้หลาย)</p>
+                <button
+                  onClick={saveBrands}
+                  disabled={brandSaving}
+                  className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-[10px] font-black hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1"
+                >
+                  {brandSaving ? <Loader2 size={9} className="animate-spin"/> : <Save size={9}/>}
+                  บันทึกแบรนด์
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {BRAND_OPTIONS.map(b => {
+                  const active = brandList.includes(b)
+                  return (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => toggleBrand(b)}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                        active
+                          ? "bg-indigo-600 text-white border-indigo-600"
+                          : "bg-white text-slate-600 border-slate-200 hover:border-indigo-300"
+                      }`}
+                    >
+                      {b}
+                    </button>
+                  )
+                })}
+              </div>
+              {brandList.length > 0 && (
+                <p className="text-[9px] text-indigo-600 mt-1.5">เลือก {brandList.length} แบรนด์</p>
+              )}
+            </div>
+          </div>
+
           <div className="grid grid-cols-3 gap-4">
 
             {/* ── Column 1: รายรับหลัก ── */}
@@ -1303,8 +1481,20 @@ function EditModal({
 // ── Payslip view modal ─────────────────────────────────────────────────
 function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () => void; onEdit: () => void }) {
   const emp = record.employee
-  const base = record.base_salary || 0
-  const ratePerMin = base / 30 / 8 / 60
+  const fullBase = Number(record.base_salary) || 0
+  // ── ใช้ helper recompute (ครอบคลุม prorate + tax + SSO อัตโนมัติ) ──
+  const rp = recomputePayroll(record)
+  const prorateDays = rp.prorateDays
+  const factor = rp.factor
+  const base = rp.effBase
+  const effectiveBonus = rp.effBonus
+  const ratePerMin = fullBase / 30 / 8 / 60  // OT rate ใช้ฐานเต็ม (ตามสัญญาจริง)
+
+  const displayGross = rp.gross
+  const displaySSO = rp.sso
+  const displayTax = rp.tax
+  const displayTotalDeduct = rp.totalDed
+  const displayNet = rp.net
 
   const Row = ({ l, v, neg }: { l: string; v: number; neg?: boolean }) => (
     <div className="flex items-center justify-between px-4 py-2 border-b border-slate-50 last:border-0">
@@ -1370,7 +1560,7 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
           {/* รายรับ */}
           <div className="bg-slate-50 rounded-xl overflow-hidden">
             <div className="px-4 py-2 bg-green-50"><p className="text-[10px] font-black text-green-800 uppercase tracking-wide">รายรับ</p></div>
-            <Row l="เงินเดือนฐาน" v={base}/>
+            <Row l={factor < 1 ? `เงินเดือนฐาน (${prorateDays}/30 วัน)` : "เงินเดือนฐาน"} v={base}/>
             {record.allowance_position  > 0 && <Row l="เบี้ยตำแหน่ง"    v={record.allowance_position}/>}
             {record.allowance_transport > 0 && <Row l="ค่าเดินทาง"       v={record.allowance_transport}/>}
             {record.allowance_food      > 0 && <Row l="ค่าอาหาร"         v={record.allowance_food}/>}
@@ -1404,10 +1594,10 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
                       "bg-red-100 text-red-700"
                     }`}>เกรด {record.kpi_grade}</span>
                   </div>
-                  <p className="text-sm font-semibold text-green-600">+฿{thb(record.bonus)}</p>
+                  <p className="text-sm font-semibold text-green-600">+฿{thb(effectiveBonus)}</p>
                 </div>
                 {record.kpi_standard_amount > 0 && (
-                  <p className="text-[10px] text-slate-400 mt-0.5">ฐาน KPI: ฿{thb(record.kpi_standard_amount)}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">ฐาน KPI: ฿{thb(record.kpi_standard_amount)}{factor < 1 ? ` · prorate ${prorateDays}/30` : ""}</p>
                 )}
               </div>
             )}
@@ -1434,7 +1624,7 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
             })()}
             <div className="flex items-center justify-between px-4 py-2 bg-green-50">
               <p className="text-sm font-black">รวมรายรับ</p>
-              <p className="text-sm font-black text-green-700">฿{thb(record.gross_income)}</p>
+              <p className="text-sm font-black text-green-700">฿{thb(displayGross)}</p>
             </div>
           </div>
 
@@ -1453,18 +1643,18 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
               const labels: Record<string,string> = { suspension:"พักงาน", card_lost:"บัตรหาย/ชำรุด", uniform:"ค่าเสื้อพนักงาน", parking:"ค่าบัตรจอดรถ", employee_products:"สินค้าพนักงาน", legal_enforcement:"กรมบังคับคดี", student_loan:"กยศ." }
               return Object.entries(de).map(([k, v]) => Number(v) > 0 ? <Row key={k} l={labels[k] || k} v={Number(v)} neg/> : null)
             })()}
-            <Row l="ประกันสังคม 5%" v={record.social_security_amount} neg/>
-            {record.monthly_tax_withheld > 0 && <Row l="ภาษีหัก ณ ที่จ่าย" v={record.monthly_tax_withheld} neg/>}
+            <Row l="ประกันสังคม 5%" v={displaySSO} neg/>
+            {displayTax > 0 && <Row l="ภาษีหัก ณ ที่จ่าย" v={displayTax} neg/>}
             <div className="flex items-center justify-between px-4 py-2 bg-red-50">
               <p className="text-sm font-black">รวมรายหัก</p>
-              <p className="text-sm font-black text-red-600">-฿{thb(record.total_deductions)}</p>
+              <p className="text-sm font-black text-red-600">-฿{thb(displayTotalDeduct)}</p>
             </div>
           </div>
 
           {/* Net */}
           <div className="bg-indigo-600 text-white rounded-xl px-5 py-4 flex items-center justify-between">
             <p className="font-black text-lg">เงินเดือนสุทธิ</p>
-            <p className="text-2xl font-black">฿{thb(record.net_salary)}</p>
+            <p className="text-2xl font-black">฿{thb(displayNet)}</p>
           </div>
 
           {/* formula ref */}
@@ -1889,9 +2079,9 @@ export default function PayrollPage() {
       r.employee?.position?.name, r.employee?.department?.name,
       r.base_salary||0, r.allowance_position||0, r.allowance_transport||0, r.allowance_food||0,
       r.ot_amount||0, r.ot_weekday_minutes||0, r.ot_holiday_reg_minutes||0, r.ot_holiday_ot_minutes||0,
-      r.bonus||0, r.kpi_grade||"", r.kpi_standard_amount||0, r.commission||0, r.gross_income||0,
+      recomputePayroll(r).effBonus, r.kpi_grade||"", r.kpi_standard_amount||0, r.commission||0, recomputePayroll(r).gross,
       r.deduct_absent||0, r.deduct_late||0, r.deduct_loan||0,
-      r.social_security_amount||0, r.monthly_tax_withheld||0, r.total_deductions||0, r.net_salary||0,
+      recomputePayroll(r).sso, recomputePayroll(r).tax, recomputePayroll(r).totalDed, recomputePayroll(r).net,
       r.present_days||0, r.absent_days||0, r.late_count||0, r.leave_paid_days||0, r.leave_unpaid_days||0,
       r.is_manual_override ? "✓" : "",
     ])
@@ -1911,16 +2101,20 @@ export default function PayrollPage() {
     return `${r.employee?.first_name_th} ${r.employee?.last_name_th} ${r.employee?.employee_code} ${r.employee?.nickname||""}`
       .toLowerCase().includes(search.toLowerCase())
   })
-  const totalGross = filtered.reduce((s: number, r: any) => s + (r.gross_income||0), 0)
-  const totalNet   = filtered.reduce((s: number, r: any) => s + (r.net_salary||0), 0)
+  // ใช้ recomputePayroll → ครอบคลุม prorate ทุกแถวอัตโนมัติ
+  const totalGross = filtered.reduce((s: number, r: any) => s + recomputePayroll(r).gross, 0)
+  const totalNet   = filtered.reduce((s: number, r: any) => s + recomputePayroll(r).net, 0)
   const totalOT    = filtered.reduce((s: number, r: any) =>
     s + calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
       + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
       + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
   , 0)
-  const totalSSO   = filtered.reduce((s: number, r: any) => s + (r.social_security_amount||0), 0)
-  const totalTax   = filtered.reduce((s: number, r: any) => s + (r.monthly_tax_withheld||0), 0)
-  const totalKPI   = filtered.reduce((s: number, r: any) => s + (r.bonus||0), 0)
+  const totalSSO   = filtered.reduce((s: number, r: any) => s + recomputePayroll(r).sso, 0)
+  const totalTax   = filtered.reduce((s: number, r: any) => s + recomputePayroll(r).tax, 0)
+  const totalKPI   = filtered.reduce((s: number, r: any) => {
+    const rc = recomputePayroll(r)
+    return s + rc.effBonus
+  }, 0)
   const overrideCount = records.filter((r: any) => r.is_manual_override).length
 
   const statusCfg  = STATUS_CFG[selected?.status ?? "draft"] ?? STATUS_CFG.draft
@@ -2193,9 +2387,9 @@ export default function PayrollPage() {
                 <div className="grid grid-cols-4 gap-3">
                   {[
                     { l: "พนักงาน", v: records.length + " คน", c: "bg-blue-50 text-blue-700" },
-                    { l: "รวมรายรับ", v: "฿" + thb(sumField(records, r => n(r.gross_income))), c: "bg-green-50 text-green-700" },
-                    { l: "รวมรายหัก", v: "฿" + thb(sumField(records, r => n(r.total_deductions))), c: "bg-red-50 text-red-600" },
-                    { l: "จ่ายสุทธิ", v: "฿" + thb(sumField(records, r => n(r.net_salary))), c: "bg-indigo-50 text-indigo-700" },
+                    { l: "รวมรายรับ", v: "฿" + thb(sumField(records, r => recomputePayroll(r).gross)), c: "bg-green-50 text-green-700" },
+                    { l: "รวมรายหัก", v: "฿" + thb(sumField(records, r => recomputePayroll(r).totalDed)), c: "bg-red-50 text-red-600" },
+                    { l: "จ่ายสุทธิ", v: "฿" + thb(sumField(records, r => recomputePayroll(r).net)), c: "bg-indigo-50 text-indigo-700" },
                   ].map(s => (
                     <div key={s.l} className={`rounded-xl p-3 ${s.c}`}>
                       <p className="text-[10px] font-bold opacity-60">{s.l}</p>
@@ -2227,9 +2421,9 @@ export default function PayrollPage() {
                           <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.base_salary)))}</td>
                           <td className="px-2 py-2 text-right text-amber-700">{thb(sumField(recs, r => n(r.ot_amount)))}</td>
                           <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
-                          <td className="px-2 py-2 text-right font-bold text-green-800">{thb(sumField(recs, r => n(r.gross_income)))}</td>
+                          <td className="px-2 py-2 text-right font-bold text-green-800">{thb(sumField(recs, r => recomputePayroll(r).gross))}</td>
                           <td className="px-2 py-2 text-right font-bold text-red-600">{thb(sumField(recs, r => n(r.total_deductions)))}</td>
-                          <td className="px-2 py-2 text-right font-black text-indigo-700">{thb(sumField(recs, r => n(r.net_salary)))}</td>
+                          <td className="px-2 py-2 text-right font-black text-indigo-700">{thb(sumField(recs, r => recomputePayroll(r).net))}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2240,9 +2434,9 @@ export default function PayrollPage() {
                         <td className="px-2 py-2 text-right">{thb(sumField(records, r => n(r.base_salary)))}</td>
                         <td className="px-2 py-2 text-right text-amber-700">{thb(sumField(records, r => n(r.ot_amount)))}</td>
                         <td className="px-2 py-2 text-right">{thb(sumField(records, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
-                        <td className="px-2 py-2 text-right text-green-800">{thb(sumField(records, r => n(r.gross_income)))}</td>
+                        <td className="px-2 py-2 text-right text-green-800">{thb(sumField(records, r => recomputePayroll(r).gross))}</td>
                         <td className="px-2 py-2 text-right text-red-600">{thb(sumField(records, r => n(r.total_deductions)))}</td>
-                        <td className="px-2 py-2 text-right text-indigo-700">{thb(sumField(records, r => n(r.net_salary)))}</td>
+                        <td className="px-2 py-2 text-right text-indigo-700">{thb(sumField(records, r => recomputePayroll(r).net))}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -2283,13 +2477,13 @@ export default function PayrollPage() {
           if (txtExclude.has(r.employee?.id)) return false
           return true
         })
-        const totalNet = txtFiltered.reduce((s: number, r: any) => s + (Number(r.net_salary) || 0), 0)
+        const totalNet = txtFiltered.reduce((s: number, r: any) => s + recomputePayroll(r).net, 0)
 
         const doExport = () => {
           const lines = txtFiltered.map((r: any) => {
             const emp = r.employee || {}
             const bankAcc = (emp.bank_account || "").replace(/[^0-9]/g, "")
-            const net = (Number(r.net_salary) || 0).toFixed(2)
+            const net = recomputePayroll(r).net.toFixed(2)
             const name = `${emp.first_name_th || ""} ${emp.last_name_th || ""}`.trim()
             return `${bankAcc}\t${net}\t${emp.employee_code || ""}\t${name}`
           })
@@ -2360,7 +2554,7 @@ export default function PayrollPage() {
                       <span className="text-xs font-bold text-slate-700 flex-1 truncate">{emp.first_name_th} {emp.last_name_th}</span>
                       <span className="text-[10px] text-slate-400">{emp.employee_code}</span>
                       <span className="text-[10px] text-slate-400">{emp.department?.name || ""}</span>
-                      <span className="text-xs font-bold text-blue-700 min-w-[70px] text-right">฿{(Number(r.net_salary) || 0).toLocaleString()}</span>
+                      <span className="text-xs font-bold text-blue-700 min-w-[70px] text-right">฿{recomputePayroll(r).net.toLocaleString()}</span>
                     </label>
                   )
                 })}

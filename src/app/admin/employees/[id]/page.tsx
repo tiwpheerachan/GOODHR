@@ -12,6 +12,7 @@ import Link from "next/link"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
+import { recomputePayroll } from "@/lib/utils/payroll"
 import AdditionalEvaluatorsSection from "@/components/admin/AdditionalEvaluatorsSection"
 import EvaluationChainPanel from "@/components/admin/EvaluationChainPanel"
 
@@ -1516,13 +1517,14 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
             </h4>
             <div className="space-y-1.5">
               {(() => {
-                const base = Number(r.base_salary) || 0
-                const rph = base / 30 / 8
+                const rc = recomputePayroll(r)
+                const fullBase = Number(r.base_salary) || 0
+                const rph = fullBase / 30 / 8  // OT rate ใช้ฐานเต็มตามสัญญา
                 const ot15 = Math.round(rph * (Number(r.ot_weekday_minutes)||0) / 60 * 1.5 * 100) / 100
                 const ot10 = Math.round(rph * (Number(r.ot_holiday_reg_minutes)||0) / 60 * 100) / 100
                 const ot30 = Math.round(rph * (Number(r.ot_holiday_ot_minutes)||0) / 60 * 3.0 * 100) / 100
                 const items: [string, number][] = [
-                  ["เงินเดือนฐาน", base],
+                  [rc.factor < 1 ? `เงินเดือนฐาน (${rc.prorateDays}/30 วัน)` : "เงินเดือนฐาน", rc.effBase],
                   ["ค่าตำแหน่ง", Number(r.allowance_position)||0],
                   ["ค่าเดินทาง", Number(r.allowance_transport)||0],
                   ["ค่าอาหาร", Number(r.allowance_food)||0],
@@ -1532,7 +1534,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                   [`OT วันทำงาน ×1.5 (${minToHr(r.ot_weekday_minutes)})`, ot15],
                   [`OT วันหยุด ×1.0 (${minToHr(r.ot_holiday_reg_minutes)})`, ot10],
                   [`OT วันหยุด ×3.0 (${minToHr(r.ot_holiday_ot_minutes)})`, ot30],
-                  [`โบนัส KPI${r.kpi_grade && r.kpi_grade !== "pending" ? ` (เกรด ${r.kpi_grade})` : ""}`, Number(r.bonus)||0],
+                  [`โบนัส KPI${r.kpi_grade && r.kpi_grade !== "pending" ? ` (เกรด ${r.kpi_grade})` : ""}`, rc.effBonus],
                   ["คอมมิชชั่น", Number(r.commission)||0],
                   ["รายได้อื่นๆ", Number(r.other_income)||0],
                 ]
@@ -1552,7 +1554,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
               ))}
               <div className="flex items-center justify-between bg-emerald-100 rounded-xl px-3 py-2 mt-1">
                 <span className="text-xs font-bold text-emerald-800">รายได้รวม (Gross)</span>
-                <span className="font-black text-emerald-800 text-base">฿{fmt(r.gross_income)}</span>
+                <span className="font-black text-emerald-800 text-base">฿{fmt(recomputePayroll(r).gross)}</span>
               </div>
             </div>
           </div>
@@ -1563,20 +1565,23 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
               <TrendingDown size={15}/> การหัก
             </h4>
             <div className="space-y-1.5">
-              {[
-                ["หักขาดงาน", r.deduct_absent],
-                ["หักมาสาย", r.deduct_late],
-                ["หักออกก่อน", r.deduct_early_out],
-                ["ประกันสังคม (5%)", r.social_security_amount],
-                ["ภาษีหัก ณ ที่จ่าย", r.monthly_tax_withheld],
-                ["หักเงินกู้", r.deduct_loan],
-                ["หักอื่นๆ", r.deduct_other],
-              ].filter(([, v]) => (v as number) > 0).map(([label, val]) => (
-                <div key={label as string} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2">
-                  <span className="text-slate-600 font-medium">{label as string}</span>
-                  <span className="font-bold text-rose-700">-฿{fmt(val as number)}</span>
-                </div>
-              ))}
+              {(() => {
+                const rc = recomputePayroll(r)
+                return [
+                  ["หักขาดงาน", r.deduct_absent],
+                  ["หักมาสาย", r.deduct_late],
+                  ["หักออกก่อน", r.deduct_early_out],
+                  ["ประกันสังคม (5%)", rc.sso],
+                  ["ภาษีหัก ณ ที่จ่าย", rc.tax],
+                  ["หักเงินกู้", r.deduct_loan],
+                  ["หักอื่นๆ", r.deduct_other],
+                ].filter(([, v]) => (v as number) > 0).map(([label, val]) => (
+                  <div key={label as string} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2">
+                    <span className="text-slate-600 font-medium">{label as string}</span>
+                    <span className="font-bold text-rose-700">-฿{fmt(val as number)}</span>
+                  </div>
+                ))
+              })()}
               {/* Deduction extras */}
               {r.deduction_extras && Object.entries(r.deduction_extras as Record<string, number>).filter(([, v]) => v > 0).map(([key, val]) => (
                 <div key={key} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2">
@@ -1586,7 +1591,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
               ))}
               <div className="flex items-center justify-between bg-rose-100 rounded-xl px-3 py-2 mt-1">
                 <span className="text-xs font-bold text-rose-800">หักรวม</span>
-                <span className="font-black text-rose-800">-฿{fmt(r.total_deductions)}</span>
+                <span className="font-black text-rose-800">-฿{fmt(recomputePayroll(r).totalDed)}</span>
               </div>
             </div>
           </div>
@@ -1594,7 +1599,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
           {/* ── เงินสุทธิ + สถิติ ── */}
           <div className="rounded-2xl border border-indigo-200 bg-indigo-600 p-4 text-white text-center">
             <p className="text-xs font-bold opacity-70 mb-1">เงินเดือนสุทธิ</p>
-            <p className="text-3xl font-black">฿{fmt(r.net_salary)}</p>
+            <p className="text-3xl font-black">฿{fmt(recomputePayroll(r).net)}</p>
             <p className="text-[10px] opacity-60 mt-1">{TH_MONTHS_SHORT[r.month]} {r.year + 543}</p>
           </div>
 

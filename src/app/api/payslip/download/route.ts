@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
+import { recomputePayroll } from "@/lib/utils/payroll"
 
 export async function GET(req: NextRequest) {
   const supabase = createClient()
@@ -50,13 +51,23 @@ export async function GET(req: NextRequest) {
   const earnings: { label: string; amount: number; number?: string }[] = []
   const n = (v: any) => Number(v) || 0
 
-  const rate = n(record.base_salary) / 30 / 8
+  // ── Apply prorate factor (สำหรับเข้า/ออกกลางงวด) ──
+  const prorateDays = n(record.prorate_days)
+  const factor = (prorateDays > 0 && prorateDays < 30) ? prorateDays / 30 : 1
+  const fullBase = n(record.base_salary)
+  const effectiveBase = Math.round(fullBase * factor * 100) / 100
+  const effectiveBonus = Math.round(n(record.bonus) * factor * 100) / 100
+
+  const rate = fullBase / 30 / 8       // OT rate ใช้ฐานเต็ม (อัตราตามสัญญา)
   const fmtMin = (m: number) => `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`
 
-  if (n(record.base_salary)) earnings.push({ label: "อัตรา\nเงินเดือน", amount: n(record.base_salary) })
-  if (n(record.bonus)) {
+  if (effectiveBase) {
+    const label = factor < 1 ? `อัตรา\nเงินเดือน (${prorateDays}/30)` : "อัตรา\nเงินเดือน"
+    earnings.push({ label, amount: effectiveBase })
+  }
+  if (effectiveBonus) {
     const gradeLabel = record.kpi_grade && record.kpi_grade !== "pending" ? ` (เกรด ${record.kpi_grade})` : ""
-    earnings.push({ label: `โบนัส KPI${gradeLabel}`, amount: n(record.bonus) })
+    earnings.push({ label: `โบนัส KPI${gradeLabel}`, amount: effectiveBonus })
   }
   if (n(record.ot_weekday_minutes)) {
     earnings.push({ label: "OT วันทำงาน (×1.5)", amount: Math.round(rate * n(record.ot_weekday_minutes) / 60 * 1.5 * 100) / 100, number: fmtMin(n(record.ot_weekday_minutes)) })
@@ -98,8 +109,16 @@ export async function GET(req: NextRequest) {
   if (n(de.student_loan)) deductions.push({ label: "กยศ.", amount: n(de.student_loan) })
   if (n(de.suspension)) deductions.push({ label: "พักงาน", amount: n(de.suspension) })
   if (n(record.deduct_loan)) deductions.push({ label: "หักเงินกู้", amount: n(record.deduct_loan) })
-  if (n(record.social_security_amount)) deductions.push({ label: "ประกันสังคม", amount: n(record.social_security_amount) })
-  if (n(record.monthly_tax_withheld)) deductions.push({ label: "ภาษี", amount: n(record.monthly_tax_withheld) })
+  // ── ใช้ helper recompute ── ครอบคลุม prorate + tax + SSO ──
+  const rp = recomputePayroll(record)
+  const displayGross = rp.gross
+  const displaySSO = rp.sso
+  const displayTax = rp.tax
+  const displayTotalDeduct = rp.totalDed
+  const displayNet = rp.net
+
+  if (displaySSO) deductions.push({ label: "ประกันสังคม", amount: displaySSO })
+  if (displayTax) deductions.push({ label: "ภาษี", amount: displayTax })
   if (n(record.deduct_other)) deductions.push({ label: "หักลาไม่รับค่าจ้าง/อื่นๆ", amount: n(record.deduct_other) })
 
   const payslipData = {
@@ -120,15 +139,15 @@ export async function GET(req: NextRequest) {
     payDate: `${new Date(record.year, record.month, 0).getDate()}/${String(record.month).padStart(2,"0")}/${yearBE}`,
     earnings,
     deductions,
-    totalEarnings: n(record.gross_income),
-    totalDeductions: n(record.total_deductions),
-    netPay: n(record.net_salary),
+    totalEarnings: displayGross,
+    totalDeductions: displayTotalDeduct,
+    netPay: displayNet,
     ytd: {
-      income: n(record.gross_income),
-      tax: n(record.monthly_tax_withheld),
+      income: displayGross,
+      tax: displayTax,
       providentFund: 0,
-      socialSecurity: n(record.social_security_amount),
-      otherDeductions: n(record.total_deductions) - n(record.social_security_amount) - n(record.monthly_tax_withheld),
+      socialSecurity: displaySSO,
+      otherDeductions: displayTotalDeduct - displaySSO - displayTax,
     },
   }
 
