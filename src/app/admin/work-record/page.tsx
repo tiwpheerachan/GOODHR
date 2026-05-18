@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
   Search, Sparkles, Filter, ChevronRight, Users, Building2,
-  Clock, CheckCircle2, AlertTriangle, Calendar,
+  Clock, CheckCircle2, AlertTriangle, Calendar, ArrowUpDown, X,
 } from "lucide-react"
 import Link from "next/link"
 import { format, addMonths, subMonths } from "date-fns"
@@ -20,11 +20,24 @@ type Emp = {
   nickname?: string | null
   avatar_url?: string | null
   company_id: string
+  department_id?: string | null
+  branch_id?: string | null
+  position_id?: string | null
+  employment_type?: string | null
   position?: { name: string } | null
   department?: { name: string } | null
+  branch?: { name: string } | null
   company?: { code: string; name_th: string } | null
 }
 type Stats = { present: number; late: number; absent: number; leave: number; ot: number }
+
+type SortKey = "name" | "code" | "late_desc" | "absent_desc" | "ot_desc" | "present_desc"
+type TodayStatus = "" | "checked_in" | "late" | "absent" | "leave" | "not_checked" | "dayoff"
+type Issue = "" | "has_late" | "has_absent" | "no_shift_today"
+
+const EMP_TYPE: Record<string, string> = {
+  full_time: "ประจำ", part_time: "พาร์ทไทม์", contract: "สัญญา", intern: "ฝึกงาน",
+}
 
 export default function WorkRecordListPage() {
   const { user } = useAuth()
@@ -35,11 +48,22 @@ export default function WorkRecordListPage() {
 
   const [employees, setEmployees] = useState<Emp[]>([])
   const [companies, setCompanies] = useState<{ id: string; code: string; name_th: string }[]>([])
+  const [depts, setDepts] = useState<{ id: string; name: string; company_id: string }[]>([])
+  const [branches, setBranches] = useState<{ id: string; name: string; company_id: string }[]>([])
+  const [positions, setPositions] = useState<{ id: string; name: string; company_id: string }[]>([])
   const [selectedCompany, setSelectedCompany] = useState("")
+  const [selectedDept, setSelectedDept] = useState("")
+  const [selectedBranch, setSelectedBranch] = useState("")
+  const [selectedPosition, setSelectedPosition] = useState("")
+  const [selectedEmpType, setSelectedEmpType] = useState("")
+  const [todayStatus, setTodayStatus] = useState<TodayStatus>("")
+  const [issue, setIssue] = useState<Issue>("")
+  const [sortBy, setSortBy] = useState<SortKey>("name")
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [search, setSearch] = useState("")
   const [debounced, setDebounced] = useState("")
   const [statsMap, setStatsMap] = useState<Record<string, Stats>>({})
-  const [todayShiftMap, setTodayShiftMap] = useState<Record<string, { shift?: string; in?: string; out?: string; status?: string }>>({})
+  const [todayShiftMap, setTodayShiftMap] = useState<Record<string, { shift?: string; in?: string; out?: string; status?: string; assignment_type?: string }>>({})
   const [loading, setLoading] = useState(true)
 
   const activeCompanyId = isSuperAdmin ? (selectedCompany || undefined) : myCompanyId
@@ -58,6 +82,22 @@ export default function WorkRecordListPage() {
       .then(({ data }) => setCompanies(data ?? []))
   }, [isSuperAdmin])
 
+  // load depts / branches / positions (scoped by company selection)
+  useEffect(() => {
+    setSelectedDept(""); setSelectedBranch(""); setSelectedPosition("")
+    const dQ = supabase.from("departments").select("id, name, company_id").order("name")
+    const bQ = supabase.from("branches").select("id, name, company_id").order("name")
+    const pQ = supabase.from("positions").select("id, name, company_id").order("name")
+    const scoped = activeCompanyId
+      ? [dQ.eq("company_id", activeCompanyId), bQ.eq("company_id", activeCompanyId), pQ.eq("company_id", activeCompanyId)]
+      : [dQ, bQ, pQ]
+    Promise.all(scoped).then(([dRes, bRes, pRes]) => {
+      setDepts(dRes.data ?? [])
+      setBranches(bRes.data ?? [])
+      setPositions(pRes.data ?? [])
+    })
+  }, [activeCompanyId])
+
   // load employees + monthly stats + today's shift/attendance
   useEffect(() => {
     if (!isSuperAdmin && !myCompanyId) return
@@ -66,11 +106,12 @@ export default function WorkRecordListPage() {
       try {
         let q = supabase.from("employees")
           .select(`id, employee_code, first_name_th, last_name_th, nickname, avatar_url, company_id,
-                   position:positions(name), department:departments(name), company:companies(code, name_th)`)
+                   department_id, branch_id, position_id, employment_type,
+                   position:positions(name), department:departments(name), branch:branches(name), company:companies(code, name_th)`)
           .eq("is_active", true)
           .is("deleted_at", null)
           .order("first_name_th")
-          .limit(300)
+          .limit(500)
         if (activeCompanyId) q = q.eq("company_id", activeCompanyId)
         else if (!isSuperAdmin) q = q.eq("company_id", myCompanyId!)
         const { data: emps } = await q
@@ -137,6 +178,7 @@ export default function WorkRecordListPage() {
           .limit(empIds.length + 10)
         for (const a of (assigns ?? [])) {
           const t = today_[a.employee_id] || (today_[a.employee_id] = {})
+          t.assignment_type = a.assignment_type
           if (a.assignment_type === "dayoff") t.shift = "วันหยุด"
           else if (a.assignment_type === "leave") t.shift = "ลา"
           else if (a.assignment_type === "holiday") t.shift = "วันหยุดนักขัตฤกษ์"
@@ -152,54 +194,177 @@ export default function WorkRecordListPage() {
 
   const filtered = useMemo(() => {
     const s = debounced.trim().toLowerCase()
-    if (!s) return employees
-    return employees.filter(e =>
-      e.first_name_th?.toLowerCase().includes(s) ||
-      e.last_name_th?.toLowerCase().includes(s) ||
-      e.nickname?.toLowerCase().includes(s) ||
-      e.employee_code?.toLowerCase().includes(s)
-    )
-  }, [employees, debounced])
+    let out = employees.filter(e => {
+      if (selectedDept && e.department_id !== selectedDept) return false
+      if (selectedBranch && e.branch_id !== selectedBranch) return false
+      if (selectedPosition && e.position_id !== selectedPosition) return false
+      if (selectedEmpType && e.employment_type !== selectedEmpType) return false
+
+      // today status filter
+      if (todayStatus) {
+        const t = todayShiftMap[e.id]
+        if (todayStatus === "checked_in" && !t?.in) return false
+        if (todayStatus === "late" && t?.status !== "late") return false
+        if (todayStatus === "absent" && t?.status !== "absent") return false
+        if (todayStatus === "leave" && t?.status !== "leave") return false
+        if (todayStatus === "not_checked" && (t?.in || t?.assignment_type === "dayoff" || t?.assignment_type === "holiday")) return false
+        if (todayStatus === "dayoff" && t?.assignment_type !== "dayoff" && t?.assignment_type !== "holiday") return false
+      }
+
+      // problem filter (in period)
+      if (issue) {
+        const st = statsMap[e.id]
+        if (issue === "has_late" && (!st || st.late === 0)) return false
+        if (issue === "has_absent" && (!st || st.absent === 0)) return false
+        if (issue === "no_shift_today" && todayShiftMap[e.id]?.shift) return false
+      }
+
+      // search
+      if (s) {
+        const hay = `${e.first_name_th} ${e.last_name_th} ${e.nickname || ""} ${e.employee_code}`.toLowerCase()
+        if (!hay.includes(s)) return false
+      }
+      return true
+    })
+
+    // sort
+    out = [...out].sort((a, b) => {
+      const sa = statsMap[a.id] || { present: 0, late: 0, absent: 0, leave: 0, ot: 0 }
+      const sb = statsMap[b.id] || { present: 0, late: 0, absent: 0, leave: 0, ot: 0 }
+      switch (sortBy) {
+        case "code":         return (a.employee_code || "").localeCompare(b.employee_code || "")
+        case "late_desc":    return sb.late - sa.late
+        case "absent_desc":  return sb.absent - sa.absent
+        case "ot_desc":      return sb.ot - sa.ot
+        case "present_desc": return sb.present - sa.present
+        case "name":
+        default:             return (a.first_name_th || "").localeCompare(b.first_name_th || "", "th")
+      }
+    })
+    return out
+  }, [employees, debounced, selectedDept, selectedBranch, selectedPosition, selectedEmpType, todayStatus, issue, sortBy, statsMap, todayShiftMap])
+
+  const advancedActive = (selectedBranch ? 1 : 0) + (selectedPosition ? 1 : 0) + (selectedEmpType ? 1 : 0) + (issue ? 1 : 0)
+  const totalActive = advancedActive + (selectedCompany ? 1 : 0) + (selectedDept ? 1 : 0) + (todayStatus ? 1 : 0) + (sortBy !== "name" ? 1 : 0)
+  const clearAll = () => {
+    setSelectedDept(""); setSelectedBranch(""); setSelectedPosition(""); setSelectedEmpType("")
+    setTodayStatus(""); setIssue(""); setSortBy("name"); setSearch("")
+  }
 
   return (
     <div className="space-y-5">
-      {/* Hero header — pastel cyan/teal */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-cyan-200 via-teal-100 to-emerald-200 p-6 shadow-sm">
-        <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/30 blur-2xl" />
-        <div className="absolute -bottom-12 -left-8 h-32 w-32 rounded-full bg-teal-300/30 blur-2xl" />
+      {/* Hero header — deeper teal/cyan */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-teal-500 via-cyan-500 to-emerald-500 p-6 shadow-md">
+        <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/15 blur-2xl" />
+        <div className="absolute -bottom-12 -left-8 h-32 w-32 rounded-full bg-teal-800/20 blur-2xl" />
         <div className="relative flex items-start justify-between flex-wrap gap-3">
           <div>
-            <div className="flex items-center gap-2 text-teal-800/80">
+            <div className="flex items-center gap-2 text-white/90">
               <Sparkles size={16} />
               <span className="text-xs font-black tracking-wider">PRO MAX</span>
             </div>
-            <h1 className="text-3xl font-black text-teal-900 mt-1">บันทึกการเข้างาน Pro Max</h1>
-            <p className="text-sm text-teal-800/80 mt-1 max-w-xl">
+            <h1 className="text-3xl font-black text-white mt-1 drop-shadow-sm">บันทึกการเข้างาน Pro Max</h1>
+            <p className="text-sm text-white/90 mt-1 max-w-xl">
               ดู/แก้ไขเวลาเข้า-ออก, กะการทำงาน, OT, การลาของพนักงานแต่ละคนแบบครบจบในหน้าเดียว
             </p>
           </div>
-          <div className="bg-white/50 backdrop-blur rounded-2xl px-4 py-3">
-            <p className="text-[11px] font-bold text-teal-800/70">รอบเงินเดือนปัจจุบัน</p>
+          <div className="bg-white/95 backdrop-blur rounded-2xl px-4 py-3 shadow-sm">
+            <p className="text-[11px] font-bold text-teal-700">รอบเงินเดือนปัจจุบัน</p>
             <p className="text-lg font-black text-teal-900">22 {format(subMonths(new Date(), new Date().getDate() <= 21 ? 1 : 0), "MMM", { locale: th })} – 21 {format(addMonths(new Date(), new Date().getDate() <= 21 ? 0 : 1), "MMM yyyy", { locale: th })}</p>
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex flex-wrap gap-3 items-center">
-        <Filter size={13} className="text-slate-400" />
-        <div className="relative flex-1 min-w-44">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            className={inp + " pl-8 w-full"} placeholder="ค้นหาชื่อ, รหัส, ชื่อเล่น..." />
-        </div>
-        {isSuperAdmin && (
-          <select value={selectedCompany} onChange={e => setSelectedCompany(e.target.value)} className={inp}>
-            <option value="">ทุกบริษัท</option>
-            {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+        {/* Primary row */}
+        <div className="flex flex-wrap gap-3 items-center">
+          <Filter size={13} className="text-slate-400" />
+          <div className="relative flex-1 min-w-44">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              className={inp + " pl-8 w-full"} placeholder="ค้นหาชื่อ, รหัส, ชื่อเล่น..." />
+          </div>
+          {isSuperAdmin && (
+            <select value={selectedCompany} onChange={e => setSelectedCompany(e.target.value)} className={inp}>
+              <option value="">ทุกบริษัท</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
+            </select>
+          )}
+          {depts.length > 0 && (
+            <select value={selectedDept} onChange={e => setSelectedDept(e.target.value)} className={inp}>
+              <option value="">ทุกแผนก</option>
+              {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          )}
+          <select value={todayStatus} onChange={e => setTodayStatus(e.target.value as TodayStatus)} className={inp}>
+            <option value="">สถานะวันนี้ทั้งหมด</option>
+            <option value="checked_in">✓ เช็คอินแล้ว</option>
+            <option value="not_checked">⊘ ยังไม่เช็คอิน</option>
+            <option value="late">⚠ มาสาย</option>
+            <option value="absent">✗ ขาดงาน</option>
+            <option value="leave">⏸ ลา</option>
+            <option value="dayoff">🌴 วันหยุด</option>
           </select>
+          <button onClick={() => setShowAdvanced(s => !s)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${showAdvanced ? "bg-teal-50 border-teal-300 text-teal-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+            <Filter size={12} />
+            ตัวกรองเพิ่มเติม
+            {advancedActive > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-teal-600 text-white text-[10px] font-black">
+                {advancedActive}
+              </span>
+            )}
+          </button>
+          {totalActive > 0 && (
+            <button onClick={clearAll}
+              className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-rose-600">
+              <X size={12} /> ล้างตัวกรอง
+            </button>
+          )}
+          <span className="text-xs text-slate-400 ml-auto whitespace-nowrap">
+            <span className="font-bold text-slate-700">{filtered.length}</span> / {employees.length} คน
+          </span>
+        </div>
+
+        {/* Advanced row */}
+        {showAdvanced && (
+          <div className="flex flex-wrap gap-3 items-center pt-3 border-t border-slate-100">
+            {branches.length > 0 && (
+              <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)} className={inp}>
+                <option value="">ทุกสาขา</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+            {positions.length > 0 && (
+              <select value={selectedPosition} onChange={e => setSelectedPosition(e.target.value)} className={inp}>
+                <option value="">ทุกตำแหน่ง</option>
+                {positions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
+            <select value={selectedEmpType} onChange={e => setSelectedEmpType(e.target.value)} className={inp}>
+              <option value="">ทุกประเภทการจ้าง</option>
+              {Object.entries(EMP_TYPE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <select value={issue} onChange={e => setIssue(e.target.value as Issue)} className={inp}>
+              <option value="">ปัญหาในรอบ (ทั้งหมด)</option>
+              <option value="has_late">มีวันมาสาย ≥ 1 วัน</option>
+              <option value="has_absent">มีวันขาดงาน ≥ 1 วัน</option>
+              <option value="no_shift_today">ยังไม่จัดกะวันนี้</option>
+            </select>
+            <div className="flex items-center gap-2 ml-auto">
+              <ArrowUpDown size={13} className="text-slate-400" />
+              <select value={sortBy} onChange={e => setSortBy(e.target.value as SortKey)} className={inp}>
+                <option value="name">เรียงตามชื่อ (ก-ฮ)</option>
+                <option value="code">เรียงตามรหัสพนักงาน</option>
+                <option value="late_desc">สายมากสุด</option>
+                <option value="absent_desc">ขาดมากสุด</option>
+                <option value="ot_desc">OT มากสุด</option>
+                <option value="present_desc">มาทำงานมากสุด</option>
+              </select>
+            </div>
+          </div>
         )}
-        <span className="text-xs text-slate-400 ml-auto">{filtered.length} คน</span>
       </div>
 
       {/* Cards grid */}
@@ -219,20 +384,20 @@ export default function WorkRecordListPage() {
             const today = todayShiftMap[emp.id]
             return (
               <Link key={emp.id} href={`/admin/work-record/${emp.id}`}
-                className="group bg-white rounded-2xl border border-slate-100 hover:border-teal-300 hover:shadow-md transition-all overflow-hidden">
-                {/* Header strip */}
-                <div className="bg-gradient-to-br from-cyan-50 to-teal-50 px-4 py-3 flex items-center gap-3 border-b border-teal-100/50">
+                className="group bg-white rounded-2xl border border-slate-200 hover:border-teal-400 hover:shadow-lg shadow-sm transition-all overflow-hidden">
+                {/* Header strip — darker */}
+                <div className="bg-gradient-to-br from-teal-500 to-cyan-500 px-4 py-3 flex items-center gap-3">
                   <CardAvatar url={emp.avatar_url} fallback={emp.first_name_th?.[0] || "?"} />
                   <div className="min-w-0 flex-1">
-                    <p className="font-bold text-slate-800 truncate">
+                    <p className="font-bold text-white truncate">
                       {emp.first_name_th} {emp.last_name_th}
-                      {emp.nickname && <span className="text-xs text-slate-400 ml-1.5">({emp.nickname})</span>}
+                      {emp.nickname && <span className="text-xs text-white/70 ml-1.5">({emp.nickname})</span>}
                     </p>
-                    <p className="text-[11px] text-slate-500 truncate">
+                    <p className="text-[11px] text-white/80 truncate">
                       {emp.employee_code} · {emp.position?.name || "—"}
                     </p>
                   </div>
-                  <ChevronRight size={16} className="text-slate-300 group-hover:text-teal-500 transition-colors flex-shrink-0" />
+                  <ChevronRight size={16} className="text-white/70 group-hover:text-white transition-colors flex-shrink-0" />
                 </div>
 
                 {/* Today */}
@@ -273,7 +438,7 @@ function CardAvatar({ url, fallback }: { url?: string | null; fallback: string }
   const [errored, setErrored] = useState(false)
   const show = url && !errored
   return (
-    <div className="w-12 h-12 rounded-full bg-white shadow-sm ring-2 ring-white flex items-center justify-center font-black text-teal-700 overflow-hidden flex-shrink-0">
+    <div className="w-12 h-12 rounded-full bg-white shadow-md ring-2 ring-white/50 flex items-center justify-center font-black text-teal-700 overflow-hidden flex-shrink-0">
       {show
         ? <img src={url!} alt="" className="w-full h-full object-cover" onError={() => setErrored(true)} referrerPolicy="no-referrer" />
         : fallback}
@@ -283,10 +448,10 @@ function CardAvatar({ url, fallback }: { url?: string | null; fallback: string }
 
 function Stat({ label, value, color }: { label: string; value: number; color: string }) {
   const styles: Record<string, string> = {
-    emerald: "text-emerald-700 bg-emerald-50",
-    amber: "text-amber-700 bg-amber-50",
-    rose: "text-rose-700 bg-rose-50",
-    violet: "text-violet-700 bg-violet-50",
+    emerald: "text-emerald-800 bg-emerald-100",
+    amber: "text-amber-800 bg-amber-100",
+    rose: "text-rose-800 bg-rose-100",
+    violet: "text-violet-800 bg-violet-100",
   }
   return (
     <div className={`rounded-lg ${styles[color]} px-2 py-1.5 text-center`}>

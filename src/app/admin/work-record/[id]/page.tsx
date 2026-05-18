@@ -390,7 +390,7 @@ export default function WorkRecordDetailPage() {
                           <button onClick={openModal({ kind: "shift", row })}
                             className={`group mt-0.5 flex items-center gap-1 text-[10px] font-semibold ${DAY_TYPE_STYLE[assignType]} hover:text-teal-600`}>
                             {row.leave ? "ลา" : DAY_TYPE_LABEL[assignType]}
-                            <Pencil size={9} className="opacity-0 group-hover:opacity-100 text-teal-500" />
+                            <Pencil size={9} className="text-teal-400" />
                           </button>
                         </td>
 
@@ -409,7 +409,7 @@ export default function WorkRecordDetailPage() {
                               ) : (
                                 <span className="text-slate-400 italic">เลือกกะ</span>
                               )}
-                              <Pencil size={11} className="opacity-0 group-hover:opacity-100 text-teal-500" />
+                              <Pencil size={11} className="text-teal-400" />
                             </button>
                           )}
                         </td>
@@ -426,7 +426,7 @@ export default function WorkRecordDetailPage() {
                             ) : (
                               <span className="text-slate-300">—</span>
                             )}
-                            {att?.id && <Pencil size={11} className="opacity-0 group-hover:opacity-100 text-teal-500" />}
+                            {att?.id && <Pencil size={11} className="text-teal-400" />}
                           </button>
                         </td>
 
@@ -451,7 +451,7 @@ export default function WorkRecordDetailPage() {
                                 <span className={`font-bold px-2 py-0.5 rounded ${o.status === "approved" ? "text-indigo-700 bg-indigo-50 hover:bg-indigo-100" : o.status === "pending" ? "text-amber-700 bg-amber-50 hover:bg-amber-100" : "text-slate-500 bg-slate-50"}`}>
                                   OT (x{o.ot_rate}) {fmtTime(o.ot_start)}-{fmtTime(o.ot_end)}
                                 </span>
-                                <Pencil size={10} className="opacity-0 group-hover:opacity-100 text-teal-500" />
+                                <Pencil size={10} className="text-teal-400" />
                               </button>
                             ))}
                             {att?.ot_minutes > 0 && row.overtimes.length === 0 && (
@@ -484,7 +484,7 @@ export default function WorkRecordDetailPage() {
                                 title={lv.status === "pending" ? "รออนุมัติ" : lv.status === "rejected" ? "ถูกปฏิเสธ" : "อนุมัติแล้ว"}>
                                 {dot}
                                 {lt?.name || "ลา"} = {Number(lv.total_days || 0).toFixed(2)}
-                                <Pencil size={9} className="opacity-0 group-hover:opacity-100" />
+                                <Pencil size={9} className="opacity-70" />
                               </button>
                             )
                           })() : <span className="text-slate-300 text-xs">—</span>}
