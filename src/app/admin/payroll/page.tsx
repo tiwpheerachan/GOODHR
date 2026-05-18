@@ -1,5 +1,6 @@
 "use client"
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { useSearchParams } from "next/navigation"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
@@ -1707,6 +1708,8 @@ export default function PayrollPage() {
   const supabase  = createClient()
   const isSA      = user?.role === "super_admin" || user?.role === "hr_admin"
   const now       = new Date()
+  const sp        = useSearchParams()
+  const initialSearch = sp?.get("employee") ?? sp?.get("search") ?? ""
 
   const [periods,      setPeriods]      = useState<any[]>([])
   const [selected,     setSelected]     = useState<any>(null)
@@ -1716,7 +1719,7 @@ export default function PayrollPage() {
   const [calculating,  setCalculating]  = useState(false)
   const [calcProgress, setCalcProgress] = useState({ done: 0, total: 0 })
   const [loading,      setLoading]      = useState(false)
-  const [search,       setSearch]       = useState("")
+  const [search,       setSearch]       = useState(initialSearch)
   const [payslip,      setPayslip]      = useState<any>(null)
   const [editing,      setEditing]      = useState<any>(null)
   const [filterDept,   setFilterDept]   = useState("")
