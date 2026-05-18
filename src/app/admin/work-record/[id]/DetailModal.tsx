@@ -511,13 +511,14 @@ const DAY_TYPE_LABEL: Record<DayType, string> = {
   holiday: "วันหยุดนักขัตฤกษ์",
 }
 
-export function ShiftDetail({ employee, managers, row, shiftTemplates, onClose, onSaved }: BaseProps) {
+export function ShiftDetail({ employee, managers, row, shiftTemplates, defaultShiftId, onClose, onSaved }: BaseProps & { defaultShiftId?: string | null }) {
   const sh = row.shift_assignment
   const att = row.attendance
   const currentType: DayType = sh?.assignment_type === "dayoff" ? "dayoff" :
     sh?.assignment_type === "holiday" ? "holiday" : "work"
   const [dayType, setDayType] = useState<DayType>(currentType)
-  const [shiftId, setShiftId] = useState<string>(sh?.shift_id || "")
+  // pre-fill: assignment > default schedule profile > ""
+  const [shiftId, setShiftId] = useState<string>(sh?.shift_id || defaultShiftId || "")
   const [saving, setSaving] = useState(false)
 
   const save = async () => {
@@ -603,6 +604,18 @@ export function ShiftDetail({ employee, managers, row, shiftTemplates, onClose, 
             </p>
           </div>
         )}
+
+        {/* Sync notice */}
+        <div className="bg-teal-50 border border-teal-200 rounded-xl p-3 flex items-start gap-2">
+          <CheckCircle2 size={14} className="text-teal-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-teal-800 leading-relaxed">
+            <span className="font-bold">การเปลี่ยนกะนี้จะมีผลกับ:</span>
+            <span className="block mt-0.5">• หน้า "จัดกะ" (ตารางกะรายเดือน)</span>
+            <span className="block">• การคำนวณสาย / กลับก่อน / OT</span>
+            <span className="block">• การคำนวณเงินเดือนรอบนี้</span>
+            <span className="block">• แอปพนักงาน (หน้าตารางกะของตัวเอง)</span>
+          </p>
+        </div>
       </div>
 
       <ApprovalChain managers={managers} />

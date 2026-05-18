@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   Target, Search, ChevronDown, ChevronUp, Loader2, BarChart3,
   Award, MessageSquare, Eye, TrendingUp, Users, Building2, Filter,
-  CheckCircle2, XCircle, Clock, AlertCircle, Pencil,
+  CheckCircle2, XCircle, Clock, AlertCircle, Pencil, Paperclip, FileText, ExternalLink,
 } from "lucide-react"
 import toast from "react-hot-toast"
 import Link from "next/link"
@@ -587,6 +587,42 @@ export default function AdminKpiPage() {
                             </div>
                             {detail?.money_reason && (
                               <p className="text-[11px] text-slate-500 italic">หมายเหตุ: {detail.money_reason}</p>
+                            )}
+
+                            {/* ── HR verification: attachments จากหัวหน้า ── */}
+                            {Array.isArray(detail?.money_reason_attachments) && detail.money_reason_attachments.length > 0 && (
+                              <div className="bg-white border border-emerald-200 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center gap-1.5">
+                                  <Paperclip size={12} className="text-emerald-600" />
+                                  <p className="text-xs font-black text-emerald-700">
+                                    หลักฐานประกอบจำนวนเงิน ({detail.money_reason_attachments.length} ไฟล์)
+                                  </p>
+                                </div>
+                                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                                  {detail.money_reason_attachments.map((att: any, i: number) => {
+                                    const isImage = /\.(jpe?g|png|webp|gif|heic)$/i.test(att.name || "")
+                                    return (
+                                      <a key={i} href={att.url} target="_blank" rel="noreferrer"
+                                        className="group relative block bg-slate-50 border border-slate-200 rounded-lg overflow-hidden hover:border-emerald-400 hover:shadow-sm transition-all">
+                                        {isImage ? (
+                                          <img src={att.url} alt={att.name} className="w-full h-20 object-cover" />
+                                        ) : (
+                                          <div className="flex flex-col items-center justify-center h-20 text-emerald-700">
+                                            <FileText size={18} />
+                                            <p className="text-[9px] mt-1 px-1 truncate w-full text-center">{att.name}</p>
+                                          </div>
+                                        )}
+                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                                          <ExternalLink size={14} className="text-white opacity-0 group-hover:opacity-100" />
+                                        </div>
+                                        <p className="text-[9px] text-slate-500 px-1.5 py-0.5 truncate border-t border-slate-100 bg-white" title={att.name}>
+                                          {att.name}
+                                        </p>
+                                      </a>
+                                    )
+                                  })}
+                                </div>
+                              </div>
                             )}
                           </div>
                         )}

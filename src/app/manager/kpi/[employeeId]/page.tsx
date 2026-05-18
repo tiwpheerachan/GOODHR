@@ -6,7 +6,7 @@ import { useParams, useSearchParams, useRouter } from "next/navigation"
 import {
   ChevronLeft, Plus, Trash2, Save, Send, Loader2, Target, AlertCircle,
   CheckCircle2, GripVertical, MessageSquare, Info, Clock, Copy, Sparkles,
-  Coins, Wallet, ListChecks,
+  Coins, Wallet, ListChecks, Paperclip, ImageIcon, FileText, X as XIcon,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -90,9 +90,47 @@ export default function KpiFormPage() {
   const [evaluationType, setEvaluationType] = useState<EvaluationType>("standard")
   const [incentiveAmount, setIncentiveAmount] = useState<string>("")  // Mode B
   const [moneyReason, setMoneyReason] = useState<string>("")          // Mode B
+  const [moneyAttachments, setMoneyAttachments] = useState<{ url: string; name: string }[]>([])  // Mode B
+  const [uploadingMoneyAttach, setUploadingMoneyAttach] = useState(false)
+  const moneyFileInputRef = useRef<HTMLInputElement>(null)
   const [bonusAmount, setBonusAmount] = useState<string>("")          // Mode A/C
   const [bonusReason, setBonusReason] = useState<string>("")          // Mode A/C
   const mountedRef = useRef(true)
+
+  // ── Upload handler for money_only attachments ────────────────────
+  const handleMoneyAttachUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    if (moneyAttachments.length + files.length > 10) {
+      toast.error("แนบไฟล์ได้สูงสุด 10 ไฟล์")
+      return
+    }
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].size > 10 * 1024 * 1024) {
+        toast.error(`ไฟล์ ${files[i].name} ใหญ่เกินไป (สูงสุด 10 MB)`)
+        return
+      }
+    }
+    setUploadingMoneyAttach(true)
+    try {
+      const fd = new FormData()
+      for (let i = 0; i < files.length; i++) fd.append("files", files[i])
+      const res = await fetch("/api/leave/upload", { method: "POST", body: fd })
+      const json = await res.json()
+      if (!res.ok || json.error) throw new Error(json.error || "อัปโหลดไม่สำเร็จ")
+      const newFiles = (json.files ?? [{ url: json.url, name: json.name }])
+        .map((f: any) => ({ url: f.url, name: f.name }))
+      setMoneyAttachments(prev => [...prev, ...newFiles])
+      toast.success(`แนบ ${newFiles.length} ไฟล์แล้ว`)
+    } catch (err: any) {
+      toast.error(err.message || "อัปโหลดไฟล์ไม่สำเร็จ")
+    } finally {
+      setUploadingMoneyAttach(false)
+      if (moneyFileInputRef.current) moneyFileInputRef.current.value = ""
+    }
+  }
+  const removeMoneyAttachment = (idx: number) =>
+    setMoneyAttachments(prev => prev.filter((_, i) => i !== idx))
 
   // Load existing form
   useEffect(() => {
@@ -128,6 +166,7 @@ export default function KpiFormPage() {
             if (f.incentive_amount !== null && f.incentive_amount !== undefined) setIncentiveAmount(String(f.incentive_amount))
             if (f.bonus_amount !== null && f.bonus_amount !== undefined) setBonusAmount(String(f.bonus_amount))
             if (f.money_reason) setMoneyReason(f.money_reason)
+            if (Array.isArray(f.money_reason_attachments)) setMoneyAttachments(f.money_reason_attachments)
             if (f.bonus_reason) setBonusReason(f.bonus_reason)
             setEvaluatorNote(f.evaluator_note || "")
 
@@ -254,6 +293,7 @@ export default function KpiFormPage() {
           bonus_amount: isMoneyOnly ? null : (bonusAmount === "" ? null : Number(bonusAmount) || 0),
           bonus_reason: isMoneyOnly ? null : (bonusReason || null),
           money_reason: isMoneyOnly ? (moneyReason || null) : null,
+          money_reason_attachments: isMoneyOnly ? moneyAttachments : [],
         }),
       })
       const data = await res.json()
@@ -427,6 +467,73 @@ export default function KpiFormPage() {
             placeholder={t("kpi.money_note_placeholder")}
             rows={2}
             className="w-full text-xs text-slate-600 bg-white rounded-xl p-3 outline-none focus:ring-1 focus:ring-emerald-300 resize-none placeholder:text-slate-300 disabled:opacity-60" />
+
+          {/* ── File / Image attachments — proof of evaluation ── */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Paperclip size={12} className="text-emerald-600" />
+              <p className="text-[11px] font-bold text-emerald-700">
+                แนบหลักฐาน <span className="font-normal text-emerald-600/70">(รูป/PDF/Word — สูงสุด 10 ไฟล์ · ไฟล์ละไม่เกิน 10 MB)</span>
+              </p>
+            </div>
+
+            {moneyAttachments.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {moneyAttachments.map((att, idx) => {
+                  const isImage = /\.(jpe?g|png|webp|gif|heic)$/i.test(att.name)
+                  return (
+                    <div key={idx} className="relative group bg-white border border-emerald-200 rounded-lg overflow-hidden">
+                      {isImage ? (
+                        <a href={att.url} target="_blank" rel="noreferrer" className="block">
+                          <img src={att.url} alt={att.name} className="w-full h-24 object-cover" />
+                        </a>
+                      ) : (
+                        <a href={att.url} target="_blank" rel="noreferrer"
+                          className="flex flex-col items-center justify-center h-24 text-emerald-700 hover:bg-emerald-50">
+                          <FileText size={20} />
+                          <p className="text-[10px] mt-1 px-1 truncate w-full text-center">{att.name}</p>
+                        </a>
+                      )}
+                      {!isSubmitted && (
+                        <button
+                          type="button"
+                          onClick={() => removeMoneyAttachment(idx)}
+                          className="absolute top-1 right-1 p-1 bg-white/90 rounded-full shadow text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <XIcon size={11} />
+                        </button>
+                      )}
+                      <p className="text-[10px] text-slate-500 px-2 py-1 truncate border-t border-emerald-100 bg-emerald-50/50">
+                        {att.name}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {!isSubmitted && moneyAttachments.length < 10 && (
+              <>
+                <input
+                  ref={moneyFileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx"
+                  onChange={handleMoneyAttachUpload}
+                  className="hidden" />
+                <button
+                  type="button"
+                  onClick={() => moneyFileInputRef.current?.click()}
+                  disabled={uploadingMoneyAttach}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-white border-2 border-dashed border-emerald-300 rounded-xl text-xs font-bold text-emerald-700 hover:bg-emerald-50 hover:border-emerald-400 transition-colors disabled:opacity-60">
+                  {uploadingMoneyAttach ? (
+                    <><Loader2 size={13} className="animate-spin" /> กำลังอัปโหลด...</>
+                  ) : (
+                    <><ImageIcon size={13} /> {moneyAttachments.length > 0 ? "เพิ่มไฟล์/รูป" : "แนบรูปหรือไฟล์ที่มาของจำนวนเงิน"}</>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 

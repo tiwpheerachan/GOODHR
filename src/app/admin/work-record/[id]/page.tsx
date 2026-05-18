@@ -75,6 +75,7 @@ export default function WorkRecordDetailPage() {
   const [emp, setEmp] = useState<any>(null)
   const [salary, setSalary] = useState<any>(null)
   const [shiftTemplates, setShiftTemplates] = useState<any[]>([])
+  const [defaultShiftId, setDefaultShiftId] = useState<string | null>(null)  // fallback กะมาตรฐานของพนักงาน
   const [managers, setManagers] = useState<Manager[]>([])
   const [monthDate, setMonthDate] = useState<Date>(new Date())
   const [tab, setTab] = useState<Tab>("schedule")
@@ -117,6 +118,12 @@ export default function WorkRecordDetailPage() {
           .order("work_start")
           .then(({ data }) => setShiftTemplates(data ?? []))
       }
+      // ── load default shift จาก schedule profile (fallback กะมาตรฐาน) ──
+      supabase.from("employee_schedule_profiles")
+        .select("default_shift_id")
+        .eq("employee_id", id)
+        .maybeSingle()
+        .then(({ data }) => setDefaultShiftId(data?.default_shift_id ?? null))
       // ── load approval chain (managers) ────────────────────────
       supabase.from("employee_manager_history")
         .select("manager:employees!manager_id(id, first_name_th, last_name_th, nickname, avatar_url, position:positions(name))")
@@ -145,38 +152,32 @@ export default function WorkRecordDetailPage() {
       const from = period.from
       const to = period.to
 
-      const [aRes, sRes, lRes, oRes] = await Promise.all([
-        supabase.from("attendance_records")
-          .select("id, work_date, clock_in, clock_out, status, late_minutes, early_out_minutes, ot_minutes, work_minutes, note")
-          .eq("employee_id", id).gte("work_date", from).lte("work_date", to),
-        supabase.from("monthly_shift_assignments")
-          .select("work_date, assignment_type, shift_id, shift:shift_templates(name, work_start, work_end)")
-          .eq("employee_id", id).gte("work_date", from).lte("work_date", to),
-        supabase.from("leave_requests")
-          .select("start_date, end_date, total_days, status, is_half_day, half_day_period, leave_type:leave_types(name, code, color_hex)")
-          .eq("employee_id", id)
-          .neq("status", "cancelled")
-          .lte("start_date", to).gte("end_date", from),
-        supabase.from("overtime_requests")
-          .select("id, work_date, ot_start, ot_end, ot_rate, status, reason")
-          .eq("employee_id", id).gte("work_date", from).lte("work_date", to),
-      ])
+      // ใช้ API endpoint ที่ใช้ service client → bypass RLS, ดึงข้อมูลครบจากตารางเดียวกับหน้าจัดกะ/เงินเดือน
+      const res = await fetch(`/api/work-record/period?employee_id=${id}&from=${from}&to=${to}`)
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        console.error("[work-record/period]", data.error || "load failed")
+        setDays([])
+        return
+      }
 
-      // ── debug: surface errors ของแต่ละ query (โดยเฉพาะ leave) ──
-      if (aRes.error) console.error("[attendance] ", aRes.error)
-      if (sRes.error) console.error("[shift_assignments] ", sRes.error)
-      if (lRes.error) console.error("[leave_requests] ", lRes.error)
-      if (oRes.error) console.error("[overtime] ", oRes.error)
+      // sync shift templates + default shift จาก API response
+      if (Array.isArray(data.shift_templates) && data.shift_templates.length > 0) {
+        setShiftTemplates(data.shift_templates)
+      }
+      if (data.default_shift_id !== undefined) {
+        setDefaultShiftId(data.default_shift_id)
+      }
 
-      const attMap = new Map<string, any>((aRes.data ?? []).map((r: any) => [r.work_date, r]))
-      const shiftMap = new Map<string, any>((sRes.data ?? []).map((r: any) => [r.work_date, r]))
+      const attMap = new Map<string, any>((data.attendance ?? []).map((r: any) => [r.work_date, r]))
+      const shiftMap = new Map<string, any>((data.assignments ?? []).map((r: any) => [r.work_date, r]))
       const otByDate = new Map<string, any[]>()
-      for (const o of (oRes.data ?? [])) {
+      for (const o of (data.overtimes ?? [])) {
         if (!otByDate.has(o.work_date)) otByDate.set(o.work_date, [])
         otByDate.get(o.work_date)!.push(o)
       }
       // normalize start_date/end_date เป็น "YYYY-MM-DD" (กัน timestamp string)
-      const leaves = (lRes.data ?? []).map((lv: any) => ({
+      const leaves = (data.leaves ?? []).map((lv: any) => ({
         ...lv,
         start_date: typeof lv.start_date === "string" ? lv.start_date.slice(0, 10) : lv.start_date,
         end_date:   typeof lv.end_date   === "string" ? lv.end_date.slice(0, 10)   : lv.end_date,
@@ -377,7 +378,13 @@ export default function WorkRecordDetailPage() {
                     const assignType: DayType = sh?.assignment_type === "dayoff" ? "dayoff"
                       : sh?.assignment_type === "holiday" ? "holiday"
                       : "work"
-                    const shiftTpl: any = sh?.shift as any
+                    // resolve shift: assignment > schedule_profile default > none
+                    const explicitShift: any = sh?.shift
+                    const fallbackShift: any = !explicitShift && assignType === "work" && defaultShiftId
+                      ? shiftTemplates.find((s: any) => s.id === defaultShiftId)
+                      : null
+                    const shiftTpl: any = explicitShift || fallbackShift
+                    const isFallback = !explicitShift && !!fallbackShift
                     const isWeekend = row.dow === 0 || row.dow === 6
                     const openModal = (m: typeof modal) => () => setModal(m)
                     return (
@@ -401,10 +408,12 @@ export default function WorkRecordDetailPage() {
                               className="text-xs text-slate-400 hover:text-teal-600">—</button>
                           ) : (
                             <button onClick={openModal({ kind: "shift", row })}
-                              className="group flex items-center gap-1.5 text-xs hover:text-teal-600">
+                              className="group flex items-center gap-1.5 text-xs hover:text-teal-600"
+                              title={isFallback ? "ยังไม่ได้กำหนดกะวันนี้ — แสดงกะมาตรฐานของพนักงาน คลิกเพื่อเปลี่ยน" : "คลิกเพื่อเปลี่ยนกะ"}>
                               {shiftTpl?.work_start ? (
-                                <span className="font-semibold text-slate-700">
+                                <span className={`font-semibold ${isFallback ? "text-slate-500" : "text-slate-700"}`}>
                                   {shiftTpl.name} <span className="text-slate-400 font-mono">{shiftTpl.work_start.slice(0,5)}–{shiftTpl.work_end?.slice(0,5)}</span>
+                                  {isFallback && <span className="ml-1 text-[9px] text-amber-600 font-normal">(กะมาตรฐาน)</span>}
                                 </span>
                               ) : (
                                 <span className="text-slate-400 italic">เลือกกะ</span>
@@ -647,6 +656,7 @@ export default function WorkRecordDetailPage() {
         <ShiftDetail
           employee={emp} managers={managers} row={modal.row}
           shiftTemplates={shiftTemplates}
+          defaultShiftId={defaultShiftId}
           onClose={() => setModal(null)}
           onSaved={loadMonth}
         />
