@@ -636,8 +636,9 @@ async function calcAndSave(
     (manualKpiGrade && manualKpiGrade !== "pending") ||
     (Number(existingPR?.bonus) || 0) > 0
   )
-  // ── Prorate: ถ้าตั้งค่า prorate_days < 30 → คูณ factor กับเงินเดือน + KPI bonus ──
+  // ── Prorate: ถ้าตั้งค่า prorate_days < 30 → คูณ factor เฉพาะ "เงินเดือนฐาน" ──
   // null/30 = ไม่ prorate (ทำเต็มเดือน)
+  // KPI bonus ไม่ prorate (เป็นเงินรางวัล จ่ายเต็มตามที่หัวหน้าประเมิน)
   const prorateDays = Number(existingPR?.prorate_days) || null
   const prorateFactor = (prorateDays != null && prorateDays > 0 && prorateDays < 30)
     ? Math.round((prorateDays / 30) * 10000) / 10000
@@ -645,7 +646,7 @@ async function calcAndSave(
   const fullBase = Number(sal.base_salary)
   const effectiveBase = Math.round(fullBase * prorateFactor * 100) / 100
   const fullBonus = useManualKpi ? (Number(existingPR?.bonus) || 0) : kpiBonus.amount
-  const manualBonus = Math.round(fullBonus * prorateFactor * 100) / 100
+  const manualBonus = fullBonus  // ไม่ prorate
 
   // ── คำนวณ ─────────────────────────────────────────────────────
   const result = calculatePayrollSummary({

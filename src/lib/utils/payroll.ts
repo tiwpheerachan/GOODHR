@@ -22,8 +22,17 @@ export function applyProrate(amount: number, prorateDays: number | null | undefi
 
 /**
  * recomputePayroll: คำนวณ gross/SSO/tax/net จาก record ของ payroll_records
- * - ถ้ามี prorate (pd > 0 และ < 30) → ใช้ prorated base/bonus + recompute SSO + tax (ขั้นบันได)
- * - ถ้าไม่มี prorate → ใช้ค่าที่เก็บใน record ตรงๆ (เคารพ manual override)
+ *
+ * กฎ prorate:
+ * - `base_salary` (เงินเดือนฐาน) → คูณด้วย factor (วันทำงาน/30)
+ * - `bonus` (KPI/โบนัส) → **ไม่ prorate** เพราะเป็นเงินรางวัล ไม่ใช่ค่าจ้างรายวัน
+ *   - กรณีตามเกรด เช่น 5,000 ฿ → จ่ายเต็ม
+ *   - กรณีกรอกเงินตรง เช่น 18,888 ฿ (ค่าผลงานพิเศษ) → จ่ายเต็ม
+ * - allowances, OT, commission, extras → ใช้ค่าที่เก็บใน record ตรงๆ
+ *
+ * SSO/tax:
+ * - ถ้า prorate → recompute SSO (5% ของ effBase) + tax (ขั้นบันไดจาก gross ใหม่)
+ * - ถ้าไม่ prorate → ใช้ค่าที่บันทึกไว้ (เคารพ manual ของ HR)
  *
  * ใช้ใน: PayslipModal, FullRegisterTable, CompactTable, /app/salary, PDF download
  */
@@ -35,7 +44,7 @@ export function recomputePayroll(record: any) {
   const isProrated = factor < 1
 
   const effBase = Math.round(fullBase * factor * 100) / 100
-  const effBonus = Math.round(N(record?.bonus) * factor * 100) / 100
+  const effBonus = N(record?.bonus)  // KPI bonus ไม่ prorate (จ่ายเต็ม)
   const ieTotal = record?.income_extras && typeof record.income_extras === "object"
     ? Object.values(record.income_extras).reduce((s: number, v: any) => s + N(v), 0)
     : 0

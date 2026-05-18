@@ -72,16 +72,8 @@ const REG_COLS: RCol[] = [
   { key:"days",  label:"วันทำงาน",       group:"info", get:r=>r.prorate_days ?? "" },
   // income
   { key:"base",        label:"เงินเดือน",            group:"income", get:r=>n(r.base_salary) },
-  { key:"base_eff",    label:"ฐานเงินเดือนเดือนนี้",  group:"income", get:r=>{
-    const pd = Number(r.prorate_days)
-    const factor = (pd > 0 && pd < 30) ? pd / 30 : 1
-    return Math.round(n(r.base_salary) * factor * 100) / 100
-  }},
-  { key:"bonus",       label:"โบนัส KPI",             group:"income", get:r=>{
-    const pd = Number(r.prorate_days)
-    const factor = (pd > 0 && pd < 30) ? pd / 30 : 1
-    return Math.round(n(r.bonus) * factor * 100) / 100
-  }},
+  { key:"base_eff",    label:"ฐานเงินเดือนเดือนนี้",  group:"income", get:r=>recomputePayroll(r).effBase },
+  { key:"bonus",       label:"โบนัส KPI",             group:"income", get:r=>recomputePayroll(r).effBonus },
   { key:"kpi_grade",   label:"เกรด",                  group:"income", get:r=>r.kpi_grade === "pending" ? "รอ" : r.kpi_grade||"" },
   { key:"ot_total",    label:"รวม OT",              group:"income", get:r=>{
     const fromMin = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
@@ -431,22 +423,18 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                   </div>
                 </td>
                 <td className="px-3 py-3 text-right">{(() => {
-                  const pd = Number(r.prorate_days) || 0
-                  const f = (pd > 0 && pd < 30) ? pd / 30 : 1
-                  const eBase = n(r.base_salary) * f
+                  const rc = recomputePayroll(r)
                   return <>
-                    <p className="font-bold text-slate-700">฿{thb(eBase)}</p>
-                    {f < 1 && <p className="text-[9px] text-amber-600 font-bold">({pd}/30 วัน)</p>}
+                    <p className="font-bold text-slate-700">฿{thb(rc.effBase)}</p>
+                    {rc.isProrated && <p className="text-[9px] text-amber-600 font-bold">({rc.prorateDays}/30 วัน)</p>}
                   </>
                 })()}</td>
                 <td className="px-3 py-3 text-center">
                   {n(r.bonus) > 0 ? (() => {
-                    const pd = Number(r.prorate_days) || 0
-                    const f = (pd > 0 && pd < 30) ? pd / 30 : 1
-                    const eBonus = n(r.bonus) * f
+                    const rc = recomputePayroll(r)
                     return (
                     <div>
-                      <p className="font-bold text-purple-700">฿{thb(eBonus)}</p>
+                      <p className="font-bold text-purple-700">฿{thb(rc.effBonus)}</p>
                       {r.kpi_grade === "manual" ? (
                         <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" title="หัวหน้าใส่จำนวนเงินเอง">฿ ใส่เอง</span>
                       ) : r.kpi_grade && r.kpi_grade !== "pending" ? (
@@ -494,16 +482,8 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
         <tfoot className="bg-indigo-50 border-t-2 border-indigo-100">
           <tr>
             <td className="px-4 py-3 font-black text-slate-700">{records.length} คน</td>
-            <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s:number,r:any)=>{
-              const pd = Number(r.prorate_days) || 0
-              const f = (pd > 0 && pd < 30) ? pd / 30 : 1
-              return s + n(r.base_salary) * f
-            },0))}</td>
-            <td className="px-3 py-3 text-center font-bold text-purple-700">฿{thb(records.reduce((s:number,r:any)=>{
-              const pd = Number(r.prorate_days) || 0
-              const f = (pd > 0 && pd < 30) ? pd / 30 : 1
-              return s + n(r.bonus) * f
-            },0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).effBase,0))}</td>
+            <td className="px-3 py-3 text-center font-bold text-purple-700">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).effBonus,0))}</td>
             <td className="px-3 py-3 text-right font-bold text-green-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing),0))}</td>
             <td className="px-3 py-3 font-bold text-amber-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.ot_amount),0))}</td>
             <td className="px-3 py-3 text-right font-bold text-red-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent),0))}</td>
@@ -688,7 +668,8 @@ function exportXLSX(records: any[], period: any) {
            + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
     }
     const allowTotal = (r:any) => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)
-    const bonusTotal = (r:any) => n(r.bonus)+n(ie(r).kpi||0)+n(ie(r).incentive||0)+n(ie(r).performance_bonus||0)+n(ie(r).diligence_bonus||0)+n(ie(r).referral_bonus||0)
+    // ใช้ effBonus (prorated) แทน r.bonus เพื่อให้ตรงกับ gross/net
+    const bonusTotal = (r:any) => recomputePayroll(r).effBonus+n(ie(r).kpi||0)+n(ie(r).incentive||0)+n(ie(r).performance_bonus||0)+n(ie(r).diligence_bonus||0)+n(ie(r).referral_bonus||0)
     const commTotal  = (r:any) => n(r.commission)+n(ie(r).service_fee||0)+n(ie(r).campaign||0)
     const otherInc   = (r:any) => n(r.other_income)+n(ie(r).depreciation||0)+n(ie(r).expressway||0)+n(ie(r).fuel||0)+n(ie(r).retirement_fund||0)+n(ie(r).per_diem||0)
     const workDeduct = (r:any) => n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)
@@ -744,7 +725,7 @@ function exportXLSX(records: any[], period: any) {
         co, recs.length,
         sum(r=>n(r.base_salary)), sum(otA),
         sum(r=>n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)),
-        sum(r=>n(r.bonus)), sum(r=>n(r.commission)), sum(r=>n(r.other_income)),
+        sum(r=>recomputePayroll(r).effBonus), sum(r=>n(r.commission)), sum(r=>n(r.other_income)),
         sum(r=>recomputePayroll(r).gross),
         sum(r=>n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)),
         sum(r=>recomputePayroll(r).sso), sum(r=>recomputePayroll(r).tax),
@@ -778,7 +759,7 @@ function exportXLSX(records: any[], period: any) {
     ["ค่าโทรศัพท์",                grand(r=>n(r.allowance_phone))],
     ["ค่าที่พัก",                  grand(r=>n(r.allowance_housing))],
     ["เบี้ยเลี้ยงอื่นๆ",            grand(r=>n(r.allowance_other))],
-    ["Bonus / KPI",               grand(r=>n(r.bonus)+n(ie2(r).kpi||0))],
+    ["Bonus / KPI",               grand(r=>recomputePayroll(r).effBonus+n(ie2(r).kpi||0))],
     ["Incentive",                 grand(r=>n(ie2(r).incentive||0))],
     ["Performance Bonus",         grand(r=>n(ie2(r).performance_bonus||0))],
     ["Commission",                grand(r=>n(r.commission))],
@@ -1012,12 +993,12 @@ function EditModal({
   // ── Auto-recalc tax เมื่อ gross เปลี่ยน + ใช้ % mode ──
   const prevGrossRef = useRef(0)
 
-  // ── Prorate factor (ใช้คำนวณ effective base + bonus) ──
+  // ── Prorate factor (เฉพาะ base_salary, KPI bonus ไม่ prorate) ──
   const prorateDaysNum = Number(prorateDaysInput)
   const prorateFactor = (prorateDaysInput && prorateDaysNum > 0 && prorateDaysNum < 30)
     ? prorateDaysNum / 30 : 1
   const effectiveBase = Math.round(num(f.base_salary) * prorateFactor * 100) / 100
-  const effectiveBonus = Math.round(num(f.bonus) * prorateFactor * 100) / 100
+  const effectiveBonus = num(f.bonus)  // KPI bonus จ่ายเต็ม ไม่ prorate
 
   const gross = effectiveBase + num(f.allowance_position) + num(f.allowance_transport)
     + num(f.allowance_food) + num(f.allowance_phone) + num(f.allowance_housing)
@@ -1213,7 +1194,7 @@ function EditModal({
                 />
                 <span className="text-[10px] text-amber-700">/ 30 วัน</span>
               </div>
-              {/* แสดงผลลัพธ์ effective base + bonus เมื่อ prorate < 30 */}
+              {/* แสดงผลลัพธ์ effective base เมื่อ prorate < 30 */}
               {prorateFactor < 1 ? (
                 <div className="mt-2 pt-2 border-t border-amber-200/60 space-y-0.5">
                   <p className="text-[10px] text-amber-700 flex items-center justify-between">
@@ -1221,18 +1202,18 @@ function EditModal({
                     <span className="font-black text-amber-800">฿{effectiveBase.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </p>
                   {num(f.bonus) > 0 && (
-                    <p className="text-[10px] text-amber-700 flex items-center justify-between">
-                      <span>โบนัส KPI เดือนนี้:</span>
-                      <span className="font-black text-amber-800">฿{effectiveBonus.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <p className="text-[10px] text-emerald-700 flex items-center justify-between">
+                      <span>โบนัส KPI (จ่ายเต็ม):</span>
+                      <span className="font-black text-emerald-800">฿{num(f.bonus).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </p>
                   )}
                   <p className="text-[9px] text-amber-600/70 leading-snug pt-0.5">
-                    คูณด้วย {prorateDaysNum}/30 = {(prorateFactor * 100).toFixed(2)}%
+                    คูณด้วย {prorateDaysNum}/30 = {(prorateFactor * 100).toFixed(2)}% (เฉพาะเงินเดือนฐาน)
                   </p>
                 </div>
               ) : (
                 <p className="text-[9px] text-amber-600/70 mt-1.5 leading-snug">
-                  ค่าว่าง = เต็มเดือน. ใส่ค่า {"<"}30 → เงินเดือน + KPI จะถูกคูณด้วย (วัน/30)
+                  ค่าว่าง = เต็มเดือน. ใส่ค่า {"<"}30 → คูณเฉพาะเงินเดือนฐาน (KPI จ่ายเต็ม)
                 </p>
               )}
             </div>

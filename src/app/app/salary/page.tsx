@@ -527,16 +527,7 @@ export default function SalaryPage() {
                     <span className="text-xs font-black text-emerald-600">+฿{thb(gross)}</span>
                   </div>
                   <div className="space-y-2.5">
-                    {(() => {
-                      const fullBase = Number(r.base_salary) || 0
-                      const pd = Number(r.prorate_days) || 0
-                      const factor = (pd > 0 && pd < 30) ? pd / 30 : 1
-                      const eBase = Math.round(fullBase * factor * 100) / 100
-                      const eBonus = Math.round((Number(r.bonus) || 0) * factor * 100) / 100
-                      return <>
-                        <IncomeRow label={factor < 1 ? `เงินเดือนฐาน (${pd}/30 วัน)` : "เงินเดือนฐาน"} value={eBase}/>
-                      </>
-                    })()}
+                    <IncomeRow label={rp.isProrated ? `เงินเดือนฐาน (${rp.prorateDays}/30 วัน)` : "เงินเดือนฐาน"} value={rp.effBase}/>
                     {(r.allowance_position ??0)>0 && <IncomeRow label="ค่าตำแหน่ง"      value={r.allowance_position}/>}
                     {(r.allowance_transport??0)>0 && <IncomeRow label="ค่าเดินทาง"       value={r.allowance_transport}/>}
                     {(r.allowance_food     ??0)>0 && <IncomeRow label="ค่าอาหาร"         value={r.allowance_food}/>}
@@ -557,12 +548,9 @@ export default function SalaryPage() {
                       </>
                     })()}
                     {commission > 0              && <IncomeRow label="คอมมิชชั่น"        value={commission} accent="emerald"/>}
-                    {(r.bonus ??0)>0 && r.kpi_grade !== "pending" && (() => {
-                      const pd = Number(r.prorate_days) || 0
-                      const f = (pd > 0 && pd < 30) ? pd / 30 : 1
-                      const eBonus = Math.round((Number(r.bonus) || 0) * f * 100) / 100
-                      return <IncomeRow label={`โบนัส KPI (เกรด ${r.kpi_grade})`} value={eBonus} accent="sky"/>
-                    })()}
+                    {rp.effBonus > 0 && r.kpi_grade !== "pending" && (
+                      <IncomeRow label={`โบนัส KPI (เกรด ${r.kpi_grade})`} value={rp.effBonus} accent="sky"/>
+                    )}
                     {r.kpi_grade === "pending" && r.kpi_standard_amount > 0 && (
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-slate-400">KPI Bonus</span>

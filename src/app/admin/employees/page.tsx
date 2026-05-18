@@ -36,6 +36,8 @@ export default function EmployeesPage() {
   const [companies,        setCompanies]        = useState<any[]>([])
   const [companyCounts,    setCompanyCounts]    = useState<Record<string, number>>({})
   const [depts,            setDepts]            = useState<any[]>([])
+  const [branches,         setBranches]         = useState<any[]>([])
+  const [positions,        setPositions]        = useState<any[]>([])
   const [loading,          setLoading]          = useState(true)
   const [total,            setTotal]            = useState(0)
   const [page,             setPage]             = useState(0)
@@ -44,8 +46,12 @@ export default function EmployeesPage() {
   const [status,           setStatus]           = useState("")
   const [showInactive,     setShowInactive]     = useState(false)
   const [dept,             setDept]             = useState("")
+  const [branch,           setBranch]           = useState("")
+  const [position,         setPosition]         = useState("")
+  const [empType,          setEmpType]          = useState("")
   const [selectedCompany,  setSelectedCompany]  = useState<string>("")
   const [showImport,       setShowImport]       = useState(false)
+  const [showAdvanced,     setShowAdvanced]     = useState(false)
   const PER = 25
 
   const myCompanyId: string | undefined =
@@ -82,12 +88,20 @@ export default function EmployeesPage() {
     })
   }, [isSuperAdmin])
 
-  // ── load departments ──────────────────────────────────────────────
+  // ── load departments / branches / positions (scoped by company) ───
   useEffect(() => {
-    setDept("")
-    if (!activeCompanyId) { setDepts([]); return }
-    supabase.from("departments").select("id,name").eq("company_id", activeCompanyId).order("name")
-      .then(({ data }) => setDepts(data ?? []))
+    setDept(""); setBranch(""); setPosition("")
+    const dQ = supabase.from("departments").select("id,name,company_id").order("name")
+    const bQ = supabase.from("branches").select("id,name,company_id").order("name")
+    const pQ = supabase.from("positions").select("id,name,company_id").order("name")
+    const scoped = activeCompanyId
+      ? [dQ.eq("company_id", activeCompanyId), bQ.eq("company_id", activeCompanyId), pQ.eq("company_id", activeCompanyId)]
+      : [dQ, bQ, pQ]
+    Promise.all(scoped).then(([dRes, bRes, pRes]) => {
+      setDepts(dRes.data ?? [])
+      setBranches(bRes.data ?? [])
+      setPositions(pRes.data ?? [])
+    })
   }, [activeCompanyId])
 
   // ── load employees ────────────────────────────────────────────────
@@ -123,6 +137,9 @@ export default function EmployeesPage() {
       else if (!isSuperAdmin)    q = q.eq("company_id", myCompanyId!)
       if (status)                q = q.eq("employment_status", status)
       if (dept)                  q = q.eq("department_id", dept)
+      if (branch)                q = q.eq("branch_id", branch)
+      if (position)              q = q.eq("position_id", position)
+      if (empType)               q = q.eq("employment_type", empType)
       if (debouncedSearch)       q = q.or(`first_name_th.ilike.%${debouncedSearch}%,last_name_th.ilike.%${debouncedSearch}%,employee_code.ilike.%${debouncedSearch}%,nickname.ilike.%${debouncedSearch}%`)
 
       const { data, count, error } = await q
@@ -132,7 +149,7 @@ export default function EmployeesPage() {
     } finally {
       setLoading(false)
     }
-  }, [isSuperAdmin, myCompanyId, activeCompanyId, debouncedSearch, status, dept, page, showInactive])
+  }, [isSuperAdmin, myCompanyId, activeCompanyId, debouncedSearch, status, dept, branch, position, empType, page, showInactive])
 
   useEffect(() => { load() }, [load])
   const setF = (fn: () => void) => { fn(); setPage(0) }
@@ -165,6 +182,19 @@ export default function EmployeesPage() {
   }
 
   const showCompanyCol = isSuperAdmin && !selectedCompany
+
+  // company code lookup สำหรับ label dropdown ตอนเลือก "ทุกบริษัท"
+  const companyCode = (cid?: string) => companies.find(c => c.id === cid)?.code
+  const optLabel = (name: string, cid?: string) =>
+    !activeCompanyId && companyCode(cid) ? `[${companyCode(cid)}] ${name}` : name
+
+  const activeFilterCount =
+    (status ? 1 : 0) + (dept ? 1 : 0) + (branch ? 1 : 0) +
+    (position ? 1 : 0) + (empType ? 1 : 0) + (showInactive ? 1 : 0)
+
+  const clearFilters = () => setF(() => {
+    setStatus(""); setDept(""); setBranch(""); setPosition(""); setEmpType(""); setShowInactive(false)
+  })
 
   return (
     <div className="space-y-5">
@@ -238,33 +268,74 @@ export default function EmployeesPage() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex flex-wrap gap-3 items-center">
-        <Filter size={13} className="text-slate-400 flex-shrink-0" />
-        <div className="relative flex-1 min-w-44">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            className={inp + " pl-8 w-full"} placeholder="ค้นหาชื่อ, รหัส, ชื่อเล่น..." />
+      <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm space-y-3">
+        <div className="flex flex-wrap gap-3 items-center">
+          <Filter size={13} className="text-slate-400 flex-shrink-0" />
+          <div className="relative flex-1 min-w-44">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              className={inp + " pl-8 w-full"} placeholder="ค้นหาชื่อ, รหัส, ชื่อเล่น..." />
+          </div>
+          {isSuperAdmin && (
+            <select value={selectedCompany} onChange={e => setF(() => setSelectedCompany(e.target.value))} className={inp}>
+              <option value="">ทุกบริษัท</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
+            </select>
+          )}
+          <select value={status} onChange={e => setF(() => setStatus(e.target.value))} className={inp}>
+            <option value="">ทุกสถานะ</option>
+            {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.l}</option>)}
+          </select>
+          {depts.length > 0 && (
+            <select value={dept} onChange={e => setF(() => setDept(e.target.value))} className={inp}>
+              <option value="">ทุกแผนก</option>
+              {depts.map(d => <option key={d.id} value={d.id}>{optLabel(d.name, d.company_id)}</option>)}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(s => !s)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${showAdvanced ? "bg-indigo-50 border-indigo-200 text-indigo-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+            <Filter size={12} />
+            ตัวกรองเพิ่มเติม
+            {(branch ? 1 : 0) + (position ? 1 : 0) + (empType ? 1 : 0) > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-black">
+                {(branch ? 1 : 0) + (position ? 1 : 0) + (empType ? 1 : 0)}
+              </span>
+            )}
+          </button>
+          <label className="flex items-center gap-2 cursor-pointer ml-1">
+            <input type="checkbox" checked={showInactive} onChange={e => setF(() => setShowInactive(e.target.checked))} className="rounded border-slate-300"/>
+            <span className="text-xs text-slate-500 font-medium whitespace-nowrap">รวมพนักงานลาออก</span>
+          </label>
+          {activeFilterCount > 0 && (
+            <button type="button" onClick={clearFilters}
+              className="text-xs font-semibold text-slate-500 hover:text-indigo-600 underline underline-offset-2">
+              ล้างตัวกรอง
+            </button>
+          )}
         </div>
-        {isSuperAdmin && (
-          <select value={selectedCompany} onChange={e => setF(() => setSelectedCompany(e.target.value))} className={inp}>
-            <option value="">ทุกบริษัท</option>
-            {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
-          </select>
+
+        {showAdvanced && (
+          <div className="flex flex-wrap gap-3 items-center pt-3 border-t border-slate-100">
+            {branches.length > 0 && (
+              <select value={branch} onChange={e => setF(() => setBranch(e.target.value))} className={inp}>
+                <option value="">ทุกสาขา</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{optLabel(b.name, b.company_id)}</option>)}
+              </select>
+            )}
+            {positions.length > 0 && (
+              <select value={position} onChange={e => setF(() => setPosition(e.target.value))} className={inp}>
+                <option value="">ทุกตำแหน่ง</option>
+                {positions.map(p => <option key={p.id} value={p.id}>{optLabel(p.name, p.company_id)}</option>)}
+              </select>
+            )}
+            <select value={empType} onChange={e => setF(() => setEmpType(e.target.value))} className={inp}>
+              <option value="">ทุกประเภทการจ้าง</option>
+              {Object.entries(EMP_TYPE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
         )}
-        <select value={status} onChange={e => setF(() => setStatus(e.target.value))} className={inp}>
-          <option value="">ทุกสถานะ</option>
-          {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.l}</option>)}
-        </select>
-        {activeCompanyId && depts.length > 0 && (
-          <select value={dept} onChange={e => setF(() => setDept(e.target.value))} className={inp}>
-            <option value="">ทุกแผนก</option>
-            {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-        )}
-        <label className="flex items-center gap-2 cursor-pointer ml-1">
-          <input type="checkbox" checked={showInactive} onChange={e => setF(() => setShowInactive(e.target.checked))} className="rounded border-slate-300"/>
-          <span className="text-xs text-slate-500 font-medium whitespace-nowrap">รวมพนักงานลาออก</span>
-        </label>
       </div>
 
       {/* Table */}
