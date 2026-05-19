@@ -73,10 +73,23 @@ export async function POST(req: NextRequest) {
   if (finalIn && finalOut) {
     updates.work_minutes = calcWorkMinutes(finalIn, finalOut, shift?.break_minutes ?? 60)
 
-    // early_out
+    // early_out — รองรับทั้งกะข้ามคืน + กะปกติแต่ค้างเลยเที่ยงคืน
     if (shift?.work_end) {
-      const expectedEnd = new Date(`${rec.work_date}T${shift.work_end}+07:00`)
-      const diff = Math.round((expectedEnd.getTime() - finalOut.getTime()) / 60000)
+      const isOvernight = !!shift.is_overnight ||
+        (!!shift.work_end && !!shift.work_start && String(shift.work_end) < String(shift.work_start))
+      let expectedEnd = new Date(`${rec.work_date}T${shift.work_end}+07:00`)
+      if (isOvernight) expectedEnd = new Date(expectedEnd.getTime() + 86_400_000)
+
+      let outMs = finalOut.getTime()
+      // Universal: ถ้า clock_out < clock_in → ค้างกะ → +24h
+      if (finalIn && outMs < finalIn.getTime()) outMs += 86_400_000
+      // Overnight extra snap ±24h
+      if (isOvernight) {
+        const candidates = [outMs, outMs + 86_400_000, outMs - 86_400_000]
+        outMs = candidates.reduce((best, t) =>
+          Math.abs(expectedEnd.getTime() - t) < Math.abs(expectedEnd.getTime() - best) ? t : best, outMs)
+      }
+      const diff = Math.round((expectedEnd.getTime() - outMs) / 60000)
       updates.early_out_minutes = diff > 0 ? diff : 0
     }
   }

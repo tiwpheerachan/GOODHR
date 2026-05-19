@@ -27,7 +27,23 @@ export function calcLateMinutes(clockIn: Date, expected: Date): number {
 }
 
 export function calcWorkMinutes(clockIn: Date, clockOut: Date, breakMin = 60): number {
-  return Math.max(Math.floor((clockOut.getTime() - clockIn.getTime()) / 60000) - breakMin, 0)
+  // Normalize: ถ้า clock_out < clock_in → ข้ามวัน (เช่น เข้า 08:48 ออก 00:30) → บวก 24 ชม.
+  let outMs = clockOut.getTime()
+  if (outMs < clockIn.getTime()) outMs += 86_400_000
+  return Math.max(Math.floor((outMs - clockIn.getTime()) / 60000) - breakMin, 0)
+}
+
+/**
+ * Normalize clock_out timestamp so it always falls AFTER clock_in.
+ * Use before computing early_out / work_minutes when both timestamps are known.
+ * Handles: ค้างกะข้ามคืน, กะข้ามวัน, timestamps stored ผิดวัน
+ */
+export function normalizeClockOut(clockIn: Date | null | undefined, clockOut: Date): Date {
+  if (!clockIn) return clockOut
+  if (clockOut.getTime() < clockIn.getTime()) {
+    return new Date(clockOut.getTime() + 86_400_000)
+  }
+  return clockOut
 }
 
 export function formatTime(d: Date | string | null | undefined): string {

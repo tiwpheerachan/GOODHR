@@ -68,13 +68,17 @@ async function recalcLateForChangedShifts(supa: any, assignments: any[]) {
     let newLate = 0, newEarly = 0
 
     if (shift?.work_start) {
+      // ── Auto-detect overnight: ถ้า work_end < work_start หรือ flag is_overnight ──
+      const isOvernight = !!shift.is_overnight ||
+        (!!shift.work_end && !!shift.work_start && String(shift.work_end) < String(shift.work_start))
+
       let expStart = new Date(`${r.work_date}T${shift.work_start}+07:00`)
       let expEnd = shift.work_end ? new Date(`${r.work_date}T${shift.work_end}+07:00`) : null
-      if (expEnd && shift.is_overnight) expEnd = new Date(expEnd.getTime() + 86_400_000)
+      if (expEnd && isOvernight) expEnd = new Date(expEnd.getTime() + 86_400_000)
 
       let raw = Math.floor((clockIn.getTime() - expStart.getTime()) / 60_000)
       // Overnight fix: ถ้า raw > 12 ชม. + overnight → ลอง expected = next day
-      if (raw > 12 * 60 && shift.is_overnight) {
+      if (raw > 12 * 60 && isOvernight) {
         const nextDay = new Date(expStart.getTime() + 86_400_000)
         const diffNext = Math.floor((clockIn.getTime() - nextDay.getTime()) / 60_000)
         if (Math.abs(diffNext) < Math.abs(raw)) {
@@ -87,7 +91,17 @@ async function recalcLateForChangedShifts(supa: any, assignments: any[]) {
       const grace = getLateThreshold(emp.department?.name, emp.company?.code)
       newLate = Math.max(0, raw - grace)
       if (clockOut && expEnd) {
-        const earlyDiff = Math.floor((expEnd.getTime() - clockOut.getTime()) / 60_000)
+        // ── Universal: ถ้า clock_out < clock_in → ข้ามวัน → +24h
+        //    ครอบคลุมทั้ง: กะปกติแต่ค้างกะข้ามคืน, กะข้ามวัน, เก็บผิดวัน ──
+        let cOutMs = clockOut.getTime()
+        if (cOutMs < clockIn.getTime()) cOutMs += 86_400_000
+        // เพิ่ม snap ±24h สำหรับ overnight เผื่อกรณี edge อื่นๆ
+        if (isOvernight) {
+          const candidates = [cOutMs, cOutMs + 86_400_000, cOutMs - 86_400_000]
+          cOutMs = candidates.reduce((best, t) =>
+            Math.abs(expEnd!.getTime() - t) < Math.abs(expEnd!.getTime() - best) ? t : best, cOutMs)
+        }
+        const earlyDiff = Math.floor((expEnd.getTime() - cOutMs) / 60_000)
         newEarly = Math.max(0, earlyDiff)
       }
     }

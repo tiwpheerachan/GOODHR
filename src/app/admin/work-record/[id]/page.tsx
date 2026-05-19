@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   ArrowLeft, Sparkles, Phone, Mail, CalendarDays, CreditCard, Building2,
   ChevronLeft, ChevronRight, Pencil, Plus, ExternalLink,
-  FileText, Receipt, Calendar, CheckCircle2,
+  FileText, Receipt, Calendar, CheckCircle2, RefreshCw, Loader2,
 } from "lucide-react"
 import Link from "next/link"
 import { format, addMonths, subMonths } from "date-fns"
@@ -78,6 +78,7 @@ export default function WorkRecordDetailPage() {
   const [defaultShiftId, setDefaultShiftId] = useState<string | null>(null)  // fallback กะมาตรฐานของพนักงาน
   const [managers, setManagers] = useState<Manager[]>([])
   const [monthDate, setMonthDate] = useState<Date>(new Date())
+  const [recalculating, setRecalculating] = useState(false)
   const [tab, setTab] = useState<Tab>("schedule")
 
   const [days, setDays] = useState<any[]>([])
@@ -339,6 +340,34 @@ export default function WorkRecordDetailPage() {
               className="p-2 rounded-lg hover:bg-slate-100"><ChevronRight size={16} /></button>
             <button onClick={() => setMonthDate(new Date())}
               className="ml-1 px-3 py-1.5 text-xs font-bold text-teal-700 bg-teal-50 rounded-lg hover:bg-teal-100">รอบปัจจุบัน</button>
+
+            <button
+              onClick={async () => {
+                if (recalculating || !id) return
+                setRecalculating(true)
+                const t = toast.loading("คำนวณเวลาใหม่ตามกะปัจจุบัน...")
+                try {
+                  const r = await fetch("/api/attendance/recalc-late", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ employee_id: id, from: period.from, to: period.to }),
+                  })
+                  const d = await r.json()
+                  if (!r.ok) throw new Error(d.error || "คำนวณไม่สำเร็จ")
+                  toast.success(`อัปเดต ${d.updated ?? 0} วัน`, { id: t })
+                  await loadMonth()
+                } catch (e: any) {
+                  toast.error(e.message, { id: t })
+                } finally {
+                  setRecalculating(false)
+                }
+              }}
+              disabled={recalculating}
+              title="คำนวณ มาสาย / กลับก่อน ใหม่ตามกะปัจจุบัน — แก้ปัญหาเมื่อเปลี่ยนกะย้อนหลัง"
+              className="px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-teal-500 to-cyan-500 rounded-lg hover:from-teal-600 hover:to-cyan-600 disabled:opacity-60 flex items-center gap-1.5 shadow-sm">
+              {recalculating ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              คำนวณเวลาใหม่
+            </button>
 
             <div className="flex flex-wrap gap-2 ml-auto text-xs">
               <Pill color="emerald" label="มา" value={summary.present} />

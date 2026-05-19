@@ -3,7 +3,7 @@ import { usePathname } from "next/navigation"
 import Link from "next/link"
 import {
   Home, Clock, Calendar, CalendarDays, CalendarClock, User, Bell, Users, Shield, Target,
-  Megaphone, FileText, Grip, X, MessageCircle, Package,
+  Megaphone, FileText, Grip, X, MessageCircle, Package, GraduationCap,
 } from "lucide-react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useEffect, useState, useRef, useCallback } from "react"
@@ -26,6 +26,7 @@ const FLOAT_MENU = [
   { href: "/app/kpi",               icon: Target,        label: "KPI",         color: "from-amber-500 to-orange-500" },
   { href: "/app/probation-eval",   icon: Shield,        label: "ทดลองงาน",   color: "from-rose-500 to-pink-500" },
   { href: "/app/equipment",         icon: Package,       label: "ยืมอุปกรณ์",  color: "from-cyan-500 to-teal-500" },
+  { href: "/app/training",          icon: GraduationCap, label: "ห้องเรียน",   color: "from-sky-500 to-blue-500" },
   { href: "/app/payslip",           icon: FileText,      label: "สลิป",        color: "from-emerald-500 to-green-500" },
 ]
 
@@ -165,9 +166,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const initials = emp?.first_name_th?.[0] ?? (user as any)?.email?.[0]?.toUpperCase() ?? "U"
   const displayName = emp ? `${emp.first_name_th} ${emp.last_name_th}` : (user as any)?.email?.split("@")[0] ?? "HRMS"
 
+  // ทุกหน้าใน /app/training/* ใช้ responsive layout (เดสก์ท็อปกว้าง, มือถือเหมือนเดิม)
+  const isWideLayout = pathname.startsWith("/app/training")
+
   return (
-    <div className="mobile-container">
-      <header className="bg-white/95 backdrop-blur-sm border-b border-slate-100 px-4 py-2.5 flex items-center justify-between sticky top-0 z-40 shadow-sm">
+    <div className={isWideLayout ? "responsive-container" : "mobile-container"}>
+      <header className={`bg-white/95 backdrop-blur-sm border-b border-slate-100 px-4 py-2.5 flex items-center justify-between sticky top-0 z-40 shadow-sm ${isWideLayout ? "lg:px-8" : ""}`}>
         <Link href="/app/profile" className="flex items-center gap-2.5 min-w-0">
           <div className="relative flex-shrink-0">
             <div className="w-9 h-9 rounded-2xl overflow-hidden bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center shadow-sm">

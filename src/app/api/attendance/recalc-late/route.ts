@@ -129,19 +129,23 @@ export async function POST(req: NextRequest) {
     let reason = "no_shift"
 
     if (shift?.work_start) {
-      let expectedStart = buildExpected(r.work_date, shift.work_start, !!shift.is_overnight)
+      // Auto-detect overnight ถ้า flag ไม่ได้ตั้งแต่ work_end < work_start
+      const isOvernight = !!shift.is_overnight ||
+        (!!shift.work_end && !!shift.work_start && String(shift.work_end) < String(shift.work_start))
+
+      let expectedStart = buildExpected(r.work_date, shift.work_start, isOvernight)
       let expectedEnd: Date | null = null
       if (shift.work_end) {
-        expectedEnd = buildExpected(r.work_date, shift.work_end, !!shift.is_overnight)
+        expectedEnd = buildExpected(r.work_date, shift.work_end, isOvernight)
         // Overnight: end ข้ามวัน
-        if (shift.is_overnight) expectedEnd = new Date(expectedEnd.getTime() + 86_400_000)
+        if (isOvernight) expectedEnd = new Date(expectedEnd.getTime() + 86_400_000)
       }
 
       // ── Overnight fix: ถ้า clock_in - expected > 12 ชม. + shift is_overnight + start 00:00-02:00 ──
       //    หมายความว่าเช็คอินก่อนเที่ยงคืน สำหรับกะที่เริ่ม 00:00 ของวันถัดไป → expected ต้องเป็น "วันถัดไป"
       // ── หรือ raw_late ลบ → expected เลื่อนล่วงหน้า 1 วัน ─────────────────────
       let rawLate = Math.floor((clockIn.getTime() - expectedStart.getTime()) / 60_000)
-      if (rawLate > 12 * 60 && shift.is_overnight) {
+      if (rawLate > 12 * 60 && isOvernight) {
         // อาจเป็นการเช็คอินก่อนกะข้ามคืน → expected เป็นวันถัดไปแทน
         const expectedNextDay = new Date(expectedStart.getTime() + 86_400_000)
         const diffNext = Math.floor((clockIn.getTime() - expectedNextDay.getTime()) / 60_000)
@@ -168,7 +172,16 @@ export async function POST(req: NextRequest) {
 
       // ── early_out: ลาบ่ายไม่นับ ──
       if (clockOut && expectedEnd && halfDay !== "afternoon") {
-        const earlyDiff = Math.floor((expectedEnd.getTime() - clockOut.getTime()) / 60_000)
+        // Universal: ถ้า clock_out < clock_in → ข้ามวัน (กะปกติแต่ค้างเลยเที่ยงคืน)
+        let cOutMs = clockOut.getTime()
+        if (cOutMs < clockIn.getTime()) cOutMs += 86_400_000
+        // Overnight extra snap ±24h
+        if (isOvernight) {
+          const candidates = [cOutMs, cOutMs + 86_400_000, cOutMs - 86_400_000]
+          cOutMs = candidates.reduce((best, t) =>
+            Math.abs(expectedEnd!.getTime() - t) < Math.abs(expectedEnd!.getTime() - best) ? t : best, cOutMs)
+        }
+        const earlyDiff = Math.floor((expectedEnd.getTime() - cOutMs) / 60_000)
         newEarly = Math.max(0, earlyDiff)
       }
     } else {

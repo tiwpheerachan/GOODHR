@@ -191,11 +191,22 @@ export async function POST(request: Request) {
       newWorkMin = calcWorkMinutes(newClockIn, newClockOut, shift?.break_minutes ?? 60)
     }
 
-    // ── คำนวณ early_out_minutes ใหม่ ────────────────────────────
+    // ── คำนวณ early_out_minutes ใหม่ (รองรับกะข้ามคืน + กะปกติแต่ค้างเลยเที่ยงคืน) ──
     let newEarlyMin = 0
     if (newClockOut && shift?.work_end) {
-      const expectedEnd = new Date(req.work_date + "T" + shift.work_end + "+07:00")
-      const diffMin = Math.round((expectedEnd.getTime() - newClockOut.getTime()) / 60000)
+      const isOvernight = !!shift.is_overnight ||
+        (!!shift.work_end && !!shift.work_start && String(shift.work_end) < String(shift.work_start))
+      let expectedEnd = new Date(req.work_date + "T" + shift.work_end + "+07:00")
+      if (isOvernight) expectedEnd = new Date(expectedEnd.getTime() + 86_400_000)
+      let outMs = newClockOut.getTime()
+      // Universal: clock_out < clock_in → ข้ามวัน → +24h
+      if (newClockIn && outMs < newClockIn.getTime()) outMs += 86_400_000
+      if (isOvernight) {
+        const candidates = [outMs, outMs + 86_400_000, outMs - 86_400_000]
+        outMs = candidates.reduce((best, t) =>
+          Math.abs(expectedEnd.getTime() - t) < Math.abs(expectedEnd.getTime() - best) ? t : best, outMs)
+      }
+      const diffMin = Math.round((expectedEnd.getTime() - outMs) / 60000)
       newEarlyMin = diffMin > 0 ? diffMin : 0
     }
 

@@ -4,11 +4,36 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
   Search, Sparkles, Filter, ChevronRight, Users, Building2,
-  Clock, CheckCircle2, AlertTriangle, Calendar, ArrowUpDown, X,
+  Clock, CheckCircle2, AlertTriangle, Calendar, ArrowUpDown, X, RefreshCw,
 } from "lucide-react"
 import Link from "next/link"
 import { format, addMonths, subMonths } from "date-fns"
 import { th } from "date-fns/locale"
+
+// ── Module-scoped cache: survives client-side back-nav (does NOT survive hard reload) ──
+type CacheData = {
+  scopeKey: string
+  fetchedAt: number
+  employees: any[]
+  statsMap: Record<string, any>
+  todayShiftMap: Record<string, any>
+}
+type CacheFilters = {
+  selectedCompany: string
+  selectedDept: string
+  selectedBranch: string
+  selectedPosition: string
+  selectedEmpType: string
+  todayStatus: string
+  issue: string
+  sortBy: string
+  search: string
+  showAdvanced: boolean
+}
+let cachedData: CacheData | null = null
+let cachedFilters: CacheFilters | null = null
+let cachedScrollY = 0
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 นาที
 
 const inp = "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-400/10 transition-all"
 
@@ -46,25 +71,27 @@ export default function WorkRecordListPage() {
   const myCompanyId: string | undefined =
     user?.employee?.company_id ?? (user as any)?.company_id ?? undefined
 
-  const [employees, setEmployees] = useState<Emp[]>([])
+  // ── Restore cached data + filters on mount (so back-nav doesn't reset everything) ──
+  const [employees, setEmployees] = useState<Emp[]>(() => (cachedData?.employees as Emp[]) ?? [])
   const [companies, setCompanies] = useState<{ id: string; code: string; name_th: string }[]>([])
   const [depts, setDepts] = useState<{ id: string; name: string; company_id: string }[]>([])
   const [branches, setBranches] = useState<{ id: string; name: string; company_id: string }[]>([])
   const [positions, setPositions] = useState<{ id: string; name: string; company_id: string }[]>([])
-  const [selectedCompany, setSelectedCompany] = useState("")
-  const [selectedDept, setSelectedDept] = useState("")
-  const [selectedBranch, setSelectedBranch] = useState("")
-  const [selectedPosition, setSelectedPosition] = useState("")
-  const [selectedEmpType, setSelectedEmpType] = useState("")
-  const [todayStatus, setTodayStatus] = useState<TodayStatus>("")
-  const [issue, setIssue] = useState<Issue>("")
-  const [sortBy, setSortBy] = useState<SortKey>("name")
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  const [search, setSearch] = useState("")
-  const [debounced, setDebounced] = useState("")
-  const [statsMap, setStatsMap] = useState<Record<string, Stats>>({})
-  const [todayShiftMap, setTodayShiftMap] = useState<Record<string, { shift?: string; in?: string; out?: string; status?: string; assignment_type?: string }>>({})
-  const [loading, setLoading] = useState(true)
+  const [selectedCompany, setSelectedCompany] = useState(cachedFilters?.selectedCompany ?? "")
+  const [selectedDept, setSelectedDept] = useState(cachedFilters?.selectedDept ?? "")
+  const [selectedBranch, setSelectedBranch] = useState(cachedFilters?.selectedBranch ?? "")
+  const [selectedPosition, setSelectedPosition] = useState(cachedFilters?.selectedPosition ?? "")
+  const [selectedEmpType, setSelectedEmpType] = useState(cachedFilters?.selectedEmpType ?? "")
+  const [todayStatus, setTodayStatus] = useState<TodayStatus>((cachedFilters?.todayStatus as TodayStatus) ?? "")
+  const [issue, setIssue] = useState<Issue>((cachedFilters?.issue as Issue) ?? "")
+  const [sortBy, setSortBy] = useState<SortKey>((cachedFilters?.sortBy as SortKey) ?? "name")
+  const [showAdvanced, setShowAdvanced] = useState(cachedFilters?.showAdvanced ?? false)
+  const [search, setSearch] = useState(cachedFilters?.search ?? "")
+  const [debounced, setDebounced] = useState(cachedFilters?.search ?? "")
+  const [statsMap, setStatsMap] = useState<Record<string, Stats>>(cachedData?.statsMap ?? {})
+  const [todayShiftMap, setTodayShiftMap] = useState<Record<string, { shift?: string; in?: string; out?: string; status?: string; assignment_type?: string }>>(cachedData?.todayShiftMap ?? {})
+  const [loading, setLoading] = useState(() => !cachedData)
+  const [refreshing, setRefreshing] = useState(false)
 
   const activeCompanyId = isSuperAdmin ? (selectedCompany || undefined) : myCompanyId
 
@@ -83,8 +110,14 @@ export default function WorkRecordListPage() {
   }, [isSuperAdmin])
 
   // load depts / branches / positions (scoped by company selection)
+  // Skip the first reset if we just hydrated dept/branch/position from cache
+  const skipResetOnce = useRef(!!cachedFilters)
   useEffect(() => {
-    setSelectedDept(""); setSelectedBranch(""); setSelectedPosition("")
+    if (skipResetOnce.current) {
+      skipResetOnce.current = false
+    } else {
+      setSelectedDept(""); setSelectedBranch(""); setSelectedPosition("")
+    }
     const dQ = supabase.from("departments").select("id, name, company_id").order("name")
     const bQ = supabase.from("branches").select("id, name, company_id").order("name")
     const pQ = supabase.from("positions").select("id, name, company_id").order("name")
@@ -99,11 +132,19 @@ export default function WorkRecordListPage() {
   }, [activeCompanyId])
 
   // load employees + monthly stats + today's shift/attendance
-  useEffect(() => {
+  // ── Cache strategy: if cache scope == current scope and fresh, skip fetch ──
+  const run = async (forceRefresh = false) => {
     if (!isSuperAdmin && !myCompanyId) return
-    const run = async () => {
-      setLoading(true)
-      try {
+    const scopeKey = `${isSuperAdmin ? "super" : myCompanyId}|${activeCompanyId ?? ""}`
+    if (!forceRefresh && cachedData && cachedData.scopeKey === scopeKey &&
+        (Date.now() - cachedData.fetchedAt) < CACHE_TTL_MS) {
+      // hydrate from cache (already happened on initial state); just make sure loading=false
+      setLoading(false)
+      return
+    }
+    if (forceRefresh) setRefreshing(true)
+    else if (!cachedData) setLoading(true)
+    try {
         let q = supabase.from("employees")
           .select(`id, employee_code, first_name_th, last_name_th, nickname, avatar_url, company_id,
                    department_id, branch_id, position_id, employment_type,
@@ -185,12 +226,37 @@ export default function WorkRecordListPage() {
           else if ((a.shift as any)?.name) t.shift = (a.shift as any).name
         }
         setTodayShiftMap(today_)
+        // ── Save to module cache ──
+        cachedData = {
+          scopeKey,
+          fetchedAt: Date.now(),
+          employees: (emps ?? []) as any[],
+          statsMap: stats,
+          todayShiftMap: today_,
+        }
       } finally {
         setLoading(false)
+        setRefreshing(false)
       }
+  }
+  useEffect(() => { run() }, [isSuperAdmin, myCompanyId, activeCompanyId])
+
+  // ── Persist filter values + restore scroll on mount ──
+  useEffect(() => {
+    cachedFilters = {
+      selectedCompany, selectedDept, selectedBranch, selectedPosition,
+      selectedEmpType, todayStatus, issue, sortBy, search, showAdvanced,
     }
-    run()
-  }, [isSuperAdmin, myCompanyId, activeCompanyId])
+  }, [selectedCompany, selectedDept, selectedBranch, selectedPosition,
+      selectedEmpType, todayStatus, issue, sortBy, search, showAdvanced])
+
+  useEffect(() => {
+    if (cachedScrollY > 0) {
+      // Wait one tick so cards render before scrolling
+      const t = setTimeout(() => window.scrollTo(0, cachedScrollY), 0)
+      return () => clearTimeout(t)
+    }
+  }, [])
 
   const filtered = useMemo(() => {
     const s = debounced.trim().toLowerCase()
@@ -322,9 +388,17 @@ export default function WorkRecordListPage() {
               <X size={12} /> ล้างตัวกรอง
             </button>
           )}
-          <span className="text-xs text-slate-400 ml-auto whitespace-nowrap">
-            <span className="font-bold text-slate-700">{filtered.length}</span> / {employees.length} คน
-          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => run(true)} disabled={refreshing}
+              title="ดึงข้อมูลใหม่จาก server"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-slate-500 hover:text-teal-700 hover:bg-teal-50 disabled:opacity-50">
+              <RefreshCw size={11} className={refreshing ? "animate-spin" : ""} />
+              {refreshing ? "กำลังโหลด" : "รีเฟรช"}
+            </button>
+            <span className="text-xs text-slate-400 whitespace-nowrap">
+              <span className="font-bold text-slate-700">{filtered.length}</span> / {employees.length} คน
+            </span>
+          </div>
         </div>
 
         {/* Advanced row */}
@@ -384,6 +458,7 @@ export default function WorkRecordListPage() {
             const today = todayShiftMap[emp.id]
             return (
               <Link key={emp.id} href={`/admin/work-record/${emp.id}`}
+                onClick={() => { cachedScrollY = window.scrollY }}
                 className="group bg-white rounded-2xl border border-slate-200 hover:border-teal-400 hover:shadow-lg shadow-sm transition-all overflow-hidden">
                 {/* Header strip — darker */}
                 <div className="bg-gradient-to-br from-teal-500 to-cyan-500 px-4 py-3 flex items-center gap-3">
