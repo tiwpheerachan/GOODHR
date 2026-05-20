@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   Search, ChevronLeft, ChevronRight, Download, Filter,
   Clock, Users, CalendarDays, AlertTriangle, CheckCircle2,
-  Building2, Loader2, X,
+  Building2, Loader2, X, RefreshCw,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -141,6 +141,7 @@ export default function WorkLogPage() {
   const [payrollDetail, setPayrollDetail] = useState<string | null>(null) // employee_id of expanded payroll
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const [recalcing, setRecalcing] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // ── Tooltip ──────────────────────────────────────────────────
@@ -295,6 +296,27 @@ export default function WorkLogPage() {
   useEffect(() => {
     if (!authLoading && activeCid) load()
   }, [authLoading, activeCid, load]) // eslint-disable-line
+
+  // ── Recalc late/early/status ใหม่ในงวด ─────────────────────
+  const handleRecalc = useCallback(async () => {
+    if (recalcing) return
+    setRecalcing(true)
+    const t = toast.loading(`คำนวณเวลาใหม่ ${period.from} → ${period.to}...`)
+    try {
+      const body: any = { from: period.from, to: period.to }
+      if (activeCid && activeCid !== "all") body.company_id = activeCid
+      const res = await fetch("/api/attendance/recalc-late", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || "คำนวณไม่สำเร็จ")
+      toast.success(`อัปเดต ${d.updated ?? 0} records · ไม่เปลี่ยน ${d.unchanged ?? 0}`, { id: t })
+      load()
+    } catch (e: any) {
+      toast.error(e.message || "เกิดข้อผิดพลาด", { id: t })
+    } finally { setRecalcing(false) }
+  }, [recalcing, period.from, period.to, activeCid, load])
 
   // ── Filtered rows ────────────────────────────────────────────
   const filteredRows = useMemo(() => {
@@ -485,7 +507,13 @@ export default function WorkLogPage() {
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">ตารางสรุปรายวันตามงวดเงินเดือน</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={handleRecalc} disabled={recalcing}
+            title={`คำนวณ มาสาย / กลับก่อน / status ใหม่ตามกะปัจจุบัน — งวด ${period.from} → ${period.to}`}
+            className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 transition-colors shadow-sm shadow-teal-200">
+            <RefreshCw className={`w-4 h-4 ${recalcing ? "animate-spin" : ""}`} />
+            {recalcing ? "กำลังคำนวณ…" : "คำนวณเวลาใหม่"}
+          </button>
           <button onClick={exportXLSX} disabled={exporting || !filteredRows.length}
             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors">
             {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}

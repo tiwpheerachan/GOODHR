@@ -26,15 +26,16 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { from, to, employee_id, dry_run = false } = body
+  const { from, to, employee_id, company_id, dry_run = false } = body
   if (!from || !to) return NextResponse.json({ error: "from + to (YYYY-MM-DD) required" }, { status: 400 })
 
   // ── ดึง attendance_records ในช่วง ──
   let q = svc.from("attendance_records")
-    .select("id, employee_id, work_date, clock_in, clock_out, expected_start, late_minutes, early_out_minutes, status, half_day_leave")
+    .select("id, employee_id, work_date, clock_in, clock_out, expected_start, late_minutes, early_out_minutes, status, half_day_leave, company_id")
     .gte("work_date", from).lte("work_date", to)
     .not("clock_in", "is", null)
   if (employee_id) q = q.eq("employee_id", employee_id)
+  if (company_id)  q = q.eq("company_id",  company_id)
   const { data: records, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!records?.length) return NextResponse.json({ success: true, updated: 0, sample: [] })

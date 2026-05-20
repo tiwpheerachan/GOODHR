@@ -292,6 +292,7 @@ export default function AdminAttendancePage() {
   })
   const [offsitePending, setOffsitePending] = useState(0)
   const [markingAbsent, setMarkingAbsent] = useState(false)
+  const [recalcing, setRecalcing] = useState(false)
   const [listFilters,  setListFilters]  = useState({
     start:  format(subDays(new Date(),7),"yyyy-MM-dd"),
     end:    today, status:"", dept:"", search:"",
@@ -339,6 +340,27 @@ export default function AdminAttendancePage() {
       setOffsitePending(osRes.count??0)
     } catch(e) { console.error("Load KPI error:", e) }
   },[activeCid,today])
+
+  // ── Recalc late/early/status ใหม่ในช่วงที่ filter อยู่ ────────
+  const handleRecalc = useCallback(async()=>{
+    if (recalcing) return
+    setRecalcing(true)
+    const t = toast.loading(`คำนวณเวลาใหม่ ${listFilters.start} → ${listFilters.end}...`)
+    try {
+      const body: any = { from: listFilters.start, to: listFilters.end }
+      if (activeCid && activeCid !== "all") body.company_id = activeCid
+      const res = await fetch("/api/attendance/recalc-late", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || "คำนวณไม่สำเร็จ")
+      toast.success(`อัปเดตแล้ว ${d.updated ?? 0} records · ไม่เปลี่ยน ${d.unchanged ?? 0}`, { id: t })
+      loadList(); loadKpi()
+    } catch (e:any) {
+      toast.error(e.message || "เกิดข้อผิดพลาด", { id: t })
+    } finally { setRecalcing(false) }
+  }, [recalcing, listFilters.start, listFilters.end, activeCid])
 
   // ── Mark absent: สร้าง record ขาดงานย้อนหลัง ──────────────────
   const handleMarkAbsent = useCallback(async()=>{
@@ -517,6 +539,12 @@ export default function AdminAttendancePage() {
           <button onClick={()=>{loadList();loadAdj();loadKpi()}} disabled={loadingList}
             className="flex items-center gap-2 px-3 py-2.5 border border-slate-200 bg-white rounded-xl text-sm text-slate-500 hover:bg-slate-50 transition-colors">
             <RefreshCw size={13} className={loadingList?"animate-spin":""}/>
+          </button>
+          <button onClick={handleRecalc} disabled={recalcing}
+            title={`คำนวณ มาสาย / กลับก่อน / status ใหม่ตามกะปัจจุบัน — รอบ ${listFilters.start} ถึง ${listFilters.end}`}
+            className="flex items-center gap-2 px-3 py-2.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white text-sm font-bold rounded-xl shadow-sm shadow-teal-200 transition-colors disabled:opacity-50">
+            <RefreshCw size={13} className={recalcing?"animate-spin":""}/>
+            {recalcing?"กำลังคำนวณ…":"คำนวณเวลาใหม่"}
           </button>
           <button onClick={handleMarkAbsent} disabled={markingAbsent}
             className="flex items-center gap-2 px-3 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold rounded-xl shadow-sm shadow-rose-200 transition-colors disabled:opacity-50">
