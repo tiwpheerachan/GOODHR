@@ -410,7 +410,7 @@ export default function PayrollRulesPage() {
               <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                 <p className="text-[10px] font-black text-green-800 uppercase tracking-wide mb-2">สูตรรวม: Gross → Net</p>
                 <div className="space-y-1.5 text-xs text-green-800">
-                  <code className="block font-black">Gross = เงินเดือน + เบี้ยตำแหน่ง + ค่าเดินทาง + ค่าอาหาร + ค่าโทรศัพท์ + ค่าที่พัก + OT + โบนัส</code>
+                  <code className="block font-black">Gross = เงินเดือน + เบี้ยตำแหน่ง + ค่าเดินทาง + ค่าอาหาร + ค่าโทรศัพท์ + ค่าที่พัก + ค่าเสื่อมรถยนต์ + OT + โบนัส</code>
                   <code className="block font-black">รวมหัก = SSO + ภาษี + หักมาสาย + หักออกก่อน + หักขาดงาน + หักเงินกู้</code>
                   <code className="block font-black text-green-900">Net = Gross − รวมหัก</code>
                 </div>

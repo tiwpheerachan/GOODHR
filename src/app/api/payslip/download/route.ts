@@ -82,6 +82,7 @@ export async function GET(req: NextRequest) {
   if (n(record.allowance_food)) earnings.push({ label: "ค่าอาหาร", amount: n(record.allowance_food) })
   if (n(record.allowance_phone)) earnings.push({ label: "ค่าโทรศัพท์", amount: n(record.allowance_phone) })
   if (n(record.allowance_housing)) earnings.push({ label: "ค่าที่พัก", amount: n(record.allowance_housing) })
+  if (n(record.allowance_vehicle)) earnings.push({ label: "ค่าเสื่อมรถยนต์", amount: n(record.allowance_vehicle) })
   if (n(record.allowance_other)) earnings.push({ label: "เบี้ยอื่นๆ", amount: n(record.allowance_other) })
   if (n(record.commission)) earnings.push({ label: "Commission", amount: n(record.commission) })
   if (n(ie.kpi)) earnings.push({ label: "KPI", amount: n(ie.kpi) })

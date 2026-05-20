@@ -1,7 +1,9 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
-import { Pause, Play, Volume2, VolumeX, Maximize2, AlertTriangle } from "lucide-react"
+import { Pause, Play, Volume2, VolumeX, Maximize2, Minimize2, AlertTriangle, Rewind } from "lucide-react"
 import CheckpointOverlay, { type Checkpoint } from "./CheckpointOverlay"
+import AntiCaptureOverlay from "./AntiCaptureOverlay"
+import { useAntiCapture } from "@/lib/training/useAntiCapture"
 
 export type { Checkpoint }
 
@@ -53,21 +55,32 @@ export default function VideoPlayer({
   const [tabSwitches, setTabSwitches] = useState(0)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
-  // ── Fullscreen change listener ────────────────────────────────────
+  // ── CSS-only Fullscreen (works on iOS where div fullscreen API is unsupported) ──
   useEffect(() => {
-    const h = () => setIsFullscreen(!!document.fullscreenElement)
-    document.addEventListener("fullscreenchange", h)
-    return () => document.removeEventListener("fullscreenchange", h)
-  }, [])
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) document.exitFullscreen()
-    else wrapperRef.current?.requestFullscreen()
-  }
+    if (!isFullscreen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    // Try native too for desktop (better keyboard support)
+    if (typeof wrapperRef.current?.requestFullscreen === "function") {
+      wrapperRef.current.requestFullscreen().catch(() => {})
+    }
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setIsFullscreen(false) }
+    document.addEventListener("keydown", onEsc)
+    return () => {
+      document.body.style.overflow = prev
+      document.removeEventListener("keydown", onEsc)
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+    }
+  }, [isFullscreen])
+  const toggleFullscreen = () => setIsFullscreen(s => !s)
 
-  // ── Visibility detection ──────────────────────────────────────────
+  // ── Visibility detection (suppress right after fullscreen toggle on iOS) ──
+  const fsToggleAtRef = useRef<number>(0)
+  useEffect(() => { fsToggleAtRef.current = Date.now() }, [isFullscreen])
   useEffect(() => {
     const handler = () => {
       if (document.hidden && playing) {
+        if (Date.now() - fsToggleAtRef.current < 1500) return
         setTabSwitches(s => s + 1)
         onTabSwitch?.()
         videoRef.current?.pause()
@@ -75,7 +88,7 @@ export default function VideoPlayer({
     }
     document.addEventListener("visibilitychange", handler)
     return () => document.removeEventListener("visibilitychange", handler)
-  }, [playing, onTabSwitch])
+  }, [playing, onTabSwitch, isFullscreen])
 
   // ── Disable right-click + key shortcuts ───────────────────────────
   useEffect(() => {
@@ -103,8 +116,11 @@ export default function VideoPlayer({
     const now = Date.now()
     const wallDelta = (now - lastWallTimeRef.current) / 1000
     lastWallTimeRef.current = now
-    if (!v.paused && wallDelta > 0 && wallDelta < 2 && !activeRef.current) {
-      watchTimeRef.current += wallDelta
+    if (!v.paused && wallDelta > 0 && wallDelta < 2 && !activeRef.current
+        && !antiCapture.blackout) {
+      // cap playback rate cheating: 1.5x/2x ไม่ทำให้นับเร็วขึ้น
+      const rate = Math.min(v.playbackRate || 1, 1)
+      watchTimeRef.current += wallDelta * rate
     }
     lastTimeRef.current = t
 
@@ -153,6 +169,25 @@ export default function VideoPlayer({
     else { v.pause(); setPlaying(false) }
   }
 
+  // ── Anti-capture guard ─────────────────────────────────────────
+  const saveProgressNow = () => {
+    const v = videoRef.current
+    if (!v || actualDuration === 0) return
+    const watchedSec = Math.floor(watchTimeRef.current)
+    const pct = Math.min(100, (watchedSec / actualDuration) * 100)
+    onProgress?.({ watched_pct: pct, watch_time_sec: watchedSec, last_position_sec: Math.floor(v.currentTime) })
+  }
+  const antiCapture = useAntiCapture({
+    enabled: true,
+    onBlur: () => {
+      videoRef.current?.pause(); setPlaying(false)
+      saveProgressNow(); onTabSwitch?.(); setTabSwitches(s => s + 1)
+    },
+    onPrintScreen: () => {
+      videoRef.current?.pause(); setPlaying(false); onTabSwitch?.()
+    },
+  })
+
   const handleCheckpointAnswer = (correct: boolean, answer?: any) => {
     if (!activeCheckpoint) return
     if (correct || !activeCheckpoint.blocks_progress) {
@@ -173,8 +208,28 @@ export default function VideoPlayer({
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
   const watchedPct = actualDuration > 0 ? Math.min(100, (watchTimeRef.current / actualDuration) * 100) : 0
 
+  // ── Rewind-only seek (no fast-forward) ─────────────────────────
+  const seekTo = (target: number) => {
+    const v = videoRef.current
+    if (!v || actualDuration === 0) return
+    if (target >= v.currentTime) return // block forward
+    v.currentTime = Math.max(0, Math.min(actualDuration, target))
+  }
+  const rewind10 = () => seekTo(currentTime - 10)
+  const handleBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (actualDuration === 0) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    seekTo((x / rect.width) * actualDuration)
+  }
+
   return (
-    <div ref={wrapperRef} className={`relative bg-black overflow-hidden select-none ${isFullscreen ? "!rounded-none w-screen h-screen" : "rounded-2xl"}`} onCopy={e => e.preventDefault()}>
+    <div ref={wrapperRef}
+      className={`bg-black overflow-hidden select-none ${
+        isFullscreen ? "fixed inset-0 z-[100] !rounded-none w-screen" : "relative rounded-2xl"
+      }`}
+      style={isFullscreen ? { height: "100dvh" } as any : undefined}
+      onCopy={e => e.preventDefault()}>
       <video
         ref={videoRef}
         src={src}
@@ -187,10 +242,12 @@ export default function VideoPlayer({
         onClick={togglePlay}
       />
 
-      {/* Watermark */}
+      {/* Drifting watermark — ตำแหน่งเคลื่อนช้าๆ ทำให้ crop ออกยาก */}
       {watermarkText && (
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-          <p className="text-white/15 text-2xl font-black rotate-[-20deg] select-none">{watermarkText}</p>
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          <p className="absolute inset-0 flex items-center justify-center text-white/15 text-2xl font-black select-none watermark-drift">
+            {watermarkText}
+          </p>
         </div>
       )}
 
@@ -203,12 +260,18 @@ export default function VideoPlayer({
 
       {/* Controls */}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
-        {/* Progress bar (non-clickable to prevent scrub) */}
-        <div className="h-1 bg-white/20 rounded-full overflow-hidden mb-2 relative">
+        {/* Scrub bar — click to REWIND only */}
+        <div onClick={handleBarClick}
+          title="คลิกเพื่อย้อนกลับ (กรอไปข้างหน้าไม่ได้)"
+          className="h-2 bg-white/20 rounded-full overflow-hidden mb-2 relative cursor-pointer hover:h-2.5 transition-all">
           <div className="absolute inset-y-0 left-0 bg-white/40" style={{ width: `${watchedPct}%` }} />
           <div className="absolute inset-y-0 left-0 bg-sky-400" style={{ width: actualDuration > 0 ? `${(currentTime / actualDuration) * 100}%` : "0%" }} />
+          {actualDuration > 0 && (
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-white rounded-full shadow"
+              style={{ left: `${(currentTime / actualDuration) * 100}%` }} />
+          )}
           {checkpoints.map(cp => (
-            <div key={cp.id} className={`absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${answeredRef.current.has(cp.id) ? "bg-emerald-400" : "bg-purple-400"}`}
+            <div key={cp.id} className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ring-2 ring-black/30 ${answeredRef.current.has(cp.id) ? "bg-emerald-400" : "bg-purple-400"}`}
               style={{ left: actualDuration > 0 ? `${(cp.trigger_at_sec / actualDuration) * 100}%` : "0%" }} />
           ))}
         </div>
@@ -217,16 +280,28 @@ export default function VideoPlayer({
           <button onClick={togglePlay} className="p-1.5 hover:bg-white/20 rounded">
             {playing ? <Pause size={16} /> : <Play size={16} />}
           </button>
+          <button onClick={rewind10} className="p-1.5 hover:bg-white/20 rounded flex items-center gap-0.5" title="ย้อนกลับ 10 วินาที">
+            <Rewind size={14} fill="currentColor" />
+            <span className="text-[9px] font-black">10</span>
+          </button>
           <button onClick={() => { if (videoRef.current) { videoRef.current.muted = !muted; setMuted(!muted) } }} className="p-1.5 hover:bg-white/20 rounded">
             {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
           </button>
           <span className="font-mono text-[11px]">{fmtTime(currentTime)} / {fmtTime(actualDuration)}</span>
           <span className="ml-auto text-[10px] opacity-80">ดูแล้ว {watchedPct.toFixed(0)}% / ต้องการ {requiredWatchPct}%</span>
           <button onClick={toggleFullscreen} className="p-1.5 hover:bg-white/20 rounded" title={isFullscreen ? "ออกเต็มจอ" : "ดูเต็มจอ"}>
-            <Maximize2 size={14} />
+            {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
         </div>
       </div>
+
+      {/* Anti-capture overlay */}
+      <AntiCaptureOverlay
+        blackout={antiCapture.blackout}
+        blackoutReason={antiCapture.blackoutReason}
+        recordingDetected={antiCapture.recordingDetected}
+        watermarkText={watermarkText}
+      />
 
       {/* Checkpoint Quiz Overlay */}
       {activeCheckpoint && (

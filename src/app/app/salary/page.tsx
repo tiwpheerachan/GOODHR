@@ -533,6 +533,7 @@ export default function SalaryPage() {
                     {(r.allowance_food     ??0)>0 && <IncomeRow label="ค่าอาหาร"         value={r.allowance_food}/>}
                     {(r.allowance_phone    ??0)>0 && <IncomeRow label="ค่าโทรศัพท์"      value={r.allowance_phone}/>}
                     {(r.allowance_housing  ??0)>0 && <IncomeRow label="ค่าที่อยู่อาศัย"  value={r.allowance_housing}/>}
+                    {(r.allowance_vehicle  ??0)>0 && <IncomeRow label="ค่าเสื่อมรถยนต์"   value={r.allowance_vehicle}/>}
                     {allowOther > 0              && <IncomeRow label="เบี้ยเลี้ยงอื่นๆ"  value={allowOther}/>}
                     {(() => {
                       const base = Number(r.base_salary) || 0  // OT ใช้ฐานเต็มตามสัญญา

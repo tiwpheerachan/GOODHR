@@ -115,7 +115,7 @@ export async function PATCH(req: Request) {
   // อนุญาตให้ update ทุก field ที่ส่งมา (ยกเว้น id, employee_id, payroll_period_id)
   const SAFE_FIELDS = [
     "base_salary", "allowance_position", "allowance_transport", "allowance_food",
-    "allowance_phone", "allowance_housing", "allowance_other", "ot_amount",
+    "allowance_phone", "allowance_housing", "allowance_vehicle", "allowance_other", "ot_amount",
     "ot_weekday_minutes", "ot_holiday_reg_minutes", "ot_holiday_ot_minutes", "ot_hours",
     "bonus", "kpi_grade", "kpi_standard_amount", "commission", "other_income",
     "deduct_absent", "deduct_late", "deduct_early_out", "deduct_loan", "deduct_other",

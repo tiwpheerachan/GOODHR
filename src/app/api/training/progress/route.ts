@@ -21,25 +21,30 @@ export async function POST(req: NextRequest) {
   const { data: en } = await svc.from("training_enrollments").select("employee_id, course_id, progress_pct").eq("id", enrollment_id).single()
   if (!en || en.employee_id !== access.employeeId) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
 
-  // get module required_watch_pct
-  const { data: mod } = await svc.from("training_modules").select("required_watch_pct").eq("id", module_id).single()
+  // get module required_watch_pct + existing progress (for monotonic merge)
+  const [{ data: mod }, { data: existing }] = await Promise.all([
+    svc.from("training_modules").select("required_watch_pct").eq("id", module_id).single(),
+    svc.from("training_module_progress")
+      .select("watched_pct, watch_time_sec, answered_checkpoints, completed")
+      .eq("enrollment_id", enrollment_id).eq("module_id", module_id).maybeSingle(),
+  ])
   const required = Number(mod?.required_watch_pct ?? 80)
-  const completed = (watched_pct ?? 0) >= required
+
+  // ── Monotonic: ค่า % และเวลาดูเดินหน้าอย่างเดียว (กัน race / out-of-order requests) ──
+  const newWatchedPct = Math.max(Number(existing?.watched_pct ?? 0), Number(watched_pct ?? 0))
+  const newWatchTime = Math.max(Number(existing?.watch_time_sec ?? 0), Number(watch_time_sec ?? 0))
+  const completed = newWatchedPct >= required || !!existing?.completed
 
   // ── merge answered_checkpoints ────────────────────────────────────
-  let answered_checkpoints: string[] = []
-  if (answered_checkpoint_id) {
-    const { data: existing } = await svc.from("training_module_progress")
-      .select("answered_checkpoints").eq("enrollment_id", enrollment_id).eq("module_id", module_id).maybeSingle()
-    const prev: string[] = Array.isArray(existing?.answered_checkpoints) ? existing!.answered_checkpoints : []
-    if (!prev.includes(answered_checkpoint_id)) prev.push(answered_checkpoint_id)
-    answered_checkpoints = prev
+  let answered_checkpoints: string[] = Array.isArray(existing?.answered_checkpoints) ? existing!.answered_checkpoints : []
+  if (answered_checkpoint_id && !answered_checkpoints.includes(answered_checkpoint_id)) {
+    answered_checkpoints = [...answered_checkpoints, answered_checkpoint_id]
   }
 
   const upsertData: any = {
     enrollment_id, module_id,
-    watched_pct: watched_pct ?? 0,
-    watch_time_sec: watch_time_sec ?? 0,
+    watched_pct: newWatchedPct,
+    watch_time_sec: newWatchTime,
     last_position_sec: last_position_sec ?? 0,
     completed,
     completed_at: completed ? new Date().toISOString() : null,

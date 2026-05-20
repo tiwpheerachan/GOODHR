@@ -193,7 +193,7 @@ async function initRecord(
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
-      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct")
+      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct")
       .eq("employee_id", employee_id)
       .is("effective_to", null)
       .order("effective_from", { ascending: false })
@@ -214,7 +214,7 @@ async function initRecord(
 
   const sal    = sRes.data ?? {
     base_salary: 0, allowance_position: 0, allowance_transport: 0,
-    allowance_food: 0, allowance_phone: 0, allowance_housing: 0,
+    allowance_food: 0, allowance_phone: 0, allowance_housing: 0, allowance_vehicle: 0,
     tax_withholding_pct: null, ot_rate_normal: null, ot_rate_holiday: null,
   }
 
@@ -224,7 +224,8 @@ async function initRecord(
     (Number(sal.allowance_position)  || 0) +
     (Number(sal.allowance_food)      || 0) +
     (Number(sal.allowance_phone)     || 0) +
-    (Number(sal.allowance_housing)   || 0)
+    (Number(sal.allowance_housing)   || 0) +
+    (Number(sal.allowance_vehicle)   || 0)
 
   const taxWithholdingPct: number | null =
     sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
@@ -272,6 +273,7 @@ async function initRecord(
     allowance_food:         Number(sal.allowance_food)      || 0,
     allowance_phone:        Number(sal.allowance_phone)     || 0,
     allowance_housing:      Number(sal.allowance_housing)   || 0,
+    allowance_vehicle:      Number(sal.allowance_vehicle)   || 0,
     allowance_other:        0,
     ot_amount:              0,
     ot_hours:               0,
@@ -360,7 +362,7 @@ async function calcAndSave(
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
-      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, effective_from, effective_to")
+      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, effective_from, effective_to")
       .eq("employee_id", employee_id)
       .is("effective_to", null)
       .order("effective_from", { ascending: false })
@@ -382,7 +384,7 @@ async function calcAndSave(
   // ถ้ายังไม่มี salary_structures → ใช้ค่า default (เงินเดือน 0) เพื่อให้สร้าง record ได้
   const sal    = sRes.data ?? {
     base_salary: 0, allowance_position: 0, allowance_transport: 0,
-    allowance_food: 0, allowance_phone: 0, allowance_housing: 0,
+    allowance_food: 0, allowance_phone: 0, allowance_housing: 0, allowance_vehicle: 0,
     tax_withholding_pct: null, ot_rate_normal: null, ot_rate_holiday: null,
   }
 
@@ -609,7 +611,8 @@ async function calcAndSave(
     (Number(sal.allowance_position)  || 0) +
     (Number(sal.allowance_food)      || 0) +
     (Number(sal.allowance_phone)     || 0) +
-    (Number(sal.allowance_housing)   || 0)
+    (Number(sal.allowance_housing)   || 0) +
+    (Number(sal.allowance_vehicle)   || 0)
 
   // ── ภาษีหัก ณ ที่จ่าย (% ตั้งค่าเอง หรือ auto) ───────────────
   const taxWithholdingPct: number | null =
@@ -697,6 +700,7 @@ async function calcAndSave(
   const manualAllowFood      = isManual ? Number(existingPR?.allowance_food)      : Number(sal.allowance_food)      || 0
   const manualAllowPhone     = isManual ? Number(existingPR?.allowance_phone)     : Number(sal.allowance_phone)     || 0
   const manualAllowHousing   = isManual ? Number(existingPR?.allowance_housing)   : Number(sal.allowance_housing)   || 0
+  const manualAllowVehicle   = isManual ? Number(existingPR?.allowance_vehicle)   : Number(sal.allowance_vehicle)   || 0
   const manualAllowOther     = isManual ? Number(existingPR?.allowance_other)     : 0
   const existingExtras       = existingPR?.income_extras || null
   const existingDeductExtras = existingPR?.deduction_extras || null
@@ -714,7 +718,7 @@ async function calcAndSave(
   // รวมทุก allowances จริง (manual หรือ system) + OT + bonus + extras
   // ใช้ effectiveBase (prorated) สำหรับเงินเดือนส่วนที่ได้รับจริง
   const finalGross = effectiveBase + manualAllowPosition + manualAllowTransport + manualAllowFood
-    + manualAllowPhone + manualAllowHousing + manualAllowOther
+    + manualAllowPhone + manualAllowHousing + manualAllowVehicle + manualAllowOther
     + finalOtAmount + manualBonus + manualCommission + manualOtherIncome + incExtrasTotal
   const taxWithholdingPctVal = sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
   const finalTax = (isManual && existingPR?.monthly_tax_withheld != null)
@@ -741,6 +745,7 @@ async function calcAndSave(
     allowance_food:         manualAllowFood,
     allowance_phone:        manualAllowPhone,
     allowance_housing:      manualAllowHousing,
+    allowance_vehicle:      manualAllowVehicle,
     allowance_other:        manualAllowOther,
     ot_amount:              finalOtAmount,
     ot_hours:               isManual && existingPR?.ot_hours != null ? Number(existingPR.ot_hours) : (otBreakdown.weekday_minutes + otBreakdown.holiday_regular_minutes + otBreakdown.holiday_ot_minutes) / 60,

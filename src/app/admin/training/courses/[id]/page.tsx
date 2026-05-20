@@ -521,6 +521,7 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
 function VideoPreviewAdmin({ module: m, onRemove, onChangeWatchPct }: { module: any; onRemove: () => void; onChangeWatchPct: (n: number) => void }) {
   const parsed = parseVideoUrl(m.video_url)
   const isIframe = parsed.type === "youtube" || parsed.type === "vimeo" || parsed.type === "drive"
+  const tracks = supportsCheckpoint(parsed.type)
   return (
     <div className="space-y-2">
       <div className="max-w-md">
@@ -532,14 +533,30 @@ function VideoPreviewAdmin({ module: m, onRemove, onChangeWatchPct }: { module: 
           <video src={parsed.embedUrl} controls className="w-full max-h-56 rounded-lg bg-black" />
         )}
       </div>
+
+      {/* Drive-specific warning panel — เด่นชัด */}
+      {parsed.type === "drive" && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs space-y-1.5">
+          <p className="font-black text-rose-700 flex items-center gap-1.5">
+            ⚠️ Google Drive — ฟีเจอร์จำกัด + อาจเปิดไม่ได้
+          </p>
+          <ul className="text-rose-700 space-y-0.5 ml-5 list-disc">
+            <li><b>ไม่รองรับ Checkpoint Quiz</b> เด้งระหว่างวิดีโอ</li>
+            <li><b>ไม่นับ % การดู</b> ของผู้เรียน</li>
+            <li>ถ้าโหลดวิดีโอไม่ได้ → เปิด Drive → คลิกขวา → <b>Share</b> → <b>Anyone with the link</b> → <b>Viewer</b></li>
+          </ul>
+          <p className="text-rose-700 mt-1">💡 แนะนำ: ลบลิงก์นี้แล้วใช้ <b>YouTube</b> (Unlisted) แทน — ได้ครบทุกฟีเจอร์</p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between text-xs flex-wrap gap-2">
         <span className="text-slate-500 flex items-center gap-1.5 flex-wrap">
           <span className="px-2 py-0.5 bg-slate-100 rounded font-bold text-[10px]">{videoSourceName(parsed.type)}</span>
           {m.video_duration_sec && <span>⏱ {Math.floor(m.video_duration_sec / 60)}:{String(m.video_duration_sec % 60).padStart(2, "0")}</span>}
-          {!supportsCheckpoint(parsed.type) && <span className="text-amber-600 text-[10px]">⚠ ไม่ track</span>}
+          {!tracks && <span className="text-amber-600 text-[10px] font-bold">⚠ ไม่ track</span>}
         </span>
         <div className="flex items-center gap-2">
-          {supportsCheckpoint(parsed.type) && (
+          {tracks && (
             <>
               <label className="text-[10px] text-slate-500">ต้องดู %:</label>
               <input type="number" min={0} max={100} defaultValue={m.required_watch_pct}
@@ -547,7 +564,7 @@ function VideoPreviewAdmin({ module: m, onRemove, onChangeWatchPct }: { module: 
                 className="w-12 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-xs text-right" />
             </>
           )}
-          <button onClick={onRemove} className="text-rose-500 hover:bg-rose-50 p-1 rounded"><X size={12} /></button>
+          <button onClick={onRemove} className="text-rose-500 hover:bg-rose-50 p-1 rounded" title="ลบวิดีโอ"><X size={12} /></button>
         </div>
       </div>
     </div>

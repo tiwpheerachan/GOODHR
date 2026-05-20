@@ -180,6 +180,10 @@ export default function TrainerManagePage() {
             title="คลังคำถาม" tag="Q-Bank"
             desc="คำถามรวม สุ่มมาใช้ในควิซ ป้องกันการลอก"
             gradient="from-amber-500 to-orange-600" />
+          <MenuCard href="/app/training/manage/reports" icon={<BarChart3 />}
+            title="รายงาน" tag="วิเคราะห์"
+            desc="สรุปผลรวม · อัตราจบหลักสูตร · คะแนนเฉลี่ย · ดูตามช่อง"
+            gradient="from-emerald-500 to-green-600" />
         </div>
       </div>
 

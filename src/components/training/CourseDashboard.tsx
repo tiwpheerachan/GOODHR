@@ -60,7 +60,14 @@ export default function CourseDashboard({ courseId, basePath, compact = false }:
   )
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 size={28} className="animate-spin text-sky-400" /></div>
-  if (!data) return <div className="text-center py-12 text-slate-400">โหลดไม่สำเร็จ</div>
+  if (!data || !data.overview || !data.course) {
+    return (
+      <div className="text-center py-12 px-4 bg-white border border-slate-200 rounded-2xl">
+        <p className="text-sm font-bold text-slate-500">โหลด Dashboard ไม่สำเร็จ</p>
+        {data?.error && <p className="text-xs text-rose-500 mt-1">{data.error}</p>}
+      </div>
+    )
+  }
 
   const { overview, modules, quizzes, feedback, course } = data
 

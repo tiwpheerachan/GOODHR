@@ -66,6 +66,7 @@ export async function POST(req: Request) {
         allowance_food:      promo.allowance_food      ?? 0,
         allowance_phone:     promo.allowance_phone     ?? 0,
         allowance_housing:   promo.allowance_housing   ?? 0,
+        allowance_vehicle:   promo.allowance_vehicle   ?? 0,
         ot_rate_normal:      promo.ot_rate_normal      ?? 1.5,
         ot_rate_holiday:     promo.ot_rate_holiday     ?? 3.0,
         tax_withholding_pct: promo.tax_withholding_pct ?? null,

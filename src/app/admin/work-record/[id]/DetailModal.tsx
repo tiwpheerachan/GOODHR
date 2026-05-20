@@ -178,7 +178,8 @@ export function AttendanceDetail({ employee, managers, row, onClose, onSaved }: 
   const att = row.attendance
   const sh = row.shift_assignment
   const shiftTpl = sh?.shift as any
-  const [editing, setEditing] = useState(false)
+  // ถ้ายังไม่มีบันทึก → เปิด edit mode ทันที (สำหรับสร้างใหม่ — รวมวันหยุดที่มีคนมาทำงาน)
+  const [editing, setEditing] = useState(!att?.id)
   const [clockIn, setClockIn] = useState(att?.clock_in ? fmtTime(att.clock_in) : "")
   const [clockOut, setClockOut] = useState(att?.clock_out ? fmtTime(att.clock_out) : "")
   const [saving, setSaving] = useState(false)
@@ -186,11 +187,13 @@ export function AttendanceDetail({ employee, managers, row, onClose, onSaved }: 
   const status = att?.status ? STATUS_BADGE[att.status] : undefined
 
   const save = async () => {
-    if (!att?.id) { toast.error("ยังไม่มีบันทึกในวันนี้"); return }
+    if (!clockIn && !clockOut) { toast.error("กรอกเวลาเข้าหรือเวลาออกอย่างน้อย 1 ช่อง"); return }
     setSaving(true)
     const t = toast.loading("กำลังบันทึก...")
     try {
-      const body: any = { record_id: att.id }
+      const body: any = att?.id
+        ? { record_id: att.id }
+        : { employee_id: employee.id, work_date: row.work_date }
       if (clockIn) body.clock_in = clockIn
       if (clockOut) body.clock_out = clockOut
       const res = await fetch("/api/attendance/admin-edit", {
@@ -198,7 +201,7 @@ export function AttendanceDetail({ employee, managers, row, onClose, onSaved }: 
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "บันทึกไม่สำเร็จ")
-      toast.success("บันทึกแล้ว — คำนวณเงินเดือนใหม่อัตโนมัติ", { id: t })
+      toast.success(att?.id ? "บันทึกแล้ว — คำนวณเงินเดือนใหม่อัตโนมัติ" : "เพิ่มบันทึกการเข้างานแล้ว", { id: t })
       onSaved()
       onClose()
     } catch (e: any) {
@@ -531,7 +534,8 @@ export function ShiftDetail({ employee, managers, row, shiftTemplates, defaultSh
           action: "assign", company_id: employee.company_id,
           assignments: [{
             employee_id: employee.id, work_date: row.work_date,
-            shift_id: dayType === "work" ? (shiftId || null) : null,
+            // ⭐ ส่ง shift_id ได้กับทุก day type (วันหยุดก็อาจมีกะถ้าต้องมาทำงาน)
+            shift_id: shiftId || null,
             assignment_type: dayType,
           }],
         }),
@@ -584,17 +588,18 @@ export function ShiftDetail({ employee, managers, row, shiftTemplates, defaultSh
           </div>
         </div>
 
-        {dayType === "work" && (
-          <div>
-            <p className="text-xs font-black text-slate-600 mb-2">เลือกกะ</p>
-            <select value={shiftId} onChange={e => setShiftId(e.target.value)} className={fld}>
-              <option value="">— ไม่กำหนดกะ —</option>
-              {shiftTemplates.map(s => (
-                <option key={s.id} value={s.id}>{s.name} ({s.work_start?.slice(0, 5)} – {s.work_end?.slice(0, 5)})</option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div>
+          <p className="text-xs font-black text-slate-600 mb-2">
+            เลือกกะ
+            {dayType !== "work" && <span className="ml-1.5 font-normal text-[10px] text-amber-600">(ถ้ามีคนมาทำงานวันหยุด — ใส่กะได้)</span>}
+          </p>
+          <select value={shiftId} onChange={e => setShiftId(e.target.value)} className={fld}>
+            <option value="">— ไม่กำหนดกะ —</option>
+            {shiftTemplates.map(s => (
+              <option key={s.id} value={s.id}>{s.name} ({s.work_start?.slice(0, 5)} – {s.work_end?.slice(0, 5)})</option>
+            ))}
+          </select>
+        </div>
 
         {att?.clock_in && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">

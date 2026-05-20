@@ -651,7 +651,7 @@ export default function EmployeeDetailPage() {
           <h3 className="font-bold text-slate-800 mb-4">โครงสร้างเงินเดือน</h3>
           {salary && <div className="bg-green-50 border border-green-100 rounded-xl p-3 mb-4 text-sm"><p className="text-green-800 font-semibold">เงินเดือนปัจจุบัน: ฿{salary.base_salary?.toLocaleString()}</p><p className="text-green-600 text-xs">มีผล {format(new Date(salary.effective_from),"d MMM yyyy",{locale:th})}</p></div>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[["base_salary","เงินเดือน (บาท)*"],["allowance_position","เบี้ยตำแหน่ง"],["allowance_transport","ค่าเดินทาง"],["allowance_food","ค่าอาหาร"],["allowance_phone","ค่าโทรศัพท์"],["allowance_housing","ค่าที่พัก"],["ot_rate_normal","อัตรา OT ปกติ (x)"],["ot_rate_holiday","อัตรา OT วันหยุด (x)"]].map(([k,l]) => (
+            {[["base_salary","เงินเดือน (บาท)*"],["allowance_position","เบี้ยตำแหน่ง"],["allowance_transport","ค่าเดินทาง"],["allowance_food","ค่าอาหาร"],["allowance_phone","ค่าโทรศัพท์"],["allowance_housing","ค่าที่พัก"],["allowance_vehicle","ค่าเสื่อมรถยนต์"],["ot_rate_normal","อัตรา OT ปกติ (x)"],["ot_rate_holiday","อัตรา OT วันหยุด (x)"]].map(([k,l]) => (
               <div key={k}><label className="block text-sm font-medium text-slate-700 mb-1.5">{l}</label><input type="number" step="0.01" value={sf[k]||""} onChange={e => setSf((f: any) => ({ ...f, [k]:e.target.value }))} className={inp}/></div>
             ))}
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">วันที่มีผล*</label><input type="date" value={sf.effective_from||""} onChange={e => setSf((f: any) => ({ ...f, effective_from:e.target.value }))} className={inp}/></div>
@@ -1178,6 +1178,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
               { l:"ค่าอาหาร",       v:salary.allowance_food,        show:(salary.allowance_food||0)>0 },
               { l:"ค่าโทรศัพท์",    v:salary.allowance_phone,       show:(salary.allowance_phone||0)>0 },
               { l:"ค่าที่พัก",       v:salary.allowance_housing,     show:(salary.allowance_housing||0)>0 },
+              { l:"ค่าเสื่อมรถยนต์", v:salary.allowance_vehicle,     show:(salary.allowance_vehicle||0)>0 },
             ].filter(i=>i.show).map(item => (
               <div key={item.l} className="px-4 py-3">
                 <p className="text-[10px] text-slate-400">{item.l}</p>
@@ -1530,6 +1531,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                   ["ค่าอาหาร", Number(r.allowance_food)||0],
                   ["ค่าโทรศัพท์", Number(r.allowance_phone)||0],
                   ["ค่าที่พัก", Number(r.allowance_housing)||0],
+                  ["ค่าเสื่อมรถยนต์", Number(r.allowance_vehicle)||0],
                   ["เบี้ยอื่นๆ", Number(r.allowance_other)||0],
                   [`OT วันทำงาน ×1.5 (${minToHr(r.ot_weekday_minutes)})`, ot15],
                   [`OT วันหยุด ×1.0 (${minToHr(r.ot_holiday_reg_minutes)})`, ot10],

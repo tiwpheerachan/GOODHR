@@ -142,25 +142,62 @@ export default function VideoSourcePicker({
               )}
             </div>
 
+            {/* Drive-specific guidance — show only when user pastes a Drive URL */}
+            {parsed?.type === "drive" && (
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 space-y-2 text-xs text-rose-900">
+                <p className="font-black flex items-center gap-1.5">
+                  <AlertTriangle size={13} className="text-rose-500" /> Google Drive มีข้อจำกัด — แนะนำให้ใช้ YouTube แทน
+                </p>
+                <ol className="ml-5 list-decimal space-y-1 text-rose-800">
+                  <li><b>❌ ไม่รองรับ Checkpoint Quiz</b> เด้งระหว่างวิดีโอ — Drive iframe คุยกับเราไม่ได้</li>
+                  <li><b>❌ ไม่นับ % การดู</b> — ผู้เรียนต้องดูจบเอง และระบบไม่รู้ว่าดูจริงหรือเปล่า</li>
+                  <li><b>⚠ ต้องตั้งเป็น "ทุกคนที่มีลิงก์" (Anyone with the link)</b> — ไม่งั้นจะขึ้น "โหลดวิดีโอไม่ได้"</li>
+                </ol>
+                <div className="bg-white/70 border border-rose-200 rounded-lg p-2 mt-1.5">
+                  <p className="font-bold text-rose-900 mb-1">🎯 วิธีแก้:</p>
+                  <p className="text-rose-800">เปิด Drive → คลิกขวาที่ไฟล์ → <b>"Share / แชร์"</b> → เปลี่ยนเป็น <b>"Anyone with the link"</b> → <b>Viewer</b> → คัดลอกลิงก์มาวางใหม่</p>
+                  <p className="text-rose-800 mt-1">หรือ <a href="https://studio.youtube.com" target="_blank" rel="noreferrer" className="font-black underline text-rose-700 inline-flex items-center gap-0.5">อัปโหลดเข้า YouTube <ExternalLink size={10}/></a> (ตั้งเป็น Unlisted) แล้วเอาลิงก์มาใส่ — รองรับครบทุกฟีเจอร์</p>
+                </div>
+              </div>
+            )}
+
             <button onClick={handleUrlSubmit} disabled={!urlInput.trim()}
               className="w-full py-2.5 bg-sky-600 text-white rounded-xl font-bold text-sm hover:bg-sky-700 disabled:opacity-50">
               ใช้ URL นี้
             </button>
 
+            {/* ── YouTube Unlisted recipe (highlighted recommendation) ── */}
+            <div className="bg-gradient-to-br from-emerald-50 to-sky-50 border-2 border-emerald-300 rounded-xl p-3.5 text-xs space-y-2">
+              <p className="font-black text-emerald-800 flex items-center gap-1.5">
+                ⭐ แนะนำ: ใช้ YouTube แบบ <span className="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-black">Unlisted</span>
+                <span className="text-[10px] font-normal text-emerald-700">(ไม่แสดงในรายการ)</span>
+              </p>
+              <p className="text-emerald-900 leading-relaxed">
+                คลิปจะไม่ขึ้นใน YouTube search / channel / recommendations เลย
+                <b> แต่ใครมีลิงก์ก็ดูได้ใน training</b> — และระบบเรานับ % การดูกับ Checkpoint Quiz ได้ครบ
+              </p>
+              <div className="bg-white border border-emerald-200 rounded-lg p-2 space-y-1">
+                <p className="font-black text-slate-700">🎯 วิธีทำ:</p>
+                <ol className="ml-5 list-decimal text-slate-700 space-y-0.5">
+                  <li>เปิด <a href="https://studio.youtube.com" target="_blank" rel="noreferrer" className="text-sky-600 font-bold inline-flex items-center gap-0.5">YouTube Studio<ExternalLink size={9}/></a></li>
+                  <li>อัปโหลดวิดีโอ (หรือเลือกคลิปที่มีอยู่)</li>
+                  <li>ไปที่ <b>Visibility / การมองเห็น</b> → เลือก <b>"Unlisted / ไม่แสดงในรายการ"</b></li>
+                  <li>กด Save → คัดลอกลิงก์ → วางในช่องด้านบน</li>
+                </ol>
+              </div>
+              <p className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 rounded p-1.5">
+                ❌ <b>อย่าใช้ Private</b> — Private จะเปิดดูใน iframe ไม่ได้ ขึ้น "Video unavailable" เพราะต้องล็อกอินด้วย Gmail ที่ถูกเชิญเท่านั้น (สูงสุด 50 คน)
+              </p>
+            </div>
+
             <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 space-y-2 text-xs text-sky-900">
-              <p className="font-bold flex items-center gap-1.5"><Info size={12} /> รองรับลิงก์จาก:</p>
+              <p className="font-bold flex items-center gap-1.5"><Info size={12} /> รองรับลิงก์อื่นๆ:</p>
               <ul className="space-y-1 ml-5 list-disc text-sky-800">
-                <li><b>YouTube</b> — youtube.com/watch?v=... หรือ youtu.be/...</li>
-                <li><b>Vimeo</b> — vimeo.com/...</li>
-                <li><b>Google Drive</b> — drive.google.com/file/d/... (ตั้งเป็น "ทุกคนที่มีลิงก์")</li>
+                <li><b>YouTube</b> — youtube.com/watch?v=... หรือ youtu.be/... (Public หรือ Unlisted)</li>
+                <li><b>Google Drive</b> — drive.google.com/file/d/... (ตั้ง "Anyone with the link" / ❌ ไม่นับ %)</li>
+                <li><b>Vimeo</b> — vimeo.com/... (❌ ไม่นับ %)</li>
                 <li><b>MP4 ตรง</b> — ลิงก์ที่ลงท้ายด้วย .mp4, .webm, .mov</li>
               </ul>
-              <p className="font-bold mt-2 pt-2 border-t border-sky-200">💡 วิธีอัปโหลดวิดีโอใหญ่ไป YouTube/Drive แล้วเอาลิงก์มาใช้:</p>
-              <ol className="space-y-1 ml-5 list-decimal text-sky-800">
-                <li>อัปโหลดวิดีโอเข้า YouTube (ตั้งเป็น "ไม่แสดงในรายการ") หรือ Google Drive</li>
-                <li>กดแชร์ → คัดลอกลิงก์</li>
-                <li>วางในช่องด้านบน → กด "ใช้ URL นี้"</li>
-              </ol>
             </div>
           </div>
         )}

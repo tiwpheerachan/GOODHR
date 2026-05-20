@@ -113,6 +113,7 @@ export async function POST(req: Request) {
             allowance_food:      +(row.allowance_food      || 0),
             allowance_phone:     +(row.allowance_phone     || 0),
             allowance_housing:   +(row.allowance_housing   || 0),
+            allowance_vehicle:   +(row.allowance_vehicle   || 0),
             ot_rate_normal:  1.5,
             ot_rate_holiday: 3.0,
             effective_from: row.hire_date,

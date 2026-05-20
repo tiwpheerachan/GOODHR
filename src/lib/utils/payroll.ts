@@ -54,7 +54,8 @@ export function recomputePayroll(record: any) {
 
   const allowances = N(record?.allowance_position) + N(record?.allowance_transport)
     + N(record?.allowance_food) + N(record?.allowance_phone)
-    + N(record?.allowance_housing) + N(record?.allowance_other)
+    + N(record?.allowance_housing) + N(record?.allowance_vehicle)
+    + N(record?.allowance_other)
 
   const gross = effBase + effBonus + allowances
     + N(record?.ot_amount) + N(record?.commission) + N(record?.other_income) + ieTotal

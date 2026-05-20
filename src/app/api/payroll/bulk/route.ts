@@ -204,7 +204,7 @@ export async function POST(req: Request) {
 
   const { data: salData } = await supa
     .from("salary_structures")
-    .select("employee_id, base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, effective_from")
+    .select("employee_id, base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, effective_from")
     .in("employee_id", employee_ids)
     .is("effective_to", null)
     .order("effective_from", { ascending: false })
@@ -251,14 +251,14 @@ export async function POST(req: Request) {
   // ดึงแยก 2 query: (1) year+month เพื่อรองรับกรณี period_id เปลี่ยน (2) period_id ปกติ
   let existPRData: any[] = []
   const { data: d1 } = await supa.from("payroll_records")
-    .select("employee_id, is_manual_override, bonus, kpi_grade, kpi_standard_amount, commission, other_income, deduct_other, deduct_absent, deduct_late, deduct_early_out, social_security_amount, monthly_tax_withheld, gross_income, total_deductions, net_salary, taxable_income, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_other, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, income_extras, deduction_extras")
+    .select("employee_id, is_manual_override, bonus, kpi_grade, kpi_standard_amount, commission, other_income, deduct_other, deduct_absent, deduct_late, deduct_early_out, social_security_amount, monthly_tax_withheld, gross_income, total_deductions, net_salary, taxable_income, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, allowance_other, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, income_extras, deduction_extras")
     .eq("payroll_period_id", payroll_period_id)
     .in("employee_id", employee_ids)
   existPRData = d1 ?? []
   // Fallback: ถ้าไม่เจอ ลองดึงจาก year+month
   if (existPRData.length === 0) {
     const { data: d2 } = await supa.from("payroll_records")
-      .select("employee_id, is_manual_override, bonus, kpi_grade, kpi_standard_amount, commission, other_income, deduct_other, deduct_absent, deduct_late, deduct_early_out, social_security_amount, monthly_tax_withheld, gross_income, total_deductions, net_salary, taxable_income, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_other, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, income_extras, deduction_extras")
+      .select("employee_id, is_manual_override, bonus, kpi_grade, kpi_standard_amount, commission, other_income, deduct_other, deduct_absent, deduct_late, deduct_early_out, social_security_amount, monthly_tax_withheld, gross_income, total_deductions, net_salary, taxable_income, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, allowance_other, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, income_extras, deduction_extras")
       .eq("year", period.year).eq("month", period.month)
       .in("employee_id", employee_ids)
     existPRData = d2 ?? []
@@ -343,7 +343,7 @@ export async function POST(req: Request) {
 
           const sal = salByEmp.get(eid) ?? {
             base_salary: 0, allowance_position: 0, allowance_transport: 0,
-            allowance_food: 0, allowance_phone: 0, allowance_housing: 0,
+            allowance_food: 0, allowance_phone: 0, allowance_housing: 0, allowance_vehicle: 0,
             tax_withholding_pct: null,
           }
 
@@ -446,7 +446,8 @@ export async function POST(req: Request) {
 
           const baseSalary = Number(sal.base_salary) || 0
           const allAllowances = (Number(sal.allowance_position) || 0) + (Number(sal.allowance_food) || 0) +
-            (Number(sal.allowance_phone) || 0) + (Number(sal.allowance_housing) || 0)
+            (Number(sal.allowance_phone) || 0) + (Number(sal.allowance_housing) || 0) +
+            (Number(sal.allowance_vehicle) || 0)
           const loanDeduction = loanByEmp.get(eid) || 0
           const taxPct = sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
 
@@ -506,8 +507,9 @@ export async function POST(req: Request) {
           const fAllowFood  = mIsManual ? Number(existPR?.allowance_food)      : Number(sal.allowance_food)      || 0
           const fAllowPhone = mIsManual ? Number(existPR?.allowance_phone)     : Number(sal.allowance_phone)     || 0
           const fAllowHouse = mIsManual ? Number(existPR?.allowance_housing)   : Number(sal.allowance_housing)   || 0
+          const fAllowVeh   = mIsManual ? Number(existPR?.allowance_vehicle)   : Number(sal.allowance_vehicle)   || 0
           const fAllowOther = mIsManual ? Number(existPR?.allowance_other)     : 0
-          const finalGross = baseSalary + fAllowPos + fAllowTrans + fAllowFood + fAllowPhone + fAllowHouse + fAllowOther
+          const finalGross = baseSalary + fAllowPos + fAllowTrans + fAllowFood + fAllowPhone + fAllowHouse + fAllowVeh + fAllowOther
             + finalOtAmount + Number(mBonus) + mCommission + mOtherIncome + incExtrasTotal
           // ✅ Tax: ถ้า HR กรอกมือ → ใช้ค่า HR, ไม่งั้นคำนวณจาก gross
           const finalTax = (mIsManual && existPR?.monthly_tax_withheld != null)
@@ -528,6 +530,7 @@ export async function POST(req: Request) {
             allowance_food: mIsManual ? Number(existPR?.allowance_food) : Number(sal.allowance_food) || 0,
             allowance_phone: mIsManual ? Number(existPR?.allowance_phone) : Number(sal.allowance_phone) || 0,
             allowance_housing: mIsManual ? Number(existPR?.allowance_housing) : Number(sal.allowance_housing) || 0,
+            allowance_vehicle: mIsManual ? Number(existPR?.allowance_vehicle) : Number(sal.allowance_vehicle) || 0,
             allowance_other: mIsManual ? Number(existPR?.allowance_other) : 0,
             // OT: ถ้า HR เคยกรอกทับ → ใช้ทุกค่าจาก HR (amount + minutes)
             ot_amount: finalOtAmount,

@@ -64,7 +64,7 @@ export interface LeaveRequest {
 export interface SalaryStructure {
   id: string; employee_id: string; base_salary: number
   allowance_position: number; allowance_transport: number; allowance_food: number
-  allowance_phone: number; allowance_housing: number
+  allowance_phone: number; allowance_housing: number; allowance_vehicle?: number
   ot_rate_normal: number; ot_rate_holiday: number
   tax_withholding_pct?: number | null  // NULL = auto (ขั้นบันได), 0-35 = fixed %
   is_sso_exempt?: boolean              // true = ไม่หักประกันสังคม

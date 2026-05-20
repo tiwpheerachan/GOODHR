@@ -430,41 +430,45 @@ export default function WorkRecordDetailPage() {
                           </button>
                         </td>
 
-                        {/* Shift — คลิกเปิด modal */}
+                        {/* Shift — คลิกเปิด modal (รองรับวันหยุดที่ต้องมาทำงานด้วย) */}
                         <td className="px-3 py-2.5">
-                          {assignType !== "work" ? (
-                            <button onClick={openModal({ kind: "shift", row })}
-                              className="text-xs text-slate-400 hover:text-teal-600">—</button>
-                          ) : (
-                            <button onClick={openModal({ kind: "shift", row })}
-                              className="group flex items-center gap-1.5 text-xs hover:text-teal-600"
-                              title={isFallback ? "ยังไม่ได้กำหนดกะวันนี้ — แสดงกะมาตรฐานของพนักงาน คลิกเพื่อเปลี่ยน" : "คลิกเพื่อเปลี่ยนกะ"}>
-                              {shiftTpl?.work_start ? (
-                                <span className={`font-semibold ${isFallback ? "text-slate-500" : "text-slate-700"}`}>
-                                  {shiftTpl.name} <span className="text-slate-400 font-mono">{shiftTpl.work_start.slice(0,5)}–{shiftTpl.work_end?.slice(0,5)}</span>
-                                  {isFallback && <span className="ml-1 text-[9px] text-amber-600 font-normal">(กะมาตรฐาน)</span>}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 italic">เลือกกะ</span>
-                              )}
-                              <Pencil size={11} className="text-teal-400" />
-                            </button>
-                          )}
+                          <button onClick={openModal({ kind: "shift", row })}
+                            className="group flex items-center gap-1.5 text-xs hover:text-teal-600"
+                            title={
+                              assignType !== "work"
+                                ? "วันหยุด — คลิกเพื่อใส่กะถ้ามีคนมาทำงาน"
+                                : isFallback
+                                  ? "ยังไม่ได้กำหนดกะวันนี้ — แสดงกะมาตรฐาน คลิกเพื่อเปลี่ยน"
+                                  : "คลิกเพื่อเปลี่ยนกะ"
+                            }>
+                            {shiftTpl?.work_start ? (
+                              <span className={`font-semibold ${isFallback ? "text-slate-500" : assignType === "holiday" ? "text-rose-700" : assignType === "dayoff" ? "text-slate-600" : "text-slate-700"}`}>
+                                {shiftTpl.name} <span className="text-slate-400 font-mono">{shiftTpl.work_start.slice(0,5)}–{shiftTpl.work_end?.slice(0,5)}</span>
+                                {isFallback && <span className="ml-1 text-[9px] text-amber-600 font-normal">(กะมาตรฐาน)</span>}
+                                {assignType !== "work" && <span className="ml-1 text-[9px] text-rose-500 font-bold">ทำงานวันหยุด</span>}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic">{assignType === "work" ? "เลือกกะ" : "— ใส่กะถ้ามาทำงาน"}</span>
+                            )}
+                            <Pencil size={11} className="text-teal-400" />
+                          </button>
                         </td>
 
-                        {/* Clock in/out — คลิกเปิด modal */}
+                        {/* Clock in/out — กดเปิด modal ได้ทุกวัน (รองรับสร้างใหม่ + แก้ไข) */}
                         <td className="px-3 py-2.5">
                           <button onClick={openModal({ kind: "attendance", row })}
-                            disabled={!att?.id}
-                            className="group flex items-center gap-1.5 text-xs disabled:cursor-not-allowed">
+                            className="group flex items-center gap-1.5 text-xs"
+                            title={att?.id ? "คลิกเพื่อแก้เวลา" : "คลิกเพื่อเพิ่มเวลาเข้า/ออก"}>
                             {att?.clock_in || att?.clock_out ? (
                               <span className="font-mono font-bold text-slate-700">
                                 (IN) {fmtTime(att?.clock_in) || "--:--"} <span className="text-slate-300">{'>'}</span> (OUT) {fmtTime(att?.clock_out) || "--:--"}
                               </span>
+                            ) : assignType !== "work" ? (
+                              <span className="text-slate-400 italic">+ เพิ่มเวลาทำงาน</span>
                             ) : (
                               <span className="text-slate-300">—</span>
                             )}
-                            {att?.id && <Pencil size={11} className="text-teal-400" />}
+                            <Pencil size={11} className="text-teal-400 opacity-70" />
                           </button>
                         </td>
 

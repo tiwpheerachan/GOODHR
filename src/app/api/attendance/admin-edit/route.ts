@@ -22,12 +22,38 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { record_id, clock_in, clock_out } = body
 
-  if (!record_id) return NextResponse.json({ error: "record_id จำเป็น" }, { status: 400 })
-
-  // ดึง record + shift
-  // ดึง record แบบไม่ใช้ FK join (ป้องกัน FK name ไม่ตรง)
-  const { data: rec } = await svc.from("attendance_records")
-    .select("*").eq("id", record_id).single()
+  // ── หา record (existing) หรือเตรียมสร้างใหม่ ──
+  // รองรับ 2 รูปแบบ: (1) ส่ง record_id (edit) (2) ส่ง employee_id + work_date (create / edit-or-create)
+  let rec: any
+  if (record_id) {
+    const { data } = await svc.from("attendance_records").select("*").eq("id", record_id).single()
+    rec = data
+  } else if (body.employee_id && body.work_date) {
+    // เผื่อมี record อยู่แล้ว → ใช้ตัวนั้น (idempotent)
+    const { data } = await svc.from("attendance_records").select("*")
+      .eq("employee_id", body.employee_id).eq("work_date", body.work_date).maybeSingle()
+    if (data) rec = data
+    else {
+      // หา company_id จาก employee
+      const { data: emp } = await svc.from("employees").select("company_id").eq("id", body.employee_id).single()
+      if (!emp) return NextResponse.json({ error: "ไม่พบพนักงาน" }, { status: 404 })
+      // หา shift_template_id จาก monthly_shift_assignments (ถ้ามี)
+      const { data: assign } = await svc.from("monthly_shift_assignments")
+        .select("shift_id").eq("employee_id", body.employee_id).eq("work_date", body.work_date).maybeSingle()
+      const { data: created, error: insErr } = await svc.from("attendance_records").insert({
+        employee_id: body.employee_id,
+        company_id: emp.company_id,
+        work_date: body.work_date,
+        shift_template_id: assign?.shift_id ?? null,
+        status: "present",
+        is_manual: true,
+      }).select("*").single()
+      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
+      rec = created
+    }
+  } else {
+    return NextResponse.json({ error: "ต้องส่ง record_id หรือ employee_id + work_date" }, { status: 400 })
+  }
   if (!rec) return NextResponse.json({ error: "ไม่พบ record" }, { status: 404 })
 
   // ดึง shift + employee แยก

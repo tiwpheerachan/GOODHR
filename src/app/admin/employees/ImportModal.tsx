@@ -37,6 +37,7 @@ const COLUMNS = [
   { key: "allowance_food",     label: "ค่าอาหาร",              required: false, example: "0" },
   { key: "allowance_phone",    label: "ค่าโทรศัพท์",            required: false, example: "0" },
   { key: "allowance_housing",  label: "ค่าที่พัก",              required: false, example: "0" },
+  { key: "allowance_vehicle",  label: "ค่าเสื่อมรถยนต์",         required: false, example: "0" },
   { key: "password",           label: "รหัสผ่าน",              required: false, example: "",          note: "เว้นว่าง = สร้างให้อัตโนมัติ" },
 ]
 

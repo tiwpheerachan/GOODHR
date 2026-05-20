@@ -57,6 +57,7 @@ const COLS: ColDef[] = [
   { key:"allowance_food",    label:"ค่าอาหาร",          required:false, type:"number",      width:90  },
   { key:"allowance_phone",   label:"ค่าโทรศัพท์",       required:false, type:"number",      width:100 },
   { key:"allowance_housing", label:"ค่าที่พัก",         required:false, type:"number",      width:100 },
+  { key:"allowance_vehicle", label:"ค่าเสื่อมรถยนต์",   required:false, type:"number",      width:120 },
   { key:"address",           label:"ที่อยู่",           required:false, type:"text",        width:200 },
 ]
 

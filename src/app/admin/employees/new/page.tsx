@@ -91,12 +91,12 @@ export default function NewEmployeePage() {
     department_id: "", position_id: "", branch_id: "", supervisor_id: "",
     // salary (ช่วงทดลองงาน)
     base_salary: "", allowance_position: "0", allowance_transport: "0",
-    allowance_food: "0", allowance_phone: "0", allowance_housing: "0",
+    allowance_food: "0", allowance_phone: "0", allowance_housing: "0", allowance_vehicle: "0",
     ot_rate_normal: "1.5", ot_rate_holiday: "3.0", tax_withholding_pct: "",
     kpi_standard_amount: "0",
     // post-probation promotion
     post_base_salary: "", post_allowance_position: "", post_allowance_transport: "",
-    post_allowance_food: "", post_allowance_phone: "", post_allowance_housing: "",
+    post_allowance_food: "", post_allowance_phone: "", post_allowance_housing: "", post_allowance_vehicle: "",
     post_ot_rate_normal: "", post_ot_rate_holiday: "", post_tax_withholding_pct: "",
     post_position_id: "", post_kpi_amount: "",
     // schedule
@@ -274,7 +274,7 @@ export default function NewEmployeePage() {
           // ส่ง post-probation เฉพาะเมื่อ toggle เปิด
           ...(hasPostPromo ? {} : {
             post_base_salary: "", post_allowance_position: "", post_allowance_transport: "",
-            post_allowance_food: "", post_allowance_phone: "", post_allowance_housing: "",
+            post_allowance_food: "", post_allowance_phone: "", post_allowance_housing: "", post_allowance_vehicle: "",
             post_ot_rate_normal: "", post_ot_rate_holiday: "", post_tax_withholding_pct: "",
             post_position_id: "", post_kpi_amount: "",
           }),
@@ -900,6 +900,7 @@ export default function NewEmployeePage() {
                 <Field label="ค่าอาหาร"><Input type="number" value={f.allowance_food} onChange={(e:any) => set("allowance_food", e.target.value)} placeholder="0" /></Field>
                 <Field label="ค่าโทรศัพท์"><Input type="number" value={f.allowance_phone} onChange={(e:any) => set("allowance_phone", e.target.value)} placeholder="0" /></Field>
                 <Field label="ค่าที่พัก"><Input type="number" value={f.allowance_housing} onChange={(e:any) => set("allowance_housing", e.target.value)} placeholder="0" /></Field>
+                <Field label="ค่าเสื่อมรถยนต์"><Input type="number" value={f.allowance_vehicle} onChange={(e:any) => set("allowance_vehicle", e.target.value)} placeholder="0" /></Field>
                 <Field label="อัตรา OT ปกติ (x)" hint="เช่น 1.5 เท่า"><Input type="number" step="0.5" value={f.ot_rate_normal} onChange={(e:any) => set("ot_rate_normal", e.target.value)} placeholder="1.5" /></Field>
                 <Field label="อัตรา OT วันหยุด (x)" hint="เช่น 3 เท่า"><Input type="number" step="0.5" value={f.ot_rate_holiday} onChange={(e:any) => set("ot_rate_holiday", e.target.value)} placeholder="3.0" /></Field>
               </div>
@@ -941,8 +942,8 @@ export default function NewEmployeePage() {
             {/* ── สรุปเงินเดือนทดลองงาน ── */}
             <div className="bg-slate-50 rounded-xl p-4 space-y-2">
               <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเดือนฐาน</span><span className="font-bold text-slate-800">฿{(+f.base_salary||0).toLocaleString()}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-slate-500">รวมเบี้ยเลี้ยง</span><span className="font-bold text-slate-800">฿{((+f.allowance_position||0)+(+f.allowance_transport||0)+(+f.allowance_food||0)+(+f.allowance_phone||0)+(+f.allowance_housing||0)).toLocaleString()}</span></div>
-              <div className="border-t border-slate-200 pt-2 flex justify-between text-sm"><span className="text-slate-700 font-semibold">รวมทั้งหมด</span><span className="font-black text-indigo-700 text-base">฿{((+f.base_salary||0)+(+f.allowance_position||0)+(+f.allowance_transport||0)+(+f.allowance_food||0)+(+f.allowance_phone||0)+(+f.allowance_housing||0)).toLocaleString()}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-slate-500">รวมเบี้ยเลี้ยง</span><span className="font-bold text-slate-800">฿{((+f.allowance_position||0)+(+f.allowance_transport||0)+(+f.allowance_food||0)+(+f.allowance_phone||0)+(+f.allowance_housing||0)+(+f.allowance_vehicle||0)).toLocaleString()}</span></div>
+              <div className="border-t border-slate-200 pt-2 flex justify-between text-sm"><span className="text-slate-700 font-semibold">รวมทั้งหมด</span><span className="font-black text-indigo-700 text-base">฿{((+f.base_salary||0)+(+f.allowance_position||0)+(+f.allowance_transport||0)+(+f.allowance_food||0)+(+f.allowance_phone||0)+(+f.allowance_housing||0)+(+f.allowance_vehicle||0)).toLocaleString()}</span></div>
               {+f.kpi_standard_amount > 0 && (
                 <div className="flex justify-between text-sm"><span className="text-emerald-600">ฐาน KPI (เกรด B)</span><span className="font-bold text-emerald-700">฿{(+f.kpi_standard_amount).toLocaleString()}</span></div>
               )}
@@ -981,6 +982,7 @@ export default function NewEmployeePage() {
                       <Field label="ค่าอาหาร"><Input type="number" value={f.post_allowance_food} onChange={(e:any) => set("post_allowance_food", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
                       <Field label="ค่าโทรศัพท์"><Input type="number" value={f.post_allowance_phone} onChange={(e:any) => set("post_allowance_phone", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
                       <Field label="ค่าที่พัก"><Input type="number" value={f.post_allowance_housing} onChange={(e:any) => set("post_allowance_housing", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
+                      <Field label="ค่าเสื่อมรถยนต์"><Input type="number" value={f.post_allowance_vehicle} onChange={(e:any) => set("post_allowance_vehicle", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
                       <Field label="OT ปกติ (x)"><Input type="number" step="0.5" value={f.post_ot_rate_normal} onChange={(e:any) => set("post_ot_rate_normal", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
                       <Field label="OT วันหยุด (x)"><Input type="number" step="0.5" value={f.post_ot_rate_holiday} onChange={(e:any) => set("post_ot_rate_holiday", e.target.value)} placeholder="ไม่เปลี่ยน" /></Field>
                     </div>

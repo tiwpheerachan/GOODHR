@@ -759,6 +759,7 @@ function exportXLSX(records: any[], period: any) {
     ["ค่าอาหาร",                   grand(r=>n(r.allowance_food))],
     ["ค่าโทรศัพท์",                grand(r=>n(r.allowance_phone))],
     ["ค่าที่พัก",                  grand(r=>n(r.allowance_housing))],
+    ["ค่าเสื่อมรถยนต์",             grand(r=>n(r.allowance_vehicle))],
     ["เบี้ยเลี้ยงอื่นๆ",            grand(r=>n(r.allowance_other))],
     ["Bonus / KPI",               grand(r=>recomputePayroll(r).effBonus+n(ie2(r).kpi||0))],
     ["Incentive",                 grand(r=>n(ie2(r).incentive||0))],
@@ -901,6 +902,7 @@ function EditModal({
     allowance_food:        s(record.allowance_food),
     allowance_phone:       s(record.allowance_phone),
     allowance_housing:     s(record.allowance_housing),
+    allowance_vehicle:     s(record.allowance_vehicle),
     allowance_other:       s(record.allowance_other),
     ot_amount:             s(record.ot_amount),
     ot_weekday_minutes:    s(record.ot_weekday_minutes),
@@ -1065,7 +1067,7 @@ function EditModal({
     // Standard fields payload
     const stdFields = [
       "base_salary","allowance_position","allowance_transport","allowance_food",
-      "allowance_phone","allowance_housing","allowance_other","ot_amount",
+      "allowance_phone","allowance_housing","allowance_vehicle","allowance_other","ot_amount",
       "ot_weekday_minutes","ot_holiday_reg_minutes","ot_holiday_ot_minutes",
       "bonus","commission","other_income",
       "deduct_absent","deduct_late","deduct_early_out","deduct_loan","deduct_other",
@@ -1297,6 +1299,7 @@ function EditModal({
                 {numRow("ค่าอาหาร", "allowance_food", true)}
                 {numRow("ค่าโทรศัพท์", "allowance_phone", true)}
                 {numRow("ค่าที่พัก", "allowance_housing", true)}
+                {numRow("ค่าเสื่อมรถยนต์", "allowance_vehicle", true)}
                 {numRow("รายได้อื่นๆ", "other_income", true)}
               </div>
 
@@ -1548,6 +1551,7 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
             {record.allowance_food      > 0 && <Row l="ค่าอาหาร"         v={record.allowance_food}/>}
             {record.allowance_phone     > 0 && <Row l="ค่าโทรศัพท์"      v={record.allowance_phone}/>}
             {record.allowance_housing   > 0 && <Row l="ค่าที่พัก"         v={record.allowance_housing}/>}
+            {record.allowance_vehicle   > 0 && <Row l="ค่าเสื่อมรถยนต์"   v={record.allowance_vehicle}/>}
             {record.allowance_other     > 0 && <Row l="รายรับอื่น"        v={record.allowance_other}/>}
             {record.ot_amount > 0 && (
               <div className="px-4 py-2 border-b border-slate-50">
