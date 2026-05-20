@@ -6,6 +6,7 @@ import {
   Target, Search, ChevronDown, ChevronUp, Loader2, BarChart3,
   Award, MessageSquare, Eye, TrendingUp, Users, Building2, Filter,
   CheckCircle2, XCircle, Clock, AlertCircle, Pencil, Paperclip, FileText, ExternalLink,
+  Download,
 } from "lucide-react"
 import toast from "react-hot-toast"
 import Link from "next/link"
@@ -197,6 +198,130 @@ export default function AdminKpiPage() {
 
   const activeFilters = [gradeFilter, deptFilter, evaluatorFilter, statusFilter, search].filter(Boolean).length
 
+  // ── Export to xlsx ─────────────────────────────────────────────────
+  const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState(0)
+
+  const exportXlsx = async () => {
+    if (filtered.length === 0) { toast.error("ไม่มีข้อมูลให้ export"); return }
+    setExporting(true); setExportProgress(0)
+    const t = toast.loading(`กำลังโหลดรายละเอียด 0/${filtered.length}...`)
+    try {
+      // ── โหลด detail ของทุกฟอร์ม (ทีละ 5 พร้อมกัน) เพื่อได้ items ──
+      const details: any[] = []
+      const BATCH = 5
+      for (let i = 0; i < filtered.length; i += BATCH) {
+        const slice = filtered.slice(i, i + BATCH)
+        const got = await Promise.all(slice.map(async (f: any) => {
+          try {
+            const r = await fetch(`/api/kpi?mode=single&form_id=${f.id}`)
+            const d = await r.json()
+            return d.form
+          } catch { return f }
+        }))
+        details.push(...got)
+        setExportProgress(details.length)
+        toast.loading(`กำลังโหลดรายละเอียด ${details.length}/${filtered.length}...`, { id: t })
+      }
+
+      const XLSX = await import("xlsx")
+      const period = `${MONTHS[month ?? 1] || "ทั้งปี"} ${(year + 543)}`
+
+      // ── Sheet 1: สรุปรายคน ──────────────────────────────────────
+      const summary = details.map((f: any, idx: number) => ({
+        "ลำดับ": idx + 1,
+        "รหัสพนักงาน": f.employee?.employee_code ?? "",
+        "ชื่อ-นามสกุล": `${f.employee?.first_name_th ?? ""} ${f.employee?.last_name_th ?? ""}`.trim(),
+        "ชื่อเล่น": f.employee?.nickname ?? "",
+        "แผนก": f.employee?.department?.name ?? "",
+        "ตำแหน่ง": f.employee?.position?.name ?? "",
+        "บริษัท": f.employee?.company?.name_th ?? "",
+        "ผู้ประเมิน": f.evaluator ? `${f.evaluator.first_name_th} ${f.evaluator.last_name_th}` : "",
+        "คะแนนรวม": Number(f.total_score ?? 0).toFixed(2),
+        "เกรด": f.grade ?? "",
+        "สถานะ": f.status === "draft" ? "ฉบับร่าง"
+          : f.status === "submitted" ? "รออนุมัติ"
+          : f.status === "approved" ? "อนุมัติแล้ว"
+          : f.status === "acknowledged" ? "รับทราบแล้ว"
+          : f.status === "rejected" ? "ถูกปฏิเสธ" : f.status,
+        "ประเภทการประเมิน": f.evaluation_type === "money_only" ? "เงินรางวัลล้วน"
+          : f.evaluation_type === "grade_incentive" ? "เกรด + เงินรางวัล" : "เกรดเท่านั้น",
+        "เงินรางวัล (บาท)": Number(f.incentive_amount ?? 0).toLocaleString(),
+        "โบนัส (บาท)": Number(f.bonus_amount ?? 0).toLocaleString(),
+        "วันที่ส่ง": f.submitted_at ? format(new Date(f.submitted_at), "dd/MM/yyyy HH:mm") : "",
+        "วันที่อนุมัติ": f.approved_at ? format(new Date(f.approved_at), "dd/MM/yyyy HH:mm") : "",
+        "หมายเหตุ": f.review_note ?? "",
+      }))
+      const ws1 = XLSX.utils.json_to_sheet(summary)
+      ws1["!cols"] = [
+        { wch: 6 }, { wch: 14 }, { wch: 24 }, { wch: 12 }, { wch: 18 }, { wch: 22 },
+        { wch: 22 }, { wch: 22 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 20 },
+        { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 30 },
+      ]
+
+      // ── Sheet 2: รายละเอียดรายข้อ ────────────────────────────────
+      const itemRows: any[] = []
+      for (const f of details) {
+        const items: any[] = f.kpi_items ?? f.items ?? []
+        for (const item of items) {
+          itemRows.push({
+            "รหัสพนักงาน": f.employee?.employee_code ?? "",
+            "ชื่อ-นามสกุล": `${f.employee?.first_name_th ?? ""} ${f.employee?.last_name_th ?? ""}`.trim(),
+            "แผนก": f.employee?.department?.name ?? "",
+            "หัวข้อ #": item.order_no,
+            "หมวด": item.category,
+            "รายละเอียด": item.description ?? "",
+            "บังคับ": item.is_mandatory ? "✓" : "",
+            "น้ำหนัก (%)": Number(item.weight_pct ?? 0),
+            "คะแนนจริง (0-100)": Number(item.actual_score ?? 0),
+            "คะแนนถ่วงน้ำหนัก": Number(item.weighted_score ?? 0).toFixed(2),
+            "ความเห็นผู้ประเมิน": item.comment ?? "",
+          })
+        }
+      }
+      const ws2 = XLSX.utils.json_to_sheet(itemRows)
+      ws2["!cols"] = [
+        { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 8 }, { wch: 22 }, { wch: 36 },
+        { wch: 8 }, { wch: 11 }, { wch: 14 }, { wch: 14 }, { wch: 36 },
+      ]
+
+      // ── Sheet 3: สถิติรวม (เกรด + แผนก) ─────────────────────────
+      const statRows: any[] = []
+      statRows.push({ "หัวข้อ": "ช่วงเวลา", "ค่า": period })
+      statRows.push({ "หัวข้อ": "จำนวนพนักงานทั้งหมด", "ค่า": filtered.length })
+      statRows.push({ "หัวข้อ": "คะแนนเฉลี่ย", "ค่า": Number(avgScore.toFixed(2)) })
+      statRows.push({ "หัวข้อ": "", "ค่า": "" })
+      statRows.push({ "หัวข้อ": "── นับตามเกรด ──", "ค่า": "" })
+      for (const g of ["A", "B", "C", "D"] as const) statRows.push({ "หัวข้อ": `เกรด ${g}`, "ค่า": gradeCount[g] })
+      statRows.push({ "หัวข้อ": "", "ค่า": "" })
+      statRows.push({ "หัวข้อ": "── นับตามสถานะ ──", "ค่า": "" })
+      statRows.push({ "หัวข้อ": "อนุมัติแล้ว", "ค่า": approvedCount })
+      statRows.push({ "หัวข้อ": "รออนุมัติ", "ค่า": pendingCount })
+      statRows.push({ "หัวข้อ": "ฉบับร่าง", "ค่า": draftCount })
+      statRows.push({ "หัวข้อ": "ถูกปฏิเสธ", "ค่า": rejectedCount })
+      statRows.push({ "หัวข้อ": "", "ค่า": "" })
+      statRows.push({ "หัวข้อ": "── คะแนนเฉลี่ยตามแผนก ──", "ค่า": "" })
+      for (const d of deptAvgList) {
+        statRows.push({ "หัวข้อ": `${d.name} (${d.count} คน)`, "ค่า": Number(d.avg.toFixed(2)) })
+      }
+      const ws3 = XLSX.utils.json_to_sheet(statRows)
+      ws3["!cols"] = [{ wch: 36 }, { wch: 18 }]
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws1, "สรุปรายคน")
+      XLSX.utils.book_append_sheet(wb, ws2, "รายละเอียดรายข้อ")
+      XLSX.utils.book_append_sheet(wb, ws3, "สถิติรวม")
+
+      const fname = `kpi_${year}${month ? `_${String(month).padStart(2, "0")}` : ""}_${format(new Date(), "yyyyMMdd_HHmm")}.xlsx`
+      XLSX.writeFile(wb, fname)
+      toast.success(`Export สำเร็จ ${summary.length} คน (${itemRows.length} หัวข้อ)`, { id: t })
+    } catch (e: any) {
+      toast.error(e.message || "Export ไม่สำเร็จ", { id: t })
+    } finally {
+      setExporting(false); setExportProgress(0)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -208,12 +333,20 @@ export default function AdminKpiPage() {
           </div>
           <p className="text-sm text-slate-400">ดูและวิเคราะห์ผลประเมินพนักงานทุกคน</p>
         </div>
-        {activeFilters > 0 && (
-          <button onClick={() => { setSearch(""); setGradeFilter(""); setDeptFilter(""); setEvaluatorFilter(""); setStatusFilter("") }}
-            className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl hover:bg-indigo-100 transition-colors">
-            ล้างตัวกรอง ({activeFilters})
+        <div className="flex items-center gap-2 flex-wrap">
+          {activeFilters > 0 && (
+            <button onClick={() => { setSearch(""); setGradeFilter(""); setDeptFilter(""); setEvaluatorFilter(""); setStatusFilter("") }}
+              className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl hover:bg-indigo-100 transition-colors">
+              ล้างตัวกรอง ({activeFilters})
+            </button>
+          )}
+          <button onClick={exportXlsx} disabled={exporting || filtered.length === 0}
+            title={filtered.length === 0 ? "ไม่มีข้อมูลให้ export" : `Export ${filtered.length} คน เป็น xlsx`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 shadow-sm transition-all">
+            {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+            {exporting ? `กำลัง Export ${exportProgress}/${filtered.length}` : `Export Excel (${filtered.length})`}
           </button>
-        )}
+        </div>
       </div>
 
       {/* Filters Row */}
