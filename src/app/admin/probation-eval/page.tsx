@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import {
   Shield, Search, ChevronDown, ChevronUp, Loader2,
-  Award, MessageSquare, Eye, CheckCircle2, XCircle, Clock, Pencil,
+  Award, MessageSquare, Eye, CheckCircle2, XCircle, Clock, Pencil, Download,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -105,15 +105,167 @@ export default function AdminProbationEvalPage() {
   const pendingCount = filtered.filter(f => f.status === "submitted").length
   const approvedCount = filtered.filter(f => f.status === "approved").length
 
+  // ── Export to xlsx ─────────────────────────────────────────────────
+  const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState(0)
+
+  const exportXlsx = async () => {
+    if (filtered.length === 0) { toast.error("ไม่มีข้อมูลให้ export"); return }
+    setExporting(true); setExportProgress(0)
+    const t = toast.loading(`กำลังโหลดรายละเอียด 0/${filtered.length}...`)
+    try {
+      // โหลด detail ทุกฟอร์มทีละ 5 ขนาน
+      const details: any[] = []
+      const BATCH = 5
+      for (let i = 0; i < filtered.length; i += BATCH) {
+        const slice = filtered.slice(i, i + BATCH)
+        const got = await Promise.all(slice.map(async (f: any) => {
+          try {
+            const r = await fetch(`/api/probation-evaluation?mode=single&form_id=${f.id}`)
+            const d = await r.json()
+            return d.form ?? f
+          } catch { return f }
+        }))
+        details.push(...got)
+        setExportProgress(details.length)
+        toast.loading(`กำลังโหลดรายละเอียด ${details.length}/${filtered.length}...`, { id: t })
+      }
+
+      const XLSX = await import("xlsx")
+      const statusLabel = (s: string) =>
+        s === "draft" ? "แบบร่าง" :
+        s === "submitted" ? "รอ HR อนุมัติ" :
+        s === "approved" ? "อนุมัติแล้ว" :
+        s === "rejected" ? "ส่งคืน" : s
+
+      // ── Sheet 1: สรุปรายคน ──────────────────────────────────────
+      const summary = details.map((f: any, idx: number) => ({
+        "ลำดับ": idx + 1,
+        "รหัสพนักงาน": f.employee?.employee_code ?? "",
+        "ชื่อ-นามสกุล": `${f.employee?.first_name_th ?? ""} ${f.employee?.last_name_th ?? ""}`.trim(),
+        "ชื่อเล่น": f.employee?.nickname ?? "",
+        "แผนก": f.employee?.department?.name ?? "",
+        "ตำแหน่ง": f.employee?.position?.name ?? "",
+        "บริษัท": f.employee?.company?.name_th ?? "",
+        "วันเริ่มงาน": f.employee?.hire_date ? format(new Date(f.employee.hire_date), "dd/MM/yyyy") : "",
+        "รอบ": ROUND_LABELS[f.round] ?? `รอบ ${f.round}`,
+        "ผู้ประเมิน": f.evaluator ? `${f.evaluator.first_name_th} ${f.evaluator.last_name_th}` : "",
+        "คะแนนรวม (%)": Number(f.total_score ?? 0).toFixed(2),
+        "เกรด": f.grade ?? "",
+        "สถานะ": statusLabel(f.status),
+        "ความเห็น/สรุปของผู้ประเมิน": f.summary_comment ?? f.overall_comment ?? "",
+        "วันที่ส่ง": f.submitted_at ? format(new Date(f.submitted_at), "dd/MM/yyyy HH:mm") : "",
+        "วันที่อนุมัติ": f.approved_at ? format(new Date(f.approved_at), "dd/MM/yyyy HH:mm") : "",
+        "หมายเหตุ HR": f.review_note ?? f.rejection_note ?? "",
+      }))
+      const ws1 = XLSX.utils.json_to_sheet(summary)
+      ws1["!cols"] = [
+        { wch: 6 }, { wch: 14 }, { wch: 24 }, { wch: 12 }, { wch: 18 }, { wch: 22 },
+        { wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 22 }, { wch: 13 },
+        { wch: 8 }, { wch: 16 }, { wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 32 },
+      ]
+
+      // ── Sheet 2: รายละเอียดรายข้อ ────────────────────────────────
+      const itemRows: any[] = []
+      for (const f of details) {
+        const items: any[] = f.items ?? f.criteria ?? []
+        for (const item of items) {
+          itemRows.push({
+            "รหัสพนักงาน": f.employee?.employee_code ?? "",
+            "ชื่อ-นามสกุล": `${f.employee?.first_name_th ?? ""} ${f.employee?.last_name_th ?? ""}`.trim(),
+            "แผนก": f.employee?.department?.name ?? "",
+            "รอบ": ROUND_LABELS[f.round] ?? `รอบ ${f.round}`,
+            "หัวข้อ #": item.order_no,
+            "หมวด": item.category,
+            "รายละเอียด": item.description ?? "",
+            "น้ำหนัก (%)": Number(item.weight_pct ?? 0),
+            "คะแนนจริง (0-100)": Number(item.actual_score ?? 0),
+            "คะแนนถ่วงน้ำหนัก": Number(item.weighted_score ?? 0).toFixed(2),
+            "ความเห็น": item.comment ?? "",
+          })
+        }
+      }
+      const ws2 = XLSX.utils.json_to_sheet(itemRows)
+      ws2["!cols"] = [
+        { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 16 }, { wch: 8 },
+        { wch: 22 }, { wch: 36 }, { wch: 11 }, { wch: 14 }, { wch: 14 }, { wch: 36 },
+      ]
+
+      // ── Sheet 3: สถิติรวม ────────────────────────────────────────
+      const gradeCount: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 }
+      const roundCount: Record<number, number> = { 1: 0, 2: 0, 3: 0 }
+      const deptAvg: Record<string, { sum: number; count: number }> = {}
+      for (const f of filtered) {
+        if (gradeCount[f.grade] !== undefined) gradeCount[f.grade]++
+        if (roundCount[f.round] !== undefined) roundCount[f.round]++
+        if (["submitted", "approved"].includes(f.status)) {
+          const dept = f.employee?.department?.name || "ไม่ระบุ"
+          if (!deptAvg[dept]) deptAvg[dept] = { sum: 0, count: 0 }
+          deptAvg[dept].sum += Number(f.total_score) || 0
+          deptAvg[dept].count++
+        }
+      }
+      const avgScore = filtered.length > 0 ? filtered.reduce((s, f) => s + (f.total_score || 0), 0) / filtered.length : 0
+      const deptAvgList = Object.entries(deptAvg)
+        .map(([name, d]) => ({ name, avg: d.sum / d.count, count: d.count }))
+        .sort((a, b) => b.avg - a.avg)
+
+      const statRows: any[] = []
+      statRows.push({ "หัวข้อ": "วันที่ export", "ค่า": format(new Date(), "dd/MM/yyyy HH:mm") })
+      statRows.push({ "หัวข้อ": "จำนวนการประเมินทั้งหมด", "ค่า": filtered.length })
+      statRows.push({ "หัวข้อ": "คะแนนเฉลี่ยรวม", "ค่า": Number(avgScore.toFixed(2)) })
+      statRows.push({ "หัวข้อ": "", "ค่า": "" })
+      statRows.push({ "หัวข้อ": "── นับตามเกรด ──", "ค่า": "" })
+      for (const g of ["A", "B", "C", "D"] as const) statRows.push({ "หัวข้อ": `เกรด ${g}`, "ค่า": gradeCount[g] })
+      statRows.push({ "หัวข้อ": "", "ค่า": "" })
+      statRows.push({ "หัวข้อ": "── นับตามรอบ ──", "ค่า": "" })
+      for (const r of [1, 2, 3] as const) statRows.push({ "หัวข้อ": ROUND_LABELS[r], "ค่า": roundCount[r] })
+      statRows.push({ "หัวข้อ": "", "ค่า": "" })
+      statRows.push({ "หัวข้อ": "── นับตามสถานะ ──", "ค่า": "" })
+      statRows.push({ "หัวข้อ": "อนุมัติแล้ว", "ค่า": approvedCount })
+      statRows.push({ "หัวข้อ": "รอ HR อนุมัติ", "ค่า": pendingCount })
+      statRows.push({ "หัวข้อ": "ส่งคืน", "ค่า": filtered.filter(f => f.status === "rejected").length })
+      statRows.push({ "หัวข้อ": "แบบร่าง", "ค่า": filtered.filter(f => f.status === "draft").length })
+      statRows.push({ "หัวข้อ": "", "ค่า": "" })
+      statRows.push({ "หัวข้อ": "── คะแนนเฉลี่ยตามแผนก ──", "ค่า": "" })
+      for (const d of deptAvgList) {
+        statRows.push({ "หัวข้อ": `${d.name} (${d.count} คน)`, "ค่า": Number(d.avg.toFixed(2)) })
+      }
+      const ws3 = XLSX.utils.json_to_sheet(statRows)
+      ws3["!cols"] = [{ wch: 36 }, { wch: 22 }]
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws1, "สรุปรายคน")
+      XLSX.utils.book_append_sheet(wb, ws2, "รายละเอียดรายข้อ")
+      XLSX.utils.book_append_sheet(wb, ws3, "สถิติรวม")
+
+      const fname = `probation_eval_${format(new Date(), "yyyyMMdd_HHmm")}.xlsx`
+      XLSX.writeFile(wb, fname)
+      toast.success(`Export สำเร็จ ${summary.length} คน (${itemRows.length} หัวข้อ)`, { id: t })
+    } catch (e: any) {
+      toast.error(e.message || "Export ไม่สำเร็จ", { id: t })
+    } finally {
+      setExporting(false); setExportProgress(0)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <Shield size={20} className="text-rose-600" />
-          <h1 className="text-xl font-black text-slate-800">ประเมินทดลองงาน</h1>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Shield size={20} className="text-rose-600" />
+            <h1 className="text-xl font-black text-slate-800">ประเมินทดลองงาน</h1>
+          </div>
+          <p className="text-sm text-slate-400">ตรวจสอบและอนุมัติผลประเมินทดลองงาน</p>
         </div>
-        <p className="text-sm text-slate-400">ตรวจสอบและอนุมัติผลประเมินทดลองงาน</p>
+        <button onClick={exportXlsx} disabled={exporting || filtered.length === 0}
+          title={filtered.length === 0 ? "ไม่มีข้อมูลให้ export" : `Export ${filtered.length} คน เป็น xlsx`}
+          className="inline-flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 shadow-sm transition-all">
+          {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+          {exporting ? `กำลัง Export ${exportProgress}/${filtered.length}` : `Export Excel (${filtered.length})`}
+        </button>
       </div>
 
       {/* Stats */}
