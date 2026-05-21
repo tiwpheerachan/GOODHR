@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { getTrainingAccess, canManageChannel } from "@/lib/utils/training-permissions"
 
 // GET — list channels (filtered by user access)
+//   ?deleted=1 → return ONLY soft-deleted channels (recycle bin)
 export async function GET(req: NextRequest) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -14,10 +15,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
   }
 
+  const showDeleted = new URL(req.url).searchParams.get("deleted") === "1"
+  // Recycle bin is admin-only
+  if (showDeleted && !access.isTrainingAdmin) {
+    return NextResponse.json({ error: "เฉพาะ Training Admin" }, { status: 403 })
+  }
+
   let q = svc.from("training_channels")
     .select("*, owner:employees!training_channels_owner_id_fkey(id, first_name_th, last_name_th, nickname)")
-    .eq("is_active", true)
-    .order("name")
+    .eq("is_active", !showDeleted)
+    .order(showDeleted ? "updated_at" : "name", { ascending: !showDeleted })
 
   if (!access.isTrainingAdmin && access.isSupervisor) {
     q = q.in("id", access.supervisorChannelIds.length > 0 ? access.supervisorChannelIds : ["00000000-0000-0000-0000-000000000000"])
@@ -76,7 +83,9 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ success: true })
 }
 
-// DELETE — soft delete (set is_active=false)
+// DELETE — delete channel
+//   default: soft delete (set is_active=false) — preserves data, just hides from list
+//   ?hard=1: HARD delete — cascades to courses, modules, quizzes, enrollments, progress, attempts, question bank, permissions
 export async function DELETE(req: NextRequest) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -86,10 +95,55 @@ export async function DELETE(req: NextRequest) {
   const access = await getTrainingAccess(svc, user.id)
   if (!access.isTrainingAdmin) return NextResponse.json({ error: "เฉพาะ Training Admin" }, { status: 403 })
 
-  const id = new URL(req.url).searchParams.get("id")
+  const url = new URL(req.url)
+  const id = url.searchParams.get("id")
+  const hard = url.searchParams.get("hard") === "1"
   if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 })
 
-  const { error } = await svc.from("training_channels").update({ is_active: false }).eq("id", id)
+  // verify channel exists & user has access
+  const { data: ch } = await svc.from("training_channels").select("id, name").eq("id", id).maybeSingle()
+  if (!ch) return NextResponse.json({ error: "ไม่พบช่อง" }, { status: 404 })
+
+  if (!hard) {
+    const { error } = await svc.from("training_channels").update({ is_active: false }).eq("id", id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ success: true, mode: "soft" })
+  }
+
+  // HARD delete — collect counts first for response
+  const { data: courses } = await svc.from("training_courses").select("id").eq("channel_id", id)
+  const courseIds = (courses ?? []).map(c => c.id)
+
+  const [{ count: enrollCount }, { count: moduleCount }, { count: quizCount }, { count: bankCount }] = await Promise.all([
+    courseIds.length
+      ? svc.from("training_enrollments").select("id", { count: "exact", head: true }).in("course_id", courseIds)
+      : Promise.resolve({ count: 0 } as any),
+    courseIds.length
+      ? svc.from("training_modules").select("id", { count: "exact", head: true }).in("course_id", courseIds)
+      : Promise.resolve({ count: 0 } as any),
+    courseIds.length
+      ? svc.from("training_quizzes").select("id", { count: "exact", head: true }).in("course_id", courseIds)
+      : Promise.resolve({ count: 0 } as any),
+    svc.from("training_question_bank").select("id", { count: "exact", head: true }).eq("channel_id", id),
+  ])
+
+  // FK cascades handle the rest:
+  // training_channels → courses, question_bank, permissions (all ON DELETE CASCADE)
+  // training_courses → modules, quizzes, enrollments (all ON DELETE CASCADE)
+  // training_enrollments → module_progress, quiz_attempts (all ON DELETE CASCADE)
+  const { error } = await svc.from("training_channels").delete().eq("id", id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ success: true })
+
+  return NextResponse.json({
+    success: true,
+    mode: "hard",
+    deleted: {
+      channel:     ch.name,
+      courses:     courseIds.length,
+      modules:     moduleCount ?? 0,
+      quizzes:     quizCount ?? 0,
+      enrollments: enrollCount ?? 0,
+      question_bank: bankCount ?? 0,
+    },
+  })
 }
