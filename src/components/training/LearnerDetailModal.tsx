@@ -114,50 +114,52 @@ export default function LearnerDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm anim-fade-up" onClick={onClose}>
-      <div className="bg-slate-50 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-        {/* Hero */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-indigo-600 via-blue-700 to-sky-700 p-5 text-white">
-          <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-sky-300/30 blur-3xl anim-float" />
-          <div className="absolute -bottom-8 -left-4 h-32 w-32 rounded-full bg-indigo-300/30 blur-2xl" />
-          <button onClick={onClose} className="absolute top-3 right-3 p-1.5 bg-white/10 hover:bg-white/20 rounded-lg z-10"><X size={18} /></button>
+      <div className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Hero — clean white card style */}
+        <div className="relative bg-white border-b border-slate-100 p-4 lg:p-5">
+          <button onClick={onClose}
+            className="absolute top-3 right-3 p-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg z-10 text-slate-500"
+            aria-label="close">
+            <X size={16} />
+          </button>
 
-          <div className="relative flex items-center gap-4">
-            <div className="relative">
-              <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur border border-white/30 flex items-center justify-center text-xl font-black overflow-hidden">
+          <div className="flex items-center gap-3 pr-10">
+            <div className="relative flex-shrink-0">
+              <div className="w-14 h-14 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center text-lg font-black text-sky-700 overflow-hidden">
                 {emp?.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" /> : initials}
               </div>
               {learner.is_online && (
-                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full border-2 border-indigo-600 animate-pulse" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-white animate-pulse" />
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-black tracking-[0.2em] opacity-80 flex items-center gap-1">
-                <Sparkles size={10} /> LEARNER · {courseTitle}
+              <p className="text-[10px] font-bold tracking-[0.15em] text-slate-400 flex items-center gap-1">
+                <Sparkles size={10} /> LEARNER · <span className="truncate">{courseTitle}</span>
               </p>
-              <h2 className="text-xl lg:text-2xl font-black truncate">
+              <h2 className="text-lg lg:text-xl font-black text-slate-800 truncate mt-0.5">
                 {emp?.first_name_th} {emp?.last_name_th}
-                {emp?.nickname && <span className="text-sm font-bold opacity-80 ml-2">({emp.nickname})</span>}
+                {emp?.nickname && <span className="text-sm font-bold text-slate-400 ml-2">({emp.nickname})</span>}
               </h2>
-              <p className="text-[11px] opacity-90 mt-0.5">
+              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
                 {emp?.employee_code} · {emp?.department?.name ?? "—"} · {emp?.position?.name ?? "—"}
               </p>
             </div>
-            <div className="hidden md:block text-right">
+            <div className="hidden md:flex flex-col items-end gap-1 flex-shrink-0">
               <StatusPill status={learner.status} />
-              <p className="text-[10px] opacity-80 mt-1">
+              <p className="text-[10px] text-slate-400">
                 ลงทะเบียน {learner.enrolled_at ? format(new Date(learner.enrolled_at), "d MMM yyyy", { locale: th }) : "—"}
               </p>
             </div>
           </div>
 
-          {/* KPI strip */}
-          <div className="relative grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
-            <HeroStat icon={<TrendingUp size={12} />} label="ความคืบหน้า" value={`${learner.progress_pct}%`} />
-            <HeroStat icon={<BookOpen size={12} />} label="บทเรียน" value={`${learner.modules_completed}/${learner.modules_total}`} />
-            <HeroStat icon={<Trophy size={12} />} label="คะแนนสุดท้าย"
-              value={finalScore != null ? `${finalScore}%` : "—"}
-              accent={finalScore != null ? (Number(finalScore) >= passingScore ? "text-emerald-200" : "text-rose-200") : ""} />
-            <HeroStat icon={<Activity size={12} />} label="ครั้งสอบรวม" value={allAttempts.length || "—"} />
+          {/* KPI strip — pastel cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+            <HeroStat icon={<TrendingUp size={13} />} color="sky" label="ความคืบหน้า" value={`${Math.round(Number(learner.progress_pct ?? 0))}%`} />
+            <HeroStat icon={<BookOpen size={13} />} color="indigo" label="บทเรียน" value={`${learner.modules_completed ?? 0}/${learner.modules_total ?? 0}`} />
+            <HeroStat icon={<Trophy size={13} />} color={finalScore != null ? (Number(finalScore) >= passingScore ? "emerald" : "rose") : "slate"}
+              label="คะแนนสุดท้าย"
+              value={finalScore != null ? `${Number(finalScore).toFixed(0)}%` : "—"} />
+            <HeroStat icon={<Activity size={13} />} color="amber" label="ครั้งสอบรวม" value={allAttempts.length || "—"} />
           </div>
         </div>
 
@@ -490,22 +492,34 @@ function AttemptStrip({ atts, passingScore, maxRetries }: { atts: Attempt[]; pas
   )
 }
 
-function HeroStat({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: any; accent?: string }) {
+function HeroStat({ icon, label, value, color = "slate" }: { icon: React.ReactNode; label: string; value: any; color?: string }) {
+  const palette: Record<string, { bg: string; text: string; ring: string }> = {
+    slate:   { bg: "bg-slate-50",   text: "text-slate-600",   ring: "border-slate-100" },
+    sky:     { bg: "bg-sky-50",     text: "text-sky-600",     ring: "border-sky-100" },
+    indigo:  { bg: "bg-indigo-50",  text: "text-indigo-600",  ring: "border-indigo-100" },
+    amber:   { bg: "bg-amber-50",   text: "text-amber-600",   ring: "border-amber-100" },
+    emerald: { bg: "bg-emerald-50", text: "text-emerald-600", ring: "border-emerald-100" },
+    rose:    { bg: "bg-rose-50",    text: "text-rose-600",    ring: "border-rose-100" },
+  }
+  const p = palette[color] ?? palette.slate
   return (
-    <div className="bg-white/10 backdrop-blur border border-white/20 rounded-xl px-2.5 py-2">
-      <div className="flex items-center gap-1 opacity-80 text-[10px] font-bold">{icon} {label}</div>
-      <p className={`text-base font-black mt-0.5 ${accent ?? ""}`}>{value}</p>
+    <div className={`bg-white border ${p.ring} rounded-xl px-2.5 py-2`}>
+      <div className="flex items-center gap-1.5">
+        <div className={`w-6 h-6 rounded-lg ${p.bg} ${p.text} flex items-center justify-center flex-shrink-0`}>{icon}</div>
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">{label}</span>
+      </div>
+      <p className={`text-base font-black mt-1 leading-none ${p.text}`}>{value}</p>
     </div>
   )
 }
 
 function StatusPill({ status }: { status: string }) {
   const cfg: Record<string, { l: string; c: string }> = {
-    not_started: { l: "ยังไม่เริ่ม", c: "bg-white/20 text-white" },
-    in_progress: { l: "กำลังเรียน", c: "bg-amber-300 text-amber-900" },
-    completed:   { l: "จบแล้ว",    c: "bg-emerald-300 text-emerald-900" },
-    failed:      { l: "ไม่ผ่าน",   c: "bg-rose-300 text-rose-900" },
+    not_started: { l: "ยังไม่เริ่ม", c: "bg-slate-100 text-slate-700 border-slate-200" },
+    in_progress: { l: "กำลังเรียน", c: "bg-amber-50 text-amber-700 border-amber-200" },
+    completed:   { l: "จบแล้ว",    c: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+    failed:      { l: "ไม่ผ่าน",   c: "bg-rose-50 text-rose-700 border-rose-200" },
   }
   const s = cfg[status] || cfg.not_started
-  return <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${s.c}`}>{s.l}</span>
+  return <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${s.c}`}>{s.l}</span>
 }

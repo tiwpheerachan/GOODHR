@@ -103,15 +103,12 @@ export default function CourseHeader({
         </div>
       </div>
 
-      {/* Hero */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-sky-600 via-blue-700 to-indigo-700 p-5 lg:p-6 text-white shadow-2xl anim-fade-up">
-        <div className="absolute -right-12 -top-12 h-56 w-56 rounded-full bg-sky-300/30 blur-3xl anim-float" />
-        <div className="absolute -bottom-10 -left-6 h-40 w-40 rounded-full bg-indigo-300/30 blur-2xl" style={{ animation: "floatY 4s ease-in-out infinite" }} />
-
-        <div className="relative grid grid-cols-1 lg:grid-cols-[16rem,1fr] gap-5">
+      {/* Hero — clean dashboard style */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-4 lg:p-5 shadow-sm">
+        <div className="grid grid-cols-1 lg:grid-cols-[16rem,1fr] gap-5">
           {/* Cover */}
           <div>
-            <p className="text-[10px] font-black tracking-[0.2em] opacity-80 mb-2 flex items-center gap-1">
+            <p className="text-[10px] font-bold tracking-[0.15em] text-slate-400 mb-2 flex items-center gap-1">
               <ImageIcon size={11} /> COVER · 16:9
             </p>
             <CoverImageUpload
@@ -126,21 +123,20 @@ export default function CourseHeader({
           {/* Right side — fields */}
           <div className="min-w-0 space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <Sparkles size={12} className="opacity-80" />
-              <span className="text-[10px] font-black tracking-[0.2em] opacity-90">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 border border-sky-100 text-sky-700 text-[10px] font-black">
+                <Sparkles size={10} />
                 {course.channel?.name}{course.channel?.brand ? ` · ${course.channel.brand}` : ""}
               </span>
               <StatusBadge status={course.status} />
-              <span className="text-[10px] opacity-80">v{course.version}</span>
+              <span className="text-[10px] font-bold text-slate-400">v{course.version}</span>
               <select
                 value={form.difficulty}
                 onChange={e => setForm(f => ({ ...f, difficulty: e.target.value as any }))}
-                className="text-[10px] font-black bg-white/20 backdrop-blur border border-white/30 rounded-full px-2 py-0.5 outline-none text-white"
-                style={{ colorScheme: "dark" }}
+                className="text-[10px] font-black bg-slate-50 border border-slate-200 rounded-full px-2 py-0.5 outline-none text-slate-700 focus:border-sky-400"
               >
-                <option value="beginner" className="text-slate-800">🟢 Beginner</option>
-                <option value="intermediate" className="text-slate-800">🟡 Intermediate</option>
-                <option value="advanced" className="text-slate-800">🔴 Advanced</option>
+                <option value="beginner">🟢 Beginner</option>
+                <option value="intermediate">🟡 Intermediate</option>
+                <option value="advanced">🔴 Advanced</option>
               </select>
             </div>
 
@@ -148,58 +144,58 @@ export default function CourseHeader({
               value={form.title}
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
               placeholder="ชื่อคอร์ส..."
-              className="text-2xl lg:text-3xl font-black bg-transparent border-b-2 border-white/30 outline-none w-full focus:border-white pb-1"
+              className="text-2xl lg:text-3xl font-black bg-transparent border-b-2 border-slate-200 outline-none w-full focus:border-sky-400 pb-1 text-slate-800 placeholder-slate-300"
             />
             <textarea
               value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               placeholder="คำอธิบายสั้น ๆ — ผู้เรียนจะเห็นที่หน้า course list..."
               rows={2}
-              className="w-full bg-white/10 backdrop-blur text-sm placeholder-white/60 outline-none border border-white/20 rounded-xl p-2.5 focus:border-white resize-none"
+              className="w-full bg-slate-50 border border-slate-200 text-sm placeholder-slate-400 outline-none rounded-xl p-2.5 focus:border-sky-400 focus:bg-white resize-none text-slate-700"
             />
 
-            {/* Quick stats */}
+            {/* Quick stats — pastel cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <Stat icon={<Layers size={12} />} label="บทเรียน" value={modulesCount} />
-              <Stat icon={<FileQuestion size={12} />} label="ควิซ" value={quizzesCount} />
-              <Stat icon={<Users size={12} />} label="ผู้เรียน" value={learnersCount} />
-              <Stat icon={<Clock size={12} />} label="เวลา" value={totalMinutes ? `${totalMinutes} น.` : "—"} />
+              <Stat icon={<Layers size={13} />} label="บทเรียน" value={modulesCount} color="sky" />
+              <Stat icon={<FileQuestion size={13} />} label="ควิซ" value={quizzesCount} color="amber" />
+              <Stat icon={<Users size={13} />} label="ผู้เรียน" value={learnersCount} color="emerald" />
+              <Stat icon={<Clock size={13} />} label="เวลา" value={totalMinutes ? `${totalMinutes} น.` : "—"} color="indigo" />
             </div>
 
             {/* Actions */}
             <div className="flex items-center gap-1.5 flex-wrap pt-1">
               <Link href={dashboardHref}
-                className="px-3 py-2 bg-white/15 hover:bg-white/25 backdrop-blur text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-white/20 transition-all">
+                className="px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all">
                 <LayoutDashboard size={12} /> Dashboard
               </Link>
               <button onClick={onPreview}
-                className="px-3 py-2 bg-white/15 hover:bg-white/25 backdrop-blur text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-white/20 transition-all">
+                className="px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all">
                 <Eye size={12} /> ดูตัวอย่าง
               </button>
               <button onClick={() => setShowInfo(s => !s)}
-                className="px-3 py-2 bg-white/15 hover:bg-white/25 backdrop-blur text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-white/20 transition-all">
+                className="px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all">
                 <BookOpen size={12} /> ข้อมูลการเรียน
                 {showInfo ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               </button>
 
               <div className="ml-auto flex items-center gap-1.5">
                 <button onClick={save} disabled={!dirty || saving}
-                  className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all ${
+                  className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all border ${
                     dirty
-                      ? "bg-amber-300 text-amber-900 hover:bg-amber-200 anim-pulse-glow shadow-lg"
-                      : "bg-white/10 text-white/60 cursor-not-allowed"
+                      ? "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100"
+                      : "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed"
                   }`}>
                   {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
                   บันทึก{course.status === "published" ? "การเปลี่ยนแปลง" : "ฉบับร่าง"}
                 </button>
                 {course.status === "published" ? (
                   <button onClick={onUnpublish}
-                    className="px-3 py-2 bg-white/15 hover:bg-white/25 backdrop-blur text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-white/20">
+                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold flex items-center gap-1.5">
                     เลิกเผยแพร่
                   </button>
                 ) : (
                   <button onClick={onPublish}
-                    className="px-4 py-2 bg-white text-sky-700 hover:bg-sky-50 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg">
+                    className="px-4 py-2 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm">
                     <Send size={12} /> เผยแพร่
                   </button>
                 )}
@@ -338,21 +334,32 @@ function diff(orig: CourseEditable, next: CourseEditable): Partial<CourseEditabl
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { l: string; c: string }> = {
-    draft:     { l: "📝 ฉบับร่าง",   c: "bg-slate-200 text-slate-700" },
-    published: { l: "✅ เผยแพร่แล้ว", c: "bg-emerald-400 text-emerald-900" },
-    archived:  { l: "📦 เก็บถาวร",   c: "bg-rose-400 text-rose-900" },
+    draft:     { l: "📝 ฉบับร่าง",   c: "bg-slate-100 text-slate-700 border-slate-200" },
+    published: { l: "✅ เผยแพร่แล้ว", c: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+    archived:  { l: "📦 เก็บถาวร",   c: "bg-rose-50 text-rose-700 border-rose-200" },
   }
   const v = map[status] ?? map.draft
-  return <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${v.c}`}>{v.l}</span>
+  return <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${v.c}`}>{v.l}</span>
 }
 
-function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
+function Stat({ icon, label, value, color = "slate" }: { icon: React.ReactNode; label: string; value: string | number; color?: string }) {
+  const palette: Record<string, { bg: string; text: string }> = {
+    slate:   { bg: "bg-slate-50",   text: "text-slate-600" },
+    sky:     { bg: "bg-sky-50",     text: "text-sky-600" },
+    amber:   { bg: "bg-amber-50",   text: "text-amber-600" },
+    emerald: { bg: "bg-emerald-50", text: "text-emerald-600" },
+    indigo:  { bg: "bg-indigo-50",  text: "text-indigo-600" },
+  }
+  const p = palette[color] ?? palette.slate
   return (
-    <div className="bg-white/10 backdrop-blur border border-white/20 rounded-xl px-2.5 py-1.5">
-      <div className="flex items-center gap-1 opacity-80 text-[10px] font-bold">
-        {icon} {label}
+    <div className="bg-white border border-slate-100 rounded-xl px-2.5 py-2">
+      <div className="flex items-center gap-1.5">
+        <div className={`w-6 h-6 rounded-lg ${p.bg} ${p.text} flex items-center justify-center flex-shrink-0`}>
+          {icon}
+        </div>
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</span>
       </div>
-      <p className="text-base font-black mt-0.5">{value}</p>
+      <p className="text-lg font-black text-slate-800 mt-1 leading-none">{value}</p>
     </div>
   )
 }

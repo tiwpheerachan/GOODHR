@@ -132,36 +132,21 @@ export default function TrainingPermissionsPage() {
   const supCount = perms.filter(p => p.role === "training_supervisor").length
 
   return (
-    <div className="max-w-7xl mx-auto space-y-5">
-      {/* ── Hero ── */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-rose-500 via-pink-500 to-fuchsia-600 p-6 lg:p-8 text-white shadow-2xl anim-fade-up">
-        <div className="absolute -right-12 -top-12 h-56 w-56 rounded-full bg-pink-200/30 blur-3xl anim-float" />
-        <div className="absolute -bottom-10 -left-6 h-40 w-40 rounded-full bg-fuchsia-300/30 blur-2xl" style={{ animation: "floatY 4s ease-in-out infinite" }} />
+    <div className="space-y-5">
+      <Link href="/admin/training" className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-700">
+        <ArrowLeft size={14} /> ระบบเรียนรู้
+      </Link>
 
-        <div className="relative flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
-            <Link href="/admin/training" className="p-2 bg-white/15 backdrop-blur-xl rounded-xl hover:bg-white/25 transition-colors border border-white/20">
-              <ArrowLeft size={18} />
-            </Link>
-            <div className="w-16 h-16 bg-white/15 backdrop-blur-xl rounded-2xl flex items-center justify-center anim-float border border-white/20 shadow-lg">
-              <ShieldCheck size={32} className="drop-shadow" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 anim-slide-in">
-                <Sparkles size={12} className="opacity-80" />
-                <span className="text-[10px] font-black tracking-[0.2em] opacity-90">PERMISSIONS</span>
-              </div>
-              <h1 className="text-2xl lg:text-3xl font-black mt-1 drop-shadow">สิทธิ์ Admin / Supervisor</h1>
-              <p className="text-xs opacity-90 mt-1">
-                Admin {adminCount} คน · Supervisor {supCount} คน · รวม {perms.length} คน
-              </p>
-            </div>
-          </div>
-          <button onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-white text-rose-700 hover:bg-rose-50 rounded-2xl text-sm font-black shadow-lg shadow-rose-900/20 transition-all card-lift">
-            <Plus size={16} /> เพิ่มสิทธิ์
-          </button>
+      {/* Title bar */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800">สิทธิ์ Admin / Supervisor</h2>
+          <p className="text-slate-400 text-sm">Admin {adminCount} คน · Supervisor {supCount} คน · รวม {perms.length} คน</p>
         </div>
+        <button onClick={() => setShowAdd(true)}
+          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-sm">
+          <Plus size={14} /> เพิ่มสิทธิ์
+        </button>
       </div>
 
       {/* ── Permissions table ── */}

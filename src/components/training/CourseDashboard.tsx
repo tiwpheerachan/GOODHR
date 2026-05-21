@@ -4,8 +4,9 @@ import Link from "next/link"
 import {
   Users, CheckCircle2, Clock, AlertCircle, Award, TrendingUp,
   Star, Activity, BookOpen, Loader2, Eye, FileText, Trophy,
-  Wifi, BarChart3, Target, ChevronRight,
+  Wifi, BarChart3, Target, ChevronRight, FileSpreadsheet,
 } from "lucide-react"
+import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import LearnerDetailModal from "@/components/training/LearnerDetailModal"
@@ -18,26 +19,76 @@ import QuizPanel from "@/components/training/dashboard/QuizPanel"
 
 export default function CourseDashboard({ courseId, basePath, compact = false }: { courseId: string; basePath: string; compact?: boolean }) {
   const [data, setData] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(true)         // initial load only
+  const [refreshing, setRefreshing] = useState(false)  // silent background refresh
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
   const [tab, setTab] = useState<"overview" | "learners" | "modules" | "quizzes" | "feedback">("overview")
   const [brandFilter, setBrandFilter] = useState<string>("")
   const [statusFilter, setStatusFilter] = useState<string>("")
   const [search, setSearch] = useState("")
   const [selectedLearner, setSelectedLearner] = useState<any | null>(null)
+  const [exporting, setExporting] = useState(false)
 
-  const load = () => {
+  const exportXlsx = async () => {
+    if (exporting) return
+    setExporting(true)
+    const t = toast.loading("กำลังสร้างไฟล์ Excel...")
+    try {
+      const res = await fetch(`/api/training/reports/export?course_id=${courseId}`)
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        toast.error(j.error || `ดาวน์โหลดไม่สำเร็จ (${res.status})`, { id: t })
+        return
+      }
+      const blob = await res.blob()
+      const cd = res.headers.get("Content-Disposition") || ""
+      const m = cd.match(/filename="?([^"]+)"?/)
+      const filename = m?.[1] || `training_course_${courseId}.xlsx`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url; a.download = filename
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+      toast.success("ดาวน์โหลดแล้ว", { id: t })
+    } catch (e: any) {
+      toast.error(e?.message || "เกิดข้อผิดพลาด", { id: t })
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // initial load only — shows full-page spinner
+  useEffect(() => {
+    let cancelled = false
     setLoading(true)
     fetch(`/api/training/dashboard?course_id=${courseId}`)
       .then(r => r.json())
-      .then(d => { setData(d); setLoading(false) })
-      .catch(() => setLoading(false))
-  }
-  useEffect(() => { load() }, [courseId])
-  // refresh ทุก 30 วินาทีเพื่อดู online status real-time
-  useEffect(() => {
-    const i = setInterval(load, 30_000)
-    return () => clearInterval(i)
+      .then(d => { if (!cancelled) { setData(d); setLastRefreshed(new Date()) } })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [courseId])
+
+  // silent refresh every 30s — does NOT replace UI with spinner
+  // pauses while a learner modal is open so the user isn't disrupted mid-read
+  useEffect(() => {
+    let cancelled = false
+    const refresh = async () => {
+      if (selectedLearner) return  // skip while modal open
+      if (typeof document !== "undefined" && document.hidden) return  // skip if tab hidden
+      setRefreshing(true)
+      try {
+        const r = await fetch(`/api/training/dashboard?course_id=${courseId}`)
+        const d = await r.json()
+        if (!cancelled) {
+          setData(d)
+          setLastRefreshed(new Date())
+        }
+      } catch { /* ignore — keep showing previous data */ }
+      finally { if (!cancelled) setRefreshing(false) }
+    }
+    const i = setInterval(refresh, 30_000)
+    return () => { cancelled = true; clearInterval(i) }
+  }, [courseId, selectedLearner])
 
   // ⭐ Hooks ต้องอยู่ก่อน early-return เสมอ (React rules of hooks)
   const learners: any[] = data?.learners ?? []
@@ -59,7 +110,8 @@ export default function CourseDashboard({ courseId, basePath, compact = false }:
     [learners]
   )
 
-  if (loading) return <div className="flex justify-center py-20"><Loader2 size={28} className="animate-spin text-sky-400" /></div>
+  // full-screen spinner only on the very first load
+  if (loading && !data) return <div className="flex justify-center py-20"><Loader2 size={28} className="animate-spin text-sky-400" /></div>
   if (!data || !data.overview || !data.course) {
     return (
       <div className="text-center py-12 px-4 bg-white border border-slate-200 rounded-2xl">
@@ -83,12 +135,19 @@ export default function CourseDashboard({ courseId, basePath, compact = false }:
               <h1 className="text-2xl lg:text-3xl font-black mt-0.5">{course.title}</h1>
               <p className="text-xs opacity-90 mt-1">📊 Dashboard · ภาพรวมและรายละเอียดทั้งหมด</p>
             </div>
-            {overview.online_count > 0 && (
-              <div className="bg-emerald-400/30 backdrop-blur border border-emerald-300/50 rounded-xl px-3 py-2 flex items-center gap-2">
-                <div className="w-2 h-2 bg-emerald-300 rounded-full animate-pulse" />
-                <span className="text-xs font-black">{overview.online_count} กำลังเรียนอยู่</span>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {overview.online_count > 0 && (
+                <div className="bg-emerald-400/30 backdrop-blur border border-emerald-300/50 rounded-xl px-3 py-2 flex items-center gap-2">
+                  <div className="w-2 h-2 bg-emerald-300 rounded-full animate-pulse" />
+                  <span className="text-xs font-black">{overview.online_count} กำลังเรียนอยู่</span>
+                </div>
+              )}
+              <button onClick={exportXlsx} disabled={exporting}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white text-emerald-700 hover:bg-emerald-50 rounded-xl text-xs font-black shadow-sm disabled:opacity-50">
+                {exporting ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />}
+                ดาวน์โหลด Excel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -99,14 +158,26 @@ export default function CourseDashboard({ courseId, basePath, compact = false }:
           <div className="flex items-center gap-2 text-xs">
             <BarChart3 size={14} className="text-indigo-500" />
             <p className="font-black text-slate-700">Dashboard สด</p>
-            <span className="text-[10px] text-slate-400">รีเฟรชทุก 30 ว.</span>
+            <span className="text-[10px] text-slate-400" title={`อัปเดตล่าสุด ${format(lastRefreshed, "HH:mm:ss", { locale: th })}`}>
+              {refreshing
+                ? <span className="inline-flex items-center gap-1"><Loader2 size={9} className="animate-spin" /> กำลังอัปเดต</span>
+                : `อัปเดต ${format(lastRefreshed, "HH:mm", { locale: th })}`}
+            </span>
           </div>
-          {overview.online_count > 0 && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1 flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-              <span className="text-[10px] font-black text-emerald-700">{overview.online_count} กำลังเรียน</span>
-            </div>
-          )}
+          <div className="flex items-center gap-1.5">
+            {overview.online_count > 0 && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1 flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                <span className="text-[10px] font-black text-emerald-700">{overview.online_count} กำลังเรียน</span>
+              </div>
+            )}
+            <button onClick={exportXlsx} disabled={exporting}
+              title="ดาวน์โหลดรายงาน Excel ของคอร์สนี้"
+              className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-full text-[10px] font-black disabled:opacity-50">
+              {exporting ? <Loader2 size={11} className="animate-spin" /> : <FileSpreadsheet size={11} />}
+              Excel
+            </button>
+          </div>
         </div>
       )}
 

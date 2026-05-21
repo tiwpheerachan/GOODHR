@@ -89,6 +89,76 @@ export function passwordChangedNotifyEmail(employeeName: string) {
   }
 }
 
+// ── ใบสมัครงาน — ยืนยันรับใบสมัคร (รองรับ TH/EN/中文) ──────────
+export function applicationReceivedEmail(opts: {
+  applicantName: string
+  positionTitle: string
+  applicationCode: string
+  lang?: "th" | "en" | "zh"
+}) {
+  const lang = opts.lang ?? "th"
+  const t = {
+    th: {
+      subject: `ได้รับใบสมัครของคุณแล้ว — ${opts.positionTitle}`,
+      header: "ขอบคุณที่สมัครงานกับเรา 🎉",
+      hello: `สวัสดีคุณ ${opts.applicantName},`,
+      body: "เราได้รับใบสมัครของคุณเรียบร้อยแล้ว ทีม HR กำลังตรวจสอบและจะติดต่อกลับผ่านอีเมลนี้",
+      codeLabel: "หมายเลขใบสมัคร",
+      positionLabel: "ตำแหน่ง",
+      note: "หากมีข้อสงสัย กรุณาตอบกลับอีเมลนี้ได้เลย",
+    },
+    en: {
+      subject: `Application Received — ${opts.positionTitle}`,
+      header: "Thank you for applying! 🎉",
+      hello: `Hi ${opts.applicantName},`,
+      body: "We've received your application. Our HR team is reviewing it and will reach out via this email.",
+      codeLabel: "Application Code",
+      positionLabel: "Position",
+      note: "If you have any questions, simply reply to this email.",
+    },
+    zh: {
+      subject: `已收到您的申请 — ${opts.positionTitle}`,
+      header: "感谢您的申请 🎉",
+      hello: `${opts.applicantName} 您好,`,
+      body: "我们已收到您的申请,HR 团队正在审核中,将通过此邮箱与您联系。",
+      codeLabel: "申请编号",
+      positionLabel: "职位",
+      note: "如有疑问,请直接回复此邮件。",
+    },
+  }[lang]
+
+  return {
+    subject: t.subject,
+    html: `
+<!DOCTYPE html>
+<html lang="${lang}">
+<head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;font-family:'Segoe UI',Tahoma,sans-serif;background:#f8fafc;">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.06);">
+    <div style="background:linear-gradient(135deg,#0ea5e9,#6366f1);padding:32px 24px;text-align:center;">
+      <h1 style="margin:0;color:#fff;font-size:22px;font-weight:800;">SHD Technology — Careers</h1>
+      <p style="margin:8px 0 0;color:rgba(255,255,255,0.85);font-size:14px;">${t.header}</p>
+    </div>
+    <div style="padding:32px 24px;">
+      <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 8px;">${t.hello}</p>
+      <p style="color:#64748b;font-size:14px;line-height:1.6;margin:0 0 24px;">${t.body}</p>
+      <div style="background:linear-gradient(135deg,#eff6ff,#e0e7ff);border:1px solid #c7d2fe;border-radius:12px;padding:18px;margin:20px 0;">
+        <p style="color:#475569;font-size:11px;margin:0 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">${t.positionLabel}</p>
+        <p style="color:#1e293b;font-size:16px;font-weight:700;margin:0 0 14px;">${opts.positionTitle}</p>
+        <p style="color:#475569;font-size:11px;margin:0 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">${t.codeLabel}</p>
+        <p style="color:#1e293b;font-size:20px;font-weight:800;letter-spacing:2px;margin:0;font-family:monospace;">${opts.applicationCode}</p>
+      </div>
+      <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:24px 0 0;">${t.note}</p>
+    </div>
+    <div style="background:#f8fafc;padding:16px 24px;text-align:center;border-top:1px solid #e2e8f0;">
+      <p style="color:#94a3b8;font-size:11px;margin:0;">© ${new Date().getFullYear()} SHD Technology Co., Ltd.</p>
+    </div>
+  </div>
+</body>
+</html>`,
+  }
+}
+
 export function adminResetNotifyEmail(employeeName: string, newPassword: string) {
   return {
     subject: "GOODHR — รหัสผ่านถูกรีเซ็ตโดย HR",
