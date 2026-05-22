@@ -544,9 +544,11 @@ export async function POST(req: Request) {
             commission: mCommission, other_income: mOtherIncome,
             income_extras: existPR?.income_extras || null,
             // ✅ ค่าที่ HR กรอกมือ → เก็บรักษา | ค่า formula (tax,gross,net) → คำนวณใหม่
-            deduct_absent:    mIsManual && existPR?.deduct_absent != null    ? Number(existPR.deduct_absent)    : result.deductAbsent,
-            deduct_late:      mIsManual && existPR?.deduct_late != null      ? Number(existPR.deduct_late)      : result.deductLate,
-            deduct_early_out: mIsManual && existPR?.deduct_early_out != null ? Number(existPR.deduct_early_out) : result.deductEarlyOut,
+            // ⚠️ deduct_absent/late/early_out คำนวณจาก attendance ใหม่เสมอ
+            //    (กัน HR แก้ attendance แล้วเงินหักไม่อัปเดต)
+            deduct_absent:    result.deductAbsent,
+            deduct_late:      result.deductLate,
+            deduct_early_out: result.deductEarlyOut,
             deduct_loan:      loanDeduction,
             deduct_other:     mIsManual && existPR?.deduct_other != null     ? Number(existPR.deduct_other)     : deductUnpaidLeave + mDeductOther,
             deduction_extras: existPR?.deduction_extras || null,
@@ -554,10 +556,10 @@ export async function POST(req: Request) {
             social_security_amount: mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso,
             // ── ค่า formula → คำนวณใหม่จากค่าที่เก็บด้านบน ──
             ...(() => {
-              // รวมค่า deductions จริงที่ใช้ (manual หรือ system)
-              const fDeductAbsent = mIsManual && existPR?.deduct_absent != null ? Number(existPR.deduct_absent) : result.deductAbsent
-              const fDeductLate   = mIsManual && existPR?.deduct_late != null ? Number(existPR.deduct_late) : result.deductLate
-              const fDeductEarly  = mIsManual && existPR?.deduct_early_out != null ? Number(existPR.deduct_early_out) : result.deductEarlyOut
+              // รวมค่า deductions จริงที่ใช้ (attendance facts → auto, ค่าอื่น → respect manual)
+              const fDeductAbsent = result.deductAbsent
+              const fDeductLate   = result.deductLate
+              const fDeductEarly  = result.deductEarlyOut
               const fDeductOther  = mIsManual && existPR?.deduct_other != null ? Number(existPR.deduct_other) : deductUnpaidLeave + mDeductOther
               const fSso          = mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso
               // tax คำนวณจาก finalGross เสมอ (3% / fixed% / auto)
@@ -572,12 +574,14 @@ export async function POST(req: Request) {
                 net_salary:           Math.max(finalGross - fTotalDeduct, 0),
               }
             })(),
-            working_days:   mIsManual && existPR?.working_days != null   ? Number(existPR.working_days)   : pastWorkDays.length,
-            present_days:   mIsManual && existPR?.present_days != null   ? Number(existPR.present_days)   : presentDays,
-            absent_days:    mIsManual && existPR?.absent_days != null    ? Number(existPR.absent_days)    : absentDays,
-            late_count:     mIsManual && existPR?.late_count != null     ? Number(existPR.late_count)     : records.filter((r: any) => (r.status === "late" || (Number(r.late_minutes) || 0) > 0) && r.half_day_leave !== "morning").length,
-            leave_paid_days:   mIsManual && existPR?.leave_paid_days != null   ? Number(existPR.leave_paid_days)   : leavePaidDays,
-            leave_unpaid_days: mIsManual && existPR?.leave_unpaid_days != null ? Number(existPR.leave_unpaid_days) : leaveUnpaidDays,
+            // ⚠️ ค่าสถิติจาก attendance → refresh ทุกครั้งเสมอ (ไม่ล็อกตาม is_manual_override)
+            //    เพราะค่าเหล่านี้คือ "ข้อเท็จจริง" จาก attendance_records — เปลี่ยน attendance แล้วต้องสะท้อน
+            working_days:      pastWorkDays.length,
+            present_days:      presentDays,
+            absent_days:       absentDays,
+            late_count:        records.filter((r: any) => (r.status === "late" || (Number(r.late_minutes) || 0) > 0) && r.half_day_leave !== "morning").length,
+            leave_paid_days:   leavePaidDays,
+            leave_unpaid_days: leaveUnpaidDays,
             status: "draft", updated_at: new Date().toISOString(),
           }
 

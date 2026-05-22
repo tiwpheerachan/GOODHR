@@ -1464,7 +1464,13 @@ function EditModal({
 }
 
 // ── Payslip view modal ─────────────────────────────────────────────────
-function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () => void; onEdit: () => void }) {
+function PayslipModal({ record, onClose, onEdit, onRefresh }: { record: any; onClose: () => void; onEdit: () => void; onRefresh?: () => Promise<void> }) {
+  const [refreshing, setRefreshing] = useState(false)
+  // ── เวลาที่ record ถูก calculate ล่าสุด → ใช้บอก "ข้อมูลล่าสุด: X นาทีก่อน"
+  const updatedAt = record.updated_at ? new Date(record.updated_at) : null
+  const minsAgo = updatedAt ? Math.floor((Date.now() - updatedAt.getTime()) / 60_000) : null
+  const staleMins = 5 // เกิน 5 นาที = อาจไม่ใช่ค่าล่าสุด (ดู Realtime อาจ miss)
+  const isStale = minsAgo != null && minsAgo > staleMins
   const emp = record.employee
   const fullBase = Number(record.base_salary) || 0
   // ── ใช้ helper recompute (ครอบคลุม prorate + tax + SSO อัตโนมัติ) ──
@@ -1502,6 +1508,19 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
               <p className="text-sm opacity-75 mt-0.5">{emp?.employee_code} · {emp?.position?.name}</p>
             </div>
             <div className="flex gap-2">
+              {onRefresh && (
+                <button
+                  onClick={async () => {
+                    setRefreshing(true)
+                    try { await onRefresh() } finally { setRefreshing(false) }
+                  }}
+                  disabled={refreshing}
+                  title="คำนวณใหม่จาก attendance ล่าสุด"
+                  className="flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 px-2.5 py-1.5 rounded-lg font-bold transition-colors disabled:opacity-60"
+                >
+                  <RefreshCw size={10} className={refreshing ? "animate-spin" : ""}/> {refreshing ? "กำลังอัปเดต…" : "รีเฟรช"}
+                </button>
+              )}
               <button onClick={async () => {
                 const res = await fetch(`/api/payslip/download?record_id=${record.id}`)
                 if (!res.ok) return
@@ -1518,12 +1537,22 @@ function PayslipModal({ record, onClose, onEdit }: { record: any; onClose: () =>
               <button onClick={onClose} className="text-white/60 hover:text-white font-bold text-lg">✕</button>
             </div>
           </div>
-          {record.is_manual_override && (
-            <div className="mt-2 text-xs bg-amber-400/30 text-amber-100 px-2.5 py-1 rounded-lg inline-flex items-center gap-1">
-              <Edit2 size={9}/> ตัวเลขนี้ถูกแก้ไขโดย HR
-              {record.note_override && ` · ${record.note_override}`}
-            </div>
-          )}
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {record.is_manual_override && (
+              <div className="text-xs bg-amber-400/30 text-amber-100 px-2.5 py-1 rounded-lg inline-flex items-center gap-1">
+                <Edit2 size={9}/> ตัวเลขนี้ถูกแก้ไขโดย HR
+                {record.note_override && ` · ${record.note_override}`}
+              </div>
+            )}
+            {minsAgo != null && (
+              <div className={`text-xs px-2.5 py-1 rounded-lg inline-flex items-center gap-1 ${isStale ? "bg-rose-400/30 text-rose-50" : "bg-white/15 text-white/80"}`}>
+                <Clock size={9}/>
+                {isStale
+                  ? `ข้อมูลอาจไม่เป็นปัจจุบัน (${minsAgo} นาทีก่อน) — กดรีเฟรช`
+                  : `อัปเดตล่าสุด ${minsAgo === 0 ? "เมื่อสักครู่" : `${minsAgo} นาทีก่อน`}`}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -2330,9 +2359,22 @@ export default function PayrollPage() {
       {/* modals */}
       {payslip && (
         <PayslipModal
-          record={payslip}
+          // ✅ ใช้ records ล่าสุดเสมอ — หาก bgRecalculate refresh ค่าใน DB
+          //    ตัว dialog ที่เปิดอยู่จะเห็นค่าใหม่อัตโนมัติ (ไม่ต้องปิด+เปิดใหม่)
+          record={records.find(r => r.id === payslip.id) ?? payslip}
           onClose={() => setPayslip(null)}
           onEdit={() => { setEditing(payslip); setPayslip(null) }}
+          onRefresh={async () => {
+            // เรียก bulk recalc สำหรับพนักงานคนนี้คนเดียว แล้ว reload records
+            await fetch("/api/payroll/bulk", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                employee_ids: [payslip.employee_id],
+                payroll_period_id: payslip.payroll_period_id,
+              }),
+            }).catch(() => {})
+            await loadRecords()
+          }}
         />
       )}
       {editing && (
