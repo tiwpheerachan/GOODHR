@@ -1350,16 +1350,22 @@ export default function CheckInPage() {
               </div>
             )}
 
-            {/* ⚠️ Forgot checkout warning */}
+            {/* ⚠️ Forgot checkout warning — prompt ให้ยื่นคำขอแก้ไขเวลาเอง */}
             {forgotCheckout && (
               <div className="mb-3 flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-2xl px-3.5 py-3">
                 <AlertCircle size={14} className="text-amber-500 mt-0.5 shrink-0" />
-                <div>
+                <div className="flex-1 min-w-0">
                   <p className="text-[11px] font-bold text-amber-700">ลืมเช็คเอ้าท์เมื่อวาน ({forgotCheckout.work_date})</p>
                   <p className="text-[10px] text-amber-600 mt-0.5">
                     เช็คอินเมื่อ {new Date(forgotCheckout.clock_in).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })} น.
-                    — ระบบจะสร้างคำขอแก้ไขเวลาอัตโนมัติ
+                    — กรุณายื่นคำขอแก้ไขเวลา ระบุเวลาเช็คเอ้าท์จริง
                   </p>
+                  <Link
+                    href={`/app/leave/new?type=adjustment&date=${forgotCheckout.work_date}`}
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-black transition-colors"
+                  >
+                    <FileEdit size={11} /> ขอแก้ไขเวลา
+                  </Link>
                 </div>
               </div>
             )}

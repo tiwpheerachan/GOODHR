@@ -267,67 +267,11 @@ export async function POST(request: Request) {
   // CLOCK IN
   // ════════════════════════════════════════════════════════════════
   if (action === "clock_in") {
-    // ── หลังตี 5: auto-close record เมื่อวานที่ค้าง (ลืมเช็คเอ้า) ──────
-    // เพื่อไม่ให้ record เก่าบล็อคการเช็คอินวันใหม่
-    if (bkkHour >= 5) {
-      const yDate = new Date(now.getTime() - 86_400_000)
-        .toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
-      const { data: stuckRec } = await supa
-        .from("attendance_records")
-        .select("id, clock_in, shift_template_id")
-        .eq("employee_id", emp.id)
-        .eq("work_date", yDate)
-        .is("clock_out", null)
-        .not("clock_in", "is", null)
-        .maybeSingle()
-
-      if (stuckRec) {
-        // ประมาณเวลาออก: ใช้เวลาเริ่มกะ + ชั่วโมงทำงาน หรือ clock_in + 9 ชม.
-        const clockInTime = new Date(stuckRec.clock_in as string)
-        let estimatedOut = new Date(clockInTime.getTime() + 9 * 3_600_000)
-
-        if (stuckRec.shift_template_id) {
-          const { data: stuckShift } = await supa
-            .from("shift_templates").select("work_end, is_overnight")
-            .eq("id", stuckRec.shift_template_id).maybeSingle()
-          if (stuckShift?.work_end) {
-            const base = new Date(`${yDate}T${stuckShift.work_end}+07:00`)
-            estimatedOut = stuckShift.is_overnight ? new Date(base.getTime() + 86_400_000) : base
-          }
-        }
-
-        const stuckWorkMin = Math.max(0, Math.round(
-          (estimatedOut.getTime() - clockInTime.getTime()) / 60_000) - 60)
-
-        await supa.from("attendance_records").update({
-          clock_out:         estimatedOut.toISOString(),
-          clock_out_valid:   false,
-          work_minutes:      stuckWorkMin,
-          early_out_minutes: 0,
-          note:              "ลืมเช็คเอ้า — ระบบปิดอัตโนมัติเมื่อเช็คอินวันถัดไป",
-        }).eq("id", stuckRec.id as string)
-
-        // สร้าง time_adjustment_request อัตโนมัติ (ถ้ายังไม่มี pending)
-        const { data: existingAdj } = await supa
-          .from("time_adjustment_requests")
-          .select("id").eq("employee_id", emp.id)
-          .eq("work_date", yDate).eq("status", "pending").maybeSingle()
-
-        if (!existingAdj) {
-          await supa.from("time_adjustment_requests").insert({
-            employee_id:         emp.id,
-            company_id:          emp.company_id,
-            work_date:           yDate,
-            request_type:        "time_adjustment",
-            requested_clock_in:  stuckRec.clock_in,
-            requested_clock_out: null,
-            reason:              "ลืมเช็คเอ้า (ระบบสร้างอัตโนมัติ กรุณาระบุเวลาออกจริง)",
-            status:              "pending",
-          })
-        }
-        console.log(`[checkin] auto-closed stuck record for ${emp.id} on ${yDate}`)
-      }
-    }
+    // ── นโยบายใหม่: ไม่ auto-close record เมื่อวานที่ลืม checkout ─────────
+    //   UI ฝั่งพนักงาน (forgotCheckout banner) จะแสดงเตือนให้ยื่น
+    //   "คำขอแก้ไขเวลา" เอง ไม่สร้างอัตโนมัติ
+    //   record วันใหม่ (work_date = today) ไม่ถูกบล็อกอยู่แล้ว — query ที่
+    //   line ถัดไปเช็ค work_date=today เท่านั้น
 
     // ตรวจว่าเช็คอินไปแล้วหรือยัง
     const { data: existing } = await supa
