@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { getTrainingAccess } from "@/lib/utils/training-permissions"
+import { getTrainingAccess, getAccessibleChannelIds, getChannelReadFilter } from "@/lib/utils/training-permissions"
 import * as XLSX from "xlsx"
 
 // GET /api/training/reports/export?channel_id=...&course_id=...
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const svc = createServiceClient()
   const access = await getTrainingAccess(svc, user.id)
-  if (!access.isTrainingAdmin && !access.isSupervisor) {
+  if (!access.isTrainingAdmin && !access.isSupervisor && !access.isViewer) {
     return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
   }
 
@@ -20,10 +20,11 @@ export async function GET(req: NextRequest) {
   const courseFilter = sp.get("course_id")
 
   // ── Determine accessible channels ─────────────────────────────────
-  // training_admin = all; supervisor = only granted channels
-  const restrictedChannelIds = access.isTrainingAdmin
+  // admin = all; supervisor + viewer = only granted channels
+  const accessibleIds = getAccessibleChannelIds(access)
+  const restrictedChannelIds = accessibleIds === "ALL"
     ? null
-    : (access.supervisorChannelIds.length ? access.supervisorChannelIds : ["00000000-0000-0000-0000-000000000000"])
+    : (accessibleIds.length ? accessibleIds : ["00000000-0000-0000-0000-000000000000"])
 
   // ── Fetch channels ────────────────────────────────────────────────
   let chQ = svc.from("training_channels").select("id, name, brand, description, created_at")
@@ -64,8 +65,20 @@ export async function GET(req: NextRequest) {
     : { data: [] as any[] }
   const quizById = new Map((quizzes ?? []).map(q => [q.id, q]))
 
+  // ── Build per-channel viewer subordinate filter (parallel) ───────
+  // For each accessible channel, get the set of employee_ids the user may see.
+  // null means "all employees" (admin / supervisor / viewer scope=all)
+  const channelEmployeeFilter = new Map<string, Set<string> | null>()
+  const filterResults = await Promise.all((channels ?? []).map(ch =>
+    getChannelReadFilter(svc, access, ch.id).then(rf => ({ id: ch.id, rf }))
+  ))
+  for (const { id, rf } of filterResults) {
+    if (!rf.allowed) continue
+    channelEmployeeFilter.set(id, rf.filterEmployeeIds ? new Set(rf.filterEmployeeIds) : null)
+  }
+
   // ── Fetch enrollments + employee profile ─────────────────────────
-  const { data: enrollments } = courseIds.length
+  let { data: enrollments } = courseIds.length
     ? await svc.from("training_enrollments")
         .select(`id, course_id, employee_id, status, progress_pct, last_accessed_at, completed_at, final_score, enrolled_at,
                  employee:employees!training_enrollments_employee_id_fkey(
@@ -75,6 +88,18 @@ export async function GET(req: NextRequest) {
         .in("course_id", courseIds)
         .order("enrolled_at", { ascending: false })
     : { data: [] as any[] }
+
+  // apply per-channel subordinate filter
+  if (enrollments && enrollments.length > 0) {
+    enrollments = enrollments.filter((e: any) => {
+      const c = courseById.get(e.course_id)
+      if (!c) return false
+      const allowed = channelEmployeeFilter.get(c.channel_id)
+      if (allowed === undefined) return false
+      if (allowed === null) return true   // no filter
+      return allowed.has(e.employee_id)
+    })
+  }
 
   const enrollmentIds = (enrollments ?? []).map(e => e.id)
   const enrollmentById = new Map((enrollments ?? []).map(e => [e.id, e]))

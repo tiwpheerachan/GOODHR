@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { getTrainingAccess, canManageChannel } from "@/lib/utils/training-permissions"
+import { getTrainingAccess, canManageChannel, canViewChannel } from "@/lib/utils/training-permissions"
 
 async function verifyCourseAccess(svc: any, access: any, courseId: string) {
   const { data: course } = await svc.from("training_courses").select("channel_id").eq("id", courseId).single()
@@ -8,22 +8,41 @@ async function verifyCourseAccess(svc: any, access: any, courseId: string) {
   return canManageChannel(access, course.channel_id)
 }
 
+// strip `correct_answer` from questions so learners can't see answers via DevTools
+function stripQuestionAnswers(quiz: any) {
+  if (!quiz?.questions) return quiz
+  return {
+    ...quiz,
+    questions: quiz.questions.map((q: any) => {
+      const { correct_answer, ...safe } = q
+      return safe
+    }),
+  }
+}
+
 export async function GET(req: NextRequest) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const svc = createServiceClient()
+  const access = await getTrainingAccess(svc, user.id)
   const sp = new URL(req.url).searchParams
   const courseId = sp.get("course_id")
   const id = sp.get("id")
 
   if (id) {
     const { data } = await svc.from("training_quizzes")
-      .select("*, questions:training_questions(*)")
+      .select("*, questions:training_questions(*), course:training_courses(channel_id)")
       .eq("id", id).single()
-    return NextResponse.json({ quiz: data })
+    if (!data) return NextResponse.json({ quiz: null })
+    // Only channel managers/viewers see correct_answer; learners get sanitized version
+    const channelId = (data as any).course?.channel_id ?? null
+    const canSeeAnswers = canViewChannel(access, channelId)
+    const { course, ...rest } = data as any
+    return NextResponse.json({ quiz: canSeeAnswers ? rest : stripQuestionAnswers(rest) })
   }
   if (!courseId) return NextResponse.json({ error: "missing course_id" }, { status: 400 })
+  // list view returns only count, never the answers
   const { data } = await svc.from("training_quizzes")
     .select("*, questions:training_questions(count)")
     .eq("course_id", courseId)

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { getTrainingAccess } from "@/lib/utils/training-permissions"
+import { getTrainingAccess, canManageChannel } from "@/lib/utils/training-permissions"
 
 /**
  * POST /api/training/progress/reset
@@ -24,12 +24,14 @@ export async function POST(req: NextRequest) {
   const { enrollment_id, module_id } = body
   if (!enrollment_id || !module_id) return NextResponse.json({ error: "missing" }, { status: 400 })
 
-  // ตรวจสิทธิ์: ผู้เรียนต้องเป็นเจ้าของ enrollment หรือ admin
+  // ตรวจสิทธิ์: เจ้าของ enrollment หรือ admin/supervisor ของ channel ที่คอร์สนี้อยู่
   const { data: en } = await svc.from("training_enrollments")
-    .select("employee_id, course_id").eq("id", enrollment_id).single()
+    .select("employee_id, course_id, course:training_courses(channel_id)")
+    .eq("id", enrollment_id).single() as any
   if (!en) return NextResponse.json({ error: "ไม่พบ enrollment" }, { status: 404 })
   const isOwner = en.employee_id === access.employeeId
-  const isManager = access.isTrainingAdmin || access.isSupervisor
+  const channelId = en.course?.channel_id
+  const isManager = canManageChannel(access, channelId ?? null)
   if (!isOwner && !isManager) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
 
   // ── Reset module progress (try with quiz_reset_at, fallback ถ้า column ไม่มี) ──

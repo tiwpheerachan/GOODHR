@@ -228,8 +228,10 @@ export default function ShiftSchedulingPage() {
     if (data.success) {
       toast.success(`บันทึก ${data.updated} รายการสำเร็จ`)
       setModifications(new Map())
+      // ✅ refresh จาก server เพื่อยืนยันว่าบันทึกจริง + ป้องกัน UI stale
+      await load()
     } else {
-      toast.error(data.error)
+      toast.error(data.error || "บันทึกล้มเหลว")
     }
     setSaving(false)
   }

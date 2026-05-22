@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { getTrainingAccess, canManageChannel } from "@/lib/utils/training-permissions"
+import { getTrainingAccess, canManageChannel, canViewChannel } from "@/lib/utils/training-permissions"
 
 async function verifyCourseAccess(svc: any, access: any, courseId: string) {
   const { data: course } = await svc.from("training_courses").select("channel_id").eq("id", courseId).single()
@@ -8,18 +8,36 @@ async function verifyCourseAccess(svc: any, access: any, courseId: string) {
   return canManageChannel(access, course.channel_id)
 }
 
+// strip `correct_answer` from checkpoints so learners can't see answers via DevTools
+function sanitizeModule(mod: any, canSeeAnswers: boolean) {
+  if (canSeeAnswers || !mod.checkpoints) return mod
+  return {
+    ...mod,
+    checkpoints: mod.checkpoints.map((cp: any) => {
+      const { correct_answer, ...safe } = cp
+      return safe
+    }),
+  }
+}
+
 export async function GET(req: NextRequest) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const svc = createServiceClient()
+  const access = await getTrainingAccess(svc, user.id)
   const courseId = new URL(req.url).searchParams.get("course_id")
   if (!courseId) return NextResponse.json({ error: "missing course_id" }, { status: 400 })
+
+  // Determine if requester is a channel manager/viewer (can see correct_answers)
+  const { data: course } = await svc.from("training_courses").select("channel_id").eq("id", courseId).single()
+  const canSeeAnswers = course ? canViewChannel(access, course.channel_id) : false
 
   const { data } = await svc.from("training_modules")
     .select("*, checkpoints:training_video_checkpoints(*)")
     .eq("course_id", courseId).order("order_no")
-  return NextResponse.json({ modules: data ?? [] })
+  const safe = (data ?? []).map(m => sanitizeModule(m, canSeeAnswers))
+  return NextResponse.json({ modules: safe })
 }
 
 export async function POST(req: NextRequest) {

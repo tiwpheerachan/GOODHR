@@ -110,10 +110,12 @@ export default function AttendancePage() {
   const recMap = Object.fromEntries(records.map((r: any) => [r.work_date, r]))
   const displayList = loading ? [] : buildDisplayList(records, month, today, holidayMap, leaveMap)
 
+  // ── นับ "ขาดงาน" จริงเฉพาะที่ไม่มี clock_in (กัน data inconsistent: status=absent + clock_in) ──
+  const isRealAbsent = (r: any) => r.status === "absent" && !r.clock_in
   const stats = {
-    present:       records.filter((r: any) => r.status === "present").length,
+    present:       records.filter((r: any) => r.status === "present" || (r.status === "absent" && r.clock_in)).length,
     late:          records.filter((r: any) => r.status === "late").length,
-    absent:        displayList.filter((r: any) => r.status === "absent").length,
+    absent:        displayList.filter((r: any) => isRealAbsent(r)).length,
     earlyOut:      records.filter((r: any) => r.status === "early_out").length,
     leave:         records.filter((r: any) => r.status === "leave").length + displayList.filter((r: any) => r.status === "leave" && r._virtual).length,
     wfh:           records.filter((r: any) => r.status === "wfh").length,
@@ -124,7 +126,7 @@ export default function AttendancePage() {
   const periodStats = {
     late:          periodRecords.filter((r: any) => (r.status === "late" || (r.late_minutes || 0) > 0) && r.half_day_leave !== "morning").length,
     earlyOut:      periodRecords.filter((r: any) => (r.status === "early_out" || (r.early_out_minutes || 0) > 0) && r.half_day_leave !== "afternoon").length,
-    absent:        periodRecords.filter((r: any) => r.status === "absent").length,
+    absent:        periodRecords.filter((r: any) => isRealAbsent(r)).length,
     totalLateMin:  periodRecords.reduce((s: number, r: any) => s + (r.half_day_leave === "morning" ? 0 : (r.late_minutes || 0)), 0),
     totalEarlyMin: periodRecords.reduce((s: number, r: any) => s + (r.half_day_leave === "afternoon" ? 0 : (r.early_out_minutes || 0)), 0),
   }
@@ -443,11 +445,13 @@ export default function AttendancePage() {
                   const hasLeave = lv && (lv.status === "approved" || lv.status === "pending")
                   const isVAbs = !isFut && ds !== today && !wknd && !hol && !rec && !hasLeave
 
+                  // ถ้ามี clock_in แต่ status='absent' → override เป็น present (data inconsistency safety)
+                  const recStatus = rec && rec.clock_in && rec.status === "absent" ? "present" : rec?.status
                   let cls = "", sub = ""
-                  if (isT)         { cls = "bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-200"; sub = rec ? (STATUS_TH[rec.status] || "").slice(0, 2) : "วันนี้" }
+                  if (isT)         { cls = "bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-200"; sub = rec ? (STATUS_TH[recStatus] || "").slice(0, 2) : "วันนี้" }
                   else if (hol)    { cls = "bg-rose-100 text-rose-600"; sub = "หยุด" }
                   else if (isFut)  { cls = "text-slate-300" }
-                  else if (rec)    { cls = CAL_BG[rec.status] ?? "bg-slate-100 text-slate-500"; sub = (STATUS_TH[rec.status] || "").slice(0, 2) }
+                  else if (rec)    { cls = CAL_BG[recStatus] ?? "bg-slate-100 text-slate-500"; sub = (STATUS_TH[recStatus] || "").slice(0, 2) }
                   else if (hasLeave) { cls = "bg-purple-100 text-purple-600"; sub = lv.status === "pending" ? "รอลา" : "ลา" }
                   else if (isVAbs) { cls = "bg-red-100 text-red-500"; sub = "ขาด" }
                   else if (wknd)   { cls = "text-slate-300" }
@@ -535,10 +539,11 @@ export default function AttendancePage() {
             const isHalfAfternoon = halfLeave === "afternoon"
             const isLate = (r.status === "late" || lateMin > 0) && !isHalfMorning
             const isEarlyOut = (r.status === "early_out" || earlyOutMin > 0) && !isHalfAfternoon
-            const isAbsent = r.status === "absent"
+            const hasClockedIn = !!r.clock_in
+            // ถ้ามี clock_in ห้ามแสดงเป็น "ขาดงาน" (กัน data inconsistent)
+            const isAbsent = r.status === "absent" && !hasClockedIn
             const isLeave = r.status === "leave"
             const isVirtual = !!r._virtual
-            const hasClockedIn = !!r.clock_in
             const missingClockOut = hasClockedIn && !r.clock_out
             const correction = correctionMap[r.work_date]
             const hasPendingCorrection = correction?.status === "pending"
@@ -569,9 +574,17 @@ export default function AttendancePage() {
                   {/* info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black ${STATUS_PILL[r.status] ?? "bg-slate-100 text-slate-500"}`}>
-                        {STATUS_ICON[r.status]}{isLeave && r.leave_type_name ? r.leave_type_name : (STATUS_TH[r.status] ?? r.status)}
-                      </span>
+                      {(() => {
+                        // ถ้ามี clock_in แต่ status='absent' (data inconsistent) → แสดงเป็น present/late แทน
+                        const displayStatus = (r.status === "absent" && hasClockedIn)
+                          ? (isLate ? "late" : "present")
+                          : r.status
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black ${STATUS_PILL[displayStatus] ?? "bg-slate-100 text-slate-500"}`}>
+                            {STATUS_ICON[displayStatus]}{isLeave && r.leave_type_name ? r.leave_type_name : (STATUS_TH[displayStatus] ?? displayStatus)}
+                          </span>
+                        )
+                      })()}
                       {isLeave && r.leave_status === "pending" && <span className="text-[9px] font-bold text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded-lg border border-amber-100">รออนุมัติ</span>}
                       {isLeave && r.leave_status === "approved" && <span className="text-[9px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded-lg border border-green-100">อนุมัติแล้ว</span>}
                       {hol && <span className="text-[9px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-lg border border-rose-100">{hol.length > 12 ? hol.slice(0, 12) + "…" : hol}</span>}

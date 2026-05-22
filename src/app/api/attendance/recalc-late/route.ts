@@ -204,10 +204,13 @@ export async function POST(req: NextRequest) {
     }
 
     // กำหนด status ใหม่
+    // กฎ: ถ้า clock_in มีอยู่จริง → ต้องเป็น present/late/early_out (ไม่ใช่ absent)
+    //     ถ้าเป็น "leave" คงไว้ตามเดิม (มาทำงานวันลาเป็นเคสพิเศษ)
     let newStatus = r.status
-    if (["leave", "absent"].includes(r.status as string)) {
-      // คงสถานะลา/ขาด เดิม
+    if (r.status === "leave") {
+      // คงสถานะลา (ลาแล้วแต่อาจเช็คอินมา)
     } else {
+      // ถ้ามี clock_in → ต้องไม่เป็น "absent" แม้ DB จะเก็บ absent อยู่
       newStatus = newLate > 0 ? "late" : (newEarly > 0 ? "early_out" : "present")
     }
 

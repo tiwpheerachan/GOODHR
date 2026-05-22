@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { getTrainingAccess, canManageChannel } from "@/lib/utils/training-permissions"
+import { getTrainingAccess, canManageChannel, getChannelReadFilter } from "@/lib/utils/training-permissions"
 
 /**
  * GET /api/training/dashboard?course_id=...
@@ -23,9 +23,12 @@ export async function GET(req: NextRequest) {
     .select("*, channel:training_channels(id, name, brand)")
     .eq("id", courseId).single()
   if (!course) return NextResponse.json({ error: "not found" }, { status: 404 })
-  if (!canManageChannel(access, course.channel_id)) {
+
+  const readFilter = await getChannelReadFilter(svc, access, course.channel_id)
+  if (!readFilter.allowed) {
     return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
   }
+  const canManage = canManageChannel(access, course.channel_id)
 
   // ── load core data in parallel ──
   const [modulesR, quizzesR, enrollmentsR, feedbackR] = await Promise.all([
@@ -45,8 +48,15 @@ export async function GET(req: NextRequest) {
 
   const modules = modulesR.data ?? []
   const quizzes = quizzesR.data ?? []
-  const enrollments = enrollmentsR.data ?? []
+  let enrollments = enrollmentsR.data ?? []
   const feedback = feedbackR.data ?? []
+
+  // Apply viewer subordinate filter — keep only enrollments of allowed employees
+  if (readFilter.filterEmployeeIds) {
+    const allowed = new Set(readFilter.filterEmployeeIds)
+    enrollments = enrollments.filter((e: any) => allowed.has(e.employee_id))
+  }
+
   const enrollmentIds = enrollments.map((e: any) => e.id)
   const moduleIds = modules.map((m: any) => m.id)
   const quizIds = quizzes.map((q: any) => q.id)
@@ -301,13 +311,28 @@ export async function GET(req: NextRequest) {
     ? feedback.reduce((s, f: any) => s + Number(f.rating || 0), 0) / feedback.length
     : 0
 
+  // filter feedback to subordinates as well (only show feedback from learners viewer can see)
+  let visibleFeedback = feedback
+  if (readFilter.filterEmployeeIds) {
+    const allowed = new Set(readFilter.filterEmployeeIds)
+    visibleFeedback = feedback.filter((f: any) =>
+      f.employee && allowed.has((f.employee as any).id ?? "")
+    )
+  }
+
   return NextResponse.json({
     course,
     modules: moduleStats,
     quizzes: quizStats,
     learners,
-    feedback,
+    feedback: visibleFeedback,
     online: onlineEnrollments,
+    access: {
+      can_manage: canManage,
+      is_viewer: !canManage,
+      scope: readFilter.filterEmployeeIds ? "subordinates" : "all",
+      subordinate_count: readFilter.filterEmployeeIds?.length ?? null,
+    },
     overview: {
       total_enrollments: total,
       completed,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { getTrainingAccess } from "@/lib/utils/training-permissions"
+import { getTrainingAccess, getChannelReadFilter } from "@/lib/utils/training-permissions"
 
 // Helper: ตรวจคำตอบทีละข้อ — เปรียบเทียบแบบ type-safe
 function gradeAnswer(question: any, answer: any): { correct: boolean; points: number } {
@@ -225,6 +225,34 @@ export async function GET(req: NextRequest) {
   const quizId = sp.get("quiz_id")
 
   if (!enrollmentId && !quizId) return NextResponse.json({ error: "missing" }, { status: 400 })
+
+  // ── Permission check ────────────────────────────────────────────
+  // learner สามารถดู attempts ของตัวเองได้
+  // admin/supervisor/viewer ของ channel ดูได้ (viewer scope=subordinates ต้องอยู่ในขอบเขต)
+  if (enrollmentId) {
+    const { data: en } = await svc.from("training_enrollments")
+      .select("employee_id, course:training_courses(channel_id)")
+      .eq("id", enrollmentId).maybeSingle() as any
+    if (!en) return NextResponse.json({ error: "not found" }, { status: 404 })
+
+    if (en.employee_id !== access.employeeId) {
+      const channelId = en.course?.channel_id
+      if (!channelId) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
+      const rf = await getChannelReadFilter(svc, access, channelId)
+      if (!rf.allowed) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
+      if (rf.filterEmployeeIds && !rf.filterEmployeeIds.includes(en.employee_id)) {
+        return NextResponse.json({ error: "ไม่มีสิทธิ์ดูข้อมูลคนนี้" }, { status: 403 })
+      }
+    }
+  } else if (quizId) {
+    // require admin/supervisor of the quiz's channel
+    const { data: qz } = await svc.from("training_quizzes")
+      .select("course:training_courses(channel_id)").eq("id", quizId).maybeSingle() as any
+    const channelId = qz?.course?.channel_id
+    if (!channelId) return NextResponse.json({ error: "not found" }, { status: 404 })
+    const rf = await getChannelReadFilter(svc, access, channelId)
+    if (!rf.allowed) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
+  }
 
   let q = svc.from("training_quiz_attempts")
     .select("id, attempt_no, started_at, submitted_at, score, passed, tab_switches, time_used_sec, quiz_id")

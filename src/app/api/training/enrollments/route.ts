@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { getTrainingAccess, canManageChannel } from "@/lib/utils/training-permissions"
+import { getTrainingAccess, canManageChannel, getChannelReadFilter } from "@/lib/utils/training-permissions"
 
 // GET — list enrollments
 //   ?course_id=...  → all learners in course
@@ -16,25 +16,37 @@ export async function GET(req: NextRequest) {
   const employeeId = sp.get("employee_id")
 
   if (employeeId === "me" || (employeeId && access.employeeId === employeeId)) {
-    // learner view
+    // learner view — hide enrollments whose course was soft-deleted
     const { data } = await svc.from("training_enrollments")
-      .select(`*, course:training_courses(*, channel:training_channels(name, brand)),
+      .select(`*, course:training_courses!inner(*, channel:training_channels(name, brand)),
                progress:training_module_progress(module_id, watched_pct, completed)`)
       .eq("employee_id", access.employeeId)
+      .is("course.deleted_at", null)
       .order("enrolled_at", { ascending: false })
     return NextResponse.json({ enrollments: data ?? [] })
   }
 
   if (!courseId) return NextResponse.json({ error: "missing course_id" }, { status: 400 })
 
-  // admin/supervisor view
+  // admin/supervisor/viewer view
   const { data: course } = await svc.from("training_courses").select("channel_id").eq("id", courseId).single()
-  if (!course || !canManageChannel(access, course.channel_id)) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
+  if (!course) return NextResponse.json({ error: "not found" }, { status: 404 })
 
-  const { data } = await svc.from("training_enrollments")
+  const readFilter = await getChannelReadFilter(svc, access, course.channel_id)
+  if (!readFilter.allowed) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
+
+  let q = svc.from("training_enrollments")
     .select(`*, employee:employees!training_enrollments_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, brand, position:positions(name), department:departments(name))`)
     .eq("course_id", courseId)
     .order("enrolled_at", { ascending: false })
+
+  if (readFilter.filterEmployeeIds) {
+    q = q.in("employee_id", readFilter.filterEmployeeIds.length > 0
+      ? readFilter.filterEmployeeIds
+      : ["00000000-0000-0000-0000-000000000000"])
+  }
+
+  const { data } = await q
   return NextResponse.json({ enrollments: data ?? [] })
 }
 

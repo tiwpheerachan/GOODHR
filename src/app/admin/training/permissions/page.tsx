@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   ShieldCheck, Plus, Trash2, X, Loader2, Search, ArrowLeft, Sparkles,
-  Users, Filter, CheckCircle2, AlertCircle, Building2, Briefcase,
+  Users, Filter, CheckCircle2, AlertCircle, Building2, Briefcase, Network,
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { createClient } from "@/lib/supabase/client"
@@ -23,8 +23,9 @@ export default function TrainingPermissionsPage() {
   const [employees, setEmployees] = useState<Emp[]>([])
   const [channels, setChannels] = useState<any[]>([])
   const [showAdd, setShowAdd] = useState(false)
-  const [role, setRole] = useState<"training_admin" | "training_supervisor">("training_admin")
+  const [role, setRole] = useState<"training_admin" | "training_supervisor" | "training_viewer">("training_admin")
   const [channelId, setChannelId] = useState("")
+  const [scope, setScope] = useState<"subordinates" | "all">("subordinates")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState("")
   const [deptFilter, setDeptFilter] = useState("")
@@ -73,7 +74,7 @@ export default function TrainingPermissionsPage() {
   }, [employees])
 
   const currentKey = (empId: string) =>
-    `${empId}|${role}|${role === "training_supervisor" ? (channelId || "_") : "_"}`
+    `${empId}|${role}|${(role === "training_supervisor" || role === "training_viewer") ? (channelId || "_") : "_"}`
 
   const filteredEmps = useMemo(() => {
     const s = search.trim().toLowerCase()
@@ -102,13 +103,21 @@ export default function TrainingPermissionsPage() {
 
   const grantBulk = async () => {
     if (selected.size === 0) { toast.error("เลือกพนักงานก่อน"); return }
-    if (role === "training_supervisor" && !channelId) { toast.error("เลือก channel"); return }
+    if ((role === "training_supervisor" || role === "training_viewer") && !channelId) {
+      toast.error("เลือก channel")
+      return
+    }
     setSaving(true)
     const t = toast.loading("กำลังเพิ่มสิทธิ์...")
     try {
       const res = await fetch("/api/training/permissions", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_ids: Array.from(selected), role, channel_id: channelId || undefined }),
+        body: JSON.stringify({
+          employee_ids: Array.from(selected),
+          role,
+          channel_id: channelId || undefined,
+          scope: role === "training_viewer" ? scope : undefined,
+        }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error)
@@ -128,8 +137,21 @@ export default function TrainingPermissionsPage() {
     toast.success("ถอนแล้ว"); await load()
   }
 
+  const setViewerScope = async (id: string, newScope: "subordinates" | "all") => {
+    const t = toast.loading("กำลังบันทึก...")
+    const res = await fetch("/api/training/permissions", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, scope: newScope }),
+    })
+    const d = await res.json()
+    if (!res.ok) { toast.error(d.error, { id: t }); return }
+    toast.success("เปลี่ยน scope แล้ว", { id: t })
+    await load()
+  }
+
   const adminCount = perms.filter(p => p.role === "training_admin").length
   const supCount = perms.filter(p => p.role === "training_supervisor").length
+  const viewerCount = perms.filter(p => p.role === "training_viewer").length
 
   return (
     <div className="space-y-5">
@@ -140,13 +162,19 @@ export default function TrainingPermissionsPage() {
       {/* Title bar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-2xl font-black text-slate-800">สิทธิ์ Admin / Supervisor</h2>
-          <p className="text-slate-400 text-sm">Admin {adminCount} คน · Supervisor {supCount} คน · รวม {perms.length} คน</p>
+          <h2 className="text-2xl font-black text-slate-800">สิทธิ์ Admin / Supervisor / Viewer</h2>
+          <p className="text-slate-400 text-sm">Admin {adminCount} · Supervisor {supCount} · Viewer {viewerCount} · รวม {perms.length} คน</p>
         </div>
-        <button onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-sm">
-          <Plus size={14} /> เพิ่มสิทธิ์
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link href="/admin/training/permissions/chart"
+            className="flex items-center gap-1.5 px-3 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-bold">
+            <Network size={14} /> ดูเป็นผัง
+          </Link>
+          <button onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-sm">
+            <Plus size={14} /> เพิ่มสิทธิ์
+          </button>
+        </div>
       </div>
 
       {/* ── Permissions table ── */}
@@ -176,9 +204,26 @@ export default function TrainingPermissionsPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${p.role === "training_admin" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
-                      {p.role === "training_admin" ? "🛡 Training Admin" : "👁 Supervisor"}
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                      p.role === "training_admin" ? "bg-rose-100 text-rose-700"
+                      : p.role === "training_supervisor" ? "bg-amber-100 text-amber-700"
+                      : "bg-sky-100 text-sky-700"
+                    }`}>
+                      {p.role === "training_admin" ? "🛡 Training Admin"
+                       : p.role === "training_supervisor" ? "👁 Supervisor"
+                       : "🔍 Viewer (อ่านอย่างเดียว)"}
                     </span>
+                    {p.role === "training_viewer" && (
+                      <div className="mt-1.5">
+                        <select
+                          value={p.scope ?? "subordinates"}
+                          onChange={e => setViewerScope(p.id, e.target.value as any)}
+                          className="text-[10px] font-bold bg-slate-50 border border-slate-200 rounded-md px-1.5 py-0.5 outline-none focus:border-sky-400">
+                          <option value="subordinates">เฉพาะลูกน้องในสาย</option>
+                          <option value="all">ทุกคนในช่อง</option>
+                        </select>
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs">
                     {p.channel?.name ?? <span className="text-slate-400 italic">ทุก channel</span>}
@@ -217,28 +262,51 @@ export default function TrainingPermissionsPage() {
             <div className="px-6 pt-4 space-y-3">
               <div>
                 <p className="text-xs font-black text-slate-600 mb-1.5">บทบาท</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button onClick={() => { setRole("training_admin"); setChannelId("") }}
                     className={`p-3 rounded-xl border-2 text-left transition-all ${role === "training_admin" ? "border-rose-400 bg-rose-50" : "border-slate-200 hover:border-slate-300"}`}>
-                    <p className="font-bold text-sm">🛡 Training Admin</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">เห็น/แก้ทุก channel · จัดการ permissions ได้</p>
+                    <p className="font-bold text-sm">🛡 Admin</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">เห็น/แก้ทุก channel · จัดการสิทธิ์</p>
                   </button>
                   <button onClick={() => setRole("training_supervisor")}
                     className={`p-3 rounded-xl border-2 text-left transition-all ${role === "training_supervisor" ? "border-amber-400 bg-amber-50" : "border-slate-200 hover:border-slate-300"}`}>
                     <p className="font-bold text-sm">👁 Supervisor</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">ดูแลเฉพาะ channel ที่ระบุ</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">ดูแล channel · CRUD เต็ม</p>
+                  </button>
+                  <button onClick={() => setRole("training_viewer")}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${role === "training_viewer" ? "border-sky-400 bg-sky-50" : "border-slate-200 hover:border-slate-300"}`}>
+                    <p className="font-bold text-sm">🔍 Viewer</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">อ่าน + download อย่างเดียว</p>
                   </button>
                 </div>
               </div>
 
-              {role === "training_supervisor" && (
+              {(role === "training_supervisor" || role === "training_viewer") && (
                 <div>
                   <p className="text-xs font-black text-slate-600 mb-1.5">เลือก Channel *</p>
                   <select value={channelId} onChange={e => setChannelId(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100">
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100">
                     <option value="">— เลือก channel —</option>
                     {channels.map(c => <option key={c.id} value={c.id}>{c.name}{c.brand ? ` · ${c.brand}` : ""}</option>)}
                   </select>
+                </div>
+              )}
+
+              {role === "training_viewer" && (
+                <div>
+                  <p className="text-xs font-black text-slate-600 mb-1.5">ขอบเขตที่ viewer เห็น</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => setScope("subordinates")}
+                      className={`p-2.5 rounded-xl border-2 text-left transition-all ${scope === "subordinates" ? "border-sky-400 bg-sky-50" : "border-slate-200 hover:border-slate-300"}`}>
+                      <p className="font-bold text-xs">เฉพาะลูกน้องในสาย</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">กำหนดรายชื่อเองในหน้าผัง (training-specific) — เหมาะกับหัวหน้าทีม</p>
+                    </button>
+                    <button onClick={() => setScope("all")}
+                      className={`p-2.5 rounded-xl border-2 text-left transition-all ${scope === "all" ? "border-sky-400 bg-sky-50" : "border-slate-200 hover:border-slate-300"}`}>
+                      <p className="font-bold text-xs">ทุกคนในช่อง</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">เห็นทุกผู้เรียน — แต่ยัง read-only — เหมาะกับผู้ตรวจสอบ</p>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

@@ -27,7 +27,7 @@ export default function TrainerManagePage() {
     setLoading(true)
     fetch("/api/training/me").then(r => r.json()).then(d => {
       setPerm(d); setLoading(false); setLastRefresh(new Date())
-      if (d.can_manage) {
+      if (d.can_access) {
         fetch("/api/training/reports?type=overview").then(r => r.json()).then(s => setStats(s.overview))
         fetch("/api/training/courses").then(r => r.json()).then(c => setRecentCourses((c.courses ?? []).slice(0, 4)))
       }
@@ -44,7 +44,7 @@ export default function TrainerManagePage() {
     </div>
   )
 
-  if (!perm?.can_manage) {
+  if (!perm?.can_access) {
     return (
       <div className="p-4 max-w-md mx-auto">
         <Link href="/app/training" className="inline-flex items-center gap-1 text-sm text-slate-500 mb-4">
@@ -56,7 +56,7 @@ export default function TrainerManagePage() {
           </div>
           <p className="font-black text-slate-800">ไม่มีสิทธิ์เข้าถึง</p>
           <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-            เฉพาะคนที่ได้รับสิทธิ์ Training Admin หรือ Supervisor เท่านั้น<br/>
+            เฉพาะคนที่ได้รับสิทธิ์ Training Admin / Supervisor / Viewer เท่านั้น<br/>
             ติดต่อ HR เพื่อขอสิทธิ์
           </p>
         </div>
@@ -65,6 +65,11 @@ export default function TrainerManagePage() {
   }
 
   const isAdmin = perm.is_training_admin
+  const isViewerOnly = !perm.can_manage && perm.is_viewer
+  const roleLabel = isAdmin ? "TRAINING ADMIN" : isViewerOnly ? "VIEWER (อ่านอย่างเดียว)" : "SUPERVISOR"
+  const channelCount = isViewerOnly
+    ? (perm.viewer_channels?.length ?? 0)
+    : (perm.supervisor_channel_ids?.length ?? 0)
 
   return (
     <div className="p-4 lg:p-6 max-w-5xl mx-auto space-y-5 pb-32">
@@ -75,12 +80,14 @@ export default function TrainerManagePage() {
       {/* Title bar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-black tracking-[0.2em] px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full">
-              {isAdmin ? "TRAINING ADMIN" : "SUPERVISOR"}
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className={`text-[10px] font-black tracking-[0.2em] px-2 py-0.5 rounded-full ${
+              isViewerOnly ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700"
+            }`}>
+              {roleLabel}
             </span>
-            {perm.supervisor_channel_ids?.length > 0 && (
-              <span className="text-[10px] text-slate-400">{perm.supervisor_channel_ids.length} ช่องในความดูแล</span>
+            {channelCount > 0 && (
+              <span className="text-[10px] text-slate-400">{channelCount} ช่อง{isViewerOnly ? "ที่ดูได้" : "ในความดูแล"}</span>
             )}
           </div>
           <h2 className="text-2xl font-black text-slate-800">จัดการเนื้อหาการเรียน</h2>

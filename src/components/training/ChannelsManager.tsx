@@ -31,6 +31,7 @@ export default function ChannelsManager({ basePath }: { basePath: string }) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState("")
+  const [perm, setPerm] = useState<any>(null)
   const [delTarget, setDelTarget] = useState<Channel | null>(null)
   const [delCounts, setDelCounts] = useState<{ courses: number; loading: boolean } | null>(null)
   const [delConfirmText, setDelConfirmText] = useState("")
@@ -49,6 +50,17 @@ export default function ChannelsManager({ basePath }: { basePath: string }) {
     } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    fetch("/api/training/me").then(r => r.json()).then(d => setPerm(d))
+  }, [])
+
+  const canManageChan = (chId: string) => {
+    if (!perm) return false
+    if (perm.is_training_admin || perm.is_base_admin) return true
+    return (perm.supervisor_channel_ids ?? []).includes(chId)
+  }
+  const canCreateChannel = perm?.is_training_admin || perm?.is_base_admin
+  const isViewerOnly = perm && !perm.can_manage && perm.is_viewer
 
   const source = view === "trash" ? trash : channels
   const filtered = useMemo(() => {
@@ -207,7 +219,7 @@ export default function ChannelsManager({ basePath }: { basePath: string }) {
             className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 disabled:opacity-50">
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
           </button>
-          {view === "active" && (
+          {view === "active" && canCreateChannel && (
             <button onClick={openCreate}
               className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-sm">
               <Plus size={14} /> สร้างช่องใหม่
@@ -215,6 +227,21 @@ export default function ChannelsManager({ basePath }: { basePath: string }) {
           )}
         </div>
       </div>
+
+      {/* Viewer banner */}
+      {isViewerOnly && view === "active" && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-start gap-2.5">
+          <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+            <Layers size={14} className="text-amber-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-black text-amber-900">โหมดอ่านอย่างเดียว · Viewer</p>
+            <p className="text-[11px] text-amber-700 mt-0.5">
+              ดูช่อง · ดูคอร์สและคะแนนได้ — แต่ไม่สามารถสร้าง/แก้ไข/ลบช่องได้ (ติดต่อหัวหน้าหากต้องการสิทธิ์)
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Trash banner */}
       {view === "trash" && (
@@ -296,16 +323,18 @@ export default function ChannelsManager({ basePath }: { basePath: string }) {
                 )}
                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   {view === "active" ? (
-                    <>
-                      <button onClick={() => openEdit(ch)}
-                        className="p-1.5 bg-white/90 hover:bg-white rounded-lg shadow text-slate-700" title="แก้ไข">
-                        <Edit2 size={12} />
-                      </button>
-                      <button onClick={() => softDelete(ch)} disabled={busyId === ch.id}
-                        className="p-1.5 bg-rose-500/90 hover:bg-rose-500 rounded-lg shadow text-white disabled:opacity-50" title="ย้ายไปถังขยะ (กู้คืนได้)">
-                        {busyId === ch.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                      </button>
-                    </>
+                    canManageChan(ch.id) ? (
+                      <>
+                        <button onClick={() => openEdit(ch)}
+                          className="p-1.5 bg-white/90 hover:bg-white rounded-lg shadow text-slate-700" title="แก้ไข">
+                          <Edit2 size={12} />
+                        </button>
+                        <button onClick={() => softDelete(ch)} disabled={busyId === ch.id}
+                          className="p-1.5 bg-rose-500/90 hover:bg-rose-500 rounded-lg shadow text-white disabled:opacity-50" title="ย้ายไปถังขยะ (กู้คืนได้)">
+                          {busyId === ch.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                        </button>
+                      </>
+                    ) : null
                   ) : (
                     <>
                       <button onClick={() => restore(ch)} disabled={busyId === ch.id}
@@ -350,7 +379,7 @@ export default function ChannelsManager({ basePath }: { basePath: string }) {
                 )}
                 {view === "trash" && ch.updated_at && (
                   <p className="text-[10px] text-amber-700 mt-2 text-center">
-                    ลบเมื่อ {format(new Date(ch.updated_at), "d MMM yyyy HH:mm", { locale: th })}
+                    อัปเดตล่าสุด {format(new Date(ch.updated_at), "d MMM yyyy HH:mm", { locale: th })}
                   </p>
                 )}
               </div>

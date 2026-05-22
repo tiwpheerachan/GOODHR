@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { getTrainingAccess, canManageChannel } from "@/lib/utils/training-permissions"
+import { getTrainingAccess, canManageChannel, getAccessibleChannelIds } from "@/lib/utils/training-permissions"
 
 // GET — list courses (filter by channel_id optional)
 export async function GET(req: NextRequest) {
@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
   const channelId = sp.get("channel_id")
   const status = sp.get("status")
   const includeModules = sp.get("include_modules") === "1"
+  const showDeleted = sp.get("deleted") === "1"  // recycle bin view
 
   let q = svc.from("training_courses")
     .select(includeModules
@@ -29,10 +30,20 @@ export async function GET(req: NextRequest) {
   if (channelId) q = q.eq("channel_id", channelId)
   if (status) q = q.eq("status", status)
 
-  // scope by access
-  if (!access.isTrainingAdmin && access.isSupervisor && access.supervisorChannelIds.length > 0) {
-    q = q.in("channel_id", access.supervisorChannelIds)
-  } else if (!access.isTrainingAdmin && !access.isSupervisor) {
+  // soft-delete filter (deleted_at column added via supabase_training_course_soft_delete.sql)
+  if (showDeleted) {
+    q = q.not("deleted_at", "is", null)
+  } else {
+    q = q.is("deleted_at", null)
+  }
+
+  // scope by access — admin sees all; supervisor/viewer scoped to their channels
+  const accessible = getAccessibleChannelIds(access)
+  if (accessible === "ALL") {
+    // admin — no extra filter
+  } else if (accessible.length > 0) {
+    q = q.in("channel_id", accessible)
+  } else {
     return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
   }
 
@@ -111,6 +122,8 @@ export async function PATCH(req: NextRequest) {
 }
 
 // DELETE
+//   default: soft delete (set deleted_at = now) — recoverable
+//   ?hard=1: HARD delete — cascade ลบ modules/quizzes/enrollments/progress/attempts ทั้งหมด
 export async function DELETE(req: NextRequest) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -118,14 +131,41 @@ export async function DELETE(req: NextRequest) {
 
   const svc = createServiceClient()
   const access = await getTrainingAccess(svc, user.id)
-  const id = new URL(req.url).searchParams.get("id")
+  const url = new URL(req.url)
+  const id = url.searchParams.get("id")
+  const hard = url.searchParams.get("hard") === "1"
   if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 })
 
-  const { data: course } = await svc.from("training_courses").select("channel_id").eq("id", id).single()
+  const { data: course } = await svc.from("training_courses").select("id, channel_id, title").eq("id", id).maybeSingle()
   if (!course) return NextResponse.json({ error: "not found" }, { status: 404 })
   if (!canManageChannel(access, course.channel_id)) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
 
-  const { error } = await svc.from("training_courses").update({ status: "archived" }).eq("id", id)
+  if (!hard) {
+    const { error } = await svc.from("training_courses")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ success: true, mode: "soft" })
+  }
+
+  // HARD delete — collect counts then cascade
+  const [{ count: enrollCount }, { count: moduleCount }, { count: quizCount }] = await Promise.all([
+    svc.from("training_enrollments").select("id", { count: "exact", head: true }).eq("course_id", id),
+    svc.from("training_modules").select("id", { count: "exact", head: true }).eq("course_id", id),
+    svc.from("training_quizzes").select("id", { count: "exact", head: true }).eq("course_id", id),
+  ])
+
+  const { error } = await svc.from("training_courses").delete().eq("id", id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ success: true })
+
+  return NextResponse.json({
+    success: true,
+    mode: "hard",
+    deleted: {
+      course:      course.title,
+      modules:     moduleCount ?? 0,
+      quizzes:     quizCount ?? 0,
+      enrollments: enrollCount ?? 0,
+    },
+  })
 }

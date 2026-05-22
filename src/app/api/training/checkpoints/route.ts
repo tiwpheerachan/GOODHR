@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { getTrainingAccess, canManageChannel } from "@/lib/utils/training-permissions"
+import { getTrainingAccess, canManageChannel, canViewChannel } from "@/lib/utils/training-permissions"
 
 async function verifyModuleAccess(svc: any, access: any, moduleId: string) {
   const { data: m } = await svc.from("training_modules")
@@ -14,11 +14,24 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const svc = createServiceClient()
+  const access = await getTrainingAccess(svc, user.id)
   const moduleId = new URL(req.url).searchParams.get("module_id")
   if (!moduleId) return NextResponse.json({ error: "missing module_id" }, { status: 400 })
+
+  // Only channel managers/viewers can see correct_answer; learners get sanitized list
+  const { data: m } = await svc.from("training_modules")
+    .select("course:training_courses(channel_id)").eq("id", moduleId).single()
+  const channelId = (m?.course as any)?.channel_id ?? null
+  const canSeeAnswers = canViewChannel(access, channelId)
+
   const { data } = await svc.from("training_video_checkpoints")
     .select("*").eq("module_id", moduleId).order("trigger_at_sec")
-  return NextResponse.json({ checkpoints: data ?? [] })
+  const safe = (data ?? []).map((cp: any) => {
+    if (canSeeAnswers) return cp
+    const { correct_answer, ...rest } = cp
+    return rest
+  })
+  return NextResponse.json({ checkpoints: safe })
 }
 
 export async function POST(req: NextRequest) {

@@ -64,9 +64,12 @@ export async function GET(req: NextRequest) {
   if (cRes.error) return NextResponse.json({ error: cRes.error.message }, { status: 500 })
   if (!cRes.data) return NextResponse.json({ error: "ไม่พบคอร์ส" }, { status: 404 })
 
-  // ── ตรวจ open/close date (เฉพาะ learner, admin ดูได้เสมอ) ─────
+  // ── ตรวจ open/close date + soft-delete (เฉพาะ learner, admin ดูได้เสมอ) ─────
   const course = cRes.data
   if (!isManager) {
+    if (course.deleted_at) {
+      return NextResponse.json({ error: "คอร์สนี้ถูกลบแล้ว" }, { status: 404 })
+    }
     const today = new Date().toISOString().slice(0, 10)
     if (course.status !== "published") {
       return NextResponse.json({ error: "คอร์สยังไม่เปิด" }, { status: 403 })
@@ -79,9 +82,22 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // strip checkpoint correct_answer for learners
+  const modules = (mRes.data ?? []).map((m: any) => {
+    if (isManager) return m
+    if (!m.checkpoints) return m
+    return {
+      ...m,
+      checkpoints: m.checkpoints.map((cp: any) => {
+        const { correct_answer, ...safe } = cp
+        return safe
+      }),
+    }
+  })
+
   return NextResponse.json({
     course,
-    modules: mRes.data ?? [],
+    modules,
     quizzes: qRes.data ?? [],
     enrollment,
     progress: pRes.data ?? [],

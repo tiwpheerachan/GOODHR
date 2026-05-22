@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
   const svc = createServiceClient()
   const access = await getTrainingAccess(svc, user.id)
-  if (!access.isTrainingAdmin && !access.isSupervisor) {
+  if (!access.isTrainingAdmin && !access.isSupervisor && !access.isViewer) {
     return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
   }
 
@@ -26,8 +26,12 @@ export async function GET(req: NextRequest) {
     .eq("is_active", !showDeleted)
     .order(showDeleted ? "updated_at" : "name", { ascending: !showDeleted })
 
-  if (!access.isTrainingAdmin && access.isSupervisor) {
-    q = q.in("id", access.supervisorChannelIds.length > 0 ? access.supervisorChannelIds : ["00000000-0000-0000-0000-000000000000"])
+  if (!access.isTrainingAdmin) {
+    const ids = Array.from(new Set([
+      ...access.supervisorChannelIds,
+      ...access.viewerChannels.map(v => v.channel_id),
+    ]))
+    q = q.in("id", ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"])
   } else if (access.companyId) {
     q = q.eq("company_id", access.companyId)
   }

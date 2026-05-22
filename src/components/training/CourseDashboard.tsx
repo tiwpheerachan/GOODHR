@@ -4,7 +4,7 @@ import Link from "next/link"
 import {
   Users, CheckCircle2, Clock, AlertCircle, Award, TrendingUp,
   Star, Activity, BookOpen, Loader2, Eye, FileText, Trophy,
-  Wifi, BarChart3, Target, ChevronRight, FileSpreadsheet,
+  Wifi, BarChart3, Target, ChevronRight, FileSpreadsheet, ShieldCheck,
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
@@ -122,9 +122,28 @@ export default function CourseDashboard({ courseId, basePath, compact = false }:
   }
 
   const { overview, modules, quizzes, feedback, course } = data
+  const accessInfo = data.access ?? { can_manage: true, is_viewer: false, scope: "all", subordinate_count: null }
 
   return (
     <div className={compact ? "space-y-3" : "space-y-5"}>
+      {/* Viewer banner (read-only mode) */}
+      {accessInfo.is_viewer && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-start gap-2.5">
+          <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+            <ShieldCheck size={14} className="text-amber-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-black text-amber-900">โหมดอ่านอย่างเดียว · Viewer</p>
+            <p className="text-[11px] text-amber-700 mt-0.5">
+              {accessInfo.scope === "subordinates"
+                ? <>เห็นเฉพาะลูกน้องในสายของคุณ — ขณะนี้แสดง <b>{accessInfo.subordinate_count ?? 0}</b> คนที่อยู่ในขอบเขต</>
+                : "เห็นข้อมูลทุกคนในช่อง — แต่แก้ไขไม่ได้"}
+              {" · "}ดาวน์โหลด Excel ของช่องตามขอบเขตนี้ได้
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Hero — hidden in compact mode (builder already has its own) */}
       {!compact && (
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-500 via-blue-500 to-sky-500 p-5 lg:p-6 text-white shadow-md">

@@ -11,10 +11,13 @@ export async function GET() {
   const svc = createServiceClient()
   const access = await getTrainingAccess(svc, user.id)
   return NextResponse.json({
-    can_manage: access.isTrainingAdmin || access.isSupervisor,
+    can_manage: access.isTrainingAdmin || access.isSupervisor,    // has write access anywhere
+    can_access: access.isTrainingAdmin || access.isSupervisor || access.isViewer, // can enter admin area
     is_training_admin: access.isTrainingAdmin,
     is_supervisor: access.isSupervisor,
+    is_viewer: access.isViewer,
     is_base_admin: access.isBaseAdmin,
     supervisor_channel_ids: access.supervisorChannelIds,
+    viewer_channels: access.viewerChannels,
   })
 }

@@ -1,0 +1,576 @@
+"use client"
+import { useEffect, useMemo, useState, useRef } from "react"
+import { useParams, useRouter } from "next/navigation"
+import Link from "next/link"
+import {
+  ArrowLeft, MapPin, Camera, Loader2, Check, X, ImageIcon,
+  Save, Send, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
+  Trash2, Store, Calendar, Clock, User, FileText, MessageSquare,
+  ClipboardCheck, BadgeCheck, Eye,
+} from "lucide-react"
+import toast from "react-hot-toast"
+import { format } from "date-fns"
+import { th } from "date-fns/locale"
+
+type Item = {
+  id: string; order_no: number; code: string
+  question_th: string; question_en?: string
+  sub_notes: string[]
+  weight: number
+  answer_type: "yes_no" | "score_1_5" | "text" | "number"
+  requires_note: boolean; requires_photo: boolean
+}
+type Answer = {
+  evaluation_id: string; item_id: string
+  answer_value: any; is_pass: boolean | null
+  earned_weight: number
+  note?: string
+  photo_urls: string[]
+}
+
+export default function BranchEvalDetailPage() {
+  const { id } = useParams<{ id: string }>()
+  const router = useRouter()
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [pendingPhoto, setPendingPhoto] = useState<{ itemId: string | null; kind: "checkin" | "answer" } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [gpsLoading, setGpsLoading] = useState(false)
+  const [headerEdit, setHeaderEdit] = useState({ store_manager: "", store_staff: "", general_notes: "", action_plan: "", visit_date: "", visit_time: "" })
+  const [savingHeader, setSavingHeader] = useState(false)
+  const [reviewerNotes, setReviewerNotes] = useState("")
+
+  const load = async () => {
+    setLoading(true)
+    const d = await fetch(`/api/branch-eval/evaluations?id=${id}`).then(r => r.json())
+    setData(d)
+    if (d.evaluation) {
+      setHeaderEdit({
+        store_manager: d.evaluation.store_manager ?? "",
+        store_staff: d.evaluation.store_staff ?? "",
+        general_notes: d.evaluation.general_notes ?? "",
+        action_plan: d.evaluation.action_plan ?? "",
+        visit_date: d.evaluation.visit_date ?? "",
+        visit_time: d.evaluation.visit_time ?? "",
+      })
+      setReviewerNotes(d.evaluation.reviewer_notes ?? "")
+    }
+    setLoading(false)
+  }
+  useEffect(() => { if (id) load() }, [id])
+
+  if (loading) return (
+    <div className="p-4 max-w-4xl mx-auto">
+      <div className="h-20 bg-slate-100 rounded-2xl animate-pulse mb-3" />
+      <div className="space-y-2">
+        {[1,2,3,4,5].map(i => <div key={i} className="h-20 bg-slate-100 rounded-xl animate-pulse" />)}
+      </div>
+    </div>
+  )
+  if (!data?.evaluation) return (
+    <div className="p-6 text-center text-slate-400">ไม่พบฟอร์ม</div>
+  )
+
+  const ev = data.evaluation
+  const items: Item[] = data.items ?? []
+  const answersList: Answer[] = data.answers ?? []
+  const access = data.access ?? { can_edit: false, can_review: false, is_owner: false }
+  const answerById = new Map<string, Answer>(answersList.map(a => [a.item_id, a]))
+
+  // ── Save answer (debounced not needed for now — save on blur/change) ──
+  const saveAnswer = async (itemId: string, payload: Partial<Answer>) => {
+    setBusy(itemId)
+    try {
+      const cur = answerById.get(itemId)
+      const body = {
+        evaluation_id: id,
+        item_id: itemId,
+        answer_value: payload.answer_value ?? cur?.answer_value ?? null,
+        note: payload.note ?? cur?.note ?? null,
+        photo_urls: payload.photo_urls ?? cur?.photo_urls ?? [],
+      }
+      const res = await fetch("/api/branch-eval/answers", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        toast.error(d.error || "บันทึกไม่สำเร็จ")
+      }
+      await load()
+    } finally { setBusy(null) }
+  }
+
+  // ── Save header fields ──
+  const saveHeader = async () => {
+    setSavingHeader(true)
+    const t = toast.loading("กำลังบันทึก...")
+    try {
+      const res = await fetch("/api/branch-eval/evaluations", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...headerEdit }),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "บันทึกไม่สำเร็จ", { id: t }); return }
+      toast.success("บันทึกแล้ว", { id: t })
+      await load()
+    } finally { setSavingHeader(false) }
+  }
+
+  // ── Check-in (GPS + optional photo) ──
+  const doCheckin = async (withPhoto: boolean) => {
+    if (!navigator.geolocation) { toast.error("เบราเซอร์ไม่รองรับ GPS"); return }
+    setGpsLoading(true)
+    const t = toast.loading("กำลังหาตำแหน่ง...")
+    try {
+      const pos = await new Promise<GeolocationPosition>((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 }))
+      const { latitude, longitude } = pos.coords
+
+      let photoUrl: string | null = null
+      if (withPhoto) {
+        toast.loading("รอถ่ายรูป...", { id: t })
+        const file = await pickFile()
+        if (file) {
+          const fd = new FormData()
+          fd.append("file", file)
+          fd.append("evaluation_id", id as string)
+          fd.append("kind", "checkin")
+          const up = await fetch("/api/branch-eval/upload", { method: "POST", body: fd }).then(r => r.json())
+          photoUrl = up.url || null
+        }
+      }
+
+      const res = await fetch("/api/branch-eval/checkin", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evaluation_id: id, lat: latitude, lng: longitude, photo_url: photoUrl }),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "เช็คอินไม่สำเร็จ", { id: t }); return }
+      toast.success(
+        d.distance_m != null
+          ? `เช็คอินแล้ว · ห่างจากสาขา ${d.distance_m} m`
+          : "เช็คอินแล้ว",
+        { id: t },
+      )
+      await load()
+    } catch (e: any) {
+      toast.error(e?.message || "เช็คอินไม่สำเร็จ", { id: t })
+    } finally { setGpsLoading(false) }
+  }
+
+  // ── Upload photo for answer ──
+  const uploadPhotoForItem = async (itemId: string) => {
+    const file = await pickFile()
+    if (!file) return
+    setBusy(itemId)
+    const t = toast.loading("กำลังอัปโหลด...")
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      fd.append("evaluation_id", id as string)
+      fd.append("kind", "answer")
+      const up = await fetch("/api/branch-eval/upload", { method: "POST", body: fd }).then(r => r.json())
+      if (!up.url) { toast.error(up.error || "อัปโหลดไม่สำเร็จ", { id: t }); return }
+      const cur = answerById.get(itemId)
+      const photos = [...(cur?.photo_urls ?? []), up.url]
+      await saveAnswer(itemId, { photo_urls: photos })
+      toast.success("อัปโหลดแล้ว", { id: t })
+    } finally { setBusy(null) }
+  }
+
+  // ── Submit evaluation ──
+  const submit = async () => {
+    if (!confirm("ส่งฟอร์มเลย? (แก้ไขเพิ่มเติมได้หลังส่ง)")) return
+    const t = toast.loading("กำลังส่ง...")
+    const res = await fetch("/api/branch-eval/evaluations", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action: "submit" }),
+    })
+    const d = await res.json()
+    if (!res.ok) { toast.error(d.error, { id: t }); return }
+    toast.success("ส่งแล้ว", { id: t })
+    await load()
+  }
+
+  // ── Review (supervisor) ──
+  const doReview = async () => {
+    const t = toast.loading("กำลังบันทึก review...")
+    const res = await fetch("/api/branch-eval/evaluations", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action: "review", reviewer_notes: reviewerNotes }),
+    })
+    const d = await res.json()
+    if (!res.ok) { toast.error(d.error, { id: t }); return }
+    toast.success("รีวิวแล้ว", { id: t })
+    await load()
+  }
+
+  const answered = items.filter(i => answerById.has(i.id)).length
+  const passed = items.filter(i => answerById.get(i.id)?.is_pass === true).length
+  const filled = items.filter(i => answerById.has(i.id))
+  const progressPct = items.length > 0 ? Math.round((answered / items.length) * 100) : 0
+
+  const STATUS_LABEL: Record<string, string> = { draft: "ร่าง", submitted: "ส่งแล้ว", reviewed: "รีวิวแล้ว" }
+
+  return (
+    <div className="p-4 lg:p-6 max-w-4xl mx-auto space-y-3 pb-32">
+      <Link href="/app/branch-eval" className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-700">
+        <ArrowLeft size={14} /> รายการประเมิน
+      </Link>
+
+      {/* ── Header ── */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-4 lg:p-5 shadow-sm">
+        <div className="flex items-start justify-between flex-wrap gap-3 mb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-indigo-50 flex items-center justify-center">
+              <Store size={22} className="text-indigo-600" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold tracking-wider text-slate-400">{ev.template?.name}</p>
+              <h1 className="text-xl font-black text-slate-800">{ev.branch?.name}</h1>
+              <p className="text-xs text-slate-500">
+                <Calendar size={11} className="inline" /> {format(new Date(ev.visit_date), "EEEE d MMM yyyy", { locale: th })}
+                {ev.evaluator && <> · <User size={11} className="inline" /> {ev.evaluator.first_name_th} {ev.evaluator.last_name_th}</>}
+              </p>
+            </div>
+          </div>
+          <span className={`text-[10px] font-black px-2 py-1 rounded-full ${
+            ev.status === "draft" ? "bg-slate-100 text-slate-700"
+            : ev.status === "submitted" ? "bg-sky-100 text-sky-700"
+            : "bg-emerald-100 text-emerald-700"
+          }`}>
+            {STATUS_LABEL[ev.status]}
+          </span>
+        </div>
+
+        {/* progress + score */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-3">
+          <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-100">
+            <p className="text-[10px] font-bold text-slate-400 uppercase">กรอกแล้ว</p>
+            <p className="text-lg font-black text-slate-800">{answered} / {items.length}</p>
+            <div className="h-1 bg-slate-200 rounded-full mt-1 overflow-hidden">
+              <div className="h-full bg-indigo-500 transition-all" style={{ width: `${progressPct}%` }} />
+            </div>
+          </div>
+          <div className="bg-emerald-50 rounded-xl p-2.5 border border-emerald-100">
+            <p className="text-[10px] font-bold text-emerald-700 uppercase">ผ่านเกณฑ์</p>
+            <p className="text-lg font-black text-emerald-800">{passed} / {answered || 0}</p>
+          </div>
+          <div className="bg-indigo-50 rounded-xl p-2.5 border border-indigo-100">
+            <p className="text-[10px] font-bold text-indigo-700 uppercase">คะแนน</p>
+            <p className="text-lg font-black text-indigo-800">
+              {Number(ev.percentage).toFixed(1)}%
+              <span className="text-[10px] text-indigo-500 ml-1 font-normal">({ev.total_score}/{ev.total_weight})</span>
+            </p>
+          </div>
+        </div>
+
+        {/* ── check-in widget ── */}
+        <div className="mt-3 p-3 bg-gradient-to-br from-sky-50 to-indigo-50 border border-sky-100 rounded-xl">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <MapPin size={14} className="text-sky-600" />
+              <p className="text-xs font-black text-slate-800">เช็คอินที่สาขา (ทางเลือก)</p>
+            </div>
+            {ev.checkin_at ? (
+              <span className="text-[10px] text-emerald-700 font-bold inline-flex items-center gap-1">
+                <CheckCircle2 size={11} /> เช็คอินแล้ว {format(new Date(ev.checkin_at), "HH:mm")}
+                {ev.checkin_distance_m != null && <> · ห่าง {ev.checkin_distance_m} m</>}
+              </span>
+            ) : (
+              <span className="text-[10px] text-slate-500">ยังไม่ได้เช็คอิน</span>
+            )}
+          </div>
+          {access.can_edit && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              <button onClick={() => doCheckin(false)} disabled={gpsLoading}
+                className="text-[11px] px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold inline-flex items-center gap-1 disabled:opacity-50">
+                {gpsLoading ? <Loader2 size={11} className="animate-spin" /> : <MapPin size={11} />}
+                เช็คอิน GPS
+              </button>
+              <button onClick={() => doCheckin(true)} disabled={gpsLoading}
+                className="text-[11px] px-2.5 py-1 bg-white border border-sky-300 hover:bg-sky-50 text-sky-700 rounded-lg font-bold inline-flex items-center gap-1 disabled:opacity-50">
+                <Camera size={11} /> GPS + รูป
+              </button>
+              {ev.checkin_photo_url && (
+                <a href={ev.checkin_photo_url} target="_blank" rel="noreferrer"
+                  className="text-[11px] px-2.5 py-1 bg-white border border-emerald-300 text-emerald-700 rounded-lg font-bold inline-flex items-center gap-1">
+                  <Eye size={11} /> ดูรูปเช็คอิน
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Header fields (editable) ── */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm space-y-2.5">
+        <div className="flex items-center gap-2">
+          <FileText size={13} className="text-slate-500" />
+          <p className="text-sm font-black text-slate-800">ข้อมูลการตรวจ</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <Field label="วันที่ตรวจ" type="date" value={headerEdit.visit_date} disabled={!access.can_edit}
+            onChange={(v: string) => setHeaderEdit(h => ({ ...h, visit_date: v }))} />
+          <Field label="เวลา" type="time" value={headerEdit.visit_time} disabled={!access.can_edit}
+            onChange={(v: string) => setHeaderEdit(h => ({ ...h, visit_time: v }))} />
+          <Field label="Store Manager / Supervisor" value={headerEdit.store_manager} disabled={!access.can_edit}
+            onChange={(v: string) => setHeaderEdit(h => ({ ...h, store_manager: v }))} placeholder="ชื่อหัวหน้าร้าน" />
+          <Field label="Sales Staff" value={headerEdit.store_staff} disabled={!access.can_edit}
+            onChange={(v: string) => setHeaderEdit(h => ({ ...h, store_staff: v }))} placeholder="พนักงานในร้าน" />
+        </div>
+        <div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">หมายเหตุทั่วไป</p>
+          <textarea value={headerEdit.general_notes} disabled={!access.can_edit}
+            onChange={e => setHeaderEdit(h => ({ ...h, general_notes: e.target.value }))} rows={2}
+            placeholder="สรุปสภาพร้าน / ข้อสังเกต / สิ่งที่ต้อง follow up"
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-indigo-400 disabled:opacity-60 resize-none" />
+        </div>
+        <div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Action Plan</p>
+          <textarea value={headerEdit.action_plan} disabled={!access.can_edit}
+            onChange={e => setHeaderEdit(h => ({ ...h, action_plan: e.target.value }))} rows={2}
+            placeholder="แผนปรับปรุงสาขานี้"
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-indigo-400 disabled:opacity-60 resize-none" />
+        </div>
+        {access.can_edit && (
+          <button onClick={saveHeader} disabled={savingHeader}
+            className="px-3 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50">
+            {savingHeader ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+            บันทึกข้อมูล
+          </button>
+        )}
+      </div>
+
+      {/* ── Items (the checklist) ── */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-3 shadow-sm">
+        <div className="flex items-center gap-2 mb-2 px-1">
+          <ClipboardCheck size={13} className="text-indigo-500" />
+          <p className="text-sm font-black text-slate-800">รายการตรวจ ({items.length} ข้อ · รวม {ev.total_weight} คะแนน)</p>
+        </div>
+        <div className="space-y-2">
+          {items.map(it => {
+            const a = answerById.get(it.id)
+            return <ItemRow key={it.id} item={it} answer={a}
+              busy={busy === it.id}
+              disabled={!access.can_edit}
+              onSetAnswer={(val) => saveAnswer(it.id, { answer_value: val })}
+              onSetNote={(note) => saveAnswer(it.id, { note })}
+              onAddPhoto={() => uploadPhotoForItem(it.id)}
+              onRemovePhoto={async (url) => {
+                const photos = (a?.photo_urls ?? []).filter(p => p !== url)
+                await saveAnswer(it.id, { photo_urls: photos })
+              }}
+            />
+          })}
+        </div>
+      </div>
+
+      {/* ── Reviewer panel (supervisor only, after submitted) ── */}
+      {access.can_review && ev.status !== "draft" && (
+        <div className="bg-white rounded-2xl border border-emerald-200 p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <BadgeCheck size={14} className="text-emerald-600" />
+            <p className="text-sm font-black text-emerald-900">รีวิว (Supervisor)</p>
+            {ev.reviewer && (
+              <span className="text-[10px] text-emerald-700">
+                · โดย {ev.reviewer.first_name_th} {ev.reviewer.last_name_th} ({format(new Date(ev.reviewed_at), "d MMM yyyy HH:mm")})
+              </span>
+            )}
+          </div>
+          <textarea value={reviewerNotes} onChange={e => setReviewerNotes(e.target.value)}
+            placeholder="ความเห็นของ supervisor (ผ่าน/ไม่ผ่าน + คำแนะนำ)"
+            rows={3}
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400 resize-none" />
+          <button onClick={doReview}
+            className="mt-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5">
+            <BadgeCheck size={12} /> บันทึกรีวิว
+          </button>
+        </div>
+      )}
+
+      {/* ── Sticky bottom action bar ── */}
+      {access.can_edit && (
+        <div className="fixed bottom-3 left-3 right-3 lg:relative lg:bottom-auto lg:left-auto lg:right-auto bg-white border border-slate-200 rounded-2xl p-3 shadow-xl lg:shadow-sm flex items-center justify-between gap-2 z-30">
+          <p className="text-[11px] text-slate-500">
+            <b className="text-slate-800">{answered}/{items.length}</b> ข้อ · <b className="text-indigo-700">{Number(ev.percentage).toFixed(1)}%</b>
+          </p>
+          <div className="flex gap-1.5">
+            {ev.status === "draft" && (
+              <button onClick={submit}
+                className="px-3 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-xs font-black inline-flex items-center gap-1.5 shadow">
+                <Send size={12} /> ส่งฟอร์ม
+              </button>
+            )}
+            {ev.status !== "draft" && (
+              <Link href="/app/branch-eval"
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black inline-flex items-center gap-1.5">
+                <ArrowLeft size={12} /> เสร็จสิ้น
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// helper: pick a single file (uses hidden input)
+function pickFile(): Promise<File | null> {
+  return new Promise(resolve => {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = "image/*"
+    ;(input as any).capture = "environment"  // mobile camera
+    input.onchange = () => resolve(input.files?.[0] ?? null)
+    input.click()
+  })
+}
+
+function Field({ label, value, onChange, type = "text", disabled, placeholder }: any) {
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">{label}</p>
+      <input type={type} value={value ?? ""} onChange={e => onChange(e.target.value)}
+        disabled={disabled} placeholder={placeholder}
+        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-indigo-400 disabled:opacity-60" />
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+function ItemRow({ item, answer, busy, disabled, onSetAnswer, onSetNote, onAddPhoto, onRemovePhoto }: {
+  item: Item; answer?: Answer; busy: boolean; disabled: boolean
+  onSetAnswer: (val: any) => void
+  onSetNote: (note: string) => void
+  onAddPhoto: () => void
+  onRemovePhoto: (url: string) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [note, setNote] = useState(answer?.note ?? "")
+  useEffect(() => { setNote(answer?.note ?? "") }, [answer?.note])
+  const isPass = answer?.is_pass
+
+  return (
+    <div className={`border rounded-xl overflow-hidden transition-all ${
+      isPass === true ? "bg-emerald-50/60 border-emerald-200"
+      : isPass === false ? "bg-rose-50/60 border-rose-200"
+      : "bg-white border-slate-100"
+    }`}>
+      <div className="p-3 flex items-start gap-2.5">
+        <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs flex-shrink-0 ${
+          isPass === true ? "bg-emerald-500 text-white"
+          : isPass === false ? "bg-rose-500 text-white"
+          : "bg-slate-200 text-slate-600"
+        }`}>{item.code}</div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-slate-800 leading-snug">{item.question_th}</p>
+          {item.question_en && <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{item.question_en}</p>}
+          {item.sub_notes.length > 0 && (
+            <button onClick={() => setExpanded(s => !s)}
+              className="text-[10px] text-indigo-600 hover:text-indigo-700 mt-1 inline-flex items-center gap-0.5">
+              {expanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />} รายละเอียดเพิ่ม
+            </button>
+          )}
+          {expanded && (
+            <ul className="mt-1 pl-3 text-[11px] text-slate-500 space-y-0.5 list-disc">
+              {item.sub_notes.map((n, i) => <li key={i}>{n}</li>)}
+            </ul>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+            {item.weight}p
+          </span>
+          {busy && <Loader2 size={12} className="animate-spin text-slate-400" />}
+        </div>
+      </div>
+
+      <div className="px-3 pb-3 space-y-2">
+        {/* answer input */}
+        {item.answer_type === "yes_no" && (
+          <div className="flex gap-1.5">
+            <button onClick={() => onSetAnswer({ yes: true })} disabled={disabled || busy}
+              className={`flex-1 py-2 rounded-lg text-sm font-black inline-flex items-center justify-center gap-1.5 border-2 transition-all disabled:opacity-50 ${
+                answer?.answer_value?.yes === true
+                  ? "bg-emerald-500 text-white border-emerald-500"
+                  : "bg-white text-slate-600 border-slate-200 hover:border-emerald-300"
+              }`}>
+              <Check size={14} /> YES
+            </button>
+            <button onClick={() => onSetAnswer({ yes: false })} disabled={disabled || busy}
+              className={`flex-1 py-2 rounded-lg text-sm font-black inline-flex items-center justify-center gap-1.5 border-2 transition-all disabled:opacity-50 ${
+                answer?.answer_value?.yes === false
+                  ? "bg-rose-500 text-white border-rose-500"
+                  : "bg-white text-slate-600 border-slate-200 hover:border-rose-300"
+              }`}>
+              <X size={14} /> NO
+            </button>
+          </div>
+        )}
+        {item.answer_type === "score_1_5" && (
+          <div className="flex gap-1">
+            {[1,2,3,4,5].map(n => (
+              <button key={n} onClick={() => onSetAnswer({ score: n })} disabled={disabled || busy}
+                className={`flex-1 py-2 rounded-lg text-sm font-black border-2 transition-all disabled:opacity-50 ${
+                  answer?.answer_value?.score === n
+                    ? "bg-indigo-500 text-white border-indigo-500"
+                    : "bg-white text-slate-600 border-slate-200 hover:border-indigo-300"
+                }`}>{n}</button>
+            ))}
+          </div>
+        )}
+        {item.answer_type === "text" && (
+          <input type="text" value={answer?.answer_value?.text ?? ""}
+            disabled={disabled || busy}
+            onBlur={(e) => onSetAnswer({ text: e.target.value })}
+            placeholder="พิมพ์คำตอบ..."
+            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-indigo-400 disabled:opacity-50" />
+        )}
+        {item.answer_type === "number" && (
+          <input type="number" value={answer?.answer_value?.value ?? ""}
+            disabled={disabled || busy}
+            onBlur={(e) => onSetAnswer({ value: Number(e.target.value) })}
+            placeholder="ตัวเลข"
+            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-indigo-400 disabled:opacity-50" />
+        )}
+
+        {/* note */}
+        <div>
+          <textarea value={note} onChange={e => setNote(e.target.value)}
+            onBlur={() => { if (note !== (answer?.note ?? "")) onSetNote(note) }}
+            disabled={disabled || busy} rows={2}
+            placeholder="หมายเหตุ / สิ่งที่พบ"
+            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-indigo-400 disabled:opacity-50 resize-none" />
+        </div>
+
+        {/* photos */}
+        {((answer?.photo_urls ?? []).length > 0 || !disabled) && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {(answer?.photo_urls ?? []).map((url, i) => (
+              <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 group">
+                <a href={url} target="_blank" rel="noreferrer">
+                  <img src={url} alt="" className="w-full h-full object-cover" />
+                </a>
+                {!disabled && (
+                  <button onClick={() => onRemovePhoto(url)}
+                    className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                    <X size={9} />
+                  </button>
+                )}
+              </div>
+            ))}
+            {!disabled && (
+              <button onClick={onAddPhoto} disabled={busy}
+                className="w-14 h-14 rounded-lg border-2 border-dashed border-slate-300 hover:border-indigo-400 text-slate-400 hover:text-indigo-500 flex items-center justify-center disabled:opacity-50">
+                <Camera size={16} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
