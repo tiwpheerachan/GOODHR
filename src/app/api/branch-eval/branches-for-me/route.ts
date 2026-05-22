@@ -15,7 +15,7 @@ export async function GET() {
 
   const ids = getAccessibleBranchIds(access)
   let q = svc.from("branches")
-    .select("id, code, name, latitude, longitude, geo_radius_m, company_id, company:companies(name_th, name)")
+    .select("id, code, name, latitude, longitude, geo_radius_m, company_id, company:companies(name_th)")
     .order("name")
 
   if (ids !== "ALL") {

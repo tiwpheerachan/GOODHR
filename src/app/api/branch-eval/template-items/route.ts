@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { getBranchEvalAccess } from "@/lib/utils/branch-eval-permissions"
 
-// POST — add an item
+// POST — add an item, or bulk import { template_id, items: [...] }
 export async function POST(req: NextRequest) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -12,7 +12,41 @@ export async function POST(req: NextRequest) {
   if (!access.isEvalAdmin) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
 
   const body = await req.json()
-  const { template_id, question_th } = body
+  const { template_id } = body
+
+  // ── bulk import ──
+  if (Array.isArray(body.items) && body.items.length > 0) {
+    if (!template_id) return NextResponse.json({ error: "missing template_id" }, { status: 400 })
+    const { data: existing } = await svc.from("branch_eval_template_items")
+      .select("order_no").eq("template_id", template_id)
+      .order("order_no", { ascending: false }).limit(1)
+    let nextOrder = (existing?.[0]?.order_no ?? 0) + 1
+
+    const rows = body.items
+      .filter((it: any) => (it.question_th ?? "").toString().trim().length > 0)
+      .map((it: any, i: number) => ({
+        template_id,
+        order_no: it.order_no ?? (nextOrder + i),
+        code: (it.code ?? "").toString().trim() || String(it.order_no ?? (nextOrder + i)),
+        question_th: it.question_th.toString().trim(),
+        question_en: it.question_en ? it.question_en.toString().trim() : null,
+        sub_notes: Array.isArray(it.sub_notes) ? it.sub_notes : [],
+        weight: Number(it.weight ?? 1),
+        answer_type: ["yes_no","score_1_5","text","number"].includes(it.answer_type) ? it.answer_type : "yes_no",
+        requires_note: !!it.requires_note,
+        requires_photo: !!it.requires_photo,
+      }))
+
+    if (rows.length === 0) return NextResponse.json({ error: "ไม่มีข้อมูลที่นำเข้าได้" }, { status: 400 })
+
+    const { error, data } = await svc.from("branch_eval_template_items").insert(rows).select("id")
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await recalcTotalWeight(svc, template_id)
+    return NextResponse.json({ inserted: data?.length ?? 0 })
+  }
+
+  // ── single add ──
+  const { question_th } = body
   if (!template_id || !question_th) return NextResponse.json({ error: "missing template_id/question_th" }, { status: 400 })
 
   // find next order_no

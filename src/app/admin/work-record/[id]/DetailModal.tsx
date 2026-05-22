@@ -364,6 +364,11 @@ export function OTDetail({ employee, managers, row, ot, onClose, onSaved }: Base
         : supabase.from("overtime_requests").insert(payload)
       const { error } = await op
       if (error) throw error
+      // ── sync attendance_records.ot_minutes จาก source of truth ──
+      await fetch("/api/work-record/recompute-ot", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_id: employee.id, work_date: row.work_date }),
+      }).catch(() => {})
       toast.success("บันทึกแล้ว — คำนวณเงินเดือนใหม่อัตโนมัติ", { id: t })
       onSaved(); onClose()
     } catch (e: any) {
@@ -381,6 +386,11 @@ export function OTDetail({ employee, managers, row, ot, onClose, onSaved }: Base
     try {
       const { error } = await supabase.from("overtime_requests").delete().eq("id", ot.id)
       if (error) throw error
+      // ── sync attendance_records.ot_minutes หลังลบ ──
+      await fetch("/api/work-record/recompute-ot", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_id: employee.id, work_date: row.work_date }),
+      }).catch(() => {})
       toast.success("ลบแล้ว", { id: t })
       onSaved(); onClose()
     } catch (e: any) {

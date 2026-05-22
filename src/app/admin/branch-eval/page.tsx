@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
   Store, FileText, ClipboardCheck, ShieldCheck, ChevronRight,
-  Loader2, Layers, BarChart3, Users, RefreshCw, Clock,
+  Loader2, Layers, BarChart3, Users, RefreshCw, Clock, Trash2,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -105,8 +105,12 @@ export default function BranchEvalAdminLanding() {
           title="เทมเพลต" desc="สร้าง/แก้/import checklist ต่างๆ" />
         <MenuCard href="/admin/branch-eval/evaluations" icon={<FileText size={18} />} color="sky"
           title="ฟอร์มที่ส่งแล้ว" desc="ดู/รีวิวฟอร์มทุกสาขา" />
+        <MenuCard href="/admin/branch-eval/reports" icon={<BarChart3 size={18} />} color="emerald"
+          title="รายงาน / สถิติ" desc="คะแนนเฉลี่ย · แนวโน้ม · จุดอ่อน" />
         <MenuCard href="/admin/branch-eval/permissions" icon={<ShieldCheck size={18} />} color="rose"
           title="สิทธิ์" desc="มอบ admin / supervisor / evaluator" />
+        <MenuCard href="/admin/branch-eval/trash" icon={<Trash2 size={18} />} color="slate"
+          title="ถังขยะ" desc="กู้คืน / ลบถาวร template + ฟอร์ม" />
       </div>
 
       {/* Recent evaluations */}
@@ -175,9 +179,11 @@ function Kpi({ icon, color, label, value, sub, highlight }: any) {
 
 function MenuCard({ href, icon, color, title, desc }: any) {
   const palette: Record<string, string> = {
-    indigo: "bg-indigo-50 text-indigo-600 group-hover:border-indigo-200",
-    sky:    "bg-sky-50 text-sky-600 group-hover:border-sky-200",
-    rose:   "bg-rose-50 text-rose-600 group-hover:border-rose-200",
+    indigo:  "bg-indigo-50 text-indigo-600 group-hover:border-indigo-200",
+    sky:     "bg-sky-50 text-sky-600 group-hover:border-sky-200",
+    rose:    "bg-rose-50 text-rose-600 group-hover:border-rose-200",
+    emerald: "bg-emerald-50 text-emerald-600 group-hover:border-emerald-200",
+    slate:   "bg-slate-50 text-slate-600 group-hover:border-slate-200",
   }
   return (
     <Link href={href} className="group bg-white border border-slate-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex items-center gap-3">

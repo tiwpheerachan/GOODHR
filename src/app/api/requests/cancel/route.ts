@@ -10,6 +10,41 @@ const TABLES: Record<string, string> = {
 
 const CANCEL_FLAG = "CANCEL_REQ:"
 
+// ── recompute attendance_records.ot_minutes จาก overtime_requests ที่ status=approved ──
+//    เรียกหลัง OT ถูกยกเลิก เพื่อกัน ot_minutes สูงเกินจริง
+async function recomputeOtMinutesForDay(supa: any, employee_id: string, work_date: string) {
+  try {
+    const { data: approvedOts } = await supa.from("overtime_requests")
+      .select("ot_start, ot_end, company_id")
+      .eq("employee_id", employee_id)
+      .eq("work_date", work_date)
+      .eq("status", "approved")
+
+    let totalOtMin = 0
+    for (const ot of (approvedOts ?? [])) {
+      if (!ot.ot_start || !ot.ot_end) continue
+      totalOtMin += Math.max(0, Math.round((new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000))
+    }
+
+    const { data: attRec } = await supa.from("attendance_records")
+      .select("id, ot_minutes")
+      .eq("employee_id", employee_id)
+      .eq("work_date", work_date)
+      .maybeSingle()
+
+    if (attRec) {
+      if ((attRec.ot_minutes || 0) !== totalOtMin) {
+        await supa.from("attendance_records").update({
+          ot_minutes: totalOtMin,
+          updated_at: new Date().toISOString(),
+        }).eq("id", attRec.id)
+      }
+    }
+  } catch (e) {
+    console.error("[recomputeOtMinutesForDay]", e)
+  }
+}
+
 export async function POST(req: NextRequest) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -72,6 +107,8 @@ export async function POST(req: NextRequest) {
 
     if (!reqData) return NextResponse.json({ error: "ไม่พบคำขอ" }, { status: 404 })
 
+    const wasApprovedCancel = reqData.status === "approved"
+
     // Don't set reviewed_by to avoid FK issues — just update status + note
     const { error } = await supa.from(table)
       .update({
@@ -82,6 +119,11 @@ export async function POST(req: NextRequest) {
       .eq("id", request_id)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // ── ถ้ายกเลิก OT ที่เคย approved → recompute attendance.ot_minutes ──
+    if (request_type === "overtime" && wasApprovedCancel && reqData.employee_id && reqData.work_date) {
+      await recomputeOtMinutesForDay(supa, reqData.employee_id, reqData.work_date)
+    }
 
     // Restore leave balance if applicable
     if (request_type === "leave" && reqData.leave_type_id && reqData.total_days && reqData.status === "approved") {
@@ -130,6 +172,8 @@ export async function POST(req: NextRequest) {
     const { data: reqData } = await supa.from(table)
       .select("*").eq("id", request_id).single()
 
+    const wasApprovedForce = reqData?.status === "approved"
+
     const { error } = await supa.from(table)
       .update({
         status: "cancelled",
@@ -139,6 +183,11 @@ export async function POST(req: NextRequest) {
       .eq("id", request_id)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // ── ถ้ายกเลิก OT ที่เคย approved → recompute attendance.ot_minutes ──
+    if (request_type === "overtime" && wasApprovedForce && reqData?.employee_id && reqData?.work_date) {
+      await recomputeOtMinutesForDay(supa, reqData.employee_id, reqData.work_date)
+    }
 
     const { data: actorEmpForce } = userData?.employee_id
       ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", userData.employee_id).single()

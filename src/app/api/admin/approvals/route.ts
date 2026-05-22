@@ -5,6 +5,62 @@ import { logApproval, logAudit } from "@/lib/auditLog"
 import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
 import { isPayrollPeriodLocked } from "@/lib/utils/periodLock"
 
+// ── recompute attendance_records.ot_minutes จาก overtime_requests ที่ status=approved ──
+// เรียกใช้หลังจาก OT ถูก approve / reject / cancel เพื่อให้ค่าตรงกับ source of truth
+// แก้บัค: เดิม approve = บวกเพิ่ม, cancel/reject = ไม่ลด → ot_minutes สูงเกิน
+async function recomputeAttendanceOtMinutes(supa: any, employeeId: string, workDate: string) {
+  try {
+    // ดึง OT ที่อนุมัติแล้วทั้งหมดในวันนั้น
+    const { data: approvedOts } = await supa.from("overtime_requests")
+      .select("ot_start, ot_end, company_id")
+      .eq("employee_id", employeeId)
+      .eq("work_date", workDate)
+      .eq("status", "approved")
+
+    // รวมนาที OT จาก start/end ทั้งหมด
+    let totalOtMin = 0
+    for (const ot of (approvedOts ?? [])) {
+      if (!ot.ot_start || !ot.ot_end) continue
+      const m = Math.max(0, Math.round((new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000))
+      totalOtMin += m
+    }
+
+    // หา attendance_records ของวันนั้น
+    const { data: attRec } = await supa.from("attendance_records")
+      .select("id, status, ot_minutes")
+      .eq("employee_id", employeeId)
+      .eq("work_date", workDate)
+      .maybeSingle()
+
+    if (attRec) {
+      // อัปเดต ot_minutes ให้ตรงกับ source of truth (ถ้าค่าไม่เท่า)
+      if ((attRec.ot_minutes || 0) !== totalOtMin) {
+        await supa.from("attendance_records").update({
+          ot_minutes: totalOtMin,
+          updated_at: new Date().toISOString(),
+        }).eq("id", attRec.id)
+      }
+    } else if (totalOtMin > 0) {
+      // ไม่มี record แต่มี OT อนุมัติ (เช่น OT วันหยุดที่พนักงานไม่ได้ clock-in) → สร้าง record ใหม่
+      const companyId = approvedOts?.[0]?.company_id ?? null
+      await supa.from("attendance_records").insert({
+        employee_id: employeeId,
+        company_id: companyId,
+        work_date: workDate,
+        status: "present",
+        ot_minutes: totalOtMin,
+        late_minutes: 0,
+        early_out_minutes: 0,
+        work_minutes: 0,
+        is_manual: true,
+        note: `OT อนุมัติ ${totalOtMin} นาที`,
+      })
+    }
+  } catch (e) {
+    console.error("[recomputeAttendanceOtMinutes]", e)
+  }
+}
+
 // ── recalculate payroll_records หลังอนุมัติ OT ──────────────────────────────
 // เรียกใช้หลังจาก attendance_records.ot_minutes ถูก update แล้ว
 // ใช้ logic เดียวกับ calcAndSave ใน /api/payroll/route.ts
@@ -439,11 +495,17 @@ async function handleCancelAction(
   if (action === "approve_cancel") {
     const { data: reqData } = await supa.from(table).select("*").eq("id", requestId).single()
     if (!reqData) return { error: "ไม่พบคำขอ" }
+    const wasApproved = reqData.status === "approved"
     const { error } = await supa.from(table).update({
       status: "cancelled", reviewed_at: new Date().toISOString(),
       review_note: `HR อนุมัติยกเลิก${reason ? `: ${reason}` : ""}`,
     }).eq("id", requestId)
     if (error) return { error: error.message }
+    // ── ยกเลิก OT ที่เคย approved → recompute ot_minutes + payroll ──
+    if (requestType === "overtime" && wasApproved && reqData.employee_id && reqData.work_date) {
+      await recomputeAttendanceOtMinutes(supa, reqData.employee_id, reqData.work_date)
+      await recalcPayrollAfterOT(supa, reqData.employee_id, reqData.work_date)
+    }
     // Restore leave balance
     if (requestType === "leave" && reqData.leave_type_id && reqData.total_days && reqData.status === "approved") {
       try {
@@ -492,11 +554,17 @@ async function handleCancelAction(
 
   if (action === "force_cancel") {
     const { data: reqData } = await supa.from(table).select("*").eq("id", requestId).single()
+    const wasApproved = reqData?.status === "approved"
     const { error } = await supa.from(table).update({
       status: "cancelled", reviewed_at: new Date().toISOString(),
       review_note: `HR ยกเลิกโดยตรง${reason ? `: ${reason}` : ""}`,
     }).eq("id", requestId)
     if (error) return { error: error.message }
+    // ── ยกเลิก OT ที่เคย approved → recompute ot_minutes + payroll ──
+    if (requestType === "overtime" && wasApproved && reqData?.employee_id && reqData?.work_date) {
+      await recomputeAttendanceOtMinutes(supa, reqData.employee_id, reqData.work_date)
+      await recalcPayrollAfterOT(supa, reqData.employee_id, reqData.work_date)
+    }
     if (requestType === "leave" && reqData?.leave_type_id && reqData?.total_days && reqData?.status === "approved") {
       try {
         const { data: bal } = await supa.from("leave_balances").select("id, entitled_days, used_days, pending_days")
@@ -763,54 +831,16 @@ export async function POST(req: NextRequest) {
       employeeName: ownerEmp ? `${ownerEmp.first_name_th} ${ownerEmp.last_name_th}` : undefined,
     })
 
-    // ── อนุมัติ OT → อัปเดต attendance_records.ot_minutes ──
+    // ── อนุมัติ OT → recompute attendance_records.ot_minutes จาก source of truth ──
+    //    ไม่ใช้วิธี "บวกเพิ่ม" เพราะถ้า approve → cancel → approve ใหม่ จะนับซ้ำ
     if (request_type === "overtime") {
       const { data: otReq } = await supa.from("overtime_requests")
         .select("employee_id, company_id, work_date, ot_start, ot_end, ot_rate")
         .eq("id", request_id).single()
 
       if (otReq && otReq.ot_start && otReq.ot_end) {
-        // คำนวณ OT minutes จาก ot_start → ot_end
-        const startMs = new Date(otReq.ot_start).getTime()
-        const endMs = new Date(otReq.ot_end).getTime()
-        const otMinutes = Math.max(0, Math.round((endMs - startMs) / 60000))
-
-        // หา attendance record ของวันนั้น
-        const { data: attRec, error: attErr } = await supa.from("attendance_records")
-          .select("id, ot_minutes")
-          .eq("employee_id", otReq.employee_id)
-          .eq("work_date", otReq.work_date)
-          .maybeSingle()
-
-        if (attErr) {
-          console.error("OT approval: error finding attendance record:", attErr.message)
-        }
-
-        if (attRec) {
-          // มี record อยู่แล้ว → อัปเดต ot_minutes (บวกเพิ่มกรณีมีหลาย OT request ในวันเดียวกัน)
-          const { error: updErr } = await supa.from("attendance_records").update({
-            ot_minutes: (attRec.ot_minutes || 0) + otMinutes,
-          }).eq("id", attRec.id)
-          if (updErr) console.error("OT approval: error updating ot_minutes:", updErr.message)
-        } else {
-          // ไม่มี attendance record (เช่น OT วันหยุด) → สร้างใหม่
-          const { error: insErr } = await supa.from("attendance_records").insert({
-            employee_id: otReq.employee_id,
-            company_id: otReq.company_id,
-            work_date: otReq.work_date,
-            status: "present",
-            ot_minutes: otMinutes,
-            late_minutes: 0,
-            early_out_minutes: 0,
-            work_minutes: 0,
-            is_manual: true,
-            note: `OT อนุมัติ ${otMinutes} นาที`,
-          })
-          if (insErr) console.error("OT approval: error creating attendance record:", insErr.message)
-        }
-
+        await recomputeAttendanceOtMinutes(supa, otReq.employee_id, otReq.work_date)
         // ── recalculate payroll_records อัตโนมัติ ──
-        // ทำหลัง attendance_records อัปเดตแล้ว เพื่อให้ payroll หน้า admin แสดงค่าถูก
         await recalcPayrollAfterOT(supa, otReq.employee_id, otReq.work_date)
       }
     }
@@ -831,6 +861,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
+    // ── ดึงข้อมูลคำขอเดิมก่อน update (เผื่อต้อง recompute OT หลัง reject) ──
+    const { data: prevReq } = request_type === "overtime"
+      ? await supa.from(table).select("employee_id, work_date, status").eq("id", request_id).maybeSingle()
+      : { data: null as any }
+
     const { error } = await supa.from(table).update({
       status: "rejected",
       reviewed_by: userData?.employee_id || null,
@@ -839,6 +874,12 @@ export async function POST(req: NextRequest) {
     }).eq("id", request_id)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // ── ถ้า reject OT ที่เคย approved → recompute ot_minutes + payroll ──
+    if (request_type === "overtime" && prevReq?.status === "approved" && prevReq?.employee_id && prevReq?.work_date) {
+      await recomputeAttendanceOtMinutes(supa, prevReq.employee_id, prevReq.work_date)
+      await recalcPayrollAfterOT(supa, prevReq.employee_id, prevReq.work_date)
+    }
 
     // Audit log
     const { data: rejOwner } = await supa.from(table).select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", request_id).maybeSingle()

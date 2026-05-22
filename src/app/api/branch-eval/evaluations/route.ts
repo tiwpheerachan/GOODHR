@@ -157,6 +157,30 @@ export async function PATCH(req: NextRequest) {
       status: "submitted",
       submitted_at: new Date().toISOString(),
     }).eq("id", id)
+
+    // notify supervisors of this branch
+    try {
+      const { data: full } = await svc.from("branch_evaluations")
+        .select("percentage, branch:branches(name), template:branch_eval_templates(name), evaluator:employees!branch_evaluations_evaluator_id_fkey(first_name_th, last_name_th)")
+        .eq("id", id).maybeSingle() as any
+      const { data: sups } = await svc.from("branch_eval_permissions")
+        .select("employee_id")
+        .eq("role", "branch_eval_supervisor")
+        .eq("branch_id", ev.branch_id)
+      const evaluatorName = full?.evaluator ? `${full.evaluator.first_name_th} ${full.evaluator.last_name_th}` : "ผู้กรอก"
+      const branchName = full?.branch?.name ?? "สาขา"
+      const tplName = full?.template?.name ?? ""
+      const pct = full?.percentage != null ? `${Number(full.percentage).toFixed(0)}%` : ""
+      const rows = (sups ?? []).map((s: any) => ({
+        employee_id: s.employee_id,
+        type: "branch_eval_submitted",
+        title: `${evaluatorName} ส่งฟอร์มประเมิน ${branchName}`,
+        body: `${tplName}${pct ? ` · คะแนน ${pct}` : ""} · กดดูเพื่อรีวิว`,
+        ref_table: "branch_evaluations", ref_id: id, is_read: false,
+      }))
+      if (rows.length > 0) await svc.from("notifications").insert(rows)
+    } catch {}
+
     return NextResponse.json({ success: true })
   }
 
@@ -169,6 +193,23 @@ export async function PATCH(req: NextRequest) {
       reviewed_at: new Date().toISOString(),
       reviewer_notes: updates.reviewer_notes ?? null,
     }).eq("id", id)
+
+    // notify evaluator
+    try {
+      const { data: full } = await svc.from("branch_evaluations")
+        .select("percentage, evaluator_id, branch:branches(name), template:branch_eval_templates(name)")
+        .eq("id", id).maybeSingle() as any
+      if (full?.evaluator_id) {
+        await svc.from("notifications").insert({
+          employee_id: full.evaluator_id,
+          type: "branch_eval_reviewed",
+          title: `รีวิวฟอร์มประเมิน ${full?.branch?.name ?? "สาขา"} แล้ว`,
+          body: `${full?.template?.name ?? ""} · คะแนน ${Number(full?.percentage ?? 0).toFixed(0)}%`,
+          ref_table: "branch_evaluations", ref_id: id, is_read: false,
+        })
+      }
+    } catch {}
+
     return NextResponse.json({ success: true })
   }
 

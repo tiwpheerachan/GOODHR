@@ -13,7 +13,7 @@ import toast from "react-hot-toast"
 type Branch = {
   id: string; code: string; name: string
   latitude?: number; longitude?: number
-  company?: { name_th?: string; name?: string }
+  company?: { name_th?: string }
   user_role: "admin" | "supervisor" | "evaluator" | null
 }
 type Template = { id: string; name: string; description?: string; total_weight: number }
