@@ -308,8 +308,15 @@ export default function ShiftSchedulingPage() {
         can_self_schedule: profileEditor.canSelfSchedule,
       }).eq("id", profileEditor.empId)
 
-      // 3. สร้างตารางกะของเดือนนี้ให้อัตโนมัติ (ใช้ generate ทั้งบริษัท — upsert ไม่ซ้ำ)
-      const genPayload: any = { action: "generate", month: monthStr }
+      // 3. สร้างตารางกะของเดือนนี้ใหม่ — เฉพาะพนักงานคนนี้ + force=true
+      //    เพื่อให้ default shift ใหม่ทับ assignment เดิมที่ค้างอยู่
+      //    (ถ้าไม่ force จะข้ามวันที่มีกะอยู่ → UI ยังเห็นกะเก่า เช่น 00:00)
+      const genPayload: any = {
+        action: "generate",
+        month: monthStr,
+        employee_id: profileEditor.empId,
+        force: true,
+      }
       if (isSA && selectedCo) genPayload.company_id = selectedCo
       const genRes = await fetch("/api/shifts/monthly", {
         method: "POST",
@@ -321,8 +328,7 @@ export default function ShiftSchedulingPage() {
       if (genData.error) {
         toast.error(`สร้างตารางล้มเหลว: ${genData.error}`)
       } else {
-        const skipped = genData.skipped ?? 0
-        toast.success(`บันทึกกะของ ${profileEditor.empName} แล้ว (สร้าง ${genData.generated ?? 0} วัน${skipped ? `, ข้าม ${skipped} วันที่จัดไว้แล้ว` : ""})`)
+        toast.success(`บันทึกกะของ ${profileEditor.empName} แล้ว (อัปเดต ${genData.generated ?? 0} วันในเดือน ${TH_MONTHS[month]})`)
       }
       setProfileEditor(null)
       load()

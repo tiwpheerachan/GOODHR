@@ -412,19 +412,30 @@ export async function POST(request: Request) {
       }
 
       if (rows.length > 0) {
-        // ── ป้องกันการทับ (default) ───────────────────────────────
-        // ถ้าไม่ได้ส่ง force=true → ดึง assignments ที่มีอยู่แล้ว แล้ว filter ออก
+        // ── ดึง existing เพื่อกัน overwrite holiday/leave เสมอ ────────
+        //   - !force → ข้ามทุกวันที่มี assignment อยู่แล้ว (พฤติกรรมเดิม)
+        //   - force  → ทับ work/dayoff แต่ "ห้าม" ทับ holiday/leave
+        const empIdsForGen = Array.from(new Set(rows.map((r: any) => r.employee_id)))
+        const { data: existing } = await supa
+          .from("monthly_shift_assignments")
+          .select("employee_id, work_date, assignment_type")
+          .in("employee_id", empIdsForGen)
+          .gte("work_date", days[0])
+          .lte("work_date", days[days.length - 1])
+
         let toWrite = rows
         if (!force) {
-          const empIdsForGen = Array.from(new Set(rows.map((r: any) => r.employee_id)))
-          const { data: existing } = await supa
-            .from("monthly_shift_assignments")
-            .select("employee_id, work_date")
-            .in("employee_id", empIdsForGen)
-            .gte("work_date", days[0])
-            .lte("work_date", days[days.length - 1])
           const existingSet = new Set((existing ?? []).map((e: any) => `${e.employee_id}|${e.work_date}`))
           toWrite = rows.filter((r: any) => !existingSet.has(`${r.employee_id}|${r.work_date}`))
+          totalSkipped += rows.length - toWrite.length
+        } else {
+          // force=true → ทับได้ทุกอย่าง ยกเว้น holiday/leave (กันลบวันหยุด/วันลา)
+          const protectedSet = new Set(
+            (existing ?? [])
+              .filter((e: any) => e.assignment_type === "holiday" || e.assignment_type === "leave")
+              .map((e: any) => `${e.employee_id}|${e.work_date}`)
+          )
+          toWrite = rows.filter((r: any) => !protectedSet.has(`${r.employee_id}|${r.work_date}`))
           totalSkipped += rows.length - toWrite.length
         }
 
