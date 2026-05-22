@@ -3,6 +3,8 @@ import { NextResponse } from "next/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
 import { getLateThreshold } from "@/lib/utils/payroll"
 
+export const dynamic = "force-dynamic"
+
 /**
  * POST /api/shifts/self-schedule/approve
  *

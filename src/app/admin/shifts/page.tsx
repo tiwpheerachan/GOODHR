@@ -126,7 +126,7 @@ export default function ShiftSchedulingPage() {
     if (isSA && selectedCo) params.set("company_id", selectedCo)
     if (filterDept) params.set("dept_id", filterDept)
 
-    const res = await fetch(`/api/shifts/monthly?${params}`)
+    const res = await fetch(`/api/shifts/monthly?${params}`, { cache: "no-store" })
     const data = await res.json()
     if (data.success) {
       setGrid(data.grid)

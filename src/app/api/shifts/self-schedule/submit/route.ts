@@ -1,6 +1,8 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 
+export const dynamic = "force-dynamic"
+
 /**
  * POST /api/shifts/self-schedule/submit
  *
@@ -132,10 +134,12 @@ export async function POST(req: Request) {
   let pendingCount = 0
 
   // ── 1. Insert วันใหม่ทันที ──────────────────────────────────
+  // ใช้ ignoreDuplicates: true ป้องกัน race condition กับ admin/manager assign
+  // (กรณี admin assign Shift X ก่อนพนักงาน submit เสร็จ → ห้ามทับ)
   if (directInserts.length > 0) {
     const { error } = await supa
       .from("monthly_shift_assignments")
-      .upsert(directInserts, { onConflict: "employee_id,work_date" })
+      .upsert(directInserts, { onConflict: "employee_id,work_date", ignoreDuplicates: true })
 
     if (error) return NextResponse.json({ success: false, error: error.message })
     insertedCount = directInserts.length

@@ -49,7 +49,7 @@ export default function MySchedulePage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const res = await fetch(`/api/shifts/my-schedule?month=${monthStr}`)
+    const res = await fetch(`/api/shifts/my-schedule?month=${monthStr}`, { cache: "no-store" })
     const data = await res.json()
     if (data.success) {
       setSchedule(data.schedule)

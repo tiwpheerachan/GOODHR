@@ -1,6 +1,10 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 
+// ป้องกัน cache → ตารางกะที่อัปเดตล่าสุดเสมอ
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
 // GET — พนักงานดูตารางกะของตัวเอง
 export async function GET(request: Request) {
   const supabase = createClient()

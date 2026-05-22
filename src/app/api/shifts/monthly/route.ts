@@ -2,13 +2,18 @@ import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { getLateThreshold } from "@/lib/utils/payroll"
 
-// ── Helper: สร้างวันทั้งเดือน ─────────────────────────────────────
+// ป้องกัน Next.js cache → ดึงค่าใหม่จาก DB เสมอ
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
+// ── Helper: สร้างวันทั้งเดือน (timezone-safe — สร้างสตริงตรงๆ ไม่ผ่าน Date.toISOString) ──
 function getDaysInMonth(year: number, month: number): string[] {
+  // หาจำนวนวันในเดือน (เดือน 0 ของเดือนถัดไป = วันสุดท้ายของเดือนนี้)
+  const lastDay = new Date(year, month, 0).getDate()
+  const mm = String(month).padStart(2, "0")
   const days: string[] = []
-  const d = new Date(year, month - 1, 1)
-  while (d.getMonth() === month - 1) {
-    days.push(d.toISOString().split("T")[0])
-    d.setDate(d.getDate() + 1)
+  for (let d = 1; d <= lastDay; d++) {
+    days.push(`${year}-${mm}-${String(d).padStart(2, "0")}`)
   }
   return days
 }

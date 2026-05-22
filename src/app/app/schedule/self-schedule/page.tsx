@@ -103,9 +103,9 @@ export default function SelfSchedulePage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [schedRes, shiftRes, pendingRes] = await Promise.all([
-      fetch(`/api/shifts/my-schedule?month=${monthStr}`),
-      fetch("/api/shifts/definitions"),
-      fetch(`/api/shifts/self-schedule/pending?status=all&month=${monthStr}`),
+      fetch(`/api/shifts/my-schedule?month=${monthStr}`, { cache: "no-store" }),
+      fetch("/api/shifts/definitions", { cache: "no-store" }),
+      fetch(`/api/shifts/self-schedule/pending?status=all&month=${monthStr}`, { cache: "no-store" }),
     ])
 
     const schedData = await schedRes.json()
