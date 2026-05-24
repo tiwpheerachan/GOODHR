@@ -1,6 +1,7 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { calculatePayrollSummary, type OTBreakdown } from "@/lib/utils/payroll"
+import { classifyOtFromRecords } from "@/lib/utils/ot-classification"
 import { logPayroll } from "@/lib/auditLog"
 
 // ── Date helpers (pure string — ไม่มี timezone conversion) ───────────
@@ -434,8 +435,11 @@ async function calcAndSave(
     .gte("work_date", periodStart)
     .lte("work_date", periodEnd)
 
-  const records   = (attData ?? []) as any[]
-  const recordMap = new Map<string, any>(records.map(r => [r.work_date as string, r]))
+  // ⚠️ dedupe ตาม work_date ก่อน — กัน duplicate rows ทำให้ sum OT/late inflate
+  //    (Pro Max ใช้วิธีเดียวกัน — last record ของแต่ละวันชนะ)
+  const rawRecords = (attData ?? []) as any[]
+  const recordMap = new Map<string, any>(rawRecords.map(r => [r.work_date as string, r]))
+  const records = Array.from(recordMap.values())
 
   // ── วันทำงานที่คาดหวัง (อิง shift → profile → fallback จ-ศ) ─────
   const hireDate       = (emp.hire_date as string | null) ?? periodStart
@@ -544,55 +548,42 @@ async function calcAndSave(
   )
 
   // ── OT แยกประเภท (weekday 1.5x / holiday_regular 1.0x / holiday_ot 3.0x) ──
-  let weekdayOtMin  = 0
-  let holidayRegMin = 0
-  let holidayOtMin  = 0
+  // ใช้ helper: ผูก rate จาก overtime_requests กับ ot_minutes ใน attendance
+  // (เดิมใช้แค่ isWorkDay → ทำให้ x1.0 บนวันหยุดถูกจัดเป็น x3.0)
+  const { data: approvedOT } = await supa.from("overtime_requests")
+    .select("work_date, ot_start, ot_end, ot_rate")
+    .eq("employee_id", employee_id)
+    .eq("status", "approved")
+    .gte("work_date", periodStart)
+    .lte("work_date", periodEnd)
 
-  for (const r of records) {
-    const otMin   = Number(r.ot_minutes)   || 0
-    if (otMin <= 0) continue  // ไม่มี OT จาก attendance → skip (ไม่นับ work_minutes เป็น OT)
+  const hasAttOt = records.some((r: any) => Number(r.ot_minutes) > 0)
+  let otBreakdown: OTBreakdown
 
-    const wd = r.work_date as string
-    if (!isWorkDay(wd, holidaySet, shiftMap, fixedDayoffs)) {
-      // วันหยุด/dayoff → OT 3.0x
-      holidayOtMin += otMin
-    } else {
-      // วันทำงานปกติ → OT 1.5x
-      weekdayOtMin += otMin
-    }
-  }
-
-  // ถ้า attendance ไม่มี OT เลย → fallback ดึงจาก overtime_requests ที่อนุมัติแล้ว
-  if (weekdayOtMin === 0 && holidayOtMin === 0 && holidayRegMin === 0) {
-    const { data: approvedOT } = await supa.from("overtime_requests")
-      .select("work_date, ot_start, ot_end, ot_rate")
-      .eq("employee_id", employee_id)
-      .eq("status", "approved")
-      .gte("work_date", periodStart)
-      .lte("work_date", periodEnd)
-
+  if (hasAttOt) {
+    otBreakdown = classifyOtFromRecords(
+      records,
+      (approvedOT ?? []) as any[],
+      (wd: string) => isWorkDay(wd, holidaySet, shiftMap, fixedDayoffs),
+    )
+  } else {
+    // attendance ไม่มี OT เลย → fallback ใช้ requests ตรงๆ
+    let weekdayOtMin = 0, holidayRegMin = 0, holidayOtMin = 0
     for (const ot of (approvedOT ?? []) as any[]) {
-      if (ot.ot_start && ot.ot_end) {
-        const mins = Math.max(0, Math.round(
-          (new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000
-        ))
-        const rate = Number(ot.ot_rate) || 1.5
-        // จัดประเภทตาม rate ที่พนักงานเลือก
-        if (rate >= 3.0) {
-          holidayOtMin += mins
-        } else if (rate <= 1.0) {
-          holidayRegMin += mins
-        } else {
-          weekdayOtMin += mins
-        }
-      }
+      if (!ot.ot_start || !ot.ot_end) continue
+      const mins = Math.max(0, Math.round(
+        (new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000
+      ))
+      const rate = Number(ot.ot_rate) || 1.5
+      if (rate >= 3.0)      holidayOtMin  += mins
+      else if (rate <= 1.0) holidayRegMin += mins
+      else                  weekdayOtMin  += mins
     }
-  }
-
-  const otBreakdown: OTBreakdown = {
-    weekday_minutes:         weekdayOtMin,
-    holiday_regular_minutes: holidayRegMin,
-    holiday_ot_minutes:      holidayOtMin,
+    otBreakdown = {
+      weekday_minutes:         weekdayOtMin,
+      holiday_regular_minutes: holidayRegMin,
+      holiday_ot_minutes:      holidayOtMin,
+    }
   }
 
   // ── เงินกู้ ────────────────────────────────────────────────────

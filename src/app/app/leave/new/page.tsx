@@ -240,11 +240,19 @@ function LeaveNewInner() {
 
       } else if (formType === "overtime") {
         if (!form.ot_start || !form.ot_end) throw new Error("กรุณากรอกเวลาเริ่ม-สิ้นสุด OT")
+        // ✅ overnight: ถ้า end <= start (เช่น 20:00 → 02:00) → end เป็นวันถัดไป
+        const [sh, sm] = form.ot_start.split(":").map(Number)
+        const [eh, em] = form.ot_end.split(":").map(Number)
+        const startMin = sh * 60 + sm
+        const endMin   = eh * 60 + em
+        const endDate  = endMin <= startMin
+          ? new Date(new Date(form.work_date).getTime() + 86400000).toISOString().slice(0, 10)
+          : form.work_date
         const { error } = await supabase.from("overtime_requests").insert({
           employee_id: empId, company_id: companyId,
           work_date: form.work_date,
           ot_start: `${form.work_date}T${form.ot_start}:00+07:00`,
-          ot_end:   `${form.work_date}T${form.ot_end}:00+07:00`,
+          ot_end:   `${endDate}T${form.ot_end}:00+07:00`,
           reason: form.reason, status: "pending", ot_rate: Number((form as any).ot_rate) || 1.5,
         })
         if (error) throw error

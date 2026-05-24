@@ -3,6 +3,7 @@ import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
 import { logApproval, logAudit } from "@/lib/auditLog"
 import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
+import { classifyOtFromRecords } from "@/lib/utils/ot-classification"
 import { isPayrollPeriodLocked } from "@/lib/utils/periodLock"
 
 // ── recompute attendance_records.ot_minutes จาก overtime_requests ที่ status=approved ──
@@ -128,7 +129,11 @@ async function recalcPayrollAfterOT(supa: any, employeeId: string, workDate: str
     if (!payrollRec) return // ยังไม่มี payroll_record → admin ต้องสร้างก่อน
 
     const sal          = salRes.data
-    const attRows      = (attRes.data ?? []) as any[]
+    // ⚠️ dedupe ตาม work_date — กัน duplicate rows ทำให้ sum OT/late inflate
+    const attRawRows   = (attRes.data ?? []) as any[]
+    const attRows      = Array.from(
+      new Map<string, any>(attRawRows.map(r => [r.work_date as string, r])).values()
+    )
     const holidaySet   = new Set<string>((holRes.data ?? []).map((h: any) => h.date as string))
     const fixedDayoffs = schedRes.data?.fixed_dayoffs as string[] | undefined
 
@@ -152,37 +157,27 @@ async function recalcPayrollAfterOT(supa: any, employeeId: string, workDate: str
       return dow !== 0 && dow !== 6 && !holidaySet.has(date)
     }
 
-    // ── 5. แยก OT weekday / holiday (เหมือน calcAndSave ทุกประการ) ──
-    let weekdayOtMin  = 0
-    let holidayRegMin = 0
-    let holidayOtMin  = 0
+    // ── 5. แยก OT ตาม rate จาก approved overtime_requests ──
+    const { data: approvedOTs } = await supa.from("overtime_requests")
+      .select("work_date, ot_start, ot_end, ot_rate")
+      .eq("employee_id", employeeId)
+      .eq("status", "approved")
+      .gte("work_date", period.start_date)
+      .lte("work_date", period.end_date)
+
+    const otBreakdown: OTBreakdown = classifyOtFromRecords(
+      attRows,
+      (approvedOTs ?? []) as any[],
+      isWorkDay,
+    )
+
     let totalLateMin  = 0
     let totalEarlyMin = 0
     let absentDays    = 0
-
     for (const r of attRows) {
-      const otMin   = Number(r.ot_minutes)   || 0
-      const workMin = Number(r.work_minutes) || 0
-      const wd      = r.work_date as string
-
-      if (otMin > 0 || workMin > 0) {
-        if (!isWorkDay(wd)) {
-          holidayRegMin += Math.max(0, workMin - otMin) // งานวันหยุด 1.0x
-          holidayOtMin  += otMin                        // OT วันหยุด 3.0x
-        } else {
-          weekdayOtMin  += otMin                        // OT วันทำงาน 1.5x
-        }
-      }
-
       totalLateMin  += Number(r.late_minutes)       || 0
       totalEarlyMin += Number(r.early_out_minutes)  || 0
       if (r.status === "absent") absentDays++
-    }
-
-    const otBreakdown: OTBreakdown = {
-      weekday_minutes:         weekdayOtMin,
-      holiday_regular_minutes: holidayRegMin,
-      holiday_ot_minutes:      holidayOtMin,
     }
 
     // ── 6. คำนวณ summary ด้วย calculatePayrollSummary ──
@@ -213,10 +208,10 @@ async function recalcPayrollAfterOT(supa: any, employeeId: string, workDate: str
     // ── 7. update payroll_records ครบทุกฟิลด์ที่ได้รับผลจาก OT ──
     await supa.from("payroll_records").update({
       // OT minutes (ทั้ง 3 ประเภท)
-      ot_weekday_minutes:     weekdayOtMin,
-      ot_holiday_reg_minutes: holidayRegMin,
-      ot_holiday_ot_minutes:  holidayOtMin,
-      ot_hours:               (weekdayOtMin + holidayRegMin + holidayOtMin) / 60,
+      ot_weekday_minutes:     otBreakdown.weekday_minutes,
+      ot_holiday_reg_minutes: otBreakdown.holiday_regular_minutes,
+      ot_holiday_ot_minutes:  otBreakdown.holiday_ot_minutes,
+      ot_hours:               (otBreakdown.weekday_minutes + otBreakdown.holiday_regular_minutes + otBreakdown.holiday_ot_minutes) / 60,
       ot_amount:              summary.otAmount,
       // รายได้รวม
       gross_income:           summary.gross,

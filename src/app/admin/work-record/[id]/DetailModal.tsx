@@ -348,12 +348,18 @@ export function OTDetail({ employee, managers, row, ot, onClose, onSaved }: Base
     setSaving(true)
     const t = toast.loading("กำลังบันทึก...")
     try {
+      // ✅ overnight: ถ้า end <= start → end เป็นวันถัดไป
+      const [sh, sm] = otStart.split(":").map(Number)
+      const [eh, em] = otEnd.split(":").map(Number)
+      const otEndDate = (eh * 60 + em) <= (sh * 60 + sm)
+        ? new Date(new Date(row.work_date).getTime() + 86400000).toISOString().slice(0, 10)
+        : row.work_date
       const payload = {
         employee_id: employee.id,
         company_id: employee.company_id,
         work_date: row.work_date,
         ot_start: `${row.work_date}T${otStart}:00+07:00`,
-        ot_end: `${row.work_date}T${otEnd}:00+07:00`,
+        ot_end: `${otEndDate}T${otEnd}:00+07:00`,
         ot_rate: Number(otRate) || 1.5,
         reason: reason || "เพิ่มโดยแอดมิน",
         status: "approved",

@@ -1,6 +1,7 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
+import { classifyOtFromRecords } from "@/lib/utils/ot-classification"
 import { logPayroll } from "@/lib/auditLog"
 
 // ── Supabase pagination helper (server max = 1000 rows) ──────────
@@ -347,8 +348,10 @@ export async function POST(req: Request) {
             tax_withholding_pct: null,
           }
 
-          const records = attByEmp.get(eid) ?? []
-          const recordMap = new Map<string, any>(records.map((r: any) => [r.work_date, r]))
+          // ⚠️ dedupe ตาม work_date — กัน duplicate rows ทำให้ sum OT/late inflate
+          const rawRecords = attByEmp.get(eid) ?? []
+          const recordMap = new Map<string, any>(rawRecords.map((r: any) => [r.work_date, r]))
+          const records = Array.from(recordMap.values())
 
           // Shift + Profile สำหรับพนักงานคนนี้
           const empShiftMap = shiftByEmp.get(eid)
@@ -406,42 +409,35 @@ export async function POST(req: Request) {
             return s + (Number(r.early_out_minutes) || 0)
           }, 0)
 
-          // OT แยกประเภท (weekday 1.5x / holiday_regular 1.0x / holiday_ot 3.0x)
-          let weekdayOtMin  = 0
-          let holidayRegMin = 0
-          let holidayOtMin  = 0
+          // OT แยกประเภท — ใช้ rate จาก overtime_requests (เดิมใช้แค่ isWorkDay ผิด)
+          const empApprovedOts = (otByEmp.get(eid) ?? []) as any[]
+          const hasAttOt = records.some((r: any) => Number(r.ot_minutes) > 0)
+          let otBreakdown: OTBreakdown
 
-          for (const r of records) {
-            const otM = Number(r.ot_minutes) || 0
-            if (otM <= 0) continue  // ไม่มี OT จาก attendance → skip
-
-            const wd = r.work_date as string
-            if (!isWorkDay(wd, holidaySet, empShiftMap, empDayoffs)) {
-              holidayOtMin += otM
-            } else {
-              weekdayOtMin += otM
+          if (hasAttOt) {
+            otBreakdown = classifyOtFromRecords(
+              records,
+              empApprovedOts,
+              (wd: string) => isWorkDay(wd, holidaySet, empShiftMap, empDayoffs),
+            )
+          } else {
+            // fallback: ไม่มี attendance OT → ใช้ requests ตรงๆ
+            let weekdayOtMin = 0, holidayRegMin = 0, holidayOtMin = 0
+            for (const ot of empApprovedOts) {
+              if (!ot.ot_start || !ot.ot_end) continue
+              const mins = Math.max(0, Math.round(
+                (new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000
+              ))
+              const rate = Number(ot.ot_rate) || 1.5
+              if (rate >= 3.0)      holidayOtMin  += mins
+              else if (rate <= 1.0) holidayRegMin += mins
+              else                  weekdayOtMin  += mins
             }
-          }
-
-          // fallback: overtime_requests
-          if (weekdayOtMin === 0 && holidayOtMin === 0 && holidayRegMin === 0) {
-            for (const ot of (otByEmp.get(eid) ?? [])) {
-              if (ot.ot_start && ot.ot_end) {
-                const mins = Math.max(0, Math.round(
-                  (new Date(ot.ot_end).getTime() - new Date(ot.ot_start).getTime()) / 60000
-                ))
-                const rate = Number(ot.ot_rate) || 1.5
-                if (rate >= 3.0) holidayOtMin += mins
-                else if (rate <= 1.0) holidayRegMin += mins
-                else weekdayOtMin += mins
-              }
+            otBreakdown = {
+              weekday_minutes: weekdayOtMin,
+              holiday_regular_minutes: holidayRegMin,
+              holiday_ot_minutes: holidayOtMin,
             }
-          }
-
-          const otBreakdown: OTBreakdown = {
-            weekday_minutes: weekdayOtMin,
-            holiday_regular_minutes: holidayRegMin,
-            holiday_ot_minutes: holidayOtMin,
           }
 
           const baseSalary = Number(sal.base_salary) || 0
@@ -534,10 +530,10 @@ export async function POST(req: Request) {
             allowance_other: mIsManual ? Number(existPR?.allowance_other) : 0,
             // OT: ถ้า HR เคยกรอกทับ → ใช้ทุกค่าจาก HR (amount + minutes)
             ot_amount: finalOtAmount,
-            ot_hours: mIsManual && existPR?.ot_hours != null ? Number(existPR.ot_hours) : (weekdayOtMin + holidayRegMin + holidayOtMin) / 60,
-            ot_weekday_minutes: mIsManual && existPR?.ot_weekday_minutes != null ? Number(existPR.ot_weekday_minutes) : weekdayOtMin,
-            ot_holiday_reg_minutes: mIsManual && existPR?.ot_holiday_reg_minutes != null ? Number(existPR.ot_holiday_reg_minutes) : holidayRegMin,
-            ot_holiday_ot_minutes: mIsManual && existPR?.ot_holiday_ot_minutes != null ? Number(existPR.ot_holiday_ot_minutes) : holidayOtMin,
+            ot_hours: mIsManual && existPR?.ot_hours != null ? Number(existPR.ot_hours) : (otBreakdown.weekday_minutes + otBreakdown.holiday_regular_minutes + otBreakdown.holiday_ot_minutes) / 60,
+            ot_weekday_minutes: mIsManual && existPR?.ot_weekday_minutes != null ? Number(existPR.ot_weekday_minutes) : otBreakdown.weekday_minutes,
+            ot_holiday_reg_minutes: mIsManual && existPR?.ot_holiday_reg_minutes != null ? Number(existPR.ot_holiday_reg_minutes) : otBreakdown.holiday_regular_minutes,
+            ot_holiday_ot_minutes: mIsManual && existPR?.ot_holiday_ot_minutes != null ? Number(existPR.ot_holiday_ot_minutes) : otBreakdown.holiday_ot_minutes,
             bonus: Number(mBonus),
             kpi_grade: useManualKpi ? manualKpiGrade : kpiBonus.grade,
             kpi_standard_amount: useManualKpi ? (Number(existPR?.kpi_standard_amount) || kpiBonus.standardAmount) : kpiBonus.standardAmount,
