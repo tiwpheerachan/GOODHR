@@ -345,8 +345,8 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* role shortcuts */}
-          {(user as any)?.role === "manager" && (
+          {/* role shortcuts — show for manager role OR any evaluator (granted KPI/probation) */}
+          {((user as any)?.role === "manager" || (user as any)?.is_evaluator) && !["hr_admin","super_admin"].includes((user as any)?.role||"") && (
             <Link href="/manager/dashboard"
               className="group flex items-center justify-between rounded-[24px] border border-white/90 bg-white/90 px-5 py-3 shadow-[0_12px_28px_rgba(15,23,42,0.05)] backdrop-blur-md transition-all active:bg-slate-50">
               <div className="flex items-center gap-4">

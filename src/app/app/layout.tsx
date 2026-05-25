@@ -135,6 +135,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isManager        = ["manager","hr_admin","super_admin"].includes(role)
   const isAdmin          = ["hr_admin","super_admin"].includes(role)
   const isEquipmentAdmin = ["equipment_admin","hr_admin","super_admin"].includes(role)
+  // ผู้ที่ได้รับสิทธิ์ประเมิน (additional / KPI / direct manager) แต่ role=employee
+  // ให้แสดงปุ่ม "TL" และเข้า /manager ได้
+  const isEvaluator      = isManager || !!(user as any)?.is_evaluator
   const empId     = (user as any)?.employee_id ?? emp?.id
   const [unread, setUnread] = useState(0)
   const [unreadAnn, setUnreadAnn] = useState(0)
@@ -194,7 +197,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Shield size={10}/><span>Admin</span>
             </Link>
           )}
-          {!isAdmin && isManager && (
+          {!isAdmin && isEvaluator && (
             <Link href="/manager/dashboard"
               className="flex items-center gap-1.5 bg-gradient-to-r from-violet-500 to-purple-500 text-white text-[10px] font-black px-3 py-1.5 rounded-xl shadow-sm shadow-violet-200 hover:shadow-md hover:scale-105 transition-all active:scale-95">
               <Users size={10}/><span>TL</span>

@@ -110,7 +110,7 @@ export default function DashboardPage() {
 
   const role = (user as any)?.role || ""
   const emp  = user?.employee as any
-  const isManager = ["manager","hr_admin","super_admin"].includes(role)
+  const isManager = ["manager","hr_admin","super_admin"].includes(role) || !!(user as any)?.is_evaluator
   const isAdmin   = ["hr_admin","super_admin"].includes(role)
 
   const [tick,    setTick]    = useState<Date|null>(null)

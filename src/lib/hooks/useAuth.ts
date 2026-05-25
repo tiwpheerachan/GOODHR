@@ -49,6 +49,22 @@ async function fetchUserOnce(forceRefresh = false): Promise<User | null> {
         if (!data.employee && data.company_id) {
           (data as any).employee = { company_id: data.company_id }
         }
+        // ── คำนวณ is_evaluator: เป็นผู้ประเมินใครๆ หรือเปล่า
+        //   ใช้สำหรับแสดงปุ่ม "TL" และ allow access /manager แม้ role=employee
+        //   เช็คผ่าน API endpoint ที่ใช้ service client (bypass RLS)
+        const empId = (data as any).employee?.id || (data as any).employee_id
+        if (empId && !["super_admin", "hr_admin", "manager"].includes((data as any).role)) {
+          try {
+            const res = await fetch("/api/auth/evaluator-status", { cache: "no-store" })
+            if (res.ok) {
+              const j = await res.json()
+              ;(data as any).is_evaluator = !!j.is_evaluator
+            }
+          } catch {}
+        } else {
+          // role manager/admin → ถือว่าเป็น evaluator โดยปริยาย
+          ;(data as any).is_evaluator = ["super_admin", "hr_admin", "manager"].includes((data as any).role)
+        }
         _cachedUser = data as User
       } else {
         _cachedUser = null
