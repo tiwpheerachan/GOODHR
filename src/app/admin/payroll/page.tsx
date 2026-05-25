@@ -289,9 +289,12 @@ function FullRegisterTable({ records, onEdit, onView }: { records: any[]; onEdit
                   {/* Frozen info cells */}
                   {INFO_C.map((col, ci) => {
                     const v = col.get(r, idx)
+                    // คอลัมน์แบรนด์อาจยาวมาก → truncate ด้วย ellipsis + title แสดงเต็มเมื่อ hover
+                    const isBrand = col.key === "brand"
+                    const w = INFO_WIDTHS[col.key]
                     return (
                       <td key={col.key}
-                        className={`${stickyBase} px-2 py-1.5 border-b border-slate-50 ${
+                        className={`${stickyBase} px-2 py-1.5 border-b border-slate-50 ${isBrand ? "overflow-hidden" : ""} ${
                           isRowSel ? "bg-indigo-50" : "bg-white group-hover:bg-slate-50"
                         } ${
                           col.key === "no" ? "text-center text-slate-400" :
@@ -299,8 +302,10 @@ function FullRegisterTable({ records, onEdit, onView }: { records: any[]; onEdit
                           col.key === "name" ? "font-bold text-slate-800" :
                           "text-slate-600"
                         } ${selCol === col.key ? "!bg-indigo-50" : ""}`}
-                        style={{ left: infoLeft[ci], width: INFO_WIDTHS[col.key], minWidth: INFO_WIDTHS[col.key], zIndex: 10 }}>
-                        {v}
+                        style={{ left: infoLeft[ci], width: w, minWidth: w, maxWidth: isBrand ? w : undefined, zIndex: 10 }}>
+                        {isBrand && typeof v === "string" && v
+                          ? <div className="truncate text-[10px] cursor-help" title={v}>{v}</div>
+                          : v}
                       </td>
                     )
                   })}
