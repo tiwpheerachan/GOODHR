@@ -25,7 +25,8 @@ export default function BranchEvalPermissionsPage() {
   const [me, setMe] = useState<any>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [role, setRole] = useState<"branch_eval_admin" | "branch_eval_supervisor" | "branch_eval_evaluator">("branch_eval_admin")
-  const [branchId, setBranchId] = useState("")
+  const [branchIds, setBranchIds] = useState<Set<string>>(new Set())
+  const [branchSearch, setBranchSearch] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState("")
   const [saving, setSaving] = useState(false)
@@ -57,28 +58,51 @@ export default function BranchEvalPermissionsPage() {
     return s
   }, [perms])
 
-  const currentKey = (empId: string) =>
-    `${empId}|${role}|${role === "branch_eval_admin" ? "_" : (branchId || "_")}`
+  // กรองพนักงานที่ "ได้รับสิทธิ์ใน *ทุก* branch ที่เลือกไว้แล้ว" ออก
+  const isFullyGranted = (empId: string): boolean => {
+    if (role === "branch_eval_admin") {
+      return grantedKeys.has(`${empId}|${role}|_`)
+    }
+    if (branchIds.size === 0) return false
+    const arr = Array.from(branchIds)
+    for (const bid of arr) {
+      if (!grantedKeys.has(`${empId}|${role}|${bid}`)) return false
+    }
+    return true
+  }
 
   const filteredEmps = useMemo(() => {
     const s = search.trim().toLowerCase()
     return employees.filter(e => {
-      if (grantedKeys.has(currentKey(e.id))) return false
+      if (isFullyGranted(e.id)) return false
       if (s) {
         const hay = `${e.first_name_th} ${e.last_name_th} ${e.nickname ?? ""} ${e.employee_code ?? ""} ${e.position?.name ?? ""} ${e.department?.name ?? ""}`.toLowerCase()
         if (!hay.includes(s)) return false
       }
       return true
     })
-  }, [employees, search, grantedKeys, role, branchId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employees, search, grantedKeys, role, branchIds])
+
+  const filteredBranches = useMemo(() => {
+    const s = branchSearch.trim().toLowerCase()
+    if (!s) return branches
+    return branches.filter(b =>
+      `${b.name} ${b.code ?? ""} ${b.company?.name_th ?? ""}`.toLowerCase().includes(s)
+    )
+  }, [branches, branchSearch])
 
   const toggle = (id: string) => setSelected(s => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
   })
 
+  const toggleBranch = (id: string) => setBranchIds(s => {
+    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
+
   const grant = async () => {
     if (selected.size === 0) { toast.error("เลือกพนักงานก่อน"); return }
-    if ((role !== "branch_eval_admin") && !branchId) { toast.error("เลือกสาขา"); return }
+    if ((role !== "branch_eval_admin") && branchIds.size === 0) { toast.error("เลือกสาขาอย่างน้อย 1 ที่"); return }
     setSaving(true)
     const t = toast.loading("กำลังเพิ่มสิทธิ์...")
     try {
@@ -86,13 +110,18 @@ export default function BranchEvalPermissionsPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           employee_ids: Array.from(selected), role,
-          branch_id: branchId || undefined,
+          branch_ids: role !== "branch_eval_admin" ? Array.from(branchIds) : undefined,
         }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error)
-      toast.success(`เพิ่ม ${d.added}/${d.requested} คน`, { id: t })
-      setShowAdd(false); setSelected(new Set())
+      toast.success(
+        role === "branch_eval_admin"
+          ? `เพิ่ม admin ${d.added} คน`
+          : `เพิ่ม ${d.added} สิทธิ์ (${d.employees} คน × ${d.branches} สาขา)`,
+        { id: t },
+      )
+      setShowAdd(false); setSelected(new Set()); setBranchIds(new Set())
       await load()
     } catch (e: any) { toast.error(e.message, { id: t }) }
     finally { setSaving(false) }
@@ -195,7 +224,7 @@ export default function BranchEvalPermissionsPage() {
               <div>
                 <p className="text-xs font-black text-slate-600 mb-1.5">บทบาท</p>
                 <div className="grid grid-cols-3 gap-2">
-                  <button onClick={() => { setRole("branch_eval_admin"); setBranchId("") }}
+                  <button onClick={() => { setRole("branch_eval_admin"); setBranchIds(new Set()) }}
                     className={`p-3 rounded-xl border-2 text-left transition ${role === "branch_eval_admin" ? "border-rose-400 bg-rose-50" : "border-slate-200 hover:border-slate-300"}`}>
                     <p className="font-bold text-sm">🛡 Admin</p>
                     <p className="text-[10px] text-slate-500 mt-0.5">CRUD ทุกอย่าง / templates</p>
@@ -215,12 +244,72 @@ export default function BranchEvalPermissionsPage() {
 
               {role !== "branch_eval_admin" && (
                 <div>
-                  <p className="text-xs font-black text-slate-600 mb-1.5">เลือกสาขา *</p>
-                  <select value={branchId} onChange={e => setBranchId(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400">
-                    <option value="">— เลือกสาขา —</option>
-                    {branches.map(b => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
-                  </select>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-black text-slate-600">เลือกสาขา (เลือกได้หลายที่) *</p>
+                    {branchIds.size > 0 && (
+                      <button onClick={() => setBranchIds(new Set())}
+                        className="text-[10px] text-rose-600 hover:text-rose-700 font-bold">
+                        ล้างทั้งหมด ({branchIds.size})
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Quick action chips */}
+                  <div className="flex gap-1 mb-1.5 flex-wrap">
+                    <button onClick={() => setBranchIds(new Set(branches.map(b => b.id)))}
+                      className="text-[10px] px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded font-bold">
+                      เลือกทุกสาขา ({branches.length})
+                    </button>
+                    {Array.from(new Set(branches.map(b => b.company?.code).filter(Boolean))).map((cc: any) => {
+                      const inComp = branches.filter(b => b.company?.code === cc)
+                      return (
+                        <button key={cc} onClick={() => setBranchIds(s => {
+                          const n = new Set(s)
+                          inComp.forEach(b => n.add(b.id))
+                          return n
+                        })}
+                          className="text-[10px] px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-bold">
+                          + {cc} ({inComp.length})
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="relative mb-1.5">
+                    <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input value={branchSearch} onChange={e => setBranchSearch(e.target.value)}
+                      placeholder="ค้นหา สาขา / รหัส / บริษัท..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs outline-none focus:border-indigo-400" />
+                  </div>
+
+                  <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg p-1.5 bg-slate-50">
+                    {filteredBranches.length === 0 ? (
+                      <p className="text-center text-xs text-slate-400 py-4">ไม่พบสาขา</p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                        {filteredBranches.map((b: any) => {
+                          const checked = branchIds.has(b.id)
+                          return (
+                            <label key={b.id}
+                              className={`flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer text-xs ${
+                                checked ? "bg-indigo-100 text-indigo-800 font-bold" : "hover:bg-white text-slate-700"
+                              }`}>
+                              <input type="checkbox" checked={checked} onChange={() => toggleBranch(b.id)}
+                                className="w-3.5 h-3.5 accent-indigo-500" />
+                              <span className="flex-1 truncate">{b.name}</span>
+                              {b.code && <span className="text-[9px] text-slate-500 font-bold">{b.code}</span>}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  {branchIds.size > 0 && (
+                    <p className="text-[10px] text-indigo-700 mt-1 font-bold">
+                      ✓ เลือกแล้ว {branchIds.size} สาขา
+                      {selected.size > 0 && <> · จะสร้าง {selected.size * branchIds.size} สิทธิ์</>}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -276,7 +365,7 @@ export default function BranchEvalPermissionsPage() {
                 </span>
               )}
               <button onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl hover:bg-slate-50">ยกเลิก</button>
-              <button onClick={grant} disabled={saving || selected.size === 0}
+              <button onClick={grant} disabled={saving || selected.size === 0 || (role !== "branch_eval_admin" && branchIds.size === 0)}
                 className="px-4 py-2 text-sm font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl disabled:opacity-40 inline-flex items-center gap-1.5">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                 เพิ่ม

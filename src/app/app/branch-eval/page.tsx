@@ -4,7 +4,7 @@ import Link from "next/link"
 import {
   Store, ClipboardCheck, Loader2, MapPin, Plus, ChevronRight,
   Clock, CheckCircle2, FileText, ShieldAlert, Search, X,
-  BadgeCheck, Settings, RefreshCw,
+  BadgeCheck, Settings, RefreshCw, Building2, ChevronDown, Check,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -13,7 +13,8 @@ import toast from "react-hot-toast"
 type Branch = {
   id: string; code: string; name: string
   latitude?: number; longitude?: number
-  company?: { name_th?: string }
+  company_id?: string
+  company?: { name_th?: string; code?: string }
   user_role: "admin" | "supervisor" | "evaluator" | null
 }
 type Template = { id: string; name: string; description?: string; total_weight: number }
@@ -40,7 +41,6 @@ export default function BranchEvalLandingPage() {
   const [loading, setLoading] = useState(true)
   const [picker, setPicker] = useState<{ branch: Branch | null; templateId: string }>({ branch: null, templateId: "" })
   const [creating, setCreating] = useState(false)
-  const [search, setSearch] = useState("")
 
   const load = () => {
     setLoading(true)
@@ -57,12 +57,6 @@ export default function BranchEvalLandingPage() {
     }).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
-
-  const filteredBranches = useMemo(() => {
-    const s = search.trim().toLowerCase()
-    if (!s) return branches
-    return branches.filter(b => `${b.name} ${b.code}`.toLowerCase().includes(s))
-  }, [branches, search])
 
   const stats = useMemo(() => ({
     total: evals.length,
@@ -173,21 +167,9 @@ export default function BranchEvalLandingPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-[1fr,1fr,auto] gap-2">
-          <div className="bg-white/10 backdrop-blur rounded-xl p-2 border border-white/20">
-            <p className="text-[10px] font-bold opacity-80 mb-1">สาขา</p>
-            <select value={picker.branch?.id ?? ""}
-              onChange={e => setPicker(p => ({ ...p, branch: branches.find(b => b.id === e.target.value) || null }))}
-              className="w-full bg-white/20 border border-white/30 rounded-lg px-2.5 py-1.5 text-sm outline-none text-white"
-              style={{ colorScheme: "dark" }}>
-              <option value="" className="text-slate-800">— เลือกสาขา —</option>
-              {branches.map(b => (
-                <option key={b.id} value={b.id} className="text-slate-800">
-                  {b.name}{b.code ? ` (${b.code})` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="space-y-2">
+          <BranchCombobox branches={branches} value={picker.branch}
+            onChange={b => setPicker(p => ({ ...p, branch: b }))} />
           <div className="bg-white/10 backdrop-blur rounded-xl p-2 border border-white/20">
             <p className="text-[10px] font-bold opacity-80 mb-1">เทมเพลต</p>
             <select value={picker.templateId}
@@ -201,56 +183,13 @@ export default function BranchEvalLandingPage() {
             </select>
           </div>
           <button onClick={startEval} disabled={!picker.branch || !picker.templateId || creating}
-            className="px-4 py-2 bg-white text-indigo-700 hover:bg-indigo-50 rounded-xl text-sm font-black disabled:opacity-40 flex items-center justify-center gap-1.5 shadow">
+            className="w-full px-4 py-2.5 bg-white text-indigo-700 hover:bg-indigo-50 rounded-xl text-sm font-black disabled:opacity-40 flex items-center justify-center gap-1.5 shadow">
             {creating ? <Loader2 size={14} className="animate-spin" /> : <ClipboardCheck size={14} />}
             เริ่มประเมิน
           </button>
         </div>
       </div>
 
-      {/* Branches accessible */}
-      {branches.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
-              <Store size={13} className="text-emerald-600" />
-            </div>
-            <h2 className="font-black text-slate-800 text-sm">สาขาที่เข้าถึงได้ ({branches.length})</h2>
-            <div className="relative ml-auto">
-              <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="ค้นหาสาขา"
-                className="bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-2 py-1 text-xs outline-none focus:border-indigo-400 w-44" />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {filteredBranches.map(b => (
-              <div key={b.id} className="bg-slate-50 hover:bg-white border border-slate-100 hover:border-indigo-200 rounded-xl p-2.5 transition-all">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="font-bold text-sm text-slate-800 truncate">{b.name}</p>
-                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-600">{b.code}</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 truncate mt-0.5">
-                      {b.user_role === "admin" ? "🔴 Admin"
-                        : b.user_role === "supervisor" ? "🛡 Supervisor"
-                        : b.user_role === "evaluator" ? "📝 Evaluator"
-                        : ""}
-                      {b.latitude && b.longitude ? <> · <MapPin size={9} className="inline" /> {Number(b.latitude).toFixed(3)}, {Number(b.longitude).toFixed(3)}</> : null}
-                    </p>
-                  </div>
-                  <button onClick={() => setPicker({ branch: b, templateId: templates[0]?.id ?? "" })}
-                    title="เริ่มประเมินสาขานี้"
-                    className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg flex-shrink-0">
-                    <Plus size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* My evaluations */}
       <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
@@ -301,6 +240,172 @@ export default function BranchEvalLandingPage() {
         )}
       </div>
     </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Smart branch picker — search + group by company
+// ─────────────────────────────────────────────────────────────
+function BranchCombobox({ branches, value, onChange }: {
+  branches: Branch[]
+  value: Branch | null
+  onChange: (b: Branch | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase()
+    if (!s) return branches
+    return branches.filter(b => {
+      const hay = `${b.name} ${b.code ?? ""} ${b.company?.name_th ?? ""} ${b.company?.code ?? ""}`.toLowerCase()
+      return hay.includes(s)
+    })
+  }, [branches, search])
+
+  // group by company
+  const grouped = useMemo(() => {
+    const m = new Map<string, { companyName: string; companyCode: string; items: Branch[] }>()
+    for (const b of filtered) {
+      const key = b.company?.code ?? b.company?.name_th ?? "—"
+      const cur = m.get(key) ?? {
+        companyName: b.company?.name_th ?? "ไม่ระบุบริษัท",
+        companyCode: b.company?.code ?? "",
+        items: [] as Branch[],
+      }
+      cur.items.push(b)
+      m.set(key, cur)
+    }
+    return Array.from(m.values()).sort((a, b) => a.companyName.localeCompare(b.companyName))
+  }, [filtered])
+
+  return (
+    <>
+      <div className="bg-white/10 backdrop-blur rounded-xl p-2 border border-white/20">
+        <p className="text-[10px] font-bold opacity-80 mb-1">สาขา · {branches.length} ทั้งหมด</p>
+        <button type="button" onClick={() => setOpen(true)}
+          className="w-full bg-white/20 border border-white/30 rounded-lg px-2.5 py-1.5 text-sm text-white text-left flex items-center gap-1.5 hover:bg-white/30">
+          {value ? (
+            <>
+              <Store size={13} className="opacity-80 flex-shrink-0" />
+              <span className="truncate flex-1 font-bold">{value.name}</span>
+              {value.code && <span className="text-[10px] opacity-70 flex-shrink-0">{value.code}</span>}
+            </>
+          ) : (
+            <>
+              <Search size={13} className="opacity-70 flex-shrink-0" />
+              <span className="opacity-70 flex-1">เลือกสาขา · กดเพื่อค้นหา</span>
+            </>
+          )}
+          <ChevronDown size={12} className="opacity-70 flex-shrink-0" />
+        </button>
+      </div>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden mt-4 sm:mt-0" onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+              <Store size={16} className="text-indigo-600" />
+              <h3 className="font-black text-slate-800">เลือกสาขา</h3>
+              <span className="text-[10px] text-slate-400 font-bold ml-auto">{filtered.length} / {branches.length}</span>
+              <button onClick={() => setOpen(false)} className="p-1 hover:bg-slate-100 rounded ml-1"><X size={16} /></button>
+            </div>
+
+            {/* search */}
+            <div className="px-4 pt-3 pb-2">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  autoFocus
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="พิมพ์ชื่อสาขา / รหัส / บริษัท..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-9 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-400" />
+                {search && (
+                  <button onClick={() => setSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-700">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-2 pb-2">
+              {grouped.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-sm">
+                  <Store size={28} className="mx-auto mb-2 text-slate-200" />
+                  ไม่พบสาขา
+                </div>
+              ) : grouped.map(group => (
+                <div key={group.companyCode + group.companyName} className="mb-2">
+                  <div className="px-3 py-1.5 bg-slate-50 sticky top-0 z-10 rounded-md mb-1">
+                    <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider flex items-center gap-1">
+                      <Building2 size={10} /> {group.companyName}
+                      {group.companyCode && <span className="text-slate-400 ml-1">({group.companyCode})</span>}
+                      <span className="text-slate-400 ml-auto">{group.items.length} สาขา</span>
+                    </p>
+                  </div>
+                  <div className="space-y-0.5">
+                    {group.items.map(b => {
+                      const isSelected = value?.id === b.id
+                      return (
+                        <button key={b.id} type="button"
+                          onClick={() => { onChange(b); setOpen(false); setSearch("") }}
+                          className={`w-full px-3 py-2.5 text-left rounded-lg flex items-start gap-2.5 transition ${
+                            isSelected
+                              ? "bg-indigo-100 text-indigo-800 ring-2 ring-indigo-300"
+                              : "hover:bg-slate-50 text-slate-700"
+                          }`}>
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? "bg-indigo-500 text-white" : "bg-slate-100 text-slate-500"
+                          }`}>
+                            <Store size={14} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-sm break-words leading-tight">{b.name}</p>
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap text-[10px]">
+                              {b.code && <span className="px-1.5 py-0.5 bg-slate-200/70 text-slate-700 rounded font-bold">{b.code}</span>}
+                              {b.user_role && (
+                                <span className={`px-1.5 py-0.5 rounded font-black ${
+                                  b.user_role === "admin" ? "bg-rose-100 text-rose-700"
+                                  : b.user_role === "supervisor" ? "bg-amber-100 text-amber-700"
+                                  : "bg-sky-100 text-sky-700"
+                                }`}>
+                                  {b.user_role === "admin" ? "Admin" : b.user_role === "supervisor" ? "Supervisor" : "Evaluator"}
+                                </span>
+                              )}
+                              {b.latitude && b.longitude && (
+                                <span className="text-slate-400 inline-flex items-center gap-0.5">
+                                  <MapPin size={9} /> GPS
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {isSelected && <Check size={16} className="text-indigo-600 flex-shrink-0 mt-1" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {value && (
+              <div className="border-t border-slate-100 p-2 flex gap-2">
+                <button onClick={() => { onChange(null); setSearch(""); setOpen(false) }}
+                  className="flex-1 text-xs text-rose-600 hover:bg-rose-50 py-2 rounded-lg font-bold">
+                  ล้างการเลือก
+                </button>
+                <button onClick={() => setOpen(false)}
+                  className="flex-1 text-xs text-white bg-indigo-600 hover:bg-indigo-700 py-2 rounded-lg font-bold">
+                  ใช้สาขานี้
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

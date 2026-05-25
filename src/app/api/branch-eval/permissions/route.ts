@@ -48,17 +48,22 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { employee_id, employee_ids, role, branch_id } = body
+  const { employee_id, employee_ids, role, branch_id, branch_ids } = body
   const ids: string[] = Array.isArray(employee_ids) && employee_ids.length > 0
     ? employee_ids
     : (employee_id ? [employee_id] : [])
+
+  // รองรับทั้ง branch_id (single, backward compat) และ branch_ids (multi)
+  const branchList: string[] = Array.isArray(branch_ids) && branch_ids.length > 0
+    ? branch_ids
+    : (branch_id ? [branch_id] : [])
 
   if (ids.length === 0 || !role) return NextResponse.json({ error: "missing employee_id(s)/role" }, { status: 400 })
   if (!["branch_eval_admin", "branch_eval_supervisor", "branch_eval_evaluator"].includes(role)) {
     return NextResponse.json({ error: "invalid role" }, { status: 400 })
   }
-  if ((role === "branch_eval_supervisor" || role === "branch_eval_evaluator") && !branch_id) {
-    return NextResponse.json({ error: "supervisor/evaluator ต้องระบุ branch_id" }, { status: 400 })
+  if ((role === "branch_eval_supervisor" || role === "branch_eval_evaluator") && branchList.length === 0) {
+    return NextResponse.json({ error: "supervisor/evaluator ต้องระบุสาขาอย่างน้อย 1 ที่" }, { status: 400 })
   }
 
   // authorization
@@ -69,21 +74,43 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "เฉพาะ HR/Eval Admin ที่ตั้ง supervisor ได้" }, { status: 403 })
   }
   if (role === "branch_eval_evaluator") {
-    const ok = access.isBaseAdmin || access.isEvalAdmin || access.supervisorBranchIds.includes(branch_id)
-    if (!ok) return NextResponse.json({ error: "คุณไม่ได้ดูแล branch นี้" }, { status: 403 })
+    // supervisor มอบได้เฉพาะสาขาที่ตัวเองดูแล
+    const ok = access.isBaseAdmin || access.isEvalAdmin
+      || branchList.every(bid => access.supervisorBranchIds.includes(bid))
+    if (!ok) return NextResponse.json({ error: "บางสาขาคุณไม่ได้ดูแล" }, { status: 403 })
   }
 
-  const rows = ids.map(eid => ({
-    employee_id: eid, role,
-    branch_id: (role !== "branch_eval_admin") ? branch_id : null,
-    granted_by: access.employeeId,
-  }))
+  // ── สร้าง cross-product: (employee × branch) ──
+  let rows: any[] = []
+  if (role === "branch_eval_admin") {
+    rows = ids.map(eid => ({
+      employee_id: eid, role,
+      branch_id: null,
+      granted_by: access.employeeId,
+    }))
+  } else {
+    for (const eid of ids) {
+      for (const bid of branchList) {
+        rows.push({
+          employee_id: eid, role,
+          branch_id: bid,
+          granted_by: access.employeeId,
+        })
+      }
+    }
+  }
 
   const { error, data } = await svc.from("branch_eval_permissions")
     .upsert(rows, { onConflict: "employee_id,role,branch_id", ignoreDuplicates: true })
     .select("id")
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ success: true, added: data?.length ?? 0, requested: ids.length })
+  return NextResponse.json({
+    success: true,
+    added: data?.length ?? 0,
+    requested: rows.length,
+    employees: ids.length,
+    branches: branchList.length,
+  })
 }
 
 // DELETE — revoke

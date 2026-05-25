@@ -38,7 +38,7 @@ export default function BranchEvalDetailPage() {
   const [pendingPhoto, setPendingPhoto] = useState<{ itemId: string | null; kind: "checkin" | "answer" } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [gpsLoading, setGpsLoading] = useState(false)
-  const [headerEdit, setHeaderEdit] = useState({ store_manager: "", store_staff: "", general_notes: "", action_plan: "", visit_date: "", visit_time: "" })
+  const [headerEdit, setHeaderEdit] = useState({ general_notes: "", action_plan: "", visit_date: "", visit_time: "" })
   const [savingHeader, setSavingHeader] = useState(false)
   const [reviewerNotes, setReviewerNotes] = useState("")
 
@@ -48,8 +48,6 @@ export default function BranchEvalDetailPage() {
     setData(d)
     if (d.evaluation) {
       setHeaderEdit({
-        store_manager: d.evaluation.store_manager ?? "",
-        store_staff: d.evaluation.store_staff ?? "",
         general_notes: d.evaluation.general_notes ?? "",
         action_plan: d.evaluation.action_plan ?? "",
         visit_date: d.evaluation.visit_date ?? "",
@@ -318,10 +316,6 @@ export default function BranchEvalDetailPage() {
             onChange={(v: string) => setHeaderEdit(h => ({ ...h, visit_date: v }))} />
           <Field label="เวลา" type="time" value={headerEdit.visit_time} disabled={!access.can_edit}
             onChange={(v: string) => setHeaderEdit(h => ({ ...h, visit_time: v }))} />
-          <Field label="Store Manager / Supervisor" value={headerEdit.store_manager} disabled={!access.can_edit}
-            onChange={(v: string) => setHeaderEdit(h => ({ ...h, store_manager: v }))} placeholder="ชื่อหัวหน้าร้าน" />
-          <Field label="Sales Staff" value={headerEdit.store_staff} disabled={!access.can_edit}
-            onChange={(v: string) => setHeaderEdit(h => ({ ...h, store_staff: v }))} placeholder="พนักงานในร้าน" />
         </div>
         <div>
           <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">หมายเหตุทั่วไป</p>

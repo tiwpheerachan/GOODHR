@@ -15,15 +15,14 @@ export async function GET() {
 
   const ids = getAccessibleBranchIds(access)
   let q = svc.from("branches")
-    .select("id, code, name, latitude, longitude, geo_radius_m, company_id, company:companies(name_th)")
+    .select("id, code, name, latitude, longitude, geo_radius_m, company_id, company:companies(name_th, code)")
     .order("name")
 
   if (ids !== "ALL") {
     if (ids.length === 0) return NextResponse.json({ branches: [] })
     q = q.in("id", ids)
-  } else if (access.companyId) {
-    q = q.eq("company_id", access.companyId)
   }
+  // ⚠️ admin (isEvalAdmin) → เห็นทุกสาขาทุกบริษัท (ไม่ filter company)
 
   const { data, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
