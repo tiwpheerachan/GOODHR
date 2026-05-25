@@ -59,9 +59,11 @@ export async function POST(request: Request) {
   const newClockOut = req.requested_clock_out ?? existing?.clock_out
 
   // ── คำนวณ late_minutes ใหม่ ───────────────────────────────
+  //   per-employee override (work_schedules.late_threshold_minutes) → dept/company default
   const deptName      = (req.employee as any)?.department?.name ?? null
   const companyCode   = (req.employee as any)?.company?.code ?? null
-  const lateThreshold = getLateThreshold(deptName, companyCode)
+  const scheduleGrace = (schedule as any)?.late_threshold_minutes
+  const lateThreshold = scheduleGrace != null ? Number(scheduleGrace) : getLateThreshold(deptName, companyCode)
   let newLateMin = 0
 
   if (newClockIn && shift?.work_start) {

@@ -189,18 +189,50 @@ export default function EmployeeDetailPage() {
 
     // ── ถ้าอีเมลเปลี่ยน → เรียก API เปลี่ยน auth + users + employees ──
     if (emailChanged) {
+      const newEmail = form.email.trim().toLowerCase()
       try {
         const res = await fetch("/api/auth/change-email", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee_id: id, new_email: form.email.trim().toLowerCase() }),
+          body: JSON.stringify({ employee_id: id, new_email: newEmail }),
         })
         const d = await res.json()
-        if (!res.ok) {
+
+        // ── 404 "ไม่พบบัญชี" → fallback ไปสร้างบัญชีใหม่ ───────────────
+        if (res.status === 404 && /ไม่พบบัญชี/.test(d?.error || "")) {
+          // สุ่มรหัสผ่านเริ่มต้น (12 ตัวอักษร) — admin ต้องส่งให้พนักงาน
+          const tempPw = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8).toUpperCase()
+          const ok = confirm(
+            `พนักงานนี้ยังไม่มีบัญชีล็อกอิน\n\n` +
+            `จะสร้างบัญชีใหม่ด้วย:\n` +
+            `  • อีเมล: ${newEmail}\n` +
+            `  • รหัสผ่าน: ${tempPw}\n` +
+            `  • บทบาท: employee\n\n` +
+            `กดตกลงเพื่อสร้าง — ระบบจะ copy รหัสผ่านไว้ให้ส่งให้พนักงาน`
+          )
+          if (!ok) { setLoading(false); return }
+
+          const cRes = await fetch("/api/auth/create-account", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              employee_id: id, email: newEmail, password: tempPw, role: "employee",
+            }),
+          })
+          const cD = await cRes.json()
+          if (!cRes.ok || !cD.success) {
+            toast.error(cD.error || "สร้างบัญชีไม่สำเร็จ")
+            setLoading(false)
+            return
+          }
+          // copy password to clipboard (best effort)
+          try { await navigator.clipboard.writeText(tempPw) } catch {}
+          toast.success(`สร้างบัญชีสำเร็จ — ${newEmail} / ${tempPw} (copied)`, { duration: 10_000 })
+        } else if (!res.ok) {
           toast.error(`อีเมล: ${d.error}`)
           setLoading(false)
           return
+        } else {
+          toast.success(`เปลี่ยนอีเมลล็อกอินเป็น ${form.email} สำเร็จ`)
         }
-        toast.success(`เปลี่ยนอีเมลล็อกอินเป็น ${form.email} สำเร็จ`)
       } catch {
         toast.error("ไม่สามารถ sync อีเมลกับระบบล็อกอินได้")
         setLoading(false)

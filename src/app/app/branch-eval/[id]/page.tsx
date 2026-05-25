@@ -19,6 +19,7 @@ type Item = {
   weight: number
   answer_type: "yes_no" | "score_1_5" | "text" | "number"
   requires_note: boolean; requires_photo: boolean
+  is_section?: boolean
 }
 type Answer = {
   evaluation_id: string; item_id: string
@@ -207,10 +208,11 @@ export default function BranchEvalDetailPage() {
     await load()
   }
 
-  const answered = items.filter(i => answerById.has(i.id)).length
-  const passed = items.filter(i => answerById.get(i.id)?.is_pass === true).length
-  const filled = items.filter(i => answerById.has(i.id))
-  const progressPct = items.length > 0 ? Math.round((answered / items.length) * 100) : 0
+  // ⚠️ skip sections ตอนนับ progress + pass/fail
+  const realItems = items.filter(i => !i.is_section)
+  const answered = realItems.filter(i => answerById.has(i.id)).length
+  const passed = realItems.filter(i => answerById.get(i.id)?.is_pass === true).length
+  const progressPct = realItems.length > 0 ? Math.round((answered / realItems.length) * 100) : 0
 
   const STATUS_LABEL: Record<string, string> = { draft: "ร่าง", submitted: "ส่งแล้ว", reviewed: "รีวิวแล้ว" }
 
@@ -249,7 +251,7 @@ export default function BranchEvalDetailPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-3">
           <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-100">
             <p className="text-[10px] font-bold text-slate-400 uppercase">กรอกแล้ว</p>
-            <p className="text-lg font-black text-slate-800">{answered} / {items.length}</p>
+            <p className="text-lg font-black text-slate-800">{answered} / {realItems.length}</p>
             <div className="h-1 bg-slate-200 rounded-full mt-1 overflow-hidden">
               <div className="h-full bg-indigo-500 transition-all" style={{ width: `${progressPct}%` }} />
             </div>
@@ -348,10 +350,19 @@ export default function BranchEvalDetailPage() {
       <div className="bg-white rounded-2xl border border-slate-100 p-3 shadow-sm">
         <div className="flex items-center gap-2 mb-2 px-1">
           <ClipboardCheck size={13} className="text-indigo-500" />
-          <p className="text-sm font-black text-slate-800">รายการตรวจ ({items.length} ข้อ · รวม {ev.total_weight} คะแนน)</p>
+          <p className="text-sm font-black text-slate-800">รายการตรวจ ({realItems.length} ข้อ · รวม {ev.total_weight} คะแนน)</p>
         </div>
         <div className="space-y-2">
           {items.map(it => {
+            if (it.is_section) {
+              return (
+                <div key={it.id} className="bg-gradient-to-r from-violet-500 to-indigo-500 rounded-xl p-3 text-white shadow">
+                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">หัวข้อหลัก</p>
+                  <p className="text-base font-black">{it.question_th}</p>
+                  {it.question_en && <p className="text-[11px] opacity-80">{it.question_en}</p>}
+                </div>
+              )
+            }
             const a = answerById.get(it.id)
             return <ItemRow key={it.id} item={it} answer={a}
               busy={busy === it.id}
@@ -395,7 +406,7 @@ export default function BranchEvalDetailPage() {
       {access.can_edit && (
         <div className="fixed bottom-3 left-3 right-3 lg:relative lg:bottom-auto lg:left-auto lg:right-auto bg-white border border-slate-200 rounded-2xl p-3 shadow-xl lg:shadow-sm flex items-center justify-between gap-2 z-30">
           <p className="text-[11px] text-slate-500">
-            <b className="text-slate-800">{answered}/{items.length}</b> ข้อ · <b className="text-indigo-700">{Number(ev.percentage).toFixed(1)}%</b>
+            <b className="text-slate-800">{answered}/{realItems.length}</b> ข้อ · <b className="text-indigo-700">{Number(ev.percentage).toFixed(1)}%</b>
           </p>
           <div className="flex gap-1.5">
             {ev.status === "draft" && (

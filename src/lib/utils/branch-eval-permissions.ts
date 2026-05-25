@@ -113,6 +113,34 @@ export function getManagedBranchIds(access: BranchEvalAccess): string[] | "ALL" 
   return Array.from(new Set(access.supervisorBranchIds))
 }
 
+/**
+ * เช็คว่า user เห็น template นี้ได้ไหม
+ *   - public: ทุกคนที่มีสิทธิ์ branch_eval (any role) เห็น
+ *   - private: เฉพาะ admin / owner / viewers
+ */
+export function canSeeTemplate(
+  access: BranchEvalAccess,
+  template: { visibility?: string | null; owner_id?: string | null },
+  viewerEmployeeIds: string[] = [],
+): boolean {
+  if (access.isEvalAdmin) return true
+  if ((template.visibility ?? "public") === "public") return true
+  // private
+  if (template.owner_id && template.owner_id === access.employeeId) return true
+  if (access.employeeId && viewerEmployeeIds.includes(access.employeeId)) return true
+  return false
+}
+
+/** เช็คว่า user แก้/ลบ template ได้ไหม — admin หรือ owner */
+export function canEditTemplate(
+  access: BranchEvalAccess,
+  template: { owner_id?: string | null },
+): boolean {
+  if (access.isEvalAdmin) return true
+  if (template.owner_id && template.owner_id === access.employeeId) return true
+  return false
+}
+
 /** Haversine — ระยะทาง (m) ระหว่างจุด GPS 2 จุด */
 export function haversineMeters(
   lat1: number, lng1: number, lat2: number, lng2: number,

@@ -420,11 +420,21 @@ async function approveAdjustment(supa: any, requestId: string, reviewerId: strin
   const newClockOut = adjReq.requested_clock_out ? new Date(adjReq.requested_clock_out) : (rec.clock_out ? new Date(rec.clock_out) : null)
   const shift = rec.shift as any
 
-  // grace period จากแผนก/บริษัทของพนักงาน + flag is_attendance_exempt
+  // grace period: per-employee override (work_schedules) → dept/company default
   const { data: empGrace } = await supa.from("employees")
     .select("is_attendance_exempt, department:departments(name), company:companies(code)")
     .eq("id", adjReq.employee_id).single()
-  const grace = getLateThreshold((empGrace?.department as any)?.name, (empGrace?.company as any)?.code)
+  const { data: adjWs } = await supa.from("work_schedules")
+    .select("late_threshold_minutes, effective_from, effective_to")
+    .eq("employee_id", adjReq.employee_id)
+    .order("effective_from", { ascending: false })
+  let adjOverride: number | null = null
+  for (const ws of (adjWs ?? [])) {
+    if (ws.effective_from && adjReq.work_date < ws.effective_from) continue
+    if (ws.effective_to && adjReq.work_date >= ws.effective_to) continue
+    if (ws.late_threshold_minutes != null) { adjOverride = Number(ws.late_threshold_minutes); break }
+  }
+  const grace = adjOverride !== null ? adjOverride : getLateThreshold((empGrace?.department as any)?.name, (empGrace?.company as any)?.code)
   const isExempt = !!empGrace?.is_attendance_exempt
 
   let newLateMin = 0, newStatus = rec.status as string
@@ -655,11 +665,21 @@ export async function POST(req: NextRequest) {
               .select("*").eq("employee_id", reqData.employee_id).eq("work_date", reqData.work_date).maybeSingle()
 
             if (attRec && attRec.clock_in) {
-              // grace period ของพนักงาน
+              // grace period: per-employee override → dept/company default
               const { data: empGrace } = await supa.from("employees")
                 .select("is_attendance_exempt, department:departments(name), company:companies(code)")
                 .eq("id", reqData.employee_id).single()
-              const grace = getLateThreshold((empGrace?.department as any)?.name, (empGrace?.company as any)?.code)
+              const { data: scWs } = await supa.from("work_schedules")
+                .select("late_threshold_minutes, effective_from, effective_to")
+                .eq("employee_id", reqData.employee_id)
+                .order("effective_from", { ascending: false })
+              let scOverride: number | null = null
+              for (const ws of (scWs ?? [])) {
+                if (ws.effective_from && reqData.work_date < ws.effective_from) continue
+                if (ws.effective_to && reqData.work_date >= ws.effective_to) continue
+                if (ws.late_threshold_minutes != null) { scOverride = Number(ws.late_threshold_minutes); break }
+              }
+              const grace = scOverride !== null ? scOverride : getLateThreshold((empGrace?.department as any)?.name, (empGrace?.company as any)?.code)
               const isExempt = !!empGrace?.is_attendance_exempt
 
               const clockIn = new Date(attRec.clock_in)

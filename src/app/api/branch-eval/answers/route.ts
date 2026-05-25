@@ -28,8 +28,9 @@ export async function POST(req: NextRequest) {
 
   // fetch item to know weight + answer_type
   const { data: item } = await svc.from("branch_eval_template_items")
-    .select("weight, answer_type").eq("id", item_id).maybeSingle()
+    .select("weight, answer_type, is_section").eq("id", item_id).maybeSingle()
   if (!item) return NextResponse.json({ error: "ไม่พบข้อ" }, { status: 404 })
+  if (item.is_section) return NextResponse.json({ error: "section ไม่ใช่คำถาม — ไม่ต้องตอบ" }, { status: 400 })
 
   // compute is_pass + earned_weight
   const weight = Number(item.weight || 0)

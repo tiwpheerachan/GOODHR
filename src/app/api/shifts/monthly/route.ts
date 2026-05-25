@@ -41,6 +41,27 @@ async function recalcLateForChangedShifts(supa: any, assignments: any[]) {
     .in("id", empIds)
   const empMap = new Map((emps ?? []).map((e: any) => [e.id, e]))
 
+  // ── per-employee grace override จาก work_schedules ──
+  const { data: workSchedules } = await supa.from("work_schedules")
+    .select("employee_id, late_threshold_minutes, effective_from, effective_to")
+    .in("employee_id", empIds)
+    .order("effective_from", { ascending: false })
+  const wsByEmp = new Map<string, any[]>()
+  for (const ws of (workSchedules ?? [])) {
+    if (!wsByEmp.has(ws.employee_id)) wsByEmp.set(ws.employee_id, [])
+    wsByEmp.get(ws.employee_id)!.push(ws)
+  }
+  function findGraceOverride(eid: string, wd: string): number | null {
+    const list = wsByEmp.get(eid)
+    if (!list) return null
+    for (const ws of list) {
+      if (ws.effective_from && wd < ws.effective_from) continue
+      if (ws.effective_to && wd >= ws.effective_to) continue
+      if (ws.late_threshold_minutes != null) return Number(ws.late_threshold_minutes)
+    }
+    return null
+  }
+
   // ดึง shift_templates ของ assignments
   const shiftIds = Array.from(new Set(assignments.map((a: any) => a.shift_id).filter(Boolean)))
   const { data: shifts } = shiftIds.length
@@ -93,7 +114,8 @@ async function recalcLateForChangedShifts(supa: any, assignments: any[]) {
         }
       }
 
-      const grace = getLateThreshold(emp.department?.name, emp.company?.code)
+      const override = findGraceOverride(r.employee_id, r.work_date)
+      const grace = override !== null ? override : getLateThreshold(emp.department?.name, emp.company?.code)
       newLate = Math.max(0, raw - grace)
       if (clockOut && expEnd) {
         // ── Universal: ถ้า clock_out < clock_in → ข้ามวัน → +24h

@@ -45,9 +45,35 @@ export async function POST(req: NextRequest) {
 
   // ── ดึง employee + dept + company สำหรับ grace ──
   const { data: emps } = await svc.from("employees")
-    .select("id, is_attendance_exempt, department:departments(name), company:companies(code)")
+    .select("id, is_attendance_exempt, company_id, department:departments(name), company:companies(code)")
     .in("id", empIds)
   const empMap = new Map((emps ?? []).map((e: any) => [e.id, e]))
+
+  // ── ดึง work_schedules (per-employee grace override) ──
+  //   เก็บทุก row ของพนักงานในกลุ่ม → ตอนคำนวณค่อยเลือกตาม effective range
+  const { data: workSchedules } = await svc.from("work_schedules")
+    .select("employee_id, late_threshold_minutes, effective_from, effective_to")
+    .in("employee_id", empIds)
+    .order("effective_from", { ascending: false })
+  const wsByEmp = new Map<string, any[]>()
+  for (const ws of (workSchedules ?? [])) {
+    if (!wsByEmp.has(ws.employee_id)) wsByEmp.set(ws.employee_id, [])
+    wsByEmp.get(ws.employee_id)!.push(ws)
+  }
+  // helper: หา grace override สำหรับ (employee, work_date)
+  //   เลือก schedule ที่ effective_from <= work_date <= COALESCE(effective_to, '9999')
+  function findScheduleOverride(employeeId: string, workDate: string): number | null {
+    const list = wsByEmp.get(employeeId)
+    if (!list) return null
+    for (const ws of list) {
+      const from = ws.effective_from
+      const to = ws.effective_to
+      if (from && workDate < from) continue
+      if (to && workDate >= to) continue
+      if (ws.late_threshold_minutes != null) return Number(ws.late_threshold_minutes)
+    }
+    return null
+  }
 
   // ── ดึง monthly_shift_assignments + shift_templates (truth ปัจจุบัน) ──
   // ดึงช่วงกว้างหน่อย (รวมก่อน+หลังเพื่อรองรับ overnight)
@@ -167,9 +193,11 @@ export async function POST(req: NextRequest) {
       }
 
       // ── Apply grace period ──
-      const grace = getLateThreshold(emp.department?.name, emp.company?.code)
+      //   per-employee override (work_schedules.late_threshold_minutes) → dept/company default
+      const override = findScheduleOverride(r.employee_id, r.work_date)
+      const grace = override !== null ? override : getLateThreshold(emp.department?.name, emp.company?.code)
       newLate = Math.max(0, rawLate - grace)
-      if (reason === "no_shift") reason = `grace_${grace}`
+      if (reason === "no_shift") reason = override !== null ? `grace_emp_${grace}` : `grace_${grace}`
 
       // ── early_out: ลาบ่ายไม่นับ ──
       if (clockOut && expectedEnd && halfDay !== "afternoon") {
@@ -224,6 +252,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Execute updates (ถ้าไม่ใช่ dry_run) ──
+  let payrollRecomputed = 0
   if (!dry_run && updates.length > 0) {
     // Batch update
     for (const u of updates) {
@@ -244,6 +273,48 @@ export async function POST(req: NextRequest) {
       await svc.from("attendance_records").update(updPayload).eq("id", u.id)
     }
 
+    // ── หา (employee_id, payroll_period_id) ที่ได้รับผลกระทบ → trigger payroll bulk recompute ──
+    //   เก็บผลตาม company ของพนักงาน
+    const affectedEmpsByCompany = new Map<string, Set<string>>()
+    for (const u of updates) {
+      const emp: any = empMap.get(u.employee_id)
+      const coId = emp?.company_id
+      if (!coId) continue
+      if (!affectedEmpsByCompany.has(coId)) affectedEmpsByCompany.set(coId, new Set())
+      affectedEmpsByCompany.get(coId)!.add(u.employee_id)
+    }
+
+    // หา payroll periods ที่ครอบคลุม from-to (per company)
+    const affectedDates = Array.from(new Set(updates.map(u => u.work_date)))
+    const minDate = affectedDates.reduce((a, b) => a < b ? a : b, affectedDates[0])
+    const maxDate = affectedDates.reduce((a, b) => a > b ? a : b, affectedDates[0])
+
+    for (const [coId, empSet] of Array.from(affectedEmpsByCompany.entries())) {
+      const { data: periods } = await svc.from("payroll_periods")
+        .select("id, status")
+        .eq("company_id", coId)
+        .lte("start_date", maxDate)
+        .gte("end_date", minDate)
+      const empIds = Array.from(empSet)
+      for (const p of (periods ?? [])) {
+        if (p.status === "paid") continue // ไม่แตะงวดที่ปิดแล้ว
+        // Batch 50 คนต่อครั้ง (เร็วกว่าและไม่ติด timeout)
+        for (let i = 0; i < empIds.length; i += 50) {
+          const batch = empIds.slice(i, i + 50)
+          try {
+            const url = new URL(req.url)
+            const baseUrl = `${url.protocol}//${url.host}`
+            await fetch(`${baseUrl}/api/payroll/bulk`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", cookie: req.headers.get("cookie") || "" },
+              body: JSON.stringify({ employee_ids: batch, payroll_period_id: p.id }),
+            }).catch(() => {})
+          } catch {}
+          payrollRecomputed += batch.length
+        }
+      }
+    }
+
     // Audit log
     const { data: actorEmp } = dbUser.employee_id
       ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
@@ -254,7 +325,7 @@ export async function POST(req: NextRequest) {
       action: "recalc_late_minutes",
       entityType: "attendance_records",
       entityId: "bulk",
-      description: `Recalculate late_minutes ${from} → ${to} (${updates.length} records)`,
+      description: `Recalculate late_minutes ${from} → ${to} (${updates.length} records, payroll ${payrollRecomputed})`,
       companyId: dbUser.company_id,
     })
   }
@@ -263,8 +334,10 @@ export async function POST(req: NextRequest) {
     success: true,
     total_records: records.length,
     updated: updates.length,
+    unchanged: noChange.length,
     no_change: noChange.length,
     exempt_fixed: exemptCount,
+    payroll_recomputed: payrollRecomputed,
     dry_run,
     sample: updates.slice(0, 20),
   })

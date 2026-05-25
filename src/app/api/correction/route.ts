@@ -160,6 +160,7 @@ export async function POST(request: Request) {
     const shift = rec.shift as any
 
     // ── ดึงชื่อแผนก + รหัสบริษัทของพนักงาน เพื่อคำนวณ grace period ──
+    //   per-employee override (work_schedules.late_threshold_minutes) → dept/company default
     const { data: corrEmpInfo } = await supa
       .from("employees")
       .select("department:departments(name), company:companies(code)")
@@ -167,7 +168,17 @@ export async function POST(request: Request) {
       .single()
     const corrDeptName   = (corrEmpInfo?.department as any)?.name as string | undefined
     const corrCompanyCode = (corrEmpInfo?.company as any)?.code as string | undefined
-    const lateThreshold  = getLateThreshold(corrDeptName, corrCompanyCode)
+    const { data: corrWs } = await supa.from("work_schedules")
+      .select("late_threshold_minutes, effective_from, effective_to")
+      .eq("employee_id", req.employee_id)
+      .order("effective_from", { ascending: false })
+    let corrOverride: number | null = null
+    for (const ws of (corrWs ?? [])) {
+      if (ws.effective_from && req.work_date < ws.effective_from) continue
+      if (ws.effective_to && req.work_date >= ws.effective_to) continue
+      if (ws.late_threshold_minutes != null) { corrOverride = Number(ws.late_threshold_minutes); break }
+    }
+    const lateThreshold = corrOverride !== null ? corrOverride : getLateThreshold(corrDeptName, corrCompanyCode)
 
     let newLateMin = 0
     let newStatus  = rec.status as string

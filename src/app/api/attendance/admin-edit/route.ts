@@ -66,10 +66,22 @@ export async function POST(req: NextRequest) {
     .select("first_name_th, last_name_th, company_id, department:departments(name), company:companies(code)")
     .eq("id", rec.employee_id).single()
 
-  // ── ดึง grace period ตามแผนก/บริษัท (ไม่ hardcode 5 อีกต่อไป) ──
+  // ── ดึง grace period ──
+  //   1) work_schedules.late_threshold_minutes (per-employee override) ถ้ามี
+  //   2) fallback ไป getLateThreshold(dept, company)
   const adminDeptName    = (empData?.department as any)?.name as string | undefined
   const adminCompanyCode = (empData?.company as any)?.code as string | undefined
-  const graceMinutes     = getLateThreshold(adminDeptName, adminCompanyCode)
+  const { data: wsRows } = await svc.from("work_schedules")
+    .select("late_threshold_minutes, effective_from, effective_to")
+    .eq("employee_id", rec.employee_id)
+    .order("effective_from", { ascending: false })
+  let overrideGrace: number | null = null
+  for (const ws of (wsRows ?? [])) {
+    if (ws.effective_from && rec.work_date < ws.effective_from) continue
+    if (ws.effective_to && rec.work_date >= ws.effective_to) continue
+    if (ws.late_threshold_minutes != null) { overrideGrace = Number(ws.late_threshold_minutes); break }
+  }
+  const graceMinutes = overrideGrace !== null ? overrideGrace : getLateThreshold(adminDeptName, adminCompanyCode)
 
   const updates: any = { is_manual: true, updated_at: new Date().toISOString() }
 

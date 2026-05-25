@@ -46,12 +46,13 @@ export default function AdminEvaluationDetailPage() {
 
   const ev = data.evaluation
   const items = data.items ?? []
+  const realItems = items.filter((i: any) => !i.is_section)
   const answers: any[] = data.answers ?? []
   const photos: any[] = data.photos ?? []
   const answerById = new Map(answers.map((a: any) => [a.item_id, a]))
   const S = STATUS_LABEL[ev.status]
-  const passed = items.filter((i: any) => answerById.get(i.id)?.is_pass === true).length
-  const failed = items.filter((i: any) => answerById.get(i.id)?.is_pass === false).length
+  const passed = realItems.filter((i: any) => answerById.get(i.id)?.is_pass === true).length
+  const failed = realItems.filter((i: any) => answerById.get(i.id)?.is_pass === false).length
 
   return (
     <div className="p-4 lg:p-6 max-w-5xl mx-auto space-y-3 pb-32">
@@ -90,7 +91,7 @@ export default function AdminEvaluationDetailPage() {
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
           <Stat label="คะแนนรวม" value={`${Number(ev.percentage).toFixed(1)}%`} sub={`${ev.total_score}/${ev.total_weight}`} color="indigo" />
-          <Stat label="ผ่าน / ตก" value={`${passed} / ${failed}`} sub={`จาก ${items.length} ข้อ`} color="emerald" />
+          <Stat label="ผ่าน / ตก" value={`${passed} / ${failed}`} sub={`จาก ${realItems.length} ข้อ`} color="emerald" />
           <Stat label="เช็คอิน"
             value={ev.checkin_at ? format(new Date(ev.checkin_at), "HH:mm") : "—"}
             sub={ev.checkin_distance_m != null ? `ห่าง ${ev.checkin_distance_m} m` : "ไม่ได้เช็คอิน"}
@@ -122,10 +123,19 @@ export default function AdminEvaluationDetailPage() {
       <div className="bg-white rounded-2xl border border-slate-100 p-3 shadow-sm">
         <p className="text-sm font-black text-slate-800 px-1 mb-2 flex items-center gap-1.5">
           <ClipboardCheck size={13} className="text-indigo-500" />
-          ผลตรวจรายข้อ ({items.length} ข้อ)
+          ผลตรวจรายข้อ ({items.filter((i: any) => !i.is_section).length} ข้อ)
         </p>
         <div className="space-y-1.5">
           {items.map((it: any) => {
+            if (it.is_section) {
+              return (
+                <div key={it.id} className="bg-gradient-to-r from-violet-500 to-indigo-500 rounded-lg p-2.5 text-white">
+                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">หัวข้อหลัก</p>
+                  <p className="text-sm font-black">{it.question_th}</p>
+                  {it.question_en && <p className="text-[10px] opacity-80">{it.question_en}</p>}
+                </div>
+              )
+            }
             const a = answerById.get(it.id)
             const ok = a?.is_pass
             return (
