@@ -13,7 +13,8 @@ import { recomputePayroll } from "@/lib/utils/payroll"
 
 // ── helpers ────────────────────────────────────────────────────────
 function thb(n?: number | null) {
-  return Number(n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
+  return Math.round(Number(n) || 0).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 function thbShort(n?: number | null) {
   const v = Number(n || 0)

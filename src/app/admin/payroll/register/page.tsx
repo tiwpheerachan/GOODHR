@@ -12,8 +12,9 @@ import * as XLSX from "xlsx"
 import { recomputePayroll } from "@/lib/utils/payroll"
 
 // ── helpers ──────────────────────────────────────────────────────
+// ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
 const thb = (v: number) =>
-  v.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  Math.round(v).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 const n = (v: any) => Number(v) || 0
 
 // ── Column definitions ──────────────────────────────────────────
@@ -296,7 +297,7 @@ export default function PayrollRegisterPage() {
     const headers = allCols.map(c => c.label)
     const values  = allCols.map(c => {
       const v = getCellValue(rec, c)
-      return typeof v === "number" ? (v === 0 ? "0" : v.toFixed(2)) : String(v)
+      return typeof v === "number" ? (v === 0 ? "0" : String(Math.round(v))) : String(v)
     })
     const text = headers.join("\t") + "\n" + values.join("\t")
     navigator.clipboard.writeText(text).then(() => {
@@ -331,7 +332,7 @@ export default function PayrollRegisterPage() {
         if (!rec) return ""
         return allCols.map(c => {
           const v = getCellValue(rec, c)
-          return typeof v === "number" ? (v === 0 ? "0" : v.toFixed(2)) : String(v)
+          return typeof v === "number" ? (v === 0 ? "0" : String(Math.round(v))) : String(v)
         }).join("\t")
       }).filter(Boolean)
 

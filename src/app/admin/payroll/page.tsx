@@ -18,8 +18,9 @@ import { BRAND_OPTIONS, normalizeBrands } from "@/lib/utils/brands"
 import { calcSSO, calcMonthlyTax, recomputePayroll } from "@/lib/utils/payroll"
 
 // ── helpers ────────────────────────────────────────────────────────────
+// ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น) — ไม่แสดงทศนิยม
 const thb = (v: number | null | undefined) =>
-  (v ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  Math.round(v ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 const num = (v: any) => parseFloat(String(v).replace(/,/g, "")) || 0
 
 // ── Apply Excel number format to all numeric cells ──────────────────────
@@ -50,8 +51,9 @@ const STATUS_CFG: Record<string, { l: string; c: string; dot: string }> = {
 
 // ── Full Register Table Columns ─────────────────────────────────────────
 const n = (v: any) => Number(v) || 0
+// ปัดเศษ OT เป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
 const calcOTAmt = (base: number, min: number, rate: number) =>
-  min > 0 ? Math.round((base / 30 / 8) * (min / 60) * rate * 100) / 100 : 0
+  min > 0 ? Math.round((base / 30 / 8) * (min / 60) * rate) : 0
 
 // Column definition
 interface RCol { key: string; label: string; group: "info"|"income"|"deduction"|"summary"; get: (r: any, i: number) => string | number }
@@ -951,7 +953,7 @@ function EditModal({
     const gr = Number(record.gross_income) || 0
     if (gr > 0 && tax > 0) {
       const pct = Math.round(tax / gr * 10000) / 100
-      if (pct > 0 && pct <= 100 && Math.abs(tax - Math.round(gr * pct / 100 * 100) / 100) < 0.02) {
+      if (pct > 0 && pct <= 100 && Math.abs(tax - Math.round(gr * pct / 100)) < 1) {
         return String(pct)
       }
     }
@@ -970,7 +972,7 @@ function EditModal({
         const ot15 = calcOTAmt(base, num(next.ot_weekday_minutes), 1.5)
         const ot10 = calcOTAmt(base, num(next.ot_holiday_reg_minutes), 1.0)
         const ot30 = calcOTAmt(base, num(next.ot_holiday_ot_minutes), 3.0)
-        next.ot_amount = String(Math.round((ot15 + ot10 + ot30) * 100) / 100)
+        next.ot_amount = String(Math.round(ot15 + ot10 + ot30))
       }
 
       return next
@@ -1000,7 +1002,7 @@ function EditModal({
   const prorateDaysNum = Number(prorateDaysInput)
   const prorateFactor = (prorateDaysInput && prorateDaysNum > 0 && prorateDaysNum < 30)
     ? prorateDaysNum / 30 : 1
-  const effectiveBase = Math.round(num(f.base_salary) * prorateFactor * 100) / 100
+  const effectiveBase = Math.round(num(f.base_salary) * prorateFactor)
   const effectiveBonus = num(f.bonus)  // KPI bonus จ่ายเต็ม ไม่ prorate
 
   const gross = effectiveBase + num(f.allowance_position) + num(f.allowance_transport)
@@ -1014,7 +1016,7 @@ function EditModal({
     let newTax: number | null = null
     if (taxPctInput && Number(taxPctInput) > 0) {
       // โหมด % คงที่
-      newTax = Math.round(gross * Number(taxPctInput) / 100 * 100) / 100
+      newTax = Math.round(gross * Number(taxPctInput) / 100)
     } else if (prorateFactor < 1) {
       // โหมด auto + มี prorate → recompute ภาษีตาม gross ใหม่ (ขั้นบันได)
       const newSso = calcSSO(effectiveBase)
@@ -1202,12 +1204,12 @@ function EditModal({
                 <div className="mt-2 pt-2 border-t border-amber-200/60 space-y-0.5">
                   <p className="text-[10px] text-amber-700 flex items-center justify-between">
                     <span>ฐานเงินเดือนเดือนนี้:</span>
-                    <span className="font-black text-amber-800">฿{effectiveBase.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="font-black text-amber-800">฿{Math.round(effectiveBase).toLocaleString("th-TH")}</span>
                   </p>
                   {num(f.bonus) > 0 && (
                     <p className="text-[10px] text-emerald-700 flex items-center justify-between">
                       <span>โบนัส KPI (จ่ายเต็ม):</span>
-                      <span className="font-black text-emerald-800">฿{num(f.bonus).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="font-black text-emerald-800">฿{Math.round(num(f.bonus)).toLocaleString("th-TH")}</span>
                     </p>
                   )}
                   <p className="text-[9px] text-amber-600/70 leading-snug pt-0.5">
@@ -1354,7 +1356,7 @@ function EditModal({
                           setTaxPctInput(val)
                           const pct = Number(val)
                           if (val && pct >= 0) {
-                            const taxAmt = Math.round(gross * pct / 100 * 100) / 100
+                            const taxAmt = Math.round(gross * pct / 100)
                             set("monthly_tax_withheld", String(taxAmt))
                           }
                         }}
@@ -2513,7 +2515,7 @@ export default function PayrollPage() {
           const lines = txtFiltered.map((r: any) => {
             const emp = r.employee || {}
             const bankAcc = (emp.bank_account || "").replace(/[^0-9]/g, "")
-            const net = recomputePayroll(r).net.toFixed(2)
+            const net = String(Math.round(recomputePayroll(r).net))
             const name = `${emp.first_name_th || ""} ${emp.last_name_th || ""}`.trim()
             return `${bankAcc}\t${net}\t${emp.employee_code || ""}\t${name}`
           })
@@ -2533,7 +2535,7 @@ export default function PayrollPage() {
             <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
               <div className="bg-blue-600 px-5 py-4">
                 <h3 className="text-white font-bold">Export TXT — เลือกพนักงาน</h3>
-                <p className="text-blue-200 text-xs">งวด {selected?.period_name || `${selected?.month}/${selected?.year}`} · {txtFiltered.length} คน · ฿{totalNet.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</p>
+                <p className="text-blue-200 text-xs">งวด {selected?.period_name || `${selected?.month}/${selected?.year}`} · {txtFiltered.length} คน · ฿{Math.round(totalNet).toLocaleString("th-TH")}</p>
               </div>
 
               {/* Filters */}
@@ -2584,7 +2586,7 @@ export default function PayrollPage() {
                       <span className="text-xs font-bold text-slate-700 flex-1 truncate">{emp.first_name_th} {emp.last_name_th}</span>
                       <span className="text-[10px] text-slate-400">{emp.employee_code}</span>
                       <span className="text-[10px] text-slate-400">{emp.department?.name || ""}</span>
-                      <span className="text-xs font-bold text-blue-700 min-w-[70px] text-right">฿{recomputePayroll(r).net.toLocaleString()}</span>
+                      <span className="text-xs font-bold text-blue-700 min-w-[70px] text-right">฿{Math.round(recomputePayroll(r).net).toLocaleString()}</span>
                     </label>
                   )
                 })}
@@ -2610,7 +2612,7 @@ export default function PayrollPage() {
 // ── Payslip HTML Builder ──
 function buildPayslipHTML(d: any): string {
   const { company, employee, period, payDate, earnings, deductions, totalEarnings, totalDeductions, netPay, ytd } = d
-  const fmt = (v: number) => v.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const fmt = (v: number) => Math.round(v).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
   const eRows = earnings.map((e: any) => `<tr><td>${e.label}</td><td class="r">${e.number||""}</td><td class="r">${fmt(e.amount)}</td></tr>`).join("")
   const dRows = deductions.map((e: any) => `<tr><td>${e.label}</td><td class="r">${fmt(e.amount)}</td></tr>`).join("")
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>สลิปเงินเดือน</title>

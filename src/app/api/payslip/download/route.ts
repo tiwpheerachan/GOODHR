@@ -55,8 +55,9 @@ export async function GET(req: NextRequest) {
   const prorateDays = n(record.prorate_days)
   const factor = (prorateDays > 0 && prorateDays < 30) ? prorateDays / 30 : 1
   const fullBase = n(record.base_salary)
-  const effectiveBase = Math.round(fullBase * factor * 100) / 100
-  const effectiveBonus = Math.round(n(record.bonus) * factor * 100) / 100
+  // ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
+  const effectiveBase = Math.round(fullBase * factor)
+  const effectiveBonus = Math.round(n(record.bonus) * factor)
 
   const rate = fullBase / 30 / 8       // OT rate ใช้ฐานเต็ม (อัตราตามสัญญา)
   const fmtMin = (m: number) => `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`
@@ -70,13 +71,13 @@ export async function GET(req: NextRequest) {
     earnings.push({ label: `โบนัส KPI${gradeLabel}`, amount: effectiveBonus })
   }
   if (n(record.ot_weekday_minutes)) {
-    earnings.push({ label: "OT วันทำงาน (×1.5)", amount: Math.round(rate * n(record.ot_weekday_minutes) / 60 * 1.5 * 100) / 100, number: fmtMin(n(record.ot_weekday_minutes)) })
+    earnings.push({ label: "OT วันทำงาน (×1.5)", amount: Math.round(rate * n(record.ot_weekday_minutes) / 60 * 1.5), number: fmtMin(n(record.ot_weekday_minutes)) })
   }
   if (n(record.ot_holiday_reg_minutes)) {
-    earnings.push({ label: "OT วันหยุด (×1.0)", amount: Math.round(rate * n(record.ot_holiday_reg_minutes) / 60 * 100) / 100, number: fmtMin(n(record.ot_holiday_reg_minutes)) })
+    earnings.push({ label: "OT วันหยุด (×1.0)", amount: Math.round(rate * n(record.ot_holiday_reg_minutes) / 60), number: fmtMin(n(record.ot_holiday_reg_minutes)) })
   }
   if (n(record.ot_holiday_ot_minutes)) {
-    earnings.push({ label: "OT วันหยุด (×3.0)", amount: Math.round(rate * n(record.ot_holiday_ot_minutes) / 60 * 3.0 * 100) / 100, number: fmtMin(n(record.ot_holiday_ot_minutes)) })
+    earnings.push({ label: "OT วันหยุด (×3.0)", amount: Math.round(rate * n(record.ot_holiday_ot_minutes) / 60 * 3.0), number: fmtMin(n(record.ot_holiday_ot_minutes)) })
   }
   if (n(record.allowance_position)) earnings.push({ label: "ค่าตำแหน่ง", amount: n(record.allowance_position) })
   if (n(record.allowance_food)) earnings.push({ label: "ค่าอาหาร", amount: n(record.allowance_food) })

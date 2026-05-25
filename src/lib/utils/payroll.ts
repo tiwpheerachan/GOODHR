@@ -14,10 +14,10 @@ export function getProrateFactor(prorateDays: number | null | undefined): number
   return pd / 30
 }
 
-/** เงินเดือน × factor (ปัดทศนิยม 2 ตำแหน่ง) */
+/** เงินเดือน × factor — ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น) */
 export function applyProrate(amount: number, prorateDays: number | null | undefined): number {
   const f = getProrateFactor(prorateDays)
-  return Math.round((Number(amount) || 0) * f * 100) / 100
+  return Math.round((Number(amount) || 0) * f)
 }
 
 /**
@@ -43,8 +43,9 @@ export function recomputePayroll(record: any) {
   const factor = (pd > 0 && pd < 30) ? pd / 30 : 1
   const isProrated = factor < 1
 
-  const effBase = Math.round(fullBase * factor * 100) / 100
-  const effBonus = N(record?.bonus)  // KPI bonus ไม่ prorate (จ่ายเต็ม)
+  // ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
+  const effBase = Math.round(fullBase * factor)
+  const effBonus = Math.round(N(record?.bonus))  // KPI bonus ไม่ prorate (จ่ายเต็ม)
   const ieTotal = record?.income_extras && typeof record.income_extras === "object"
     ? Object.values(record.income_extras).reduce((s: number, v: any) => s + N(v), 0)
     : 0
@@ -57,19 +58,20 @@ export function recomputePayroll(record: any) {
     + N(record?.allowance_housing) + N(record?.allowance_vehicle)
     + N(record?.allowance_other)
 
-  const gross = effBase + effBonus + allowances
-    + N(record?.ot_amount) + N(record?.commission) + N(record?.other_income) + ieTotal
+  // ปัดเศษทุกตัวให้เป็นบาท
+  const gross = Math.round(effBase + effBonus + allowances
+    + N(record?.ot_amount) + N(record?.commission) + N(record?.other_income) + ieTotal)
 
   // ถ้า prorate → recompute SSO + tax เพื่อให้สะท้อนงวดจริง
   // ถ้าไม่ prorate → ใช้ค่าที่บันทึกไว้ (เคารพ manual ของ HR)
-  const sso = isProrated ? calcSSO(effBase) : N(record?.social_security_amount)
-  const tax = isProrated ? calcMonthlyTax(gross, sso) : N(record?.monthly_tax_withheld)
+  const sso = Math.round(isProrated ? calcSSO(effBase) : N(record?.social_security_amount))
+  const tax = Math.round(isProrated ? calcMonthlyTax(gross, sso) : N(record?.monthly_tax_withheld))
 
   const baseDeducts = N(record?.deduct_absent) + N(record?.deduct_late)
     + N(record?.deduct_early_out) + N(record?.deduct_loan) + N(record?.deduct_other)
 
-  const totalDed = baseDeducts + sso + tax + deTotal
-  const net = Math.max(gross - totalDed, 0)
+  const totalDed = Math.round(baseDeducts + sso + tax + deTotal)
+  const net = Math.max(Math.round(gross - totalDed), 0)
 
   return { effBase, effBonus, gross, sso, tax, totalDed, net, isProrated, factor, prorateDays: pd }
 }
@@ -87,16 +89,17 @@ export function calcRatePerHour(base: number): number {
 /**
  * หักมาสาย: ROUND((เงินเดือน/30/8/60) * นาที, 0)
  * ใช้ฐาน 8 ชั่วโมงต่อวัน ตามสูตร Excel
+ * ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
  */
 export function calcLateDeduction(base: number, lateMinutes: number): number {
   if (lateMinutes <= 0) return 0
-  return Math.round(calcRatePerMinute(base) * lateMinutes * 100) / 100
+  return Math.round(calcRatePerMinute(base) * lateMinutes)
 }
 
-/** หักขาดงาน = เงินเดือน / 30 * จำนวนวัน */
+/** หักขาดงาน = เงินเดือน / 30 * จำนวนวัน — ปัดเศษเป็นบาท */
 export function calcAbsentDeduction(base: number, days: number): number {
   if (days <= 0) return 0
-  return Math.round((base / 30) * days * 100) / 100
+  return Math.round((base / 30) * days)
 }
 
 /**
@@ -115,7 +118,8 @@ export const OT_RATES: Record<OtType, number> = {
 export function calcOT(base: number, minutes: number, type: OtType = "weekday", rateOverride?: number): number {
   if (minutes <= 0) return 0
   const rate = rateOverride ?? OT_RATES[type]
-  return Math.round((base / 30 / 8) * (minutes / 60) * rate * 100) / 100
+  // ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
+  return Math.round((base / 30 / 8) * (minutes / 60) * rate)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -134,7 +138,8 @@ export const SSO_MAX_BASE    = 17_500
 export function calcSSO(base: number, rate = SSO_RATE): number {
   if (base <= 0) return 0
   const capped = Math.min(Math.max(base, SSO_MIN_BASE), SSO_MAX_BASE)
-  const amount = Math.round(capped * rate * 100) / 100
+  // ปัดเศษเป็นบาท
+  const amount = Math.round(capped * rate)
   return Math.min(amount, SSO_MAX_AMOUNT)
 }
 
@@ -156,7 +161,7 @@ const BRACKETS = [
   { from: 5_000_000, to: Infinity,  rate: 0.35 },
 ]
 
-/** คำนวณภาษีจาก "รายได้สุทธิ" ที่หักค่าลดหย่อนแล้ว */
+/** คำนวณภาษีจาก "รายได้สุทธิ" ที่หักค่าลดหย่อนแล้ว — ปัดเศษเป็นบาท */
 export function calcAnnualTaxFromNetIncome(netIncome: number): number {
   if (netIncome <= 0) return 0
   let tax = 0
@@ -164,7 +169,7 @@ export function calcAnnualTaxFromNetIncome(netIncome: number): number {
     if (netIncome <= b.from) break
     tax += (Math.min(netIncome, b.to) - b.from) * b.rate
   }
-  return Math.round(tax * 100) / 100
+  return Math.round(tax)
 }
 
 /**
@@ -195,7 +200,8 @@ export function calcMonthlyTax(grossMonthly: number, ssoMonthly: number): number
   const netIncome = Math.max(annualGross - expenseDeduct - personalDeduct - ssoAnnual, 0)
 
   const annualTax = calcAnnualTaxFromNetIncome(netIncome)
-  return Math.round(annualTax / 12 * 100) / 100
+  // ปัดภาษีรายเดือนเป็นบาท
+  return Math.round(annualTax / 12)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -371,15 +377,15 @@ export function calculatePayrollSummary(args: {
   let taxMethod: "auto" | "fixed_pct"
 
   if (isTax3pct) {
-    // หัก 3% ของรายได้รวม (gross) ในรอบนั้น
-    tax = Math.round(gross * 0.03 * 100) / 100
+    // หัก 3% ของรายได้รวม (gross) ในรอบนั้น — ปัดเป็นบาท
+    tax = Math.round(gross * 0.03)
     taxMethod = "fixed_pct"
   } else if (taxWithholdingPct != null && taxWithholdingPct >= 0) {
-    // ใช้ % ที่ตั้งไว้
-    tax = Math.round(gross * (taxWithholdingPct / 100) * 100) / 100
+    // ใช้ % ที่ตั้งไว้ — ปัดเป็นบาท
+    tax = Math.round(gross * (taxWithholdingPct / 100))
     taxMethod = "fixed_pct"
   } else {
-    // คำนวณอัตโนมัติตามกฎหมายไทย (ขั้นบันได)
+    // คำนวณอัตโนมัติตามกฎหมายไทย (ขั้นบันได) — calcMonthlyTax ปัดให้แล้ว
     tax = calcMonthlyTax(gross, sso)
     taxMethod = "auto"
   }
@@ -391,7 +397,8 @@ export function calculatePayrollSummary(args: {
   const totalDeduct    = sso + tax + deductAbsent + deductLate + deductEarlyOut + loanDeduction
 
   return {
-    gross,
+    // gross เป็น sum ของ args ที่ outer caller จะ pass มา → ปัดเป็นบาท
+    gross: Math.round(gross),
     otAmount,
     sso,
     tax,
@@ -399,7 +406,7 @@ export function calculatePayrollSummary(args: {
     deductAbsent,
     deductLate,
     deductEarlyOut,
-    totalDeduct,
-    net: Math.max(gross - totalDeduct, 0),
+    totalDeduct: Math.round(totalDeduct),
+    net: Math.max(Math.round(gross - totalDeduct), 0),
   }
 }

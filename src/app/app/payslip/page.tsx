@@ -11,7 +11,8 @@ import Link from "next/link"
 
 const TH_MONTHS = ["","ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
 const TH_MONTHS_FULL = ["","มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"]
-const thb = (v: number) => v.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
+const thb = (v: number) => Math.round(v).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 const thbShort = (v: number) => v >= 1000 ? `${(v/1000).toFixed(1)}K` : thb(v)
 
 export default function PayslipPage() {
@@ -391,7 +392,8 @@ function PayslipCard({ data }: { data: any }) {
 // ═══════════════════════════════════════════════════════════════
 function buildPayslipHTML(d: any): string {
   const { company, employee, period, payDate, earnings, deductions, totalEarnings, totalDeductions, netPay, ytd } = d
-  const thb = (v: number) => v.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
+  const thb = (v: number) => Math.round(v).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 
   const earningsRows = earnings.map((e: any) =>
     `<tr><td>${e.label.replace("\n"," ")}</td><td class="r">${e.number || ""}</td><td class="r">${thb(e.amount)}</td></tr>`
