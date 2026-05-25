@@ -270,8 +270,10 @@ export default function VideoPlayer({
             <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-white rounded-full shadow"
               style={{ left: `${(currentTime / actualDuration) * 100}%` }} />
           )}
-          {checkpoints.map(cp => (
-            <div key={cp.id} className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ring-2 ring-black/30 ${answeredRef.current.has(cp.id) ? "bg-emerald-400" : "bg-purple-400"}`}
+          {/* ⚠️ ซ่อน markers ระหว่างดู — กันรู้ตำแหน่งควิซล่วงหน้า (anti-cheat)
+              แสดงเฉพาะจุดที่ตอบแล้ว = สีเขียว (ให้ user เห็นความคืบหน้า) */}
+          {checkpoints.filter(cp => answeredRef.current.has(cp.id)).map(cp => (
+            <div key={cp.id} className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ring-2 ring-black/30 bg-emerald-400"
               style={{ left: actualDuration > 0 ? `${(cp.trigger_at_sec / actualDuration) * 100}%` : "0%" }} />
           ))}
         </div>
