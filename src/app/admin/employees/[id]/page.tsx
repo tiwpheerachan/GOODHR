@@ -159,7 +159,12 @@ export default function EmployeeDetailPage() {
   const loadAllEmps = useCallback(async () => {
     if (allEmpsLoaded.current || !id) return
     allEmpsLoaded.current = true
-    const { data } = await supabase.from("employees").select("id,first_name_th,last_name_th,employee_code").eq("is_active",true).neq("id",id as string).order("first_name_th")
+    // ── ดึงรวม EN names + nickname ด้วย เพื่อให้ client-side search match ได้กว้างขึ้น
+    //    (limit เป็น 2000 row — กัน truncate ใน org ใหญ่)
+    const { data } = await supabase.from("employees")
+      .select("id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,employee_code")
+      .eq("is_active",true).neq("id",id as string)
+      .order("first_name_th").limit(2000)
     setAllEmps(data ?? [])
   }, [id])
 
@@ -605,35 +610,41 @@ export default function EmployeeDetailPage() {
                   <X size={12} className="text-slate-400 hover:text-red-500" />
                 </button>
               )}
-              {showKpiEvalDropdown && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowKpiEvalDropdown(false)} />
-                  <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-[240px] overflow-y-auto">
-                    {allEmps
-                      .filter(e => {
-                        const s = (kpiEvalSearch || "").toLowerCase()
-                        if (!s) return true
-                        return `${e.first_name_th} ${e.last_name_th} ${e.employee_code}`.toLowerCase().includes(s)
-                      })
-                      .slice(0, 30)
-                      .map(e => (
+              {showKpiEvalDropdown && (() => {
+                // ── multi-field search: ค้นจาก TH/EN names + nickname + code
+                //    แยก term ด้วย space — ทุก term ต้อง match
+                const raw = (kpiEvalSearch || "").toLowerCase().trim()
+                const terms = raw ? raw.split(/\s+/).filter(Boolean) : []
+                const matches = allEmps.filter(e => {
+                  if (terms.length === 0) return true
+                  const hay = [
+                    e.first_name_th, e.last_name_th,
+                    e.first_name_en, e.last_name_en,
+                    e.nickname, e.nickname_en,
+                    e.employee_code,
+                  ].filter(Boolean).join(" ").toLowerCase()
+                  return terms.every(t => hay.includes(t))
+                })
+                return (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowKpiEvalDropdown(false)} />
+                    <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-[240px] overflow-y-auto">
+                      {matches.slice(0, 50).map(e => (
                         <button key={e.id} type="button"
                           onClick={() => { set("kpi_evaluator_id", e.id); setKpiEvalSearch(`${e.first_name_th} ${e.last_name_th} (${e.employee_code})`); setShowKpiEvalDropdown(false) }}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 flex items-center gap-2 transition-colors">
                           <span className="font-bold text-slate-800">{e.first_name_th} {e.last_name_th}</span>
+                          {e.nickname && <span className="text-xs text-violet-600">({e.nickname})</span>}
                           <span className="text-xs text-slate-400">{e.employee_code}</span>
                         </button>
                       ))}
-                    {allEmps.filter(e => {
-                      const s = (kpiEvalSearch || "").toLowerCase()
-                      if (!s) return true
-                      return `${e.first_name_th} ${e.last_name_th} ${e.employee_code}`.toLowerCase().includes(s)
-                    }).length === 0 && (
-                      <p className="px-3 py-4 text-sm text-slate-400 text-center">ไม่พบพนักงาน</p>
-                    )}
-                  </div>
-                </>
-              )}
+                      {matches.length === 0 && (
+                        <p className="px-3 py-4 text-sm text-slate-400 text-center">ไม่พบพนักงาน</p>
+                      )}
+                    </div>
+                  </>
+                )
+              })()}
             </div>
             {form.kpi_evaluator_id && (
               <p className="text-xs text-violet-600 font-medium mt-2 flex items-center gap-1"><CheckCircle2 size={11}/>กำหนดผู้ประเมิน KPI แล้ว — จะใช้แทนหัวหน้า</p>

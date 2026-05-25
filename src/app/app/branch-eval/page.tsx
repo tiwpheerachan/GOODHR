@@ -137,12 +137,20 @@ export default function BranchEvalLandingPage() {
               </p>
             </div>
           </div>
-          {me.can_manage && (
+          {me.is_base_admin ? (
+            // super_admin / hr_admin — เข้า /admin ได้ (ผ่าน middleware)
             <Link href="/admin/branch-eval"
               className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700">
               <Settings size={12} /> Admin
             </Link>
-          )}
+          ) : (me.is_eval_admin || me.is_supervisor) ? (
+            // พนักงาน (role=employee) ที่ได้ branch_eval_admin หรือ supervisor
+            //   → middleware block /admin → ใช้หน้าจัดการใน /app แทน
+            <Link href="/app/branch-eval/manage"
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl text-xs font-bold text-indigo-700">
+              <Settings size={12} /> {me.is_eval_admin ? "จัดการระบบ" : "จัดการสาขา"}
+            </Link>
+          ) : null}
         </div>
       </div>
 

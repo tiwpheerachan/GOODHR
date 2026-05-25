@@ -682,7 +682,7 @@ export default function AdminKpiPage() {
                                   <p className="text-sm font-bold text-slate-800">{item.category}</p>
                                   {item.is_mandatory && <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">บังคับ</span>}
                                 </div>
-                                {item.description && <p className="text-xs text-slate-400 whitespace-pre-line mt-0.5 line-clamp-2">{item.description}</p>}
+                                {item.description && <ExpandableText text={item.description} />}
                                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                                   <span className="text-[10px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-md">น้ำหนัก {item.weight_pct}%</span>
                                   <span className="text-[10px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-md">คะแนน {item.actual_score}/100</span>
@@ -848,6 +848,32 @@ export default function AdminKpiPage() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Reusable: long-text แสดงแบบ truncate + toggle "ดูเพิ่ม / ย่อ"
+// ─────────────────────────────────────────────────────────────
+function ExpandableText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  // เกณฑ์ตัด: เกิน 120 ตัวอักษร หรือ มีบรรทัดเกิน 2 บรรทัด
+  const lineCount = text.split(/\r?\n/).length
+  const needsTrunc = text.length > 120 || lineCount > 2
+  return (
+    <div className="mt-0.5">
+      <p className={`text-xs text-slate-500 whitespace-pre-line leading-relaxed ${!expanded && needsTrunc ? "line-clamp-2" : ""}`}>
+        {text}
+      </p>
+      {needsTrunc && (
+        <button
+          type="button"
+          onClick={() => setExpanded(v => !v)}
+          className="text-[11px] text-indigo-600 hover:text-indigo-700 font-bold mt-0.5 inline-flex items-center gap-0.5"
+        >
+          {expanded ? <>ย่อ <ChevronUp size={11} /></> : <>ดูเพิ่ม <ChevronDown size={11} /></>}
+        </button>
       )}
     </div>
   )

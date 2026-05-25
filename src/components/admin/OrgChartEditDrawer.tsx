@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import {
   X, Loader2, Users, ArrowUp, ArrowDown, Plus, Eye, BarChart2, Shield,
   Network, ExternalLink, UserPlus, Trash2, AlertCircle,
@@ -54,10 +54,12 @@ export default function OrgChartEditDrawer({ employeeId, employeeName, onClose, 
     setLoading(false)
   }
 
-  async function loadEmps() {
-    if (allEmps.length > 0) return
+  // server-side debounced search — ครอบทุก field (TH/EN/nickname/code)
+  //   ค้นข้ามบริษัทเสมอ (super_admin) — กัน "ไม่พบ" เพราะคนที่อยู่บริษัทอื่น
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  async function searchEmps(q: string) {
     try {
-      const res = await fetch("/api/employees/search?limit=500")
+      const res = await fetch(`/api/employees/search?q=${encodeURIComponent(q)}&limit=50&all_companies=1`)
       const data = await res.json()
       setAllEmps(data.employees ?? [])
     } catch {}
@@ -66,6 +68,19 @@ export default function OrgChartEditDrawer({ employeeId, employeeName, onClose, 
   useEffect(() => {
     loadChain()
   }, [employeeId])
+
+  // เริ่มโหลดรายการเริ่มต้น (20 คน) เมื่อเปิด form เพิ่มผู้ประเมิน
+  useEffect(() => {
+    if (showAdd && allEmps.length === 0) searchEmps("")
+  }, [showAdd])
+
+  // debounce search 250ms — เรียก server ทุกครั้งที่ user พิมพ์
+  useEffect(() => {
+    if (!showAdd) return
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => { searchEmps(search) }, 250)
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
+  }, [search, showAdd])
 
   async function handleAdd() {
     if (!pickEvalId) { toast.error("เลือกผู้ประเมิน"); return }
@@ -98,12 +113,11 @@ export default function OrgChartEditDrawer({ employeeId, employeeName, onClose, 
     } catch (e: any) { toast.error(e.message) }
   }
 
+  // server-side ทำ search ให้แล้ว → client-side แค่ exclude self + คนที่เพิ่มไปแล้ว
   const filteredEmps = allEmps.filter(e => {
     if (e.id === employeeId) return false
     if (chain?.evaluators.additional.some((a: any) => a.id === e.id)) return false
-    if (!search.trim()) return true
-    const s = search.toLowerCase()
-    return `${e.first_name_th} ${e.last_name_th} ${e.employee_code}`.toLowerCase().includes(s)
+    return true
   })
   const pickEmp = allEmps.find(e => e.id === pickEvalId)
 
@@ -204,7 +218,7 @@ export default function OrgChartEditDrawer({ employeeId, employeeName, onClose, 
 
                 {/* + เพิ่ม */}
                 {!showAdd ? (
-                  <button onClick={() => { setShowAdd(true); loadEmps() }}
+                  <button onClick={() => { setShowAdd(true) }}
                     className="w-full bg-white border-2 border-dashed border-indigo-200 rounded-xl py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center justify-center gap-1">
                     <UserPlus size={12}/> เพิ่มผู้ประเมินเพิ่มเติม
                   </button>
@@ -215,15 +229,20 @@ export default function OrgChartEditDrawer({ employeeId, employeeName, onClose, 
                         <input value={search} onChange={e => setSearch(e.target.value)}
                           placeholder="ค้นหาชื่อ / รหัส..."
                           className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-indigo-400" />
-                        <div className="max-h-[150px] overflow-y-auto border border-slate-100 rounded-lg divide-y divide-slate-50">
-                          {filteredEmps.slice(0, 20).map(e => (
+                        <div className="max-h-[220px] overflow-y-auto border border-slate-100 rounded-lg divide-y divide-slate-50">
+                          {filteredEmps.slice(0, 50).map(e => (
                             <button key={e.id} onClick={() => setPickEvalId(e.id)}
                               className="w-full text-left px-3 py-1.5 text-xs hover:bg-indigo-50">
                               <span className="font-bold">{e.first_name_th} {e.last_name_th}</span>
+                              {e.nickname && <span className="text-slate-400 ml-1">({e.nickname})</span>}
                               <span className="text-slate-400 ml-2">{e.employee_code}</span>
                             </button>
                           ))}
-                          {filteredEmps.length === 0 && <p className="text-center py-3 text-xs text-slate-400">ไม่พบ</p>}
+                          {filteredEmps.length === 0 && (
+                            <p className="text-center py-3 text-xs text-slate-400">
+                              {search.trim() ? "ไม่พบรายชื่อตรงกับคำค้น" : "พิมพ์เพื่อค้นหา..."}
+                            </p>
+                          )}
                         </div>
                       </>
                     ) : (

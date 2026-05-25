@@ -54,7 +54,52 @@ export async function getManageableEmployees(
     .select("employee_id")
     .eq("manager_id", managerId)
     .is("effective_to", null)
-  const directIds = Array.from(new Set((directRows ?? []).map((r: any) => r.employee_id).filter(Boolean)))
+  let directIds: string[] = Array.from(
+    new Set((directRows ?? []).map((r: any) => r.employee_id).filter(Boolean)),
+  ) as string[]
+
+  // (1b) KPI-only: ถ้า scope='kpi' → กรองพนักงานที่มี kpi_evaluator_id เป็นคนอื่นออก
+  //      เพราะคนอื่นเป็นผู้ประเมิน KPI แทนหัวหน้าตรงแล้ว
+  //      direct manager ยังจัดการเรื่องอื่นได้ แต่ไม่ต้องประเมิน KPI
+  let kpiOverriddenIds = new Set<string>()
+  if (scope === "kpi" && directIds.length > 0) {
+    try {
+      const { data: ovRows } = await svc
+        .from("employees")
+        .select("id, kpi_evaluator_id")
+        .in("id", directIds)
+        .not("kpi_evaluator_id", "is", null)
+      for (const r of (ovRows ?? [])) {
+        if (r.kpi_evaluator_id && r.kpi_evaluator_id !== managerId) {
+          kpiOverriddenIds.add(r.id as string)
+        }
+      }
+    } catch {
+      // column ยังไม่มี → ข้าม
+    }
+    if (kpiOverriddenIds.size > 0) {
+      directIds = directIds.filter((id: string) => !kpiOverriddenIds.has(id))
+    }
+  }
+
+  // (1c) KPI-only: คนที่มี kpi_evaluator_id = managerId → ใส่เป็น direct (แทนหัวหน้าจริง)
+  let kpiDesignatedIds: string[] = []
+  if (scope === "kpi") {
+    try {
+      const { data: kdRows } = await svc
+        .from("employees")
+        .select("id")
+        .eq("kpi_evaluator_id", managerId)
+        .eq("is_active", true)
+      kpiDesignatedIds = Array.from(new Set((kdRows ?? []).map((r: any) => r.id).filter(Boolean)))
+      // เพิ่มเข้า directIds ถ้ายังไม่อยู่
+      for (const id of kpiDesignatedIds) {
+        if (!directIds.includes(id)) directIds.push(id)
+      }
+    } catch {
+      // column ยังไม่มี → ข้าม
+    }
+  }
 
   // (2) Skip-1 subs — ลูกของลูก (กรอง direct ออก ป้องกันซ้ำ)
   let skipIds: string[] = []
@@ -175,6 +220,24 @@ export async function canEvaluate(
 ): Promise<{ allowed: boolean; role: "direct_manager" | "skip_level" | "additional"; directManagerId?: string }> {
   if (!managerId || !employeeId) return { allowed: false, role: "direct_manager" }
 
+  // KPI-only: ตรวจ designated evaluator ก่อนทุกอย่าง
+  //   - ถ้า employees.kpi_evaluator_id = managerId → อนุญาตทันที (role=direct_manager)
+  //   - ถ้า kpi_evaluator_id ชี้คนอื่น → ผู้ที่ไม่ใช่ designated ไม่อนุญาตแม้จะเป็น direct manager
+  let designatedKpiEvaluatorId: string | null = null
+  if (scope === "kpi") {
+    try {
+      const { data: empRow } = await svc
+        .from("employees")
+        .select("kpi_evaluator_id")
+        .eq("id", employeeId)
+        .maybeSingle()
+      designatedKpiEvaluatorId = (empRow as any)?.kpi_evaluator_id ?? null
+    } catch {}
+    if (designatedKpiEvaluatorId && designatedKpiEvaluatorId === managerId) {
+      return { allowed: true, role: "direct_manager", directManagerId: managerId }
+    }
+  }
+
   // Direct
   const { data: d } = await svc
     .from("employee_manager_history")
@@ -182,7 +245,12 @@ export async function canEvaluate(
     .eq("employee_id", employeeId)
     .is("effective_to", null)
     .maybeSingle()
-  if (d?.manager_id === managerId) return { allowed: true, role: "direct_manager", directManagerId: managerId }
+  // ถ้ามี designated evaluator คนอื่น → direct manager ไม่ควรประเมิน KPI
+  if (scope === "kpi" && designatedKpiEvaluatorId && designatedKpiEvaluatorId !== managerId) {
+    // direct manager → skip — ปล่อยให้ตรวจ skip-level / additional ต่อ
+  } else if (d?.manager_id === managerId) {
+    return { allowed: true, role: "direct_manager", directManagerId: managerId }
+  }
 
   // Skip-1: employee's direct manager has THIS user as their manager
   if (d?.manager_id) {
