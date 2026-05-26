@@ -415,7 +415,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
         </thead>
         <tbody className="divide-y divide-slate-50">
           {records.map((r: any) => {
-            const totalAllow = n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)
+            const totalAllow = n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)
             const totalDeductWork = n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)
             return (
               <tr key={r.id} className={`hover:bg-slate-50 transition-colors ${r.is_manual_override ? "bg-amber-50/30" : ""}`}>
@@ -492,7 +492,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
             <td className="px-4 py-3 font-black text-slate-700">{records.length} คน</td>
             <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).effBase,0))}</td>
             <td className="px-3 py-3 text-center font-bold text-purple-700">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).effBonus,0))}</td>
-            <td className="px-3 py-3 text-right font-bold text-green-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing),0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-green-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other),0))}</td>
             <td className="px-3 py-3 font-bold text-amber-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.ot_amount),0))}</td>
             <td className="px-3 py-3 text-right font-bold text-red-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent),0))}</td>
             <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).sso,0))}</td>
@@ -675,7 +675,7 @@ function exportXLSX(records: any[], period: any) {
            + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
            + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
     }
-    const allowTotal = (r:any) => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)
+    const allowTotal = (r:any) => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)
     // ใช้ effBonus (prorated) แทน r.bonus เพื่อให้ตรงกับ gross/net
     const bonusTotal = (r:any) => recomputePayroll(r).effBonus+n(ie(r).kpi||0)+n(ie(r).incentive||0)+n(ie(r).performance_bonus||0)+n(ie(r).diligence_bonus||0)+n(ie(r).referral_bonus||0)
     const commTotal  = (r:any) => n(r.commission)+n(ie(r).service_fee||0)+n(ie(r).campaign||0)
@@ -732,7 +732,7 @@ function exportXLSX(records: any[], period: any) {
       return [
         co, recs.length,
         sum(r=>n(r.base_salary)), sum(otA),
-        sum(r=>n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_other)),
+        sum(r=>n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)),
         sum(r=>recomputePayroll(r).effBonus), sum(r=>n(r.commission)), sum(r=>n(r.other_income)),
         sum(r=>recomputePayroll(r).gross),
         sum(r=>n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)),
@@ -1012,6 +1012,7 @@ function EditModal({
 
   const gross = effectiveBase + num(f.allowance_position) + num(f.allowance_transport)
     + num(f.allowance_food) + num(f.allowance_phone) + num(f.allowance_housing)
+    + num(f.allowance_vehicle)  // ⚠️ ค่าเสื่อมรถยนต์ — เคยลืม ทำให้ไม่บวกเข้า gross
     + num(f.allowance_other) + effectiveOt + effectiveBonus + num(f.commission)
     + num(f.other_income) + extraIncomeTotal
 
@@ -2457,7 +2458,7 @@ export default function PayrollPage() {
                           <td className="px-2 py-2 text-right">{recs.length}</td>
                           <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.base_salary)))}</td>
                           <td className="px-2 py-2 text-right text-amber-700">{thb(sumField(recs, r => n(r.ot_amount)))}</td>
-                          <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
+                          <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
                           <td className="px-2 py-2 text-right font-bold text-green-800">{thb(sumField(recs, r => recomputePayroll(r).gross))}</td>
                           <td className="px-2 py-2 text-right font-bold text-red-600">{thb(sumField(recs, r => n(r.total_deductions)))}</td>
                           <td className="px-2 py-2 text-right font-black text-indigo-700">{thb(sumField(recs, r => recomputePayroll(r).net))}</td>
@@ -2470,7 +2471,7 @@ export default function PayrollPage() {
                         <td className="px-2 py-2 text-right">{records.length}</td>
                         <td className="px-2 py-2 text-right">{thb(sumField(records, r => n(r.base_salary)))}</td>
                         <td className="px-2 py-2 text-right text-amber-700">{thb(sumField(records, r => n(r.ot_amount)))}</td>
-                        <td className="px-2 py-2 text-right">{thb(sumField(records, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
+                        <td className="px-2 py-2 text-right">{thb(sumField(records, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
                         <td className="px-2 py-2 text-right text-green-800">{thb(sumField(records, r => recomputePayroll(r).gross))}</td>
                         <td className="px-2 py-2 text-right text-red-600">{thb(sumField(records, r => n(r.total_deductions)))}</td>
                         <td className="px-2 py-2 text-right text-indigo-700">{thb(sumField(records, r => recomputePayroll(r).net))}</td>

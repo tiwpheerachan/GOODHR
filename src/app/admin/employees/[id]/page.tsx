@@ -291,7 +291,25 @@ export default function EmployeeDetailPage() {
     if (!sf.base_salary) return toast.error("กรุณากรอกเงินเดือน")
     setLoading(true)
     if (salary?.id) await supabase.from("salary_structures").update({ effective_to:sf.effective_from }).eq("id",salary.id)
-    const { error } = await supabase.from("salary_structures").insert({ employee_id:id, base_salary:+sf.base_salary, allowance_position:+(sf.allowance_position||0), allowance_transport:+(sf.allowance_transport||0), allowance_food:+(sf.allowance_food||0), allowance_phone:+(sf.allowance_phone||0), allowance_housing:+(sf.allowance_housing||0), ot_rate_normal:+(sf.ot_rate_normal||1.5), ot_rate_holiday:+(sf.ot_rate_holiday||3), tax_withholding_pct: sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? +sf.tax_withholding_pct : null, is_sso_exempt: !!sf.is_sso_exempt, is_tax_3pct: !!sf.is_tax_3pct, effective_from:sf.effective_from||format(new Date(),"yyyy-MM-dd"), change_reason:sf.change_reason, created_by:user?.employee_id })
+    const { error } = await supabase.from("salary_structures").insert({
+      employee_id:id,
+      base_salary:+sf.base_salary,
+      allowance_position:+(sf.allowance_position||0),
+      allowance_transport:+(sf.allowance_transport||0),
+      allowance_food:+(sf.allowance_food||0),
+      allowance_phone:+(sf.allowance_phone||0),
+      allowance_housing:+(sf.allowance_housing||0),
+      // ⚠️ ต้องบันทึกค่าเสื่อมรถยนต์ด้วย (เคยลืม → ค่าหาย)
+      allowance_vehicle:+(sf.allowance_vehicle||0),
+      ot_rate_normal:+(sf.ot_rate_normal||1.5),
+      ot_rate_holiday:+(sf.ot_rate_holiday||3),
+      tax_withholding_pct: sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? +sf.tax_withholding_pct : null,
+      is_sso_exempt: !!sf.is_sso_exempt,
+      is_tax_3pct: !!sf.is_tax_3pct,
+      effective_from:sf.effective_from||format(new Date(),"yyyy-MM-dd"),
+      change_reason:sf.change_reason,
+      created_by:user?.employee_id,
+    })
     if (error) toast.error("เกิดข้อผิดพลาด"); else toast.success("บันทึกเงินเดือนสำเร็จ")
     setLoading(false)
   }
