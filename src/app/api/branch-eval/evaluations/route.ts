@@ -25,6 +25,8 @@ export async function GET(req: NextRequest) {
   const id = sp.get("id")
   const branchId = sp.get("branch_id")
   const evaluatorId = sp.get("evaluator_id")
+  const targetManagerId = sp.get("target_manager_id")  // "me" หรือ employee_id
+  const templateId = sp.get("template_id")             // filter ตาม template
   const status = sp.get("status")
   const showDeleted = sp.get("deleted") === "1"
 
@@ -35,7 +37,8 @@ export async function GET(req: NextRequest) {
         branch:branches(id, name, code, latitude, longitude, geo_radius_m),
         template:branch_eval_templates(id, name, description, total_weight),
         evaluator:employees!branch_evaluations_evaluator_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url),
-        reviewer:employees!branch_evaluations_reviewed_by_fkey(id, first_name_th, last_name_th, nickname)`)
+        reviewer:employees!branch_evaluations_reviewed_by_fkey(id, first_name_th, last_name_th, nickname),
+        target_manager:employees!branch_evaluations_target_manager_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url)`)
       .eq("id", id).maybeSingle()
     if (!ev) return NextResponse.json({ error: "not found" }, { status: 404 })
     if (!canViewEvaluation(access, (ev.branch as any).id, ev.evaluator_id)) {
@@ -67,7 +70,8 @@ export async function GET(req: NextRequest) {
     .select(`*,
       branch:branches(id, name, code),
       template:branch_eval_templates(id, name),
-      evaluator:employees!branch_evaluations_evaluator_id_fkey(id, first_name_th, last_name_th, nickname, avatar_url)`)
+      evaluator:employees!branch_evaluations_evaluator_id_fkey(id, first_name_th, last_name_th, nickname, avatar_url),
+      target_manager:employees!branch_evaluations_target_manager_id_fkey(id, first_name_th, last_name_th, nickname, avatar_url)`)
     .order("visit_date", { ascending: false })
     .order("created_at", { ascending: false })
 
@@ -75,6 +79,13 @@ export async function GET(req: NextRequest) {
   else q = q.is("deleted_at", null)
   if (branchId) q = q.eq("branch_id", branchId)
   if (status) q = q.eq("status", status)
+  if (templateId) q = q.eq("template_id", templateId)
+  // filter "ส่งถึงฉัน"
+  if (targetManagerId === "me") {
+    q = q.eq("target_manager_id", access.employeeId)
+  } else if (targetManagerId) {
+    q = q.eq("target_manager_id", targetManagerId)
+  }
 
   // evaluator scope = only own
   if (evaluatorId === "me") {
@@ -106,7 +117,7 @@ export async function POST(req: NextRequest) {
   const svc = createServiceClient()
   const access = await getBranchEvalAccess(svc, user.id)
   const body = await req.json()
-  const { branch_id, template_id, visit_date, visit_time, store_manager, store_staff } = body
+  const { branch_id, template_id, visit_date, visit_time, store_manager, store_staff, target_manager_id } = body
 
   if (!branch_id || !template_id) return NextResponse.json({ error: "missing branch_id/template_id" }, { status: 400 })
   if (!canFillBranch(access, branch_id)) return NextResponse.json({ error: "ไม่มีสิทธิ์กรอกประเมินสาขานี้" }, { status: 403 })
@@ -120,6 +131,7 @@ export async function POST(req: NextRequest) {
     branch_id, template_id,
     template_version: tpl.version,
     evaluator_id: access.employeeId,
+    target_manager_id: target_manager_id || null,  // ป้าย "ส่งถึงใคร" (optional)
     visit_date: visit_date ?? new Date().toISOString().slice(0, 10),
     visit_time: visit_time ?? null,
     store_manager: store_manager ?? null,
@@ -158,10 +170,10 @@ export async function PATCH(req: NextRequest) {
       submitted_at: new Date().toISOString(),
     }).eq("id", id)
 
-    // notify supervisors of this branch
+    // notify supervisors of this branch + target_manager (ถ้ามี)
     try {
       const { data: full } = await svc.from("branch_evaluations")
-        .select("percentage, branch:branches(name), template:branch_eval_templates(name), evaluator:employees!branch_evaluations_evaluator_id_fkey(first_name_th, last_name_th)")
+        .select("percentage, target_manager_id, branch:branches(name), template:branch_eval_templates(name), evaluator:employees!branch_evaluations_evaluator_id_fkey(first_name_th, last_name_th)")
         .eq("id", id).maybeSingle() as any
       const { data: sups } = await svc.from("branch_eval_permissions")
         .select("employee_id")
@@ -171,13 +183,28 @@ export async function PATCH(req: NextRequest) {
       const branchName = full?.branch?.name ?? "สาขา"
       const tplName = full?.template?.name ?? ""
       const pct = full?.percentage != null ? `${Number(full.percentage).toFixed(0)}%` : ""
-      const rows = (sups ?? []).map((s: any) => ({
-        employee_id: s.employee_id,
-        type: "branch_eval_submitted",
-        title: `${evaluatorName} ส่งฟอร์มประเมิน ${branchName}`,
-        body: `${tplName}${pct ? ` · คะแนน ${pct}` : ""} · กดดูเพื่อรีวิว`,
-        ref_table: "branch_evaluations", ref_id: id, is_read: false,
-      }))
+
+      // รวม recipient: supervisors + target_manager (ไม่ซ้ำ + ไม่รวมตัวผู้ส่งเอง)
+      const recipientIds = new Set<string>()
+      for (const s of (sups ?? [])) recipientIds.add(s.employee_id)
+      if (full?.target_manager_id) recipientIds.add(full.target_manager_id)
+      if (access.employeeId) recipientIds.delete(access.employeeId)  // ไม่ส่งให้ตัวเอง
+
+      const rows = Array.from(recipientIds).map((empId: string) => {
+        // ถ้าเป็น target_manager → title พิเศษ
+        const isTargetMgr = empId === full?.target_manager_id
+        return {
+          employee_id: empId,
+          type: "branch_eval_submitted",
+          title: isTargetMgr
+            ? `${evaluatorName} ส่งฟอร์มประเมิน ${branchName} ถึงคุณ`
+            : `${evaluatorName} ส่งฟอร์มประเมิน ${branchName}`,
+          body: `${tplName}${pct ? ` · คะแนน ${pct}` : ""} · กดดูเพื่อรีวิว`,
+          ref_table: "branch_evaluations",
+          ref_id: id,
+          is_read: false,
+        }
+      })
       if (rows.length > 0) await svc.from("notifications").insert(rows)
     } catch {}
 
@@ -217,7 +244,8 @@ export async function PATCH(req: NextRequest) {
   if (!isOwner && !isManager) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
   // อนุญาตเฉพาะ field ที่กำหนด — กัน injection
   const allowed = ["visit_date", "visit_time", "store_manager", "store_staff",
-                   "general_notes", "action_plan", "deleted_at"]
+                   "general_notes", "action_plan", "deleted_at",
+                   "target_manager_id"]  // ผู้กรอกแก้ "ส่งถึงใคร" ได้ตลอด
   const safe: any = { updated_at: new Date().toISOString() }
   for (const k of allowed) if (k in updates) safe[k] = updates[k]
   if (Object.keys(safe).length === 1) {

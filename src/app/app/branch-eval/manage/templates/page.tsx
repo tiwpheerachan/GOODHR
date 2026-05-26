@@ -12,6 +12,8 @@ export default function TemplatesPage() {
   const [me, setMe] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
+  // ── usage stats per template ──
+  const [usageByTpl, setUsageByTpl] = useState<Record<string, { count: number; mgrCount: number; avgPct: number }>>({})
   const [form, setForm] = useState({
     name: "", description: "",
     visibility: "public" as "public" | "private",
@@ -23,8 +25,25 @@ export default function TemplatesPage() {
     Promise.all([
       fetch("/api/branch-eval/me").then(r => r.json()),
       fetch("/api/branch-eval/templates?with_items=1").then(r => r.json()),
-    ]).then(([m, t]) => { setMe(m); setTemplates(t.templates ?? []) })
-      .finally(() => setLoading(false))
+      fetch("/api/branch-eval/evaluations").then(r => r.json()).catch(() => ({ evaluations: [] })),
+    ]).then(([m, t, e]) => {
+      setMe(m); setTemplates(t.templates ?? [])
+      // คำนวณ usage stats per template (จาก evaluations)
+      const stats: Record<string, { count: number; mgrIds: Set<string>; pctSum: number; pctN: number }> = {}
+      for (const ev of (e.evaluations ?? []) as any[]) {
+        const id = ev.template?.id || ev.template_id
+        if (!id) continue
+        if (!stats[id]) stats[id] = { count: 0, mgrIds: new Set(), pctSum: 0, pctN: 0 }
+        stats[id].count++
+        if (ev.target_manager_id) stats[id].mgrIds.add(ev.target_manager_id)
+        if (Number(ev.percentage) > 0) { stats[id].pctSum += Number(ev.percentage); stats[id].pctN++ }
+      }
+      const out: Record<string, { count: number; mgrCount: number; avgPct: number }> = {}
+      for (const [k, v] of Object.entries(stats)) {
+        out[k] = { count: v.count, mgrCount: v.mgrIds.size, avgPct: v.pctN > 0 ? v.pctSum / v.pctN : 0 }
+      }
+      setUsageByTpl(out)
+    }).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
 
@@ -146,6 +165,24 @@ export default function TemplatesPage() {
                 <p className="text-[10px] text-slate-400 mt-1 truncate">
                   เจ้าของ: {t.owner.first_name_th} {t.owner.last_name_th}
                 </p>
+              )}
+              {/* ── Usage stats ── */}
+              {usageByTpl[t.id] && usageByTpl[t.id].count > 0 && (
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+                    ใช้ {usageByTpl[t.id].count} ครั้ง
+                  </span>
+                  {usageByTpl[t.id].mgrCount > 0 && (
+                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                      📩 {usageByTpl[t.id].mgrCount} หัวหน้า
+                    </span>
+                  )}
+                  {usageByTpl[t.id].avgPct > 0 && (
+                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                      เฉลี่ย {usageByTpl[t.id].avgPct.toFixed(0)}%
+                    </span>
+                  )}
+                </div>
               )}
               <div className="flex items-center gap-2 mt-3 text-[10px] text-slate-500">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 rounded-md font-bold">

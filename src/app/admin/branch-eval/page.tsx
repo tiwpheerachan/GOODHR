@@ -4,6 +4,7 @@ import Link from "next/link"
 import {
   Store, FileText, ClipboardCheck, ShieldCheck, ChevronRight,
   Loader2, Layers, BarChart3, Users, RefreshCw, Clock, Trash2,
+  Mail, User,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -49,7 +50,39 @@ export default function BranchEvalAdminLanding() {
       ? evals.filter((e: any) => e.percentage > 0).reduce((s: number, e: any) => s + Number(e.percentage), 0) /
         evals.filter((e: any) => e.percentage > 0).length
       : 0,
+    tagged: evals.filter((e: any) => e.target_manager_id).length,  // มีระบุผู้รับ
   }
+
+  // ── Top recipients (top-5 หัวหน้าที่รับฟอร์มเยอะสุด) ──
+  const topRecipients = (() => {
+    const m = new Map<string, { mgr: any; count: number; submittedCount: number; avgPct: number; pctSum: number; pctN: number }>()
+    for (const e of evals as any[]) {
+      if (!e.target_manager_id || !e.target_manager) continue
+      const k = e.target_manager_id
+      if (!m.has(k)) m.set(k, { mgr: e.target_manager, count: 0, submittedCount: 0, avgPct: 0, pctSum: 0, pctN: 0 })
+      const r = m.get(k)!
+      r.count++
+      if (e.status !== "draft") r.submittedCount++
+      if (Number(e.percentage) > 0) { r.pctSum += Number(e.percentage); r.pctN++ }
+    }
+    for (const r of Array.from(m.values())) r.avgPct = r.pctN > 0 ? r.pctSum / r.pctN : 0
+    return Array.from(m.values()).sort((a, b) => b.count - a.count).slice(0, 5)
+  })()
+
+  // ── Top templates (template ไหนใช้บ่อยสุด) ──
+  const topTemplates = (() => {
+    const m = new Map<string, { tpl: any; count: number; pctSum: number; pctN: number; mgrIds: Set<string> }>()
+    for (const e of evals as any[]) {
+      if (!e.template) continue
+      const k = e.template.id
+      if (!m.has(k)) m.set(k, { tpl: e.template, count: 0, pctSum: 0, pctN: 0, mgrIds: new Set() })
+      const r = m.get(k)!
+      r.count++
+      if (Number(e.percentage) > 0) { r.pctSum += Number(e.percentage); r.pctN++ }
+      if (e.target_manager_id) r.mgrIds.add(e.target_manager_id)
+    }
+    return Array.from(m.values()).sort((a, b) => b.count - a.count).slice(0, 5)
+  })()
 
   const recent = evals.slice(0, 5)
 
@@ -92,11 +125,91 @@ export default function BranchEvalAdminLanding() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
         <Kpi icon={<Layers size={16} />} color="indigo" label="เทมเพลต" value={stats.templates} />
         <Kpi icon={<FileText size={16} />} color="sky" label="ฟอร์มทั้งหมด" value={stats.evals} sub={`ร่าง ${stats.draft}`} />
+        <Kpi icon={<Mail size={16} />} color="violet" label="ระบุผู้รับแล้ว" value={stats.tagged} sub={`${stats.evals > 0 ? Math.round(stats.tagged / stats.evals * 100) : 0}%`} />
         <Kpi icon={<ClipboardCheck size={16} />} color="amber" label="รอรีวิว" value={stats.submitted} highlight={stats.submitted > 0} />
         <Kpi icon={<BarChart3 size={16} />} color="emerald" label="คะแนนเฉลี่ย" value={stats.avg > 0 ? `${stats.avg.toFixed(0)}%` : "—"} />
+      </div>
+
+      {/* ── 2 columns: Top Recipients + Top Templates ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {/* Top Recipients */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-50 flex items-center gap-2">
+            <Mail size={13} className="text-emerald-600" />
+            <p className="font-black text-sm text-slate-800">📩 หัวหน้าที่รับฟอร์มเยอะสุด</p>
+            <span className="ml-auto text-[10px] font-bold text-slate-400">Top 5</span>
+          </div>
+          {topRecipients.length === 0 ? (
+            <div className="py-8 text-center text-slate-400 text-xs">
+              <Mail size={20} className="mx-auto mb-2 text-slate-300" />
+              ยังไม่มีฟอร์มที่ระบุผู้รับ
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {topRecipients.map(r => (
+                <Link key={r.mgr.id} href={`/admin/branch-eval/evaluations`}
+                  className="flex items-center gap-3 p-3 hover:bg-slate-50">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-black flex-shrink-0">
+                    {r.mgr.first_name_th?.[0] || "?"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold truncate">
+                      {r.mgr.first_name_th} {r.mgr.last_name_th}
+                      {r.mgr.nickname && <span className="text-slate-400 ml-1 text-xs">({r.mgr.nickname})</span>}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                      <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full">{r.count} ฟอร์ม</span>
+                      {r.submittedCount > 0 && <span className="text-[10px] text-slate-500">รีวิว {r.submittedCount}</span>}
+                      {r.avgPct > 0 && <span className="text-[10px] font-bold text-amber-700">เฉลี่ย {r.avgPct.toFixed(0)}%</span>}
+                    </div>
+                  </div>
+                  <ChevronRight size={13} className="text-slate-300" />
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Top Templates */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-50 flex items-center gap-2">
+            <Layers size={13} className="text-violet-600" />
+            <p className="font-black text-sm text-slate-800">📋 Template ที่ใช้บ่อย</p>
+            <span className="ml-auto text-[10px] font-bold text-slate-400">Top 5</span>
+          </div>
+          {topTemplates.length === 0 ? (
+            <div className="py-8 text-center text-slate-400 text-xs">
+              <Layers size={20} className="mx-auto mb-2 text-slate-300" />
+              ยังไม่มีการใช้งาน template
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {topTemplates.map(r => {
+                const avg = r.pctN > 0 ? r.pctSum / r.pctN : 0
+                return (
+                  <Link key={r.tpl.id} href="/admin/branch-eval/evaluations"
+                    className="flex items-center gap-3 p-3 hover:bg-slate-50">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-400 to-indigo-500 text-white flex items-center justify-center flex-shrink-0">
+                      <Layers size={14} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold truncate">{r.tpl.name}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        <span className="text-[10px] font-black text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded-full">{r.count} ฟอร์ม</span>
+                        {r.mgrIds.size > 0 && <span className="text-[10px] font-bold text-emerald-700">ส่งถึง {r.mgrIds.size} คน</span>}
+                        {avg > 0 && <span className="text-[10px] font-bold text-amber-700">เฉลี่ย {avg.toFixed(0)}%</span>}
+                      </div>
+                    </div>
+                    <ChevronRight size={13} className="text-slate-300" />
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Menu */}
@@ -137,6 +250,7 @@ export default function BranchEvalAdminLanding() {
                   <p className="text-[10px] text-slate-500 truncate">
                     {ev.template?.name} · {format(new Date(ev.visit_date), "d MMM yyyy", { locale: th })}
                     {ev.evaluator && <> · โดย {ev.evaluator.first_name_th}</>}
+                    {ev.target_manager && <> · <Mail size={9} className="inline text-emerald-500" /> <span className="font-bold text-emerald-700">{ev.target_manager.first_name_th}</span></>}
                   </p>
                 </div>
                 <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
@@ -163,6 +277,7 @@ function Kpi({ icon, color, label, value, sub, highlight }: any) {
     sky:     { bg: "bg-sky-50",     text: "text-sky-600",     ring: "ring-sky-200" },
     amber:   { bg: "bg-amber-50",   text: "text-amber-600",   ring: "ring-amber-300" },
     emerald: { bg: "bg-emerald-50", text: "text-emerald-600", ring: "ring-emerald-200" },
+    violet:  { bg: "bg-violet-50",  text: "text-violet-600",  ring: "ring-violet-200" },
   }
   const p = palette[color] ?? palette.indigo
   return (

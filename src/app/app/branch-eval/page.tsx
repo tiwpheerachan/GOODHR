@@ -38,6 +38,8 @@ export default function BranchEvalLandingPage() {
   const [branches, setBranches] = useState<Branch[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
   const [evals, setEvals] = useState<Eval[]>([])
+  // ── ฟอร์มที่ "ส่งถึงฉัน" (target_manager_id = me) ──
+  const [evalsToMe, setEvalsToMe] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [picker, setPicker] = useState<{ branch: Branch | null; templateId: string }>({ branch: null, templateId: "" })
   const [creating, setCreating] = useState(false)
@@ -49,11 +51,13 @@ export default function BranchEvalLandingPage() {
       fetch("/api/branch-eval/branches-for-me").then(r => r.json()),
       fetch("/api/branch-eval/templates").then(r => r.json()),
       fetch("/api/branch-eval/evaluations?evaluator_id=me").then(r => r.json()),
-    ]).then(([m, b, t, e]) => {
+      fetch("/api/branch-eval/evaluations?target_manager_id=me").then(r => r.json()).catch(() => ({ evaluations: [] })),
+    ]).then(([m, b, t, e, sentMe]) => {
       setMe(m)
       setBranches(b.branches ?? [])
       setTemplates(t.templates ?? [])
       setEvals(e.evaluations ?? [])
+      setEvalsToMe((sentMe.evaluations ?? []).filter((x: any) => x.evaluator_id !== m?.employee_id))
     }).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
@@ -190,6 +194,51 @@ export default function BranchEvalLandingPage() {
         </div>
       </div>
 
+
+      {/* 📩 Sent to me — แสดงเฉพาะถ้ามี (รวมจากทุกคนที่ส่งฟอร์มถึงเรา) */}
+      {evalsToMe.length > 0 && (
+        <div className="bg-white rounded-2xl border-2 border-emerald-200 p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center">
+              <BadgeCheck size={13} className="text-emerald-700" />
+            </div>
+            <h2 className="font-black text-slate-800 text-sm">📩 ฟอร์มที่ส่งถึงฉัน ({evalsToMe.length})</h2>
+            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full">จากลูกน้อง/ทีมงาน</span>
+          </div>
+          <div className="space-y-2">
+            {evalsToMe.slice(0, 5).map((ev: any) => {
+              const S = STATUS_COLOR[ev.status]
+              return (
+                <Link key={ev.id} href={`/app/branch-eval/${ev.id}`}
+                  className="group flex items-center gap-3 p-2.5 bg-emerald-50/40 hover:bg-white border border-emerald-100 hover:border-emerald-300 rounded-xl transition-all">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 text-white flex items-center justify-center flex-shrink-0">
+                    <Store size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-sm font-bold text-slate-800 truncate">{ev.branch?.name}</p>
+                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${S.bg} ${S.text}`}>{S.label}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                      📋 {ev.template?.name} · 🗓 {format(new Date(ev.visit_date), "d MMM yyyy", { locale: th })}
+                      {ev.evaluator && <> · จาก <span className="font-bold text-emerald-700">{ev.evaluator.first_name_th} {ev.evaluator.last_name_th}</span></>}
+                    </p>
+                  </div>
+                  {ev.status !== "draft" && (
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-black text-emerald-700">{Number(ev.percentage).toFixed(0)}%</p>
+                    </div>
+                  )}
+                  <ChevronRight size={14} className="text-slate-300 group-hover:text-emerald-600 flex-shrink-0" />
+                </Link>
+              )
+            })}
+            {evalsToMe.length > 5 && (
+              <p className="text-center text-[11px] text-emerald-600 font-bold pt-1">+ อีก {evalsToMe.length - 5} ฟอร์ม</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* My evaluations */}
       <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">

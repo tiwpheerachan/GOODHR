@@ -217,6 +217,15 @@ export default function AdminEvaluationDetailPage() {
             sub={ev.reviewed_at ? format(new Date(ev.reviewed_at), "d MMM yyyy HH:mm", { locale: th }) : undefined} />
           <Info icon={<Store size={11} />} label="Store Manager" value={ev.store_manager || "—"} />
           <Info icon={<User size={11} />} label="Sales Staff" value={ev.store_staff || "—"} />
+          {/* ── target_manager (ผู้รับฟอร์ม) ── */}
+          {ev.target_manager && (
+            <Info
+              icon={<User size={11} />}
+              label="📩 ส่งฟอร์มถึง"
+              value={`${ev.target_manager.first_name_th} ${ev.target_manager.last_name_th}${ev.target_manager.nickname ? ` (${ev.target_manager.nickname})` : ""}`}
+              sub={ev.target_manager.employee_code}
+            />
+          )}
         </div>
 
         {(ev.general_notes || ev.action_plan || ev.reviewer_notes) && (

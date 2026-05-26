@@ -11,7 +11,7 @@ import { th } from "date-fns/locale"
 import * as XLSX from "xlsx"
 import toast from "react-hot-toast"
 
-type Tab = "overview" | "branches" | "evaluators"
+type Tab = "overview" | "branches" | "evaluators" | "recipients" | "templates"
 
 export default function ReportsPage() {
   const [evals, setEvals] = useState<any[]>([])
@@ -99,6 +99,78 @@ export default function ReportsPage() {
       min: v.scores.length > 0 ? Math.min(...v.scores) : 0,
       max: v.scores.length > 0 ? Math.max(...v.scores) : 0,
     })).sort((a, b) => b.visits - a.visits)
+  }, [filtered])
+
+  // ── Per-recipient (target_manager) ──
+  const byRecipient = useMemo(() => {
+    const m = new Map<string, {
+      id: string; name: string; nickname: string
+      received: number; branches: Set<string>; templates: Set<string>; scores: number[]; lastDate: string
+    }>()
+    let unset = 0
+    for (const e of filtered as any[]) {
+      if (!e.target_manager_id || !e.target_manager) { unset++; continue }
+      const tm = e.target_manager
+      const prev = m.get(tm.id) ?? {
+        id: tm.id,
+        name: `${tm.first_name_th} ${tm.last_name_th}`,
+        nickname: tm.nickname ?? "",
+        received: 0,
+        branches: new Set<string>(),
+        templates: new Set<string>(),
+        scores: [] as number[],
+        lastDate: "",
+      }
+      prev.received++
+      if (e.branch?.id) prev.branches.add(e.branch.id)
+      if (e.template?.id) prev.templates.add(e.template.id)
+      prev.scores.push(Number(e.percentage))
+      if (e.visit_date > prev.lastDate) prev.lastDate = e.visit_date
+      m.set(tm.id, prev)
+    }
+    const list = Array.from(m.values()).map(v => ({
+      ...v,
+      branchCount: v.branches.size,
+      templateCount: v.templates.size,
+      avg: v.scores.length > 0 ? v.scores.reduce((s, x) => s + x, 0) / v.scores.length : 0,
+    })).sort((a, b) => b.received - a.received)
+    return { list, unset }
+  }, [filtered])
+
+  // ── Per-template ──
+  const byTemplate = useMemo(() => {
+    const m = new Map<string, {
+      id: string; name: string
+      uses: number; branches: Set<string>; evaluators: Set<string>; recipients: Set<string>
+      scores: number[]; lastDate: string
+    }>()
+    for (const e of filtered as any[]) {
+      if (!e.template?.id) continue
+      const t = e.template
+      const prev = m.get(t.id) ?? {
+        id: t.id, name: t.name,
+        uses: 0,
+        branches: new Set<string>(),
+        evaluators: new Set<string>(),
+        recipients: new Set<string>(),
+        scores: [] as number[],
+        lastDate: "",
+      }
+      prev.uses++
+      if (e.branch?.id) prev.branches.add(e.branch.id)
+      if (e.evaluator?.id) prev.evaluators.add(e.evaluator.id)
+      if (e.target_manager_id) prev.recipients.add(e.target_manager_id)
+      prev.scores.push(Number(e.percentage))
+      if (e.visit_date > prev.lastDate) prev.lastDate = e.visit_date
+      m.set(t.id, prev)
+    }
+    return Array.from(m.values()).map(v => ({
+      ...v,
+      branchCount: v.branches.size,
+      evaluatorCount: v.evaluators.size,
+      recipientCount: v.recipients.size,
+      avg: v.scores.length > 0 ? v.scores.reduce((s, x) => s + x, 0) / v.scores.length : 0,
+    })).sort((a, b) => b.uses - a.uses)
   }, [filtered])
 
   // ── Trend by week ──
@@ -414,10 +486,12 @@ export default function ReportsPage() {
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-2 border-b border-slate-200">
+          <div className="flex gap-2 border-b border-slate-200 overflow-x-auto">
             <TabBtn active={tab === "overview"} onClick={() => setTab("overview")}>📊 ภาพรวม</TabBtn>
             <TabBtn active={tab === "branches"} onClick={() => setTab("branches")}>🏪 รายสาขา</TabBtn>
             <TabBtn active={tab === "evaluators"} onClick={() => setTab("evaluators")}>👤 รายผู้ตรวจ</TabBtn>
+            <TabBtn active={tab === "recipients"} onClick={() => setTab("recipients")}>📩 ส่งมอบถึงใคร</TabBtn>
+            <TabBtn active={tab === "templates"} onClick={() => setTab("templates")}>📋 Template</TabBtn>
           </div>
 
           {/* Tab: Overview */}
@@ -576,6 +650,124 @@ export default function ReportsPage() {
                           <td className="px-3 py-2.5 text-center text-xs text-emerald-600 font-bold">{ev.max.toFixed(0)}%</td>
                           <td className="px-3 py-2.5 text-[10px] text-slate-500">
                             {ev.lastDate && format(new Date(ev.lastDate), "d MMM yyyy", { locale: th })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab: Recipients */}
+          {tab === "recipients" && (
+            <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                <p className="text-sm font-black text-slate-800">📩 ส่งมอบถึงใคร ({byRecipient.list.length})</p>
+                {byRecipient.unset > 0 && (
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full ml-auto">
+                    + {byRecipient.unset} ฟอร์ม "ไม่ระบุผู้รับ"
+                  </span>
+                )}
+              </div>
+              {byRecipient.list.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-sm">ยังไม่มีฟอร์มที่ระบุผู้รับในช่วงนี้</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-100">
+                      <tr>
+                        <Th>#</Th>
+                        <Th>ผู้รับฟอร์ม</Th>
+                        <Th center>รับมาแล้ว</Th>
+                        <Th center>จำนวนสาขา</Th>
+                        <Th center>Template</Th>
+                        <Th center>คะแนนเฉลี่ย</Th>
+                        <Th>รับล่าสุด</Th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {byRecipient.list.map((r, i) => (
+                        <tr key={r.id} className="hover:bg-emerald-50/40">
+                          <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">{i + 1}</td>
+                          <td className="px-3 py-2.5">
+                            <p className="font-bold text-sm">
+                              {r.name}
+                              {r.nickname && <span className="text-xs text-slate-400 ml-1">({r.nickname})</span>}
+                            </p>
+                          </td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className="inline-flex items-center gap-1 text-xs font-black bg-emerald-50 text-emerald-700 px-2 py-1 rounded">
+                              {r.received} ฟอร์ม
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{r.branchCount}</td>
+                          <td className="px-3 py-2.5 text-center text-xs font-bold text-violet-700">{r.templateCount}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`text-sm font-black ${
+                              r.avg >= 80 ? "text-emerald-600"
+                              : r.avg >= 60 ? "text-amber-600"
+                              : "text-rose-600"
+                            }`}>{r.avg.toFixed(1)}%</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-[10px] text-slate-500">
+                            {r.lastDate && format(new Date(r.lastDate), "d MMM yyyy", { locale: th })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab: Templates */}
+          {tab === "templates" && (
+            <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                <p className="text-sm font-black text-slate-800">📋 เทมเพลตที่ใช้ ({byTemplate.length})</p>
+              </div>
+              {byTemplate.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-sm">ยังไม่มีการใช้งาน template ในช่วงนี้</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-100">
+                      <tr>
+                        <Th>#</Th>
+                        <Th>Template</Th>
+                        <Th center>ใช้</Th>
+                        <Th center>ผู้ตรวจ</Th>
+                        <Th center>สาขา</Th>
+                        <Th center>📩 ผู้รับ</Th>
+                        <Th center>คะแนนเฉลี่ย</Th>
+                        <Th>ใช้ล่าสุด</Th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {byTemplate.map((t, i) => (
+                        <tr key={t.id} className="hover:bg-violet-50/40">
+                          <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">{i + 1}</td>
+                          <td className="px-3 py-2.5"><p className="font-bold text-sm">{t.name}</p></td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className="inline-flex items-center gap-1 text-xs font-black bg-violet-50 text-violet-700 px-2 py-1 rounded">
+                              {t.uses} ครั้ง
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-xs font-bold text-indigo-700">{t.evaluatorCount}</td>
+                          <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{t.branchCount}</td>
+                          <td className="px-3 py-2.5 text-center text-xs font-bold text-emerald-700">{t.recipientCount}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`text-sm font-black ${
+                              t.avg >= 80 ? "text-emerald-600"
+                              : t.avg >= 60 ? "text-amber-600"
+                              : "text-rose-600"
+                            }`}>{t.avg.toFixed(1)}%</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-[10px] text-slate-500">
+                            {t.lastDate && format(new Date(t.lastDate), "d MMM yyyy", { locale: th })}
                           </td>
                         </tr>
                       ))}

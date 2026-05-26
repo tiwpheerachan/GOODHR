@@ -38,12 +38,18 @@ export default function BranchEvalDetailPage() {
   const [pendingPhoto, setPendingPhoto] = useState<{ itemId: string | null; kind: "checkin" | "answer" } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [gpsLoading, setGpsLoading] = useState(false)
-  const [headerEdit, setHeaderEdit] = useState({ general_notes: "", action_plan: "", visit_date: "", visit_time: "" })
+  const [headerEdit, setHeaderEdit] = useState({ general_notes: "", action_plan: "", visit_date: "", visit_time: "", target_manager_id: "" as string })
   const [savingHeader, setSavingHeader] = useState(false)
   const [reviewerNotes, setReviewerNotes] = useState("")
+  // ── ผู้รับฟอร์ม (target manager) — pick จากพนักงานทั้งบริษัท ──
+  const [mgrOptions, setMgrOptions] = useState<any[]>([])
+  const [mgrSearch, setMgrSearch] = useState("")
+  const [showMgrPicker, setShowMgrPicker] = useState(false)
 
-  const load = async () => {
-    setLoading(true)
+  // เริ่มต้น: skeleton loading ครั้งแรก
+  // หลังจากนั้น: silent refresh (ไม่ตั้ง loading=true → ไม่กระตุก/flash)
+  const load = async (silent: boolean = false) => {
+    if (!silent) setLoading(true)
     const d = await fetch(`/api/branch-eval/evaluations?id=${id}`).then(r => r.json())
     setData(d)
     if (d.evaluation) {
@@ -52,12 +58,22 @@ export default function BranchEvalDetailPage() {
         action_plan: d.evaluation.action_plan ?? "",
         visit_date: d.evaluation.visit_date ?? "",
         visit_time: d.evaluation.visit_time ?? "",
+        target_manager_id: d.evaluation.target_manager_id ?? "",
       })
       setReviewerNotes(d.evaluation.reviewer_notes ?? "")
     }
     setLoading(false)
   }
   useEffect(() => { if (id) load() }, [id])
+
+  // โหลดรายชื่อพนักงาน (สำหรับ picker "ส่งฟอร์มให้ใคร")
+  useEffect(() => {
+    if (mgrOptions.length > 0 || !showMgrPicker) return
+    fetch("/api/employees/search?q=&limit=500&all_companies=1")
+      .then(r => r.json())
+      .then(d => setMgrOptions(d.employees ?? []))
+      .catch(() => {})
+  }, [showMgrPicker])
 
   if (loading) return (
     <div className="p-4 max-w-4xl mx-auto">
@@ -77,18 +93,39 @@ export default function BranchEvalDetailPage() {
   const access = data.access ?? { can_edit: false, can_review: false, is_owner: false }
   const answerById = new Map<string, Answer>(answersList.map(a => [a.item_id, a]))
 
-  // ── Save answer (debounced not needed for now — save on blur/change) ──
+  // ── Save answer (Optimistic update — ไม่กระตุก) ──
+  //   1. update local state ทันที (user เห็นผลทันที)
+  //   2. ยิง API พื้นหลัง
+  //   3. ถ้า error → rollback + reload (เคสน้อย)
+  //   4. ถ้าสำเร็จ → silent refresh (ดึง earned_weight ใหม่ ไม่กระตุก)
   const saveAnswer = async (itemId: string, payload: Partial<Answer>) => {
     setBusy(itemId)
-    try {
-      const cur = answerById.get(itemId)
-      const body = {
-        evaluation_id: id,
-        item_id: itemId,
-        answer_value: payload.answer_value ?? cur?.answer_value ?? null,
-        note: payload.note ?? cur?.note ?? null,
-        photo_urls: payload.photo_urls ?? cur?.photo_urls ?? [],
+    const cur = answerById.get(itemId)
+    const body = {
+      evaluation_id: id,
+      item_id: itemId,
+      answer_value: payload.answer_value ?? cur?.answer_value ?? null,
+      note: payload.note ?? cur?.note ?? null,
+      photo_urls: payload.photo_urls ?? cur?.photo_urls ?? [],
+    }
+
+    // ── Optimistic update — แสดงผลในจอทันที ──
+    setData((prev: any) => {
+      if (!prev) return prev
+      const newAnswers = [...(prev.answers ?? [])]
+      const idx = newAnswers.findIndex((a: any) => a.item_id === itemId)
+      const updated = {
+        ...(idx >= 0 ? newAnswers[idx] : { item_id: itemId, evaluation_id: id }),
+        answer_value: body.answer_value,
+        note: body.note,
+        photo_urls: body.photo_urls,
       }
+      if (idx >= 0) newAnswers[idx] = updated
+      else newAnswers.push(updated)
+      return { ...prev, answers: newAnswers }
+    })
+
+    try {
       const res = await fetch("/api/branch-eval/answers", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -96,8 +133,11 @@ export default function BranchEvalDetailPage() {
       if (!res.ok) {
         const d = await res.json()
         toast.error(d.error || "บันทึกไม่สำเร็จ")
+        await load(true)  // rollback: silent refresh
+      } else {
+        // silent refresh — ดึง earned_weight ใหม่ (ไม่ flash skeleton)
+        await load(true)
       }
-      await load()
     } finally { setBusy(null) }
   }
 
@@ -113,8 +153,34 @@ export default function BranchEvalDetailPage() {
       const d = await res.json()
       if (!res.ok) { toast.error(d.error || "บันทึกไม่สำเร็จ", { id: t }); return }
       toast.success("บันทึกแล้ว", { id: t })
-      await load()
+      await load(true)  // silent — ไม่กระตุก
     } finally { setSavingHeader(false) }
+  }
+
+  // ── Auto-save target_manager_id ทันทีที่เลือก/ลบ — ไม่ต้องกดปุ่ม "บันทึก" ──
+  const saveTargetManager = async (newId: string | null) => {
+    setHeaderEdit(h => ({ ...h, target_manager_id: newId || "" }))
+    try {
+      const res = await fetch("/api/branch-eval/evaluations", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, target_manager_id: newId }),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "บันทึกไม่สำเร็จ"); return }
+      // Optimistic: update data.evaluation.target_manager + target_manager_id ทันที
+      const picked = newId ? mgrOptions.find(e => e.id === newId) : null
+      setData((prev: any) => prev ? ({
+        ...prev,
+        evaluation: {
+          ...prev.evaluation,
+          target_manager_id: newId,
+          target_manager: picked || null,
+        },
+      }) : prev)
+      // silent refresh — ดึง target_manager (รวม nickname, employee_code) ใหม่
+      await load(true)
+      toast.success(newId ? "บันทึกผู้รับฟอร์มแล้ว" : "ลบผู้รับฟอร์มแล้ว")
+    } catch { toast.error("บันทึกไม่สำเร็จ") }
   }
 
   // ── Check-in (GPS + optional photo) ──
@@ -153,7 +219,7 @@ export default function BranchEvalDetailPage() {
           : "เช็คอินแล้ว",
         { id: t },
       )
-      await load()
+      await load(true)  // silent
     } catch (e: any) {
       toast.error(e?.message || "เช็คอินไม่สำเร็จ", { id: t })
     } finally { setGpsLoading(false) }
@@ -190,7 +256,7 @@ export default function BranchEvalDetailPage() {
     const d = await res.json()
     if (!res.ok) { toast.error(d.error, { id: t }); return }
     toast.success("ส่งแล้ว", { id: t })
-    await load()
+    await load(true)  // silent
   }
 
   // ── Review (supervisor) ──
@@ -203,7 +269,7 @@ export default function BranchEvalDetailPage() {
     const d = await res.json()
     if (!res.ok) { toast.error(d.error, { id: t }); return }
     toast.success("รีวิวแล้ว", { id: t })
-    await load()
+    await load(true)  // silent
   }
 
   // ⚠️ skip sections ตอนนับ progress + pass/fail
@@ -316,6 +382,94 @@ export default function BranchEvalDetailPage() {
             onChange={(v: string) => setHeaderEdit(h => ({ ...h, visit_date: v }))} />
           <Field label="เวลา" type="time" value={headerEdit.visit_time} disabled={!access.can_edit}
             onChange={(v: string) => setHeaderEdit(h => ({ ...h, visit_time: v }))} />
+        </div>
+
+        {/* ── ส่งฟอร์มถึงใคร (optional tag) ── */}
+        <div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">📩 ส่งฟอร์มถึง (หัวหน้า/ผู้รับรายงาน)</p>
+          {(() => {
+            const tm = (ev as any).target_manager
+            const picked = mgrOptions.find(e => e.id === headerEdit.target_manager_id)
+            const display = picked || tm
+            if (display) {
+              return (
+                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                  <div className="w-7 h-7 rounded-full bg-emerald-200 flex items-center justify-center text-[11px] font-black text-emerald-700 flex-shrink-0">
+                    {display.first_name_th?.[0] || "?"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-emerald-800 truncate">
+                      {display.first_name_th} {display.last_name_th}
+                      {display.nickname && <span className="text-emerald-500 ml-1">({display.nickname})</span>}
+                    </p>
+                    <p className="text-[9px] text-emerald-500">{display.employee_code}</p>
+                  </div>
+                  {access.can_edit && (
+                    <>
+                      <button onClick={() => setShowMgrPicker(true)}
+                        className="text-[10px] font-bold text-emerald-600 hover:text-emerald-800 underline">
+                        เปลี่ยน
+                      </button>
+                      <button onClick={() => saveTargetManager(null)}
+                        className="text-[10px] font-bold text-rose-500 hover:text-rose-700 underline">
+                        ลบ
+                      </button>
+                    </>
+                  )}
+                </div>
+              )
+            }
+            return access.can_edit ? (
+              <button onClick={() => setShowMgrPicker(true)}
+                className="w-full bg-slate-50 border border-dashed border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-500 hover:bg-slate-100 text-left">
+                + เลือกหัวหน้า/ผู้รับรายงาน <span className="text-[9px] text-slate-400">(ไม่บังคับ — เพื่อจัดหมวดหมู่ + แจ้งเตือนเฉพาะเจาะจง)</span>
+              </button>
+            ) : (
+              <p className="text-xs text-slate-400">— ไม่ระบุ —</p>
+            )
+          })()}
+
+          {/* Manager picker dropdown */}
+          {showMgrPicker && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowMgrPicker(false)} />
+              <div className="absolute z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-w-md w-full max-h-[280px] overflow-hidden flex flex-col">
+                <input value={mgrSearch} onChange={e => setMgrSearch(e.target.value)}
+                  placeholder="ค้นหาชื่อ / รหัส / ชื่อเล่น..." autoFocus
+                  className="bg-slate-50 px-3 py-2 text-xs outline-none border-b border-slate-200" />
+                <div className="overflow-y-auto flex-1 divide-y divide-slate-50">
+                  {(() => {
+                    const s = mgrSearch.trim().toLowerCase()
+                    const list = !s ? mgrOptions.slice(0, 60) : mgrOptions.filter(e => {
+                      const hay = `${e.first_name_th || ""} ${e.last_name_th || ""} ${e.nickname || ""} ${e.first_name_en || ""} ${e.last_name_en || ""} ${e.employee_code || ""}`.toLowerCase()
+                      return hay.includes(s)
+                    }).slice(0, 50)
+                    if (list.length === 0) return <p className="text-center py-3 text-xs text-slate-400">ไม่พบ</p>
+                    return list.map(e => (
+                      <button key={e.id}
+                        onClick={() => {
+                          saveTargetManager(e.id)  // auto-save ทันที
+                          setShowMgrPicker(false)
+                          setMgrSearch("")
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-emerald-50 flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500 flex-shrink-0">
+                          {e.first_name_th?.[0]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-slate-800 truncate">
+                            {e.first_name_th} {e.last_name_th}
+                            {e.nickname && <span className="text-slate-400 ml-1">({e.nickname})</span>}
+                          </p>
+                          <p className="text-[9px] text-slate-400">{e.employee_code} · {e.department?.name || ""}</p>
+                        </div>
+                      </button>
+                    ))
+                  })()}
+                </div>
+              </div>
+            </>
+          )}
         </div>
         <div>
           <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">หมายเหตุทั่วไป</p>

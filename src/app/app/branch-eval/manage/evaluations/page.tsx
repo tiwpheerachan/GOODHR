@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   ArrowLeft, FileText, Filter, Search, Store, ChevronRight,
-  Calendar, User, RefreshCw,
+  Calendar, User, RefreshCw, Mail,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -20,6 +20,7 @@ export default function SupervisorEvaluationsPage() {
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("")
   const [branchFilter, setBranchFilter] = useState("")
+  const [targetMgrFilter, setTargetMgrFilter] = useState("")
 
   const load = () => {
     setLoading(true)
@@ -36,18 +37,31 @@ export default function SupervisorEvaluationsPage() {
     return Array.from(m, ([id, name]) => ({ id, name }))
   }, [evals])
 
+  // ── ผู้รับฟอร์ม (target_manager) options ──
+  const targetMgrOpts = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const e of evals) {
+      if (e.target_manager) {
+        m.set(e.target_manager.id, `${e.target_manager.first_name_th} ${e.target_manager.last_name_th}`)
+      }
+    }
+    return Array.from(m, ([id, name]) => ({ id, name }))
+  }, [evals])
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase()
     return evals.filter(e => {
       if (statusFilter && e.status !== statusFilter) return false
       if (branchFilter && e.branch?.id !== branchFilter) return false
+      if (targetMgrFilter === "_NONE_" && e.target_manager_id) return false
+      if (targetMgrFilter && targetMgrFilter !== "_NONE_" && e.target_manager_id !== targetMgrFilter) return false
       if (s) {
-        const hay = `${e.branch?.name ?? ""} ${e.template?.name ?? ""} ${e.evaluator?.first_name_th ?? ""} ${e.evaluator?.last_name_th ?? ""}`.toLowerCase()
+        const hay = `${e.branch?.name ?? ""} ${e.template?.name ?? ""} ${e.evaluator?.first_name_th ?? ""} ${e.evaluator?.last_name_th ?? ""} ${e.target_manager?.first_name_th ?? ""} ${e.target_manager?.last_name_th ?? ""}`.toLowerCase()
         if (!hay.includes(s)) return false
       }
       return true
     })
-  }, [evals, search, statusFilter, branchFilter])
+  }, [evals, search, statusFilter, branchFilter, targetMgrFilter])
 
   return (
     <div className="p-4 lg:p-6 max-w-6xl mx-auto space-y-4 pb-32">
@@ -77,6 +91,12 @@ export default function SupervisorEvaluationsPage() {
           className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none">
           <option value="">ทุกสาขา</option>
           {branchOpts.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+        <select value={targetMgrFilter} onChange={e => setTargetMgrFilter(e.target.value)}
+          className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none">
+          <option value="">ส่งถึง: ทุกคน</option>
+          <option value="_NONE_">— ไม่ระบุผู้รับ —</option>
+          {targetMgrOpts.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
           className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none">
@@ -111,6 +131,7 @@ export default function SupervisorEvaluationsPage() {
                   <p className="text-[10px] text-slate-500 truncate mt-0.5">
                     {ev.template?.name} · <Calendar size={9} className="inline" /> {format(new Date(ev.visit_date), "d MMM yyyy", { locale: th })}
                     {ev.evaluator && <> · <User size={9} className="inline" /> {ev.evaluator.first_name_th} {ev.evaluator.last_name_th}</>}
+                    {ev.target_manager && <> · <Mail size={9} className="inline text-emerald-500" /> <span className="text-emerald-700 font-bold">ส่งถึง {ev.target_manager.first_name_th}{ev.target_manager.nickname && ` (${ev.target_manager.nickname})`}</span></>}
                   </p>
                 </div>
                 {ev.status !== "draft" && (

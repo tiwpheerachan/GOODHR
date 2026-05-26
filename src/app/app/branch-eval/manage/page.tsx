@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
   Store, FileText, ShieldCheck, ChevronRight,
-  Layers, BarChart3, Clock, ArrowLeft, ShieldAlert, Trash2,
+  Layers, BarChart3, Clock, ArrowLeft, ShieldAlert, Trash2, Mail,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -54,9 +54,12 @@ export default function SupervisorManagePage() {
       ? evals.filter((e: any) => e.percentage > 0).reduce((s: number, e: any) => s + Number(e.percentage), 0) /
         evals.filter((e: any) => e.percentage > 0).length
       : 0,
+    sentToMe: evals.filter((e: any) => e.target_manager_id === me?.employee_id).length,
   }
 
   const recent = evals.slice(0, 5)
+  // ฟอร์มที่ "ส่งถึงฉัน" (target_manager_id = me) — ผู้ส่งไม่ใช่ตัวเอง
+  const sentToMe = evals.filter((e: any) => e.target_manager_id === me?.employee_id && e.evaluator_id !== me?.employee_id).slice(0, 5)
 
   return (
     <div className="p-4 lg:p-6 max-w-6xl mx-auto space-y-4 pb-32">
@@ -86,12 +89,52 @@ export default function SupervisorManagePage() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
         <Kpi color="slate" label="ฟอร์มทั้งหมด" value={stats.total} />
         <Kpi color="amber" label="รอรีวิว" value={stats.submitted} highlight={stats.submitted > 0} />
         <Kpi color="emerald" label="รีวิวแล้ว" value={stats.reviewed} />
         <Kpi color="indigo" label="คะแนนเฉลี่ย" value={stats.avg > 0 ? `${stats.avg.toFixed(0)}%` : "—"} />
+        <Kpi color="violet" label="📩 ส่งถึงฉัน" value={stats.sentToMe} highlight={stats.sentToMe > 0} />
       </div>
+
+      {/* ── 📩 ฟอร์มที่ส่งถึงฉัน — ขึ้นเฉพาะถ้ามี ── */}
+      {sentToMe.length > 0 && (
+        <div className="bg-white rounded-2xl border-2 border-emerald-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-emerald-100 flex items-center gap-2 bg-emerald-50/40">
+            <Mail size={13} className="text-emerald-600" />
+            <p className="font-black text-sm text-emerald-900">📩 ฟอร์มที่ส่งถึงฉัน ({sentToMe.length})</p>
+            <span className="ml-auto text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
+              จากลูกน้อง
+            </span>
+          </div>
+          <div className="divide-y divide-emerald-50">
+            {sentToMe.map((ev: any) => (
+              <Link key={ev.id} href={`/app/branch-eval/manage/evaluations/${ev.id}`}
+                className="flex items-center gap-3 p-3 hover:bg-emerald-50/50">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 text-white flex items-center justify-center flex-shrink-0">
+                  <Store size={14} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold truncate">{ev.branch?.name}</p>
+                  <p className="text-[10px] text-slate-500 truncate">
+                    {ev.template?.name} · {format(new Date(ev.visit_date), "d MMM yyyy", { locale: th })}
+                    {ev.evaluator && <> · จาก <span className="font-bold text-emerald-700">{ev.evaluator.first_name_th} {ev.evaluator.last_name_th}</span></>}
+                  </p>
+                </div>
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                  ev.status === "draft" ? "bg-slate-100 text-slate-700"
+                  : ev.status === "submitted" ? "bg-amber-100 text-amber-700"
+                  : "bg-emerald-100 text-emerald-700"
+                }`}>
+                  {ev.status === "draft" ? "ร่าง" : ev.status === "submitted" ? "รอรีวิว" : "รีวิวแล้ว"}
+                </span>
+                {ev.percentage > 0 && <span className="text-sm font-black text-emerald-700">{Number(ev.percentage).toFixed(0)}%</span>}
+                <ChevronRight size={13} className="text-slate-300" />
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Menu */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -145,6 +188,7 @@ export default function SupervisorManagePage() {
                   <p className="text-[10px] text-slate-500 truncate">
                     {ev.template?.name} · {format(new Date(ev.visit_date), "d MMM yyyy", { locale: th })}
                     {ev.evaluator && <> · โดย {ev.evaluator.first_name_th}</>}
+                    {ev.target_manager && <> · <Mail size={9} className="inline text-emerald-500" /> <span className="font-bold text-emerald-700">{ev.target_manager.first_name_th}</span></>}
                   </p>
                 </div>
                 <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
@@ -171,6 +215,7 @@ function Kpi({ color, label, value, highlight }: any) {
     amber:   { bg: "bg-amber-50",   text: "text-amber-700",   ring: "ring-amber-300" },
     emerald: { bg: "bg-emerald-50", text: "text-emerald-700", ring: "ring-emerald-200" },
     indigo:  { bg: "bg-indigo-50",  text: "text-indigo-700",  ring: "ring-indigo-200" },
+    violet:  { bg: "bg-violet-50",  text: "text-violet-700",  ring: "ring-violet-300" },
   }
   const p = palette[color]
   return (
