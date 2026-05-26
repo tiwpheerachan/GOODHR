@@ -507,15 +507,18 @@ export async function POST(req: Request) {
           const fAllowOther = mIsManual ? Number(existPR?.allowance_other)     : 0
           const finalGross = baseSalary + fAllowPos + fAllowTrans + fAllowFood + fAllowPhone + fAllowHouse + fAllowVeh + fAllowOther
             + finalOtAmount + Number(mBonus) + mCommission + mOtherIncome + incExtrasTotal
-          // ✅ Tax: ถ้า HR กรอกมือ → ใช้ค่า HR, ไม่งั้นคำนวณจาก gross
-          const finalTax = (mIsManual && existPR?.monthly_tax_withheld != null)
-            ? Number(existPR.monthly_tax_withheld)
-            : (() => {
-                if (!!sal.is_tax_3pct) return Math.round(finalGross * 0.03 * 100) / 100
-                if (taxPct != null && taxPct >= 0) return Math.round(finalGross * (taxPct / 100) * 100) / 100
-                return result.tax
-              })()
-          const finalSso = result.sso
+          // ✅ Tax: structural flag (is_tax_3pct) ชนะ manual override เสมอ
+          //    ถ้าไม่ใช่ flag → ค่อยเช็ค manual / fixed % / auto
+          const finalTax = !!sal.is_tax_3pct
+            ? Math.round(finalGross * 0.03)
+            : (mIsManual && existPR?.monthly_tax_withheld != null)
+              ? Number(existPR.monthly_tax_withheld)
+              : (() => {
+                  if (taxPct != null && taxPct >= 0) return Math.round(finalGross * (taxPct / 100))
+                  return result.tax
+                })()
+          // ✅ SSO: structural flag (is_sso_exempt) ชนะ manual override เสมอ
+          const finalSso = !!sal.is_sso_exempt ? 0 : result.sso
 
           const payload: Record<string, unknown> = {
             payroll_period_id, employee_id: eid, company_id: emp.company_id,
@@ -549,7 +552,10 @@ export async function POST(req: Request) {
             deduct_other:     mIsManual && existPR?.deduct_other != null     ? Number(existPR.deduct_other)     : deductUnpaidLeave + mDeductOther,
             deduction_extras: existPR?.deduction_extras || null,
             social_security_base: baseSalary, social_security_rate: 0.05,
-            social_security_amount: mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso,
+            // SSO: structural flag (is_sso_exempt) ชนะ manual ทุกกรณี → ใช้ finalSso เสมอ
+            social_security_amount: !!sal.is_sso_exempt
+              ? 0
+              : (mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso),
             // ── ค่า formula → คำนวณใหม่จากค่าที่เก็บด้านบน ──
             ...(() => {
               // รวมค่า deductions จริงที่ใช้ (attendance facts → auto, ค่าอื่น → respect manual)
@@ -557,7 +563,10 @@ export async function POST(req: Request) {
               const fDeductLate   = result.deductLate
               const fDeductEarly  = result.deductEarlyOut
               const fDeductOther  = mIsManual && existPR?.deduct_other != null ? Number(existPR.deduct_other) : deductUnpaidLeave + mDeductOther
-              const fSso          = mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso
+              // SSO: structural flag ชนะ manual override
+              const fSso          = !!sal.is_sso_exempt
+                ? 0
+                : (mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso)
               // tax คำนวณจาก finalGross เสมอ (3% / fixed% / auto)
               const fTax          = finalTax
               const fTotalDeduct  = fDeductAbsent + fDeductLate + fDeductEarly + loanDeduction + fDeductOther + fSso + fTax + decExtrasTotal

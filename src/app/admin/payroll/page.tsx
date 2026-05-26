@@ -965,6 +965,32 @@ function EditModal({
     return ""
   })
 
+  // ── ดึง structural flags จาก salary_structures (is_sso_exempt / is_tax_3pct) ──
+  //    ถ้า admin tick ไว้ → ต้องบังคับ override การคำนวณ SSO/tax ใน auto-sync
+  const [salFlags, setSalFlags] = useState<{ is_sso_exempt: boolean; is_tax_3pct: boolean }>({
+    is_sso_exempt: false, is_tax_3pct: false,
+  })
+  useEffect(() => {
+    if (!record?.employee_id) return
+    supabase.from("salary_structures")
+      .select("is_sso_exempt, is_tax_3pct")
+      .eq("employee_id", record.employee_id)
+      .is("effective_to", null)
+      .order("effective_from", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setSalFlags({
+            is_sso_exempt: !!data.is_sso_exempt,
+            is_tax_3pct: !!data.is_tax_3pct,
+          })
+          // ถ้า is_tax_3pct → force taxPctInput = "3"
+          if (data.is_tax_3pct) setTaxPctInput("3")
+        }
+      })
+  }, [record?.employee_id])
+
   // Smart set: เมื่อแก้ OT นาที → คำนวณ OT บาท ให้ล้อกัน
   const set = (k: string, v: string) => {
     setF(prev => {
@@ -1020,25 +1046,49 @@ function EditModal({
   if (gross !== prevGrossRef.current) {
     prevGrossRef.current = gross
     let newTax: number | null = null
-    if (taxPctInput && Number(taxPctInput) > 0) {
+
+    // ── 1) tax: structural flag is_tax_3pct ชนะทุกอย่าง ──
+    if (salFlags.is_tax_3pct) {
+      newTax = Math.round(gross * 0.03)
+    } else if (taxPctInput && Number(taxPctInput) > 0) {
       // โหมด % คงที่
       newTax = Math.round(gross * Number(taxPctInput) / 100)
     } else if (prorateFactor < 1) {
       // โหมด auto + มี prorate → recompute ภาษีตาม gross ใหม่ (ขั้นบันได)
-      const newSso = calcSSO(effectiveBase)
+      const newSso = salFlags.is_sso_exempt ? 0 : calcSSO(effectiveBase)
       newTax = calcMonthlyTax(gross, newSso)
     }
     if (newTax != null && Math.abs(num(f.monthly_tax_withheld) - newTax) > 0.01) {
       setTimeout(() => set("monthly_tax_withheld", String(newTax)), 0)
     }
-    // sync SSO ตาม effectiveBase
-    if (prorateFactor < 1) {
+
+    // ── 2) SSO: structural flag is_sso_exempt ชนะทุกอย่าง ──
+    if (salFlags.is_sso_exempt) {
+      if (num(f.social_security_amount) !== 0) {
+        setTimeout(() => set("social_security_amount", "0"), 0)
+      }
+    } else if (prorateFactor < 1) {
       const newSso = calcSSO(effectiveBase)
       if (Math.abs(num(f.social_security_amount) - newSso) > 0.01) {
         setTimeout(() => set("social_security_amount", String(newSso)), 0)
       }
     }
   }
+
+  // ── เมื่อ flags โหลดมาเสร็จ → force SSO=0 / tax=3% × gross ทันที ──
+  //    กรณี EditModal เปิดอยู่ก่อน flag fetch กลับมา
+  useEffect(() => {
+    if (salFlags.is_sso_exempt && num(f.social_security_amount) !== 0) {
+      setF(prev => ({ ...prev, social_security_amount: "0" }))
+    }
+    if (salFlags.is_tax_3pct) {
+      const expectedTax = Math.round(gross * 0.03)
+      if (Math.abs(num(f.monthly_tax_withheld) - expectedTax) > 0.01) {
+        setF(prev => ({ ...prev, monthly_tax_withheld: String(expectedTax) }))
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salFlags.is_sso_exempt, salFlags.is_tax_3pct])
 
   const totalDeduct = num(f.deduct_absent) + num(f.deduct_late) + num(f.deduct_early_out)
     + num(f.deduct_loan) + num(f.deduct_other) + num(f.social_security_amount) + num(f.monthly_tax_withheld)
