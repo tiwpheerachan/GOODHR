@@ -3,7 +3,7 @@ import { useMemo, useState } from "react"
 import {
   X, Award, BookOpen, Clock, Target, CheckCircle2, XCircle, TrendingUp,
   Activity, AlertTriangle, Calendar, Trophy, RotateCcw, FileQuestion,
-  PlayCircle, Eye, ChevronRight, Sparkles,
+  PlayCircle, Eye, ChevronRight, Sparkles, Loader2,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -36,6 +36,26 @@ export default function LearnerDetailModal({
   onClose: () => void
 }) {
   const [tab, setTab] = useState<"modules" | "quizzes" | "checkpoints" | "timeline">("modules")
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiSummary, setAiSummary] = useState<string | null>(null)
+  const [aiStats, setAiStats] = useState<any | null>(null)
+
+  const askAI = async () => {
+    setAiOpen(true); setAiLoading(true); setAiSummary(null); setAiStats(null)
+    try {
+      const res = await fetch("/api/training/ai-summary", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ course_id: learner.course_id, enrollment_id: learner.id }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setAiSummary(d.error || "AI วิเคราะห์ไม่สำเร็จ"); return }
+      setAiSummary(d.summary || "—")
+      setAiStats(d.stats ?? null)
+    } catch (e: any) {
+      setAiSummary(e?.message || "Network error")
+    } finally { setAiLoading(false) }
+  }
 
   const allAttempts: Attempt[] = learner.all_attempts ?? []
   const modProgress: ModProgress[] = learner.module_progress ?? []
@@ -117,11 +137,18 @@ export default function LearnerDetailModal({
       <div className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Hero — clean white card style */}
         <div className="relative bg-white border-b border-slate-100 p-4 lg:p-5">
-          <button onClick={onClose}
-            className="absolute top-3 right-3 p-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg z-10 text-slate-500"
-            aria-label="close">
-            <X size={16} />
-          </button>
+          <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
+            <button onClick={askAI} disabled={aiLoading}
+              className="px-2.5 py-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 text-white rounded-lg text-[10px] font-black inline-flex items-center gap-1 shadow-sm disabled:opacity-50">
+              {aiLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+              AI วิเคราะห์
+            </button>
+            <button onClick={onClose}
+              className="p-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-500"
+              aria-label="close">
+              <X size={16} />
+            </button>
+          </div>
 
           <div className="flex items-center gap-3 pr-10">
             <div className="relative flex-shrink-0">
@@ -468,6 +495,76 @@ export default function LearnerDetailModal({
           </button>
         </div>
       </div>
+
+      {/* AI per-learner modal */}
+      {aiOpen && (
+        <div className="fixed inset-0 z-[60] flex items-start sm:items-center justify-center p-3 bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { e.stopPropagation(); setAiOpen(false) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden mt-4 sm:mt-0"
+            onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles size={18} />
+                <div>
+                  <h3 className="font-black text-sm">AI วิเคราะห์รายคน</h3>
+                  <p className="text-[10px] opacity-90">{emp?.first_name_th} {emp?.last_name_th}</p>
+                </div>
+              </div>
+              <button onClick={() => setAiOpen(false)} className="p-1 hover:bg-white/20 rounded"><X size={18} /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {aiLoading ? (
+                <div className="py-12 text-center">
+                  <Loader2 size={26} className="mx-auto animate-spin text-violet-400 mb-2" />
+                  <p className="text-xs text-slate-500">วิเคราะห์... 5-15 วินาที</p>
+                </div>
+              ) : (
+                <>
+                  {aiStats && (
+                    <div className="grid grid-cols-4 gap-2 mb-3">
+                      <div className="bg-indigo-50 rounded-lg p-2 border border-white">
+                        <p className="text-[9px] font-bold uppercase opacity-80 text-indigo-700">progress</p>
+                        <p className="text-base font-black text-indigo-700">{aiStats.progress?.toFixed(0)}%</p>
+                      </div>
+                      <div className="bg-emerald-50 rounded-lg p-2 border border-white">
+                        <p className="text-[9px] font-bold uppercase opacity-80 text-emerald-700">avg</p>
+                        <p className="text-base font-black text-emerald-700">{aiStats.avg?.toFixed(0)}%</p>
+                      </div>
+                      <div className="bg-sky-50 rounded-lg p-2 border border-white">
+                        <p className="text-[9px] font-bold uppercase opacity-80 text-sky-700">attempts</p>
+                        <p className="text-base font-black text-sky-700">{aiStats.passed_attempts}/{aiStats.attempts}</p>
+                      </div>
+                      <div className={`${aiStats.tab_switches > 3 ? "bg-rose-50 text-rose-700" : "bg-slate-50 text-slate-700"} rounded-lg p-2 border border-white`}>
+                        <p className="text-[9px] font-bold uppercase opacity-80">tab-switch</p>
+                        <p className="text-base font-black">{aiStats.tab_switches}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {aiSummary && (
+                    <div className="bg-violet-50/50 rounded-xl p-4 border border-violet-100">
+                      <div className="text-sm text-slate-700 leading-loose whitespace-pre-wrap font-sans" style={{ lineHeight: 1.85 }}>
+                        {aiSummary.replace(/\*\*/g, "").replace(/__/g, "").replace(/^#+\s*/gm, "")}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+              <p className="text-[10px] text-slate-400">
+                <Sparkles size={9} className="inline" /> พัฒนาโดยทีม SHD Technology · AI อาจมี error ตรวจสอบเสมอ
+              </p>
+              <button onClick={() => setAiOpen(false)}
+                className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold">
+                ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -5,11 +5,12 @@ import Link from "next/link"
 import {
   ArrowLeft, Store, Calendar, User, MapPin, CheckCircle2, X,
   Trash2, Edit2, ExternalLink, Loader2, FileText, BadgeCheck,
-  Camera, ClipboardCheck,
+  Camera, ClipboardCheck, Sparkles, FileSpreadsheet,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
+import * as XLSX from "xlsx"
 
 const STATUS_LABEL: Record<string, { l: string; c: string }> = {
   draft:     { l: "ร่าง",     c: "bg-slate-100 text-slate-700" },
@@ -22,6 +23,12 @@ export default function AdminEvaluationDetailPage() {
   const router = useRouter()
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiSummary, setAiSummary] = useState<string | null>(null)
+  const [aiStats, setAiStats] = useState<any | null>(null)
+  const [aiCharts, setAiCharts] = useState<any | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -29,6 +36,99 @@ export default function AdminEvaluationDetailPage() {
     setData(d); setLoading(false)
   }
   useEffect(() => { if (id) load() }, [id])
+
+  const askAI = async () => {
+    setAiOpen(true); setAiLoading(true); setAiSummary(null); setAiStats(null); setAiCharts(null)
+    try {
+      const res = await fetch("/api/branch-eval/ai-summary", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evaluation_id: id }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setAiSummary(d.error || "AI วิเคราะห์ไม่สำเร็จ"); return }
+      setAiSummary(d.summary || "—")
+      setAiStats(d.stats ?? null)
+      setAiCharts(d.charts ?? null)
+    } catch (e: any) {
+      setAiSummary(e?.message || "Network error")
+    } finally { setAiLoading(false) }
+  }
+
+  const downloadXlsx = () => {
+    if (!data?.evaluation) return
+    setExporting(true)
+    try {
+      const ev = data.evaluation
+      const items: any[] = data.items ?? []
+      const ansArr: any[] = data.answers ?? []
+      const ansMap = new Map(ansArr.map((a: any) => [a.item_id, a]))
+      const wb = XLSX.utils.book_new()
+
+      // Sheet 1: Header
+      const header: any[][] = [
+        ["ฟอร์มประเมินสาขา"],
+        [""],
+        ["สาขา", ev.branch?.name ?? ""],
+        ["รหัสสาขา", ev.branch?.code ?? ""],
+        ["เทมเพลต", ev.template?.name ?? ""],
+        ["วันที่ตรวจ", ev.visit_date],
+        ["เวลา", ev.visit_time ?? ""],
+        ["ผู้ตรวจ", ev.evaluator ? `${ev.evaluator.first_name_th} ${ev.evaluator.last_name_th}` : ""],
+        ["รหัสพนักงาน", ev.evaluator?.employee_code ?? ""],
+        ["สถานะ", ev.status],
+        [""],
+        ["คะแนนรวม (%)", Number(Number(ev.percentage).toFixed(2))],
+        ["คะแนนได้", Number(ev.total_score)],
+        ["คะแนนเต็ม", Number(ev.total_weight)],
+        ["เกรด", ev.percentage >= 90 ? "A" : ev.percentage >= 75 ? "B" : ev.percentage >= 60 ? "C" : "D"],
+        [""],
+        ["Check-in เวลา", ev.checkin_at ? format(new Date(ev.checkin_at), "yyyy-MM-dd HH:mm") : "ไม่ได้เช็คอิน"],
+        ["ห่างจากสาขา (m)", ev.checkin_distance_m ?? ""],
+        [""],
+        ["หมายเหตุทั่วไป", ev.general_notes ?? ""],
+        ["Action Plan", ev.action_plan ?? ""],
+        ["Reviewer Notes", ev.reviewer_notes ?? ""],
+      ]
+      const wsHead = XLSX.utils.aoa_to_sheet(header)
+      wsHead["!cols"] = [{ wch: 24 }, { wch: 60 }]
+      XLSX.utils.book_append_sheet(wb, wsHead, "ข้อมูลฟอร์ม")
+
+      // Sheet 2: Items + Answers
+      const rows = items.filter((it: any) => !it.is_section).map((it: any) => {
+        const a: any = ansMap.get(it.id)
+        const val = a?.answer_value
+        const valDisplay = val?.yes === true ? "YES"
+          : val?.yes === false ? "NO"
+          : val?.score != null ? String(val.score)
+          : val?.text ?? val?.value ?? ""
+        return {
+          "ข้อ": it.code,
+          "คำถาม": it.question_th,
+          "EN": it.question_en ?? "",
+          "น้ำหนัก": Number(it.weight) || 0,
+          "ประเภท": it.answer_type === "yes_no" ? "✓/✗" : it.answer_type === "score_1_5" ? "1-5" : it.answer_type,
+          "คำตอบ": valDisplay,
+          "ผ่าน/ตก": a?.is_pass === true ? "PASS" : a?.is_pass === false ? "FAIL" : "ไม่ตอบ",
+          "ได้คะแนน": Number(a?.earned_weight) || 0,
+          "หมายเหตุผู้ตรวจ": a?.note ?? "",
+          "จำนวนรูป": Array.isArray(a?.photo_urls) ? a.photo_urls.length : 0,
+        }
+      })
+      const wsRows = XLSX.utils.json_to_sheet(rows)
+      wsRows["!cols"] = [
+        { wch: 6 }, { wch: 50 }, { wch: 35 }, { wch: 8 }, { wch: 8 },
+        { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 40 }, { wch: 8 },
+      ]
+      XLSX.utils.book_append_sheet(wb, wsRows, "รายข้อ")
+
+      const safeName = (ev.branch?.name ?? "branch").replace(/[^\w฀-๿]+/g, "_")
+      const filename = `form_${safeName}_${ev.visit_date}.xlsx`
+      XLSX.writeFile(wb, filename)
+      toast.success(`ดาวน์โหลด ${filename}`)
+    } catch (e: any) {
+      toast.error(e?.message || "Export ไม่สำเร็จ")
+    } finally { setExporting(false) }
+  }
 
   const softDelete = async () => {
     if (!confirm("ลบฟอร์มนี้? (soft delete — กู้คืนจากถังขยะได้)")) return
@@ -78,6 +178,15 @@ export default function AdminEvaluationDetailPage() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-[10px] font-black px-2 py-1 rounded-full ${S.c}`}>{S.l}</span>
+            <button onClick={askAI}
+              className="px-3 py-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 shadow-sm">
+              <Sparkles size={12} /> AI วิเคราะห์
+            </button>
+            <button onClick={downloadXlsx} disabled={exporting}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 shadow-sm disabled:opacity-40">
+              {exporting ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />}
+              ดาวน์โหลด Excel
+            </button>
             <Link href={`/app/branch-eval/${id}`}
               className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold inline-flex items-center gap-1.5">
               <Edit2 size={12} /> เปิดในมุมมองผู้กรอก
@@ -179,6 +288,97 @@ export default function AdminEvaluationDetailPage() {
           })}
         </div>
       </div>
+
+      {/* AI Summary Modal */}
+      {aiOpen && (
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm" onClick={() => setAiOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden mt-4 sm:mt-0" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles size={18} />
+                <div>
+                  <h3 className="font-black">AI วิเคราะห์ฟอร์มนี้</h3>
+                  <p className="text-[10px] opacity-90">{ev.branch?.name} · {ev.visit_date}</p>
+                </div>
+              </div>
+              <button onClick={() => setAiOpen(false)} className="p-1 hover:bg-white/20 rounded"><X size={18} /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {aiLoading ? (
+                <div className="py-16 text-center">
+                  <Loader2 size={28} className="mx-auto animate-spin text-violet-400 mb-2" />
+                  <p className="text-xs text-slate-500">กำลังวิเคราะห์... ขอเวลา 5-15 วินาที</p>
+                </div>
+              ) : (
+                <>
+                  {aiStats && (
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      <div className="bg-indigo-50 rounded-lg p-2 border border-white">
+                        <p className="text-[10px] font-bold uppercase opacity-80 text-indigo-700">คะแนน</p>
+                        <p className="text-lg font-black text-indigo-700 leading-tight">{aiStats.avg?.toFixed(1)}%</p>
+                      </div>
+                      <div className="bg-emerald-50 rounded-lg p-2 border border-white">
+                        <p className="text-[10px] font-bold uppercase opacity-80 text-emerald-700">ผ่าน</p>
+                        <p className="text-lg font-black text-emerald-700 leading-tight">{aiStats.passed}/{aiStats.total_items}</p>
+                      </div>
+                      <div className="bg-rose-50 rounded-lg p-2 border border-white">
+                        <p className="text-[10px] font-bold uppercase opacity-80 text-rose-700">ตก</p>
+                        <p className="text-lg font-black text-rose-700 leading-tight">{aiStats.failed}/{aiStats.total_items}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {aiSummary && (
+                    <div className="bg-violet-50/50 rounded-xl p-4 border border-violet-100">
+                      <div className="text-sm text-slate-700 leading-loose whitespace-pre-wrap font-sans"
+                        style={{ lineHeight: 1.85 }}>
+                        {aiSummary.replace(/\*\*/g, "").replace(/__/g, "").replace(/^#+\s*/gm, "")}
+                      </div>
+                    </div>
+                  )}
+
+                  {aiCharts?.top_fail_items?.length > 0 && (
+                    <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm">
+                      <p className="text-sm font-black text-slate-800 mb-3">ข้อที่ตกในฟอร์มนี้</p>
+                      <div className="space-y-1.5">
+                        {aiCharts.top_fail_items.map((d: any, i: number) => {
+                          const max = Math.max(...aiCharts.top_fail_items.map((x: any) => x.value), 1)
+                          const pct = (d.value / max) * 100
+                          return (
+                            <div key={i}>
+                              <div className="flex items-center gap-2 text-[11px] mb-0.5">
+                                <span className="text-slate-700 font-bold truncate flex-1" title={d.full_label}>{d.label}</span>
+                                <span className="text-rose-600 font-bold">{d.value}p</span>
+                                <span className="text-slate-400 text-[10px]">{d.sub}</span>
+                              </div>
+                              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-gradient-to-r from-rose-400 to-rose-600 rounded-full"
+                                  style={{ width: `${Math.max(2, pct)}%` }} />
+                              </div>
+                              <p className="text-[9px] text-slate-500 mt-0.5 line-clamp-1">{d.full_label}</p>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+              <p className="text-[10px] text-slate-400">
+                <Sparkles size={9} className="inline" /> พัฒนาโดยทีม SHD Technology · AI อาจมี error ตรวจสอบเสมอ
+              </p>
+              <button onClick={() => setAiOpen(false)}
+                className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold">
+                ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

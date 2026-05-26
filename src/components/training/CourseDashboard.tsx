@@ -5,6 +5,7 @@ import {
   Users, CheckCircle2, Clock, AlertCircle, Award, TrendingUp,
   Star, Activity, BookOpen, Loader2, Eye, FileText, Trophy,
   Wifi, BarChart3, Target, ChevronRight, FileSpreadsheet, ShieldCheck,
+  Sparkles, X,
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
@@ -28,6 +29,28 @@ export default function CourseDashboard({ courseId, basePath, compact = false }:
   const [search, setSearch] = useState("")
   const [selectedLearner, setSelectedLearner] = useState<any | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiSummary, setAiSummary] = useState<string | null>(null)
+  const [aiStats, setAiStats] = useState<any | null>(null)
+  const [aiCharts, setAiCharts] = useState<any | null>(null)
+
+  const askAI = async () => {
+    setAiOpen(true); setAiLoading(true); setAiSummary(null); setAiStats(null); setAiCharts(null)
+    try {
+      const res = await fetch("/api/training/ai-summary", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ course_id: courseId }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setAiSummary(d.error || "AI วิเคราะห์ไม่สำเร็จ"); return }
+      setAiSummary(d.summary || "—")
+      setAiStats(d.stats ?? null)
+      setAiCharts(d.charts ?? null)
+    } catch (e: any) {
+      setAiSummary(e?.message || "Network error")
+    } finally { setAiLoading(false) }
+  }
 
   const exportXlsx = async () => {
     if (exporting) return
@@ -161,6 +184,11 @@ export default function CourseDashboard({ courseId, basePath, compact = false }:
                   <span className="text-xs font-black">{overview.online_count} กำลังเรียนอยู่</span>
                 </div>
               )}
+              <button onClick={askAI} disabled={aiLoading}
+                className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 text-white rounded-xl text-xs font-black shadow-sm disabled:opacity-50">
+                {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                AI วิเคราะห์ทีม
+              </button>
               <button onClick={exportXlsx} disabled={exporting}
                 className="flex items-center gap-1.5 px-3 py-2 bg-white text-emerald-700 hover:bg-emerald-50 rounded-xl text-xs font-black shadow-sm disabled:opacity-50">
                 {exporting ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />}
@@ -190,6 +218,12 @@ export default function CourseDashboard({ courseId, basePath, compact = false }:
                 <span className="text-[10px] font-black text-emerald-700">{overview.online_count} กำลังเรียน</span>
               </div>
             )}
+            <button onClick={askAI} disabled={aiLoading}
+              title="AI วิเคราะห์ทีม"
+              className="flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white rounded-full text-[10px] font-black disabled:opacity-50">
+              {aiLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+              AI
+            </button>
             <button onClick={exportXlsx} disabled={exporting}
               title="ดาวน์โหลดรายงาน Excel ของคอร์สนี้"
               className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-full text-[10px] font-black disabled:opacity-50">
@@ -489,6 +523,137 @@ export default function CourseDashboard({ courseId, basePath, compact = false }:
           ))}
         </div>
       )}
+
+      {/* AI Summary Modal */}
+      {aiOpen && (
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm" onClick={() => setAiOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden mt-4 sm:mt-0" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles size={18} />
+                <div>
+                  <h3 className="font-black">AI วิเคราะห์ทีมเรียน</h3>
+                  <p className="text-[10px] opacity-90">{course.title}</p>
+                </div>
+              </div>
+              <button onClick={() => setAiOpen(false)} className="p-1 hover:bg-white/20 rounded"><X size={18} /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {aiLoading ? (
+                <div className="py-16 text-center">
+                  <Loader2 size={28} className="mx-auto animate-spin text-violet-400 mb-2" />
+                  <p className="text-xs text-slate-500">กำลังวิเคราะห์ทีม... ขอเวลา 5-15 วินาที</p>
+                </div>
+              ) : (
+                <>
+                  {aiStats && (
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-3">
+                      <AiStat label="ลงทะเบียน" value={aiStats.n} color="slate" />
+                      <AiStat label="จบ" value={aiStats.completed ?? 0} color="emerald" />
+                      <AiStat label="กำลังเรียน" value={aiStats.in_progress ?? 0} color="sky" />
+                      <AiStat label="ตก" value={aiStats.failed ?? 0} color="rose" />
+                      <AiStat label="เฉลี่ย" value={`${aiStats.avg?.toFixed(0)}%`} color="indigo" />
+                    </div>
+                  )}
+
+                  {aiSummary && (
+                    <div className="bg-violet-50/50 rounded-xl p-4 border border-violet-100">
+                      <div className="text-sm text-slate-700 leading-loose whitespace-pre-wrap font-sans" style={{ lineHeight: 1.85 }}>
+                        {aiSummary.replace(/\*\*/g, "").replace(/__/g, "").replace(/^#+\s*/gm, "")}
+                      </div>
+                    </div>
+                  )}
+
+                  {aiCharts?.top_performers?.length > 0 && (
+                    <AiBarCard title="Top Performers (จบดี)" subtitle="คะแนนสูงสุด"
+                      data={aiCharts.top_performers} color="emerald" suffix="%" />
+                  )}
+                  {aiCharts?.at_risk?.length > 0 && (
+                    <AiBarCard title="ลูกทีมที่ต้องดูแล" subtitle="progress ต่ำ / ตก / ค้างนาน"
+                      data={aiCharts.at_risk} color="amber" suffix="%" />
+                  )}
+                  {aiCharts?.hard_quizzes?.length > 0 && (
+                    <AiBarCard title="ควิซที่ผ่านยากสุด" subtitle="% pass rate"
+                      data={aiCharts.hard_quizzes} color="rose" suffix="%" />
+                  )}
+                  {aiCharts?.module_progress?.length > 0 && (
+                    <AiBarCard title="ความก้าวหน้ารายโมดูล" subtitle="% ดูแล้ว"
+                      data={aiCharts.module_progress} color="indigo" suffix="%" />
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+              <p className="text-[10px] text-slate-400">
+                <Sparkles size={9} className="inline" /> พัฒนาโดยทีม SHD Technology · AI อาจมี error ตรวจสอบเสมอ
+              </p>
+              <button onClick={() => setAiOpen(false)}
+                className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold">
+                ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AiStat({ label, value, color }: { label: string; value: any; color: string }) {
+  const palette: Record<string, string> = {
+    slate: "bg-slate-50 text-slate-700",
+    emerald: "bg-emerald-50 text-emerald-700",
+    sky: "bg-sky-50 text-sky-700",
+    rose: "bg-rose-50 text-rose-700",
+    indigo: "bg-indigo-50 text-indigo-700",
+  }
+  return (
+    <div className={`${palette[color]} rounded-lg p-2 border border-white`}>
+      <p className="text-[10px] font-bold opacity-80 uppercase">{label}</p>
+      <p className="text-lg font-black leading-tight">{value}</p>
+    </div>
+  )
+}
+
+function AiBarCard({ title, subtitle, data, color, suffix = "" }: {
+  title: string; subtitle: string
+  data: Array<{ label: string; full_label?: string; value: number; sub?: string }>
+  color: "emerald" | "amber" | "rose" | "indigo"; suffix?: string
+}) {
+  if (!data || data.length === 0) return null
+  const max = Math.max(...data.map(d => d.value), 1)
+  const colorMap: Record<string, string> = {
+    rose: "from-rose-400 to-rose-600",
+    emerald: "from-emerald-400 to-emerald-600",
+    amber: "from-amber-400 to-amber-600",
+    indigo: "from-indigo-400 to-indigo-600",
+  }
+  return (
+    <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm">
+      <div className="mb-3">
+        <p className="text-sm font-black text-slate-800">{title}</p>
+        <p className="text-[10px] text-slate-500 mt-0.5">{subtitle}</p>
+      </div>
+      <div className="space-y-1.5">
+        {data.map((d, i) => {
+          const pct = (d.value / max) * 100
+          return (
+            <div key={i}>
+              <div className="flex items-center gap-2 text-[11px] mb-0.5">
+                <span className="text-slate-700 font-bold truncate flex-1" title={d.full_label ?? d.label}>{d.label}</span>
+                <span className="text-slate-600 font-bold">{d.value}{suffix}</span>
+                {d.sub && <span className="text-slate-400 text-[10px]">{d.sub}</span>}
+              </div>
+              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div className={`h-full bg-gradient-to-r ${colorMap[color]} rounded-full`}
+                  style={{ width: `${Math.max(2, pct)}%` }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
