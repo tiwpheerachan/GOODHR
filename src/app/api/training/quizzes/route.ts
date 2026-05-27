@@ -107,6 +107,7 @@ export async function DELETE(req: NextRequest) {
   const { data: q } = await svc.from("training_quizzes").select("course_id").eq("id", id).single()
   if (!q || !(await verifyCourseAccess(svc, access, q.course_id))) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
 
-  await svc.from("training_quizzes").delete().eq("id", id)
+  const { error } = await svc.from("training_quizzes").delete().eq("id", id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })
 }

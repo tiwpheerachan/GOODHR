@@ -41,9 +41,12 @@ export default function CheckpointEditor({
   const [showModal, setShowModal] = useState(false)
 
   const del = async (id: string) => {
-    if (!confirm("ลบ checkpoint นี้?")) return
-    await fetch(`/api/training/checkpoints?id=${id}`, { method: "DELETE" })
-    toast.success("ลบแล้ว")
+    if (!confirm("ลบ checkpoint นี้?\nคำถาม + ตัวเลือก จะถูกลบ\n(ประวัติคำตอบของผู้เรียนจะยังอยู่แต่ unlink)")) return
+    const t = toast.loading("กำลังลบ...")
+    const res = await fetch(`/api/training/checkpoints?id=${id}`, { method: "DELETE" })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(d.error || "ลบไม่สำเร็จ", { id: t }); return }
+    toast.success("ลบแล้ว", { id: t })
     onChange()
   }
 

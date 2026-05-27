@@ -581,16 +581,32 @@ function ModuleQuizzes({ courseId, moduleId, quizzes, onChange }: any) {
     toast.success("เพิ่มควิซแล้ว")
     onChange()
   }
+  const delQuiz = async (q: any) => {
+    if (!confirm(`ลบควิซ "${q.title}"?\nคำถาม + ผลทำควิซทั้งหมดจะถูกลบด้วย (กู้คืนไม่ได้)`)) return
+    const t = toast.loading("กำลังลบ...")
+    const res = await fetch(`/api/training/quizzes?id=${q.id}`, { method: "DELETE" })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(d.error || "ลบไม่สำเร็จ", { id: t }); return }
+    toast.success("ลบควิซแล้ว", { id: t })
+    onChange()
+  }
   return (
     <div className="bg-slate-50 rounded-xl p-3 space-y-2">
       <p className="text-xs font-bold text-slate-600 flex items-center gap-1"><ListChecks size={12} /> ควิซ</p>
       {quizzes.map((q: any) => (
-        <Link key={q.id} href={`/admin/training/courses/${courseId}/quiz/${q.id}`}
-          className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg p-2 hover:border-sky-300 text-xs">
-          <Award size={12} className="text-amber-500" />
-          <span className="flex-1 font-bold text-slate-700">{q.title}</span>
-          <span className="text-slate-400">{q.question_count} ข้อ · {q.passing_score}%</span>
-        </Link>
+        <div key={q.id} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg p-2 hover:border-sky-300 text-xs">
+          <Link href={`/admin/training/courses/${courseId}/quiz/${q.id}`}
+            className="flex items-center gap-2 flex-1 min-w-0">
+            <Award size={12} className="text-amber-500 flex-shrink-0" />
+            <span className="flex-1 font-bold text-slate-700 truncate">{q.title}</span>
+            <span className="text-slate-400 flex-shrink-0">{q.question_count} ข้อ · {q.passing_score}%</span>
+          </Link>
+          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); delQuiz(q) }}
+            title="ลบควิซนี้"
+            className="p-1 text-rose-500 hover:bg-rose-50 rounded flex-shrink-0">
+            <Trash2 size={12} />
+          </button>
+        </div>
       ))}
       <button onClick={() => setShowAddQuiz(true)} className="w-full py-1.5 border border-dashed border-slate-300 rounded-lg text-xs text-slate-500 hover:bg-white">
         <Plus size={12} className="inline mr-1" /> เพิ่มควิซ
