@@ -133,7 +133,8 @@ async function fetchSystemContext(svc: any, access: any) {
       branch:branches(id, name, code),
       template:branch_eval_templates(id, name),
       evaluator:employees!branch_evaluations_evaluator_id_fkey(id, first_name_th, last_name_th, nickname),
-      target_manager:employees!branch_evaluations_target_manager_id_fkey(first_name_th, last_name_th)`)
+      target_manager:employees!branch_evaluations_target_manager_id_fkey(first_name_th, last_name_th),
+      evaluatee:employees!branch_evaluations_evaluatee_id_fkey(first_name_th, last_name_th, nickname)`)
     .gte("visit_date", cutoffDate)
     .neq("status", "draft")
     .is("deleted_at", null)
@@ -231,6 +232,7 @@ async function fetchSystemContext(svc: any, access: any) {
       percentage: e.percentage != null ? Number(e.percentage).toFixed(1) : null,
       evaluator: e.evaluator ? `${e.evaluator.first_name_th} ${e.evaluator.last_name_th}` : null,
       target_manager: e.target_manager ? `${e.target_manager.first_name_th} ${e.target_manager.last_name_th}` : null,
+      evaluatee: e.evaluatee ? `${e.evaluatee.first_name_th} ${e.evaluatee.last_name_th}` : null,
       notes_excerpt: e.general_notes ? String(e.general_notes).slice(0, 150) : null,
     })),
     assignments: asgRich,
@@ -349,7 +351,8 @@ async function fetchEvaluationContext(svc: any, evalId: string, access: any):
       branch:branches(id, name, code),
       template:branch_eval_templates(id, name, total_weight),
       evaluator:employees!branch_evaluations_evaluator_id_fkey(first_name_th, last_name_th, nickname),
-      target_manager:employees!branch_evaluations_target_manager_id_fkey(first_name_th, last_name_th)`)
+      target_manager:employees!branch_evaluations_target_manager_id_fkey(first_name_th, last_name_th),
+      evaluatee:employees!branch_evaluations_evaluatee_id_fkey(first_name_th, last_name_th, nickname)`)
     .eq("id", evalId).is("deleted_at", null).maybeSingle()
   if (!ev) return { ok: false, error: "ไม่พบฟอร์ม", status: 404 }
 
@@ -395,6 +398,7 @@ async function fetchEvaluationContext(svc: any, evalId: string, access: any):
         template: ev.template?.name,
         evaluator: ev.evaluator ? `${ev.evaluator.first_name_th} ${ev.evaluator.last_name_th}` : null,
         target_manager: ev.target_manager ? `${ev.target_manager.first_name_th} ${ev.target_manager.last_name_th}` : null,
+        evaluatee: ev.evaluatee ? `${ev.evaluatee.first_name_th} ${ev.evaluatee.last_name_th}` : null,
         visit_date: ev.visit_date,
         status: ev.status,
         percentage: ev.percentage != null ? Number(ev.percentage).toFixed(1) : null,

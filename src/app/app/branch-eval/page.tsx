@@ -62,8 +62,11 @@ export default function BranchEvalLandingPage() {
       setTemplates(t.templates ?? [])
       setEvals(e.evaluations ?? [])
       setEvalsToMe((sentMe.evaluations ?? []).filter((x: any) => x.evaluator_id !== m?.employee_id))
-      // เก็บเฉพาะการบ้านที่ยังไม่เสร็จทั้งหมด
-      setMyAssignments((asgMe.assignments ?? []).filter((a: any) => a._stats?.done < a._stats?.total))
+      // เก็บเฉพาะการบ้านที่ "ฉัน" ยังทำไม่เสร็จ (เทียบ _my_stats ไม่ใช่ overall)
+      setMyAssignments((asgMe.assignments ?? []).filter((a: any) => {
+        const my = a._my_stats
+        return my && my.total > 0 && my.done < my.total
+      }))
     }).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
@@ -213,10 +216,11 @@ export default function BranchEvalLandingPage() {
           </div>
           <div className="space-y-2">
             {myAssignments.map((a: any) => {
-              const stats = a._stats
-              const overdue = a.due_date && new Date(a.due_date) < new Date() && stats.done < stats.total
+              // ใช้ _my_stats (เฉพาะงานของฉัน) ไม่ใช่ _stats (รวมทุกคน)
+              const my = a._my_stats ?? { total: 0, done: 0, progress: 0 }
+              const overdue = a.due_date && new Date(a.due_date) < new Date() && my.done < my.total
               return (
-                <Link key={a.id} href={`/app/branch-eval/manage/assignments/${a.id}`}
+                <Link key={a.id} href={`/app/branch-eval/assignments/${a.id}`}
                   className="group block p-3 bg-orange-50/40 hover:bg-white border border-orange-100 hover:border-orange-300 rounded-xl transition-all">
                   <div className="flex items-center gap-2 mb-1.5">
                     <p className="font-black text-sm text-slate-800 truncate flex-1">{a.title}</p>
@@ -229,9 +233,9 @@ export default function BranchEvalLandingPage() {
                   </p>
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 bg-orange-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-orange-500 transition-all" style={{ width: `${stats.progress}%` }} />
+                      <div className="h-full bg-orange-500 transition-all" style={{ width: `${my.progress}%` }} />
                     </div>
-                    <span className="text-[11px] font-black text-orange-700">{stats.done}/{stats.total} สาขา</span>
+                    <span className="text-[11px] font-black text-orange-700">{my.done}/{my.total} สาขา</span>
                   </div>
                 </Link>
               )

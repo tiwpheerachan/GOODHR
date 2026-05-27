@@ -21,6 +21,7 @@ export default function SupervisorEvaluationsPage() {
   const [statusFilter, setStatusFilter] = useState("")
   const [branchFilter, setBranchFilter] = useState("")
   const [targetMgrFilter, setTargetMgrFilter] = useState("")
+  const [evalteeFilter, setEvalteeFilter] = useState("")
 
   const load = () => {
     setLoading(true)
@@ -48,6 +49,17 @@ export default function SupervisorEvaluationsPage() {
     return Array.from(m, ([id, name]) => ({ id, name }))
   }, [evals])
 
+  // ── ผู้ถูกประเมิน (evaluatee) options ──
+  const evalteeOpts = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const e of evals) {
+      if (e.evaluatee) {
+        m.set(e.evaluatee.id, `${e.evaluatee.first_name_th} ${e.evaluatee.last_name_th}`)
+      }
+    }
+    return Array.from(m, ([id, name]) => ({ id, name }))
+  }, [evals])
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase()
     return evals.filter(e => {
@@ -55,13 +67,15 @@ export default function SupervisorEvaluationsPage() {
       if (branchFilter && e.branch?.id !== branchFilter) return false
       if (targetMgrFilter === "_NONE_" && e.target_manager_id) return false
       if (targetMgrFilter && targetMgrFilter !== "_NONE_" && e.target_manager_id !== targetMgrFilter) return false
+      if (evalteeFilter === "_NONE_" && e.evaluatee_id) return false
+      if (evalteeFilter && evalteeFilter !== "_NONE_" && e.evaluatee_id !== evalteeFilter) return false
       if (s) {
-        const hay = `${e.branch?.name ?? ""} ${e.template?.name ?? ""} ${e.evaluator?.first_name_th ?? ""} ${e.evaluator?.last_name_th ?? ""} ${e.target_manager?.first_name_th ?? ""} ${e.target_manager?.last_name_th ?? ""}`.toLowerCase()
+        const hay = `${e.branch?.name ?? ""} ${e.template?.name ?? ""} ${e.evaluator?.first_name_th ?? ""} ${e.evaluator?.last_name_th ?? ""} ${e.target_manager?.first_name_th ?? ""} ${e.target_manager?.last_name_th ?? ""} ${e.evaluatee?.first_name_th ?? ""} ${e.evaluatee?.last_name_th ?? ""}`.toLowerCase()
         if (!hay.includes(s)) return false
       }
       return true
     })
-  }, [evals, search, statusFilter, branchFilter, targetMgrFilter])
+  }, [evals, search, statusFilter, branchFilter, targetMgrFilter, evalteeFilter])
 
   return (
     <div className="p-4 lg:p-6 max-w-6xl mx-auto space-y-4 pb-32">
@@ -94,9 +108,15 @@ export default function SupervisorEvaluationsPage() {
         </select>
         <select value={targetMgrFilter} onChange={e => setTargetMgrFilter(e.target.value)}
           className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none">
-          <option value="">ส่งถึง: ทุกคน</option>
+          <option value="">📩 ส่งถึง: ทุกคน</option>
           <option value="_NONE_">— ไม่ระบุผู้รับ —</option>
           {targetMgrOpts.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <select value={evalteeFilter} onChange={e => setEvalteeFilter(e.target.value)}
+          className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none">
+          <option value="">👤 ประเมิน: ทุกคน</option>
+          <option value="_NONE_">— ไม่ระบุผู้ถูกประเมิน —</option>
+          {evalteeOpts.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
           className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none">
@@ -132,6 +152,7 @@ export default function SupervisorEvaluationsPage() {
                     {ev.template?.name} · <Calendar size={9} className="inline" /> {format(new Date(ev.visit_date), "d MMM yyyy", { locale: th })}
                     {ev.evaluator && <> · <User size={9} className="inline" /> {ev.evaluator.first_name_th} {ev.evaluator.last_name_th}</>}
                     {ev.target_manager && <> · <Mail size={9} className="inline text-emerald-500" /> <span className="text-emerald-700 font-bold">ส่งถึง {ev.target_manager.first_name_th}{ev.target_manager.nickname && ` (${ev.target_manager.nickname})`}</span></>}
+                    {ev.evaluatee && <> · <User size={9} className="inline text-indigo-500" /> <span className="text-indigo-700 font-bold">ประเมิน {ev.evaluatee.first_name_th}{ev.evaluatee.nickname && ` (${ev.evaluatee.nickname})`}</span></>}
                   </p>
                 </div>
                 {ev.status !== "draft" && (

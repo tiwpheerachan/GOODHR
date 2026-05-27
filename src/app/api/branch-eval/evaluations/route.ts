@@ -38,7 +38,8 @@ export async function GET(req: NextRequest) {
         template:branch_eval_templates(id, name, description, total_weight),
         evaluator:employees!branch_evaluations_evaluator_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url),
         reviewer:employees!branch_evaluations_reviewed_by_fkey(id, first_name_th, last_name_th, nickname),
-        target_manager:employees!branch_evaluations_target_manager_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url)`)
+        target_manager:employees!branch_evaluations_target_manager_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url),
+        evaluatee:employees!branch_evaluations_evaluatee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url)`)
       .eq("id", id).maybeSingle()
     if (!ev) return NextResponse.json({ error: "not found" }, { status: 404 })
     if (!canViewEvaluation(access, (ev.branch as any).id, ev.evaluator_id)) {
@@ -66,12 +67,14 @@ export async function GET(req: NextRequest) {
   }
 
   // ── list ──
+  const evaluateeId = sp.get("evaluatee_id")
   let q = svc.from("branch_evaluations")
     .select(`*,
       branch:branches(id, name, code),
       template:branch_eval_templates(id, name),
       evaluator:employees!branch_evaluations_evaluator_id_fkey(id, first_name_th, last_name_th, nickname, avatar_url),
-      target_manager:employees!branch_evaluations_target_manager_id_fkey(id, first_name_th, last_name_th, nickname, avatar_url)`)
+      target_manager:employees!branch_evaluations_target_manager_id_fkey(id, first_name_th, last_name_th, nickname, avatar_url),
+      evaluatee:employees!branch_evaluations_evaluatee_id_fkey(id, first_name_th, last_name_th, nickname, avatar_url)`)
     .order("visit_date", { ascending: false })
     .order("created_at", { ascending: false })
 
@@ -85,6 +88,12 @@ export async function GET(req: NextRequest) {
     q = q.eq("target_manager_id", access.employeeId)
   } else if (targetManagerId) {
     q = q.eq("target_manager_id", targetManagerId)
+  }
+  // filter "ประเมินใคร"
+  if (evaluateeId === "me") {
+    q = q.eq("evaluatee_id", access.employeeId)
+  } else if (evaluateeId) {
+    q = q.eq("evaluatee_id", evaluateeId)
   }
 
   // evaluator scope = only own
@@ -117,7 +126,7 @@ export async function POST(req: NextRequest) {
   const svc = createServiceClient()
   const access = await getBranchEvalAccess(svc, user.id)
   const body = await req.json()
-  const { branch_id, template_id, visit_date, visit_time, store_manager, store_staff, target_manager_id, assignment_id } = body
+  const { branch_id, template_id, visit_date, visit_time, store_manager, store_staff, target_manager_id, evaluatee_id, assignment_id } = body
 
   if (!branch_id || !template_id) return NextResponse.json({ error: "missing branch_id/template_id" }, { status: 400 })
   if (!canFillBranch(access, branch_id)) return NextResponse.json({ error: "ไม่มีสิทธิ์กรอกประเมินสาขานี้" }, { status: 403 })
@@ -132,6 +141,7 @@ export async function POST(req: NextRequest) {
     template_version: tpl.version,
     evaluator_id: access.employeeId,
     target_manager_id: target_manager_id || null,  // ป้าย "ส่งถึงใคร" (optional)
+    evaluatee_id: evaluatee_id || null,             // ผู้ถูกประเมิน (optional)
     assignment_id: assignment_id || null,           // link กับการบ้าน (ถ้ามี)
     visit_date: visit_date ?? new Date().toISOString().slice(0, 10),
     visit_time: visit_time ?? null,
@@ -156,7 +166,7 @@ export async function PATCH(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 })
 
   const { data: ev } = await svc.from("branch_evaluations")
-    .select("branch_id, evaluator_id, status").eq("id", id).maybeSingle()
+    .select("branch_id, evaluator_id, status, visit_time, visit_date").eq("id", id).maybeSingle()
   if (!ev) return NextResponse.json({ error: "not found" }, { status: 404 })
 
   const isManager = canManageBranch(access, ev.branch_id)
@@ -166,10 +176,23 @@ export async function PATCH(req: NextRequest) {
   if (action === "submit") {
     if (!isOwner && !isManager) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
     await svc.rpc("recalc_branch_evaluation_score", { p_eval_id: id })
-    await svc.from("branch_evaluations").update({
+
+    // ถ้ายังไม่ได้กรอกเวลา → ใช้เวลาที่กดส่งเป็น snapshot (timezone: Asia/Bangkok)
+    const now = new Date()
+    const updateRow: any = {
       status: "submitted",
-      submitted_at: new Date().toISOString(),
-    }).eq("id", id)
+      submitted_at: now.toISOString(),
+    }
+    if (!ev.visit_time) {
+      // HH:MM:SS ตาม timezone Bangkok
+      const bkk = now.toLocaleTimeString("en-GB", { timeZone: "Asia/Bangkok", hour12: false })
+      updateRow.visit_time = bkk
+    }
+    if (!ev.visit_date) {
+      const bkk = now.toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" })  // YYYY-MM-DD
+      updateRow.visit_date = bkk
+    }
+    await svc.from("branch_evaluations").update(updateRow).eq("id", id)
 
     // notify supervisors of this branch + target_manager (ถ้ามี)
     try {
@@ -246,9 +269,16 @@ export async function PATCH(req: NextRequest) {
   // อนุญาตเฉพาะ field ที่กำหนด — กัน injection
   const allowed = ["visit_date", "visit_time", "store_manager", "store_staff",
                    "general_notes", "action_plan", "deleted_at",
-                   "target_manager_id", "assignment_id"]  // ผู้กรอกแก้ "ส่งถึงใคร" + link การบ้านได้
+                   "target_manager_id", "evaluatee_id", "assignment_id"]  // ผู้กรอกแก้ "ส่งถึง" + "ประเมินใคร" + link การบ้านได้
+  // Field ที่เป็น nullable type (time/date/uuid/timestamp) — "" → null
+  const nullableFields = new Set(["visit_time", "visit_date", "target_manager_id", "evaluatee_id", "assignment_id", "deleted_at"])
   const safe: any = { updated_at: new Date().toISOString() }
-  for (const k of allowed) if (k in updates) safe[k] = updates[k]
+  for (const k of allowed) {
+    if (k in updates) {
+      const v = updates[k]
+      safe[k] = (nullableFields.has(k) && v === "") ? null : v
+    }
+  }
   if (Object.keys(safe).length === 1) {
     return NextResponse.json({ success: true })  // nothing to update
   }

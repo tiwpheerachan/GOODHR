@@ -96,6 +96,8 @@ export async function GET(req: NextRequest) {
   }
 
   // ── คำนวณ progress + performance per assignment ──
+  // วันที่ filter assignee=me → คำนวณ _my_stats เพิ่มเติม (เฉพาะงานของคนนี้)
+  const myAssigneeId = assigneeId === "me" ? access.employeeId : assigneeId
   const enriched = assignments.map((a: any) => {
     const myTargets = targetsAll.filter(t => t.assignment_id === a.id)
     const total = myTargets.length
@@ -103,7 +105,7 @@ export async function GET(req: NextRequest) {
     const assignees = new Set(myTargets.map(t => t.assignee_id))
     const branches = new Set(myTargets.map(t => t.branch_id))
 
-    // Performance metrics
+    // Performance metrics (รวมทุกคน)
     const scored = myTargets
       .filter((t: any) => t.completed_at && t.evaluation?.percentage != null)
       .map((t: any) => Number(t.evaluation.percentage))
@@ -114,7 +116,7 @@ export async function GET(req: NextRequest) {
     const midCount = scored.filter((p: number) => p >= 60 && p < 80).length
     const lowCount = scored.filter((p: number) => p < 60).length
 
-    // Completion speed: เวลาเฉลี่ยจาก created_at → completed_at (วัน)
+    // Completion speed
     const createdMs = new Date(a.created_at).getTime()
     const completedTargets = myTargets.filter((t: any) => t.completed_at)
     const daysToComplete = completedTargets.length > 0
@@ -122,6 +124,18 @@ export async function GET(req: NextRequest) {
           s + (new Date(t.completed_at).getTime() - createdMs) / (1000 * 60 * 60 * 24), 0
         ) / completedTargets.length
       : null
+
+    // ── Per-assignee (ของคนที่เรา filter) stats ──
+    let _my_stats: any = undefined
+    if (myAssigneeId) {
+      const mine = myTargets.filter(t => t.assignee_id === myAssigneeId)
+      const myDone = mine.filter(t => t.completed_at != null).length
+      _my_stats = {
+        total: mine.length,
+        done: myDone,
+        progress: mine.length > 0 ? (myDone / mine.length) * 100 : 0,
+      }
+    }
 
     return {
       ...a,
@@ -131,7 +145,6 @@ export async function GET(req: NextRequest) {
         progress: total > 0 ? (done / total) * 100 : 0,
         assignee_count: assignees.size,
         branch_count: branches.size,
-        // Performance
         avg_score: avgScore,
         max_score: maxScore,
         min_score: minScore,
@@ -141,6 +154,7 @@ export async function GET(req: NextRequest) {
         low_count: lowCount,
         avg_days_to_complete: daysToComplete,
       },
+      _my_stats,
       _my_pending: assigneeId === "me"
         ? myTargets.filter(t => t.assignee_id === access.employeeId && t.completed_at == null)
         : undefined,

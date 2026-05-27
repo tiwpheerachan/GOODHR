@@ -38,13 +38,15 @@ export default function BranchEvalDetailPage() {
   const [pendingPhoto, setPendingPhoto] = useState<{ itemId: string | null; kind: "checkin" | "answer" } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [gpsLoading, setGpsLoading] = useState(false)
-  const [headerEdit, setHeaderEdit] = useState({ general_notes: "", action_plan: "", visit_date: "", visit_time: "", target_manager_id: "" as string })
+  const [headerEdit, setHeaderEdit] = useState({ general_notes: "", action_plan: "", visit_date: "", visit_time: "", target_manager_id: "" as string, evaluatee_id: "" as string })
   const [savingHeader, setSavingHeader] = useState(false)
   const [reviewerNotes, setReviewerNotes] = useState("")
   // ── ผู้รับฟอร์ม (target manager) — pick จากพนักงานทั้งบริษัท ──
   const [mgrOptions, setMgrOptions] = useState<any[]>([])
   const [mgrSearch, setMgrSearch] = useState("")
   const [showMgrPicker, setShowMgrPicker] = useState(false)
+  const [evalteeSearch, setEvalteeSearch] = useState("")
+  const [showEvalteePicker, setShowEvalteePicker] = useState(false)
 
   // เริ่มต้น: skeleton loading ครั้งแรก
   // หลังจากนั้น: silent refresh (ไม่ตั้ง loading=true → ไม่กระตุก/flash)
@@ -59,6 +61,7 @@ export default function BranchEvalDetailPage() {
         visit_date: d.evaluation.visit_date ?? "",
         visit_time: d.evaluation.visit_time ?? "",
         target_manager_id: d.evaluation.target_manager_id ?? "",
+        evaluatee_id: d.evaluation.evaluatee_id ?? "",
       })
       setReviewerNotes(d.evaluation.reviewer_notes ?? "")
     }
@@ -66,14 +69,14 @@ export default function BranchEvalDetailPage() {
   }
   useEffect(() => { if (id) load() }, [id])
 
-  // โหลดรายชื่อพนักงาน (สำหรับ picker "ส่งฟอร์มให้ใคร")
+  // โหลดรายชื่อพนักงาน (ใช้ร่วมกันทั้ง "ส่งฟอร์มให้ใคร" + "ประเมินใคร")
   useEffect(() => {
-    if (mgrOptions.length > 0 || !showMgrPicker) return
+    if (mgrOptions.length > 0 || (!showMgrPicker && !showEvalteePicker)) return
     fetch("/api/employees/search?q=&limit=500&all_companies=1")
       .then(r => r.json())
       .then(d => setMgrOptions(d.employees ?? []))
       .catch(() => {})
-  }, [showMgrPicker])
+  }, [showMgrPicker, showEvalteePicker])
 
   if (loading) return (
     <div className="p-4 max-w-4xl mx-auto">
@@ -180,6 +183,30 @@ export default function BranchEvalDetailPage() {
       // silent refresh — ดึง target_manager (รวม nickname, employee_code) ใหม่
       await load(true)
       toast.success(newId ? "บันทึกผู้รับฟอร์มแล้ว" : "ลบผู้รับฟอร์มแล้ว")
+    } catch { toast.error("บันทึกไม่สำเร็จ") }
+  }
+
+  // ── Auto-save evaluatee_id (ผู้ถูกประเมิน) ──
+  const saveEvaluatee = async (newId: string | null) => {
+    setHeaderEdit(h => ({ ...h, evaluatee_id: newId || "" }))
+    try {
+      const res = await fetch("/api/branch-eval/evaluations", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, evaluatee_id: newId }),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "บันทึกไม่สำเร็จ"); return }
+      const picked = newId ? mgrOptions.find(e => e.id === newId) : null
+      setData((prev: any) => prev ? ({
+        ...prev,
+        evaluation: {
+          ...prev.evaluation,
+          evaluatee_id: newId,
+          evaluatee: picked || null,
+        },
+      }) : prev)
+      await load(true)
+      toast.success(newId ? "บันทึกผู้ถูกประเมินแล้ว" : "ลบผู้ถูกประเมินแล้ว")
     } catch { toast.error("บันทึกไม่สำเร็จ") }
   }
 
@@ -471,6 +498,95 @@ export default function BranchEvalDetailPage() {
             </>
           )}
         </div>
+
+        {/* ── ประเมินใคร (optional tag) ── */}
+        <div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">👤 ประเมินใคร (ผู้ถูกประเมิน)</p>
+          {(() => {
+            const ee = (ev as any).evaluatee
+            const picked = mgrOptions.find(e => e.id === headerEdit.evaluatee_id)
+            const display = picked || ee
+            if (display) {
+              return (
+                <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+                  <div className="w-7 h-7 rounded-full bg-indigo-200 flex items-center justify-center text-[11px] font-black text-indigo-700 flex-shrink-0">
+                    {display.first_name_th?.[0] || "?"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-indigo-800 truncate">
+                      {display.first_name_th} {display.last_name_th}
+                      {display.nickname && <span className="text-indigo-500 ml-1">({display.nickname})</span>}
+                    </p>
+                    <p className="text-[9px] text-indigo-500">{display.employee_code}</p>
+                  </div>
+                  {access.can_edit && (
+                    <>
+                      <button onClick={() => setShowEvalteePicker(true)}
+                        className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline">
+                        เปลี่ยน
+                      </button>
+                      <button onClick={() => saveEvaluatee(null)}
+                        className="text-[10px] font-bold text-rose-500 hover:text-rose-700 underline">
+                        ลบ
+                      </button>
+                    </>
+                  )}
+                </div>
+              )
+            }
+            return access.can_edit ? (
+              <button onClick={() => setShowEvalteePicker(true)}
+                className="w-full bg-slate-50 border border-dashed border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-500 hover:bg-slate-100 text-left">
+                + เลือกผู้ถูกประเมิน <span className="text-[9px] text-slate-400">(ไม่บังคับ — เช่น branch manager, store staff)</span>
+              </button>
+            ) : (
+              <p className="text-xs text-slate-400">— ไม่ระบุ —</p>
+            )
+          })()}
+
+          {/* Evaluatee picker */}
+          {showEvalteePicker && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowEvalteePicker(false)} />
+              <div className="absolute z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-w-md w-full max-h-[280px] overflow-hidden flex flex-col">
+                <input value={evalteeSearch} onChange={e => setEvalteeSearch(e.target.value)}
+                  placeholder="ค้นหาชื่อ / รหัส / ชื่อเล่น..." autoFocus
+                  className="bg-slate-50 px-3 py-2 text-xs outline-none border-b border-slate-200" />
+                <div className="overflow-y-auto flex-1 divide-y divide-slate-50">
+                  {(() => {
+                    const s = evalteeSearch.trim().toLowerCase()
+                    const list = !s ? mgrOptions.slice(0, 60) : mgrOptions.filter(e => {
+                      const hay = `${e.first_name_th || ""} ${e.last_name_th || ""} ${e.nickname || ""} ${e.first_name_en || ""} ${e.last_name_en || ""} ${e.employee_code || ""}`.toLowerCase()
+                      return hay.includes(s)
+                    }).slice(0, 50)
+                    if (list.length === 0) return <p className="text-center py-3 text-xs text-slate-400">ไม่พบ</p>
+                    return list.map(e => (
+                      <button key={e.id}
+                        onClick={() => {
+                          saveEvaluatee(e.id)
+                          setShowEvalteePicker(false)
+                          setEvalteeSearch("")
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500 flex-shrink-0">
+                          {e.first_name_th?.[0]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-slate-800 truncate">
+                            {e.first_name_th} {e.last_name_th}
+                            {e.nickname && <span className="text-slate-400 ml-1">({e.nickname})</span>}
+                          </p>
+                          <p className="text-[9px] text-slate-400">{e.employee_code} · {e.department?.name || ""}</p>
+                        </div>
+                      </button>
+                    ))
+                  })()}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
         <div>
           <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">หมายเหตุทั่วไป</p>
           <textarea value={headerEdit.general_notes} disabled={!access.can_edit}

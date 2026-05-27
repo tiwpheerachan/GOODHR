@@ -1,17 +1,18 @@
 "use client"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, Fragment } from "react"
 import Link from "next/link"
 import {
   ArrowLeft, BarChart3, Store, RefreshCw, Loader2,
   AlertTriangle, Award, Download, Users, FileSpreadsheet,
   Sparkles, X, FileText, Layers, ClipboardList, Clock, Target, TrendingUp,
+  Mail, Calendar, ChevronDown, ChevronRight as ChevRight, User,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import * as XLSX from "xlsx"
 import toast from "react-hot-toast"
 
-type Tab = "overview" | "branches" | "evaluators" | "recipients" | "templates" | "assignments"
+type Tab = "overview" | "branches" | "evaluators" | "recipients" | "evaluatees" | "templates" | "assignments"
 
 export default function ReportsPage() {
   const [evals, setEvals] = useState<any[]>([])
@@ -21,6 +22,10 @@ export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("overview")
   const [exporting, setExporting] = useState(false)
   const [exportingDeep, setExportingDeep] = useState(false)
+  const [expandedRow, setExpandedRow] = useState<Set<string>>(new Set())
+  const toggleRow = (key: string) => setExpandedRow(s => {
+    const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n
+  })
   const [aiOpen, setAiOpen] = useState(false)
   const [aiBranchId, setAiBranchId] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
@@ -142,6 +147,42 @@ export default function ReportsPage() {
     return { list, unset }
   }, [filtered])
 
+  // ── Per-evaluatee (ผู้ถูกประเมิน) ──
+  const byEvaluatee = useMemo(() => {
+    const m = new Map<string, {
+      id: string; name: string; nickname: string
+      count: number; branches: Set<string>; templates: Set<string>; scores: number[]; lastDate: string
+    }>()
+    let unset = 0
+    for (const e of filtered as any[]) {
+      if (!e.evaluatee_id || !e.evaluatee) { unset++; continue }
+      const ee = e.evaluatee
+      const prev = m.get(ee.id) ?? {
+        id: ee.id,
+        name: `${ee.first_name_th} ${ee.last_name_th}`,
+        nickname: ee.nickname ?? "",
+        count: 0,
+        branches: new Set<string>(),
+        templates: new Set<string>(),
+        scores: [] as number[],
+        lastDate: "",
+      }
+      prev.count++
+      if (e.branch?.id) prev.branches.add(e.branch.id)
+      if (e.template?.id) prev.templates.add(e.template.id)
+      prev.scores.push(Number(e.percentage))
+      if (e.visit_date > prev.lastDate) prev.lastDate = e.visit_date
+      m.set(ee.id, prev)
+    }
+    const list = Array.from(m.values()).map(v => ({
+      ...v,
+      branchCount: v.branches.size,
+      templateCount: v.templates.size,
+      avg: v.scores.length > 0 ? v.scores.reduce((s, x) => s + x, 0) / v.scores.length : 0,
+    })).sort((a, b) => b.count - a.count)
+    return { list, unset }
+  }, [filtered])
+
   // ── Per-template ──
   const byTemplate = useMemo(() => {
     const m = new Map<string, {
@@ -178,17 +219,19 @@ export default function ReportsPage() {
     })).sort((a, b) => b.uses - a.uses)
   }, [filtered])
 
-  // ── Trend by week ──
+  // ── Trend by week — เฉพาะฟอร์มที่มีคะแนน (percentage > 0) ──
   const trend = useMemo(() => {
     const buckets = new Map<string, { sum: number; n: number }>()
     for (const e of filtered) {
+      const pct = Number(e.percentage)
+      if (!pct || isNaN(pct)) continue  // ข้ามฟอร์มที่ยังไม่มีคะแนน
       const d = new Date(e.visit_date)
       const y = d.getFullYear()
       const onejan = new Date(y, 0, 1)
       const wk = Math.ceil(((d.getTime() - onejan.getTime()) / 86400000 + onejan.getDay() + 1) / 7)
       const key = `${y}-W${String(wk).padStart(2, "0")}`
       const prev = buckets.get(key) ?? { sum: 0, n: 0 }
-      prev.sum += Number(e.percentage); prev.n++
+      prev.sum += pct; prev.n++
       buckets.set(key, prev)
     }
     return Array.from(buckets, ([key, v]) => ({ key, avg: v.sum / v.n, n: v.n })).sort((a, b) => a.key.localeCompare(b.key))
@@ -496,6 +539,7 @@ export default function ReportsPage() {
             <TabBtn active={tab === "branches"} onClick={() => setTab("branches")}>🏪 รายสาขา</TabBtn>
             <TabBtn active={tab === "evaluators"} onClick={() => setTab("evaluators")}>👤 รายผู้ตรวจ</TabBtn>
             <TabBtn active={tab === "recipients"} onClick={() => setTab("recipients")}>📩 ส่งมอบถึงใคร</TabBtn>
+            <TabBtn active={tab === "evaluatees"} onClick={() => setTab("evaluatees")}>👤 ประเมินใคร</TabBtn>
             <TabBtn active={tab === "templates"} onClick={() => setTab("templates")}>📋 Template</TabBtn>
             <TabBtn active={tab === "assignments"} onClick={() => setTab("assignments")}>🗂️ การบ้าน</TabBtn>
           </div>
@@ -503,23 +547,7 @@ export default function ReportsPage() {
           {/* Tab: Overview */}
           {tab === "overview" && (
             <>
-              {trend.length > 0 && (
-                <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-                  <p className="text-sm font-black text-slate-800 mb-3">แนวโน้มคะแนนเฉลี่ยรายสัปดาห์</p>
-                  <div className="flex items-end gap-1 h-32">
-                    {trend.map(t => (
-                      <div key={t.key} className="flex-1 flex flex-col items-center justify-end gap-1 group">
-                        <div className="text-[9px] font-bold text-slate-500 opacity-0 group-hover:opacity-100 transition">
-                          {t.avg.toFixed(0)}% · {t.n}
-                        </div>
-                        <div className="w-full bg-gradient-to-t from-indigo-500 to-violet-400 rounded-t transition-all hover:from-indigo-600"
-                          style={{ height: `${Math.max(4, (t.avg / 100) * 100)}%` }} />
-                        <div className="text-[8px] text-slate-400 font-bold">{t.key.slice(-3)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <TrendChart trend={trend} />
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <BranchRanking title="Top 5 สาขาคะแนนสูงสุด" icon={<Award size={14} />} color="emerald" items={top5} />
@@ -555,47 +583,61 @@ export default function ReportsPage() {
                       const gradeColor = grade === "A" ? "bg-emerald-500"
                         : grade === "B" ? "bg-sky-500"
                         : grade === "C" ? "bg-amber-500" : "bg-rose-500"
+                      const expanded = expandedRow.has(`br_${b.id}`)
+                      const myForms = filtered.filter((f: any) => f.branch?.id === b.id)
+                        .sort((a: any, c: any) => c.visit_date.localeCompare(a.visit_date))
                       return (
-                        <tr key={b.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">{i + 1}</td>
-                          <td className="px-3 py-2.5">
-                            <p className="font-bold text-sm">{b.name}</p>
-                            <p className="text-[10px] text-slate-400">{b.code}</p>
-                          </td>
-                          <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{b.count}</td>
-                          <td className="px-3 py-2.5 text-center text-xs text-rose-600 font-bold">{b.min.toFixed(0)}%</td>
-                          <td className="px-3 py-2.5 text-center">
-                            <div className="inline-flex items-center gap-1.5">
-                              <span className={`text-sm font-black ${
-                                b.avg >= 80 ? "text-emerald-600"
-                                : b.avg >= 60 ? "text-amber-600"
-                                : "text-rose-600"
-                              }`}>{b.avg.toFixed(1)}%</span>
-                              <div className="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden hidden md:block">
-                                <div className={`h-full ${
-                                  b.avg >= 80 ? "bg-emerald-500"
-                                  : b.avg >= 60 ? "bg-amber-500" : "bg-rose-500"
-                                }`} style={{ width: `${Math.min(100, b.avg)}%` }} />
+                        <Fragment key={b.id}>
+                          <tr className="hover:bg-slate-50 cursor-pointer"
+                            onClick={() => toggleRow(`br_${b.id}`)}>
+                            <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
+                              {expanded ? <ChevronDown size={12} className="inline text-indigo-500"/> : <ChevRight size={12} className="inline text-slate-400"/>}
+                              <span className="ml-1">{i + 1}</span>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <p className="font-bold text-sm">{b.name}</p>
+                              <p className="text-[10px] text-slate-400">{b.code}</p>
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{b.count}</td>
+                            <td className="px-3 py-2.5 text-center text-xs text-rose-600 font-bold">{b.min.toFixed(0)}%</td>
+                            <td className="px-3 py-2.5 text-center">
+                              <div className="inline-flex items-center gap-1.5">
+                                <span className={`text-sm font-black ${
+                                  b.avg >= 80 ? "text-emerald-600"
+                                  : b.avg >= 60 ? "text-amber-600"
+                                  : "text-rose-600"
+                                }`}>{b.avg.toFixed(1)}%</span>
+                                <div className="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden hidden md:block">
+                                  <div className={`h-full ${
+                                    b.avg >= 80 ? "bg-emerald-500"
+                                    : b.avg >= 60 ? "bg-amber-500" : "bg-rose-500"
+                                  }`} style={{ width: `${Math.min(100, b.avg)}%` }} />
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5 text-center text-xs text-emerald-600 font-bold">{b.max.toFixed(0)}%</td>
-                          <td className="px-3 py-2.5 text-center">
-                            <span className={`w-6 h-6 inline-flex items-center justify-center rounded-md text-white font-black text-xs ${gradeColor}`}>
-                              {grade}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-[10px] text-slate-500">
-                            {b.lastDate && format(new Date(b.lastDate), "d MMM yyyy", { locale: th })}
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <button onClick={() => askAI(b.id, b.name)}
-                              title={`AI วิเคราะห์ ${b.name}`}
-                              className="p-1.5 bg-violet-50 hover:bg-violet-100 text-violet-700 rounded-lg inline-flex items-center gap-1">
-                              <Sparkles size={11} />
-                            </button>
-                          </td>
-                        </tr>
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-xs text-emerald-600 font-bold">{b.max.toFixed(0)}%</td>
+                            <td className="px-3 py-2.5 text-center">
+                              <span className={`w-6 h-6 inline-flex items-center justify-center rounded-md text-white font-black text-xs ${gradeColor}`}>
+                                {grade}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-[10px] text-slate-500">
+                              {b.lastDate && format(new Date(b.lastDate), "d MMM yyyy", { locale: th })}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <button onClick={e => { e.stopPropagation(); askAI(b.id, b.name) }}
+                                title={`AI วิเคราะห์ ${b.name}`}
+                                className="p-1.5 bg-violet-50 hover:bg-violet-100 text-violet-700 rounded-lg inline-flex items-center gap-1">
+                                <Sparkles size={11} />
+                              </button>
+                            </td>
+                          </tr>
+                          {expanded && (
+                            <tr><td colSpan={9} className="bg-sky-50/30 p-0">
+                              <ManagerDrillDown forms={myForms} />
+                            </td></tr>
+                          )}
+                        </Fragment>
                       )
                     })}
                   </tbody>
@@ -629,9 +671,18 @@ export default function ReportsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {byEvaluator.map((ev, i) => (
-                        <tr key={ev.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">{i + 1}</td>
+                      {byEvaluator.map((ev, i) => {
+                        const expanded = expandedRow.has(`ev_${ev.id}`)
+                        const myForms = filtered.filter((f: any) => f.evaluator?.id === ev.id)
+                          .sort((a: any, c: any) => c.visit_date.localeCompare(a.visit_date))
+                        return (
+                        <Fragment key={ev.id}>
+                        <tr className="hover:bg-slate-50 cursor-pointer"
+                          onClick={() => toggleRow(`ev_${ev.id}`)}>
+                          <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
+                            {expanded ? <ChevronDown size={12} className="inline text-indigo-500"/> : <ChevRight size={12} className="inline text-slate-400"/>}
+                            <span className="ml-1">{i + 1}</span>
+                          </td>
                           <td className="px-3 py-2.5">
                             <p className="font-bold text-sm">
                               {ev.name}
@@ -658,7 +709,14 @@ export default function ReportsPage() {
                             {ev.lastDate && format(new Date(ev.lastDate), "d MMM yyyy", { locale: th })}
                           </td>
                         </tr>
-                      ))}
+                        {expanded && (
+                          <tr><td colSpan={8} className="bg-indigo-50/30 p-0">
+                            <ManagerDrillDown forms={myForms} />
+                          </td></tr>
+                        )}
+                        </Fragment>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -694,34 +752,133 @@ export default function ReportsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {byRecipient.list.map((r, i) => (
-                        <tr key={r.id} className="hover:bg-emerald-50/40">
-                          <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">{i + 1}</td>
-                          <td className="px-3 py-2.5">
-                            <p className="font-bold text-sm">
-                              {r.name}
-                              {r.nickname && <span className="text-xs text-slate-400 ml-1">({r.nickname})</span>}
-                            </p>
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <span className="inline-flex items-center gap-1 text-xs font-black bg-emerald-50 text-emerald-700 px-2 py-1 rounded">
-                              {r.received} ฟอร์ม
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{r.branchCount}</td>
-                          <td className="px-3 py-2.5 text-center text-xs font-bold text-violet-700">{r.templateCount}</td>
-                          <td className="px-3 py-2.5 text-center">
-                            <span className={`text-sm font-black ${
-                              r.avg >= 80 ? "text-emerald-600"
-                              : r.avg >= 60 ? "text-amber-600"
-                              : "text-rose-600"
-                            }`}>{r.avg.toFixed(1)}%</span>
-                          </td>
-                          <td className="px-3 py-2.5 text-[10px] text-slate-500">
-                            {r.lastDate && format(new Date(r.lastDate), "d MMM yyyy", { locale: th })}
-                          </td>
-                        </tr>
-                      ))}
+                      {byRecipient.list.map((r, i) => {
+                        const expanded = expandedRow.has(`rc_${r.id}`)
+                        const myForms = filtered.filter((f: any) => f.target_manager_id === r.id)
+                          .sort((a: any, b: any) => b.visit_date.localeCompare(a.visit_date))
+                        return (
+                          <Fragment key={r.id}>
+                            <tr className="hover:bg-emerald-50/40 cursor-pointer"
+                              onClick={() => toggleRow(`rc_${r.id}`)}>
+                              <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
+                                {expanded ? <ChevronDown size={12} className="inline text-emerald-500"/> : <ChevRight size={12} className="inline text-slate-400"/>}
+                                <span className="ml-1">{i + 1}</span>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <p className="font-bold text-sm">
+                                  {r.name}
+                                  {r.nickname && <span className="text-xs text-slate-400 ml-1">({r.nickname})</span>}
+                                </p>
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span className="inline-flex items-center gap-1 text-xs font-black bg-emerald-50 text-emerald-700 px-2 py-1 rounded">
+                                  {r.received} ฟอร์ม
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{r.branchCount}</td>
+                              <td className="px-3 py-2.5 text-center text-xs font-bold text-violet-700">{r.templateCount}</td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span className={`text-sm font-black ${
+                                  r.avg >= 80 ? "text-emerald-600"
+                                  : r.avg >= 60 ? "text-amber-600"
+                                  : "text-rose-600"
+                                }`}>{r.avg.toFixed(1)}%</span>
+                              </td>
+                              <td className="px-3 py-2.5 text-[10px] text-slate-500">
+                                {r.lastDate && format(new Date(r.lastDate), "d MMM yyyy", { locale: th })}
+                              </td>
+                            </tr>
+                            {expanded && (
+                              <tr><td colSpan={7} className="bg-emerald-50/30 p-0">
+                                <ManagerDrillDown forms={myForms} />
+                              </td></tr>
+                            )}
+                          </Fragment>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab: Evaluatees (ผู้ถูกประเมิน) */}
+          {tab === "evaluatees" && (
+            <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                <Users size={14} className="text-indigo-500" />
+                <p className="text-sm font-black text-slate-800">👤 ผู้ถูกประเมิน ({byEvaluatee.list.length})</p>
+                {byEvaluatee.unset > 0 && (
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full ml-auto">
+                    + {byEvaluatee.unset} ฟอร์ม "ไม่ระบุผู้ถูกประเมิน"
+                  </span>
+                )}
+              </div>
+              {byEvaluatee.list.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-sm">
+                  <Users size={26} className="mx-auto mb-2 text-slate-300" />
+                  ยังไม่มีฟอร์มที่ระบุผู้ถูกประเมินในช่วงนี้
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-100">
+                      <tr>
+                        <Th>#</Th>
+                        <Th>ผู้ถูกประเมิน</Th>
+                        <Th center>ถูกประเมิน</Th>
+                        <Th center>จำนวนสาขา</Th>
+                        <Th center>Template ใช้</Th>
+                        <Th center>คะแนนเฉลี่ย</Th>
+                        <Th>ล่าสุด</Th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {byEvaluatee.list.map((r, i) => {
+                        const expanded = expandedRow.has(`ee_${r.id}`)
+                        const myForms = filtered.filter((f: any) => f.evaluatee_id === r.id)
+                          .sort((a: any, b: any) => b.visit_date.localeCompare(a.visit_date))
+                        return (
+                          <Fragment key={r.id}>
+                            <tr className="hover:bg-indigo-50/40 cursor-pointer"
+                              onClick={() => toggleRow(`ee_${r.id}`)}>
+                              <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
+                                {expanded ? <ChevronDown size={12} className="inline text-indigo-500"/> : <ChevRight size={12} className="inline text-slate-400"/>}
+                                <span className="ml-1">{i + 1}</span>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <p className="font-bold text-sm">
+                                  {r.name}
+                                  {r.nickname && <span className="text-xs text-slate-400 ml-1">({r.nickname})</span>}
+                                </p>
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span className="inline-flex items-center gap-1 text-xs font-black bg-indigo-50 text-indigo-700 px-2 py-1 rounded">
+                                  {r.count} ฟอร์ม
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{r.branchCount}</td>
+                              <td className="px-3 py-2.5 text-center text-xs font-bold text-violet-700">{r.templateCount}</td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span className={`text-sm font-black ${
+                                  r.avg >= 80 ? "text-emerald-600"
+                                  : r.avg >= 60 ? "text-amber-600"
+                                  : "text-rose-600"
+                                }`}>{r.avg.toFixed(1)}%</span>
+                              </td>
+                              <td className="px-3 py-2.5 text-[10px] text-slate-500">
+                                {r.lastDate && format(new Date(r.lastDate), "d MMM yyyy", { locale: th })}
+                              </td>
+                            </tr>
+                            {expanded && (
+                              <tr><td colSpan={7} className="bg-indigo-50/30 p-0">
+                                <ManagerDrillDown forms={myForms} />
+                              </td></tr>
+                            )}
+                          </Fragment>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -753,9 +910,18 @@ export default function ReportsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {byTemplate.map((t, i) => (
-                        <tr key={t.id} className="hover:bg-violet-50/40">
-                          <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">{i + 1}</td>
+                      {byTemplate.map((t, i) => {
+                        const expanded = expandedRow.has(`tp_${t.id}`)
+                        const myForms = filtered.filter((f: any) => f.template?.id === t.id)
+                          .sort((a: any, c: any) => c.visit_date.localeCompare(a.visit_date))
+                        return (
+                        <Fragment key={t.id}>
+                        <tr className="hover:bg-violet-50/40 cursor-pointer"
+                          onClick={() => toggleRow(`tp_${t.id}`)}>
+                          <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
+                            {expanded ? <ChevronDown size={12} className="inline text-violet-500"/> : <ChevRight size={12} className="inline text-slate-400"/>}
+                            <span className="ml-1">{i + 1}</span>
+                          </td>
                           <td className="px-3 py-2.5"><p className="font-bold text-sm">{t.name}</p></td>
                           <td className="px-3 py-2.5 text-center">
                             <span className="inline-flex items-center gap-1 text-xs font-black bg-violet-50 text-violet-700 px-2 py-1 rounded">
@@ -776,7 +942,14 @@ export default function ReportsPage() {
                             {t.lastDate && format(new Date(t.lastDate), "d MMM yyyy", { locale: th })}
                           </td>
                         </tr>
-                      ))}
+                        {expanded && (
+                          <tr><td colSpan={8} className="bg-violet-50/30 p-0">
+                            <ManagerDrillDown forms={myForms} />
+                          </td></tr>
+                        )}
+                        </Fragment>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1311,6 +1484,172 @@ function AssignmentsTab({ assignments }: { assignments: any[] }) {
             )
           })}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// TrendChart — SVG line + area chart พร้อม gridlines + avg line + trend badge
+function TrendChart({ trend }: { trend: { key: string; avg: number; n: number }[] }) {
+  if (trend.length === 0) {
+    return (
+      <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+        <p className="text-sm font-black text-slate-800 mb-2">📈 แนวโน้มคะแนนเฉลี่ย</p>
+        <p className="py-8 text-center text-xs text-slate-400">ยังไม่มีข้อมูล — รอฟอร์มที่มีคะแนน</p>
+      </div>
+    )
+  }
+  const max = Math.max(100, ...trend.map(t => t.avg))
+  const min = Math.min(0, ...trend.map(t => t.avg))
+  const avg = trend.reduce((s, t) => s + t.avg, 0) / trend.length
+  const first = trend[0]?.avg ?? 0
+  const last = trend[trend.length - 1]?.avg ?? 0
+  const delta = last - first
+  const trending = delta > 5 ? "up" : delta < -5 ? "down" : "flat"
+
+  const W = 600, H = 180
+  const PADL = 28, PADR = 12, PADT = 18, PADB = 22
+  const innerW = W - PADL - PADR
+  const innerH = H - PADT - PADB
+  const xStep = trend.length > 1 ? innerW / (trend.length - 1) : 0
+  const yScale = (v: number) => PADT + innerH - ((v - min) / (max - min || 1)) * innerH
+
+  const points = trend.map((t, i) => ({
+    x: PADL + i * xStep,
+    y: yScale(t.avg),
+    label: t.key.slice(-3),
+    avg: t.avg,
+    n: t.n,
+  }))
+
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")
+  const areaPath = points.length > 1
+    ? `${linePath} L ${points[points.length - 1].x} ${PADT + innerH} L ${points[0].x} ${PADT + innerH} Z`
+    : ""
+  const yTicks = [0, 25, 50, 75, 100].filter(v => v <= max + 5)
+
+  return (
+    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div>
+          <p className="text-sm font-black text-slate-800">📈 แนวโน้มคะแนนเฉลี่ยรายสัปดาห์</p>
+          <p className="text-[10px] text-slate-400">{trend.length} สัปดาห์ · เฉลี่ย {avg.toFixed(1)}%</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          {trending === "up" && (
+            <span className="flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full font-bold">
+              📈 ขึ้น {delta.toFixed(1)}%
+            </span>
+          )}
+          {trending === "down" && (
+            <span className="flex items-center gap-1 text-rose-700 bg-rose-50 px-2 py-1 rounded-full font-bold">
+              📉 ลง {Math.abs(delta).toFixed(1)}%
+            </span>
+          )}
+          {trending === "flat" && (
+            <span className="flex items-center gap-1 text-slate-700 bg-slate-100 px-2 py-1 rounded-full font-bold">
+              ➡️ คงที่
+            </span>
+          )}
+        </div>
+      </div>
+
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none" style={{ maxHeight: 240 }}>
+        {yTicks.map(v => (
+          <g key={v}>
+            <line x1={PADL} x2={W - PADR} y1={yScale(v)} y2={yScale(v)}
+              stroke="#e2e8f0" strokeDasharray="2 3" strokeWidth="1" />
+            <text x={PADL - 4} y={yScale(v) + 3} fontSize="9" textAnchor="end" fill="#94a3b8">{v}</text>
+          </g>
+        ))}
+        <line x1={PADL} x2={W - PADR} y1={yScale(avg)} y2={yScale(avg)}
+          stroke="#a78bfa" strokeDasharray="4 3" strokeWidth="1.2" opacity="0.7" />
+        <text x={W - PADR - 2} y={yScale(avg) - 3} fontSize="8" textAnchor="end" fill="#a78bfa" fontWeight="bold">
+          เฉลี่ย {avg.toFixed(0)}%
+        </text>
+        {points.length > 1 && (
+          <>
+            <defs>
+              <linearGradient id="trendArea-mgr" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
+                <stop offset="100%" stopColor="#6366f1" stopOpacity="0.02" />
+              </linearGradient>
+            </defs>
+            <path d={areaPath} fill="url(#trendArea-mgr)" />
+          </>
+        )}
+        <path d={linePath} stroke="#6366f1" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        {points.map((p, i) => (
+          <g key={i}>
+            <circle cx={p.x} cy={p.y} r="3.5" fill="#fff" stroke="#6366f1" strokeWidth="2" />
+            <text x={p.x} y={p.y - 8} fontSize="9.5" textAnchor="middle" fill="#4f46e5" fontWeight="bold">
+              {p.avg.toFixed(0)}%
+            </text>
+            <text x={p.x} y={H - 6} fontSize="9" textAnchor="middle" fill="#64748b" fontWeight="bold">
+              {p.label}
+            </text>
+            <text x={p.x} y={H + 2} fontSize="7.5" textAnchor="middle" fill="#cbd5e1">
+              {p.n}f
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
+// DrillDown — รายการฟอร์มเมื่อกดขยาย → คลิกไปดูฟอร์มเต็มได้
+function ManagerDrillDown({ forms }: { forms: any[] }) {
+  if (forms.length === 0) return <p className="px-4 py-3 text-xs text-slate-400 italic">ไม่มีฟอร์มในช่วงนี้</p>
+  return (
+    <div className="px-4 py-2 space-y-1.5">
+      <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider mt-1.5 mb-1">
+        รายการฟอร์ม ({forms.length})
+      </p>
+      <div className="space-y-1">
+        {forms.slice(0, 20).map((f: any) => (
+          <Link key={f.id} href={`/app/branch-eval/manage/evaluations/${f.id}`}
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-all flex-wrap">
+            <Store size={11} className="text-sky-500 flex-shrink-0"/>
+            <span className="text-xs font-bold text-slate-700 truncate">{f.branch?.name}</span>
+            <span className="text-[10px] text-slate-500 truncate hidden sm:inline">{f.template?.name}</span>
+            <Calendar size={9} className="text-slate-400 flex-shrink-0"/>
+            <span className="text-[10px] text-slate-500">{format(new Date(f.visit_date), "d MMM", { locale: th })}</span>
+            {f.evaluator && (
+              <>
+                <User size={9} className="text-slate-400 flex-shrink-0"/>
+                <span className="text-[10px] font-bold text-slate-600 truncate">{f.evaluator.first_name_th}</span>
+              </>
+            )}
+            {f.target_manager && (
+              <>
+                <Mail size={9} className="text-emerald-500 flex-shrink-0"/>
+                <span className="text-[10px] font-bold text-emerald-700 truncate">{f.target_manager.first_name_th}</span>
+              </>
+            )}
+            {f.evaluatee && (
+              <>
+                <User size={9} className="text-indigo-500 flex-shrink-0"/>
+                <span className="text-[10px] font-bold text-indigo-700 truncate">{f.evaluatee.first_name_th}</span>
+              </>
+            )}
+            <span className={`ml-auto text-xs font-black flex-shrink-0 ${
+              Number(f.percentage) >= 80 ? "text-emerald-600"
+              : Number(f.percentage) >= 60 ? "text-amber-600"
+              : "text-rose-600"
+            }`}>{Number(f.percentage).toFixed(0)}%</span>
+            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${
+              f.status === "draft" ? "bg-slate-100 text-slate-600"
+              : f.status === "submitted" ? "bg-amber-100 text-amber-700"
+              : "bg-emerald-100 text-emerald-700"
+            }`}>
+              {f.status === "draft" ? "ร่าง" : f.status === "submitted" ? "รอ" : "✓"}
+            </span>
+          </Link>
+        ))}
+        {forms.length > 20 && (
+          <p className="text-center text-[10px] text-slate-400 italic pt-1">+ อีก {forms.length - 20} ฟอร์ม</p>
+        )}
       </div>
     </div>
   )
