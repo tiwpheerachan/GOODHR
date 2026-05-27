@@ -393,24 +393,72 @@ function ViewersModal({ current, currentViewers, ownerId, onClose, onSave }: {
   const [search, setSearch] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set(current))
   const [saving, setSaving] = useState(false)
+  const [showOnlySelected, setShowOnlySelected] = useState(false)
 
   useEffect(() => {
     supabase.from("employees")
-      .select("id, first_name_th, last_name_th, nickname, employee_code, avatar_url, position:positions(name), department:departments(name)")
-      .eq("is_active", true).order("first_name_th").limit(1500)
+      .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, position:positions(name), department:departments(name)")
+      .eq("is_active", true).order("first_name_th").limit(2000)
       .then(({ data }) => setEmployees((data ?? []) as any))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ── Smart search: multi-term + multi-field + relevance sort ──
+  //   พิมพ์ "ปร นัย" → ทุก term ต้อง match field ใดก็ได้ (TH/EN name/nickname/code/dept/position)
+  //   เรียง: prefix match (ขึ้นต้นด้วย) > substring match
   const filtered = useMemo(() => {
-    const s = search.trim().toLowerCase()
-    return employees.filter((e: any) => {
-      if (e.id === ownerId) return false  // owner ไม่ต้องเลือก (เห็นอยู่แล้ว)
-      if (!s) return true
-      const hay = `${e.first_name_th} ${e.last_name_th} ${e.nickname ?? ""} ${e.employee_code ?? ""} ${e.position?.name ?? ""} ${e.department?.name ?? ""}`.toLowerCase()
-      return hay.includes(s)
-    })
-  }, [employees, search, ownerId])
+    const raw = search.trim().toLowerCase()
+    const terms = raw ? raw.split(/\s+/).filter(Boolean) : []
+    const ownerSkip = (e: any) => e.id === ownerId
+
+    // toggle "ดูเฉพาะที่เลือก"
+    let base = employees.filter((e: any) => !ownerSkip(e))
+    if (showOnlySelected) base = base.filter(e => selected.has(e.id))
+
+    if (terms.length === 0) {
+      // ไม่มี search — เรียง selected ก่อน
+      return [...base].sort((a, b) => {
+        const aS = selected.has(a.id) ? 0 : 1
+        const bS = selected.has(b.id) ? 0 : 1
+        return aS - bS
+      })
+    }
+
+    const rank = (e: any): number => {
+      // สร้าง array ของ field-values
+      const fields = [
+        e.first_name_th, e.last_name_th,
+        e.first_name_en, e.last_name_en,
+        e.nickname, e.nickname_en,
+        e.employee_code,
+        e.department?.name,
+        e.position?.name,
+      ].filter(Boolean).map((s: string) => String(s).toLowerCase())
+
+      let score = 0
+      for (const t of terms) {
+        let bestForTerm = -1
+        for (const f of fields) {
+          if (!f.includes(t)) continue
+          // exact match → +100
+          if (f === t) { bestForTerm = Math.max(bestForTerm, 100); continue }
+          // prefix → +50
+          if (f.startsWith(t)) { bestForTerm = Math.max(bestForTerm, 50); continue }
+          // substring → +20
+          bestForTerm = Math.max(bestForTerm, 20)
+        }
+        if (bestForTerm < 0) return -1  // ตกข้อนี้ → ไม่ match
+        score += bestForTerm
+      }
+      // bonus: เลือกอยู่แล้ว
+      if (selected.has(e.id)) score += 5
+      return score
+    }
+
+    const scored = base.map(e => ({ e, s: rank(e) })).filter(x => x.s >= 0)
+    scored.sort((a, b) => b.s - a.s || (a.e.first_name_th || "").localeCompare(b.e.first_name_th || ""))
+    return scored.map(x => x.e)
+  }, [employees, search, ownerId, showOnlySelected, selected])
 
   const toggle = (id: string) => setSelected(s => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
@@ -434,8 +482,30 @@ function ViewersModal({ current, currentViewers, ownerId, onClose, onSave }: {
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="ค้นหา ชื่อ / รหัส / แผนก..."
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm outline-none focus:border-amber-400" />
+              autoFocus
+              placeholder="ค้นหา ชื่อไทย/อังกฤษ · ชื่อเล่น · รหัส · แผนก (พิมพ์ช่องว่างเพื่อค้นหลายคำ)"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-9 py-2 text-sm outline-none focus:border-amber-400" />
+            {search && (
+              <button onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-200 rounded">
+                <X size={11} className="text-slate-400" />
+              </button>
+            )}
+          </div>
+          {/* Quick stats + toggle */}
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="text-slate-500">
+              พบ <b className="text-slate-800">{filtered.length}</b> คน
+              {selected.size > 0 && <> · <b className="text-amber-600">เลือก {selected.size}</b></>}
+            </span>
+            {selected.size > 0 && (
+              <button onClick={() => setShowOnlySelected(s => !s)}
+                className={`ml-auto px-2 py-0.5 rounded-full font-bold transition-colors ${
+                  showOnlySelected ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}>
+                {showOnlySelected ? "✓ ดูเฉพาะที่เลือก" : "ดูเฉพาะที่เลือก"}
+              </button>
+            )}
           </div>
         </div>
 

@@ -5,6 +5,7 @@ import {
   Store, ClipboardCheck, Loader2, MapPin, Plus, ChevronRight,
   Clock, CheckCircle2, FileText, ShieldAlert, Search, X,
   BadgeCheck, Settings, RefreshCw, Building2, ChevronDown, Check,
+  ClipboardList, Calendar,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -40,6 +41,8 @@ export default function BranchEvalLandingPage() {
   const [evals, setEvals] = useState<Eval[]>([])
   // ── ฟอร์มที่ "ส่งถึงฉัน" (target_manager_id = me) ──
   const [evalsToMe, setEvalsToMe] = useState<any[]>([])
+  // ── การบ้านที่ฉันได้รับ ──
+  const [myAssignments, setMyAssignments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [picker, setPicker] = useState<{ branch: Branch | null; templateId: string }>({ branch: null, templateId: "" })
   const [creating, setCreating] = useState(false)
@@ -52,12 +55,15 @@ export default function BranchEvalLandingPage() {
       fetch("/api/branch-eval/templates").then(r => r.json()),
       fetch("/api/branch-eval/evaluations?evaluator_id=me").then(r => r.json()),
       fetch("/api/branch-eval/evaluations?target_manager_id=me").then(r => r.json()).catch(() => ({ evaluations: [] })),
-    ]).then(([m, b, t, e, sentMe]) => {
+      fetch("/api/branch-eval/assignments?assignee_id=me&status=open").then(r => r.json()).catch(() => ({ assignments: [] })),
+    ]).then(([m, b, t, e, sentMe, asgMe]) => {
       setMe(m)
       setBranches(b.branches ?? [])
       setTemplates(t.templates ?? [])
       setEvals(e.evaluations ?? [])
       setEvalsToMe((sentMe.evaluations ?? []).filter((x: any) => x.evaluator_id !== m?.employee_id))
+      // เก็บเฉพาะการบ้านที่ยังไม่เสร็จทั้งหมด
+      setMyAssignments((asgMe.assignments ?? []).filter((a: any) => a._stats?.done < a._stats?.total))
     }).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
@@ -194,6 +200,45 @@ export default function BranchEvalLandingPage() {
         </div>
       </div>
 
+
+      {/* 📋 การบ้านของฉัน (assignments) — สำคัญที่สุด */}
+      {myAssignments.length > 0 && (
+        <div className="bg-white rounded-2xl border-2 border-orange-200 p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-lg bg-orange-100 flex items-center justify-center">
+              <ClipboardList size={13} className="text-orange-700" />
+            </div>
+            <h2 className="font-black text-slate-800 text-sm">📋 การบ้านที่ต้องทำ ({myAssignments.length})</h2>
+            <span className="text-[10px] font-bold text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded-full">จากหัวหน้า</span>
+          </div>
+          <div className="space-y-2">
+            {myAssignments.map((a: any) => {
+              const stats = a._stats
+              const overdue = a.due_date && new Date(a.due_date) < new Date() && stats.done < stats.total
+              return (
+                <Link key={a.id} href={`/app/branch-eval/manage/assignments/${a.id}`}
+                  className="group block p-3 bg-orange-50/40 hover:bg-white border border-orange-100 hover:border-orange-300 rounded-xl transition-all">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <p className="font-black text-sm text-slate-800 truncate flex-1">{a.title}</p>
+                    {overdue && <span className="text-[9px] font-black text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded-full">เลยกำหนด!</span>}
+                  </div>
+                  <p className="text-[10px] text-slate-500 truncate mb-1.5">
+                    📋 {a.template?.name}
+                    {a.assigner && <> · มอบโดย {a.assigner.first_name_th}</>}
+                    {a.due_date && <> · <Calendar size={9} className="inline" /> ครบ {format(new Date(a.due_date), "d MMM yyyy", { locale: th })}</>}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-orange-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-orange-500 transition-all" style={{ width: `${stats.progress}%` }} />
+                    </div>
+                    <span className="text-[11px] font-black text-orange-700">{stats.done}/{stats.total} สาขา</span>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 📩 Sent to me — แสดงเฉพาะถ้ามี (รวมจากทุกคนที่ส่งฟอร์มถึงเรา) */}
       {evalsToMe.length > 0 && (

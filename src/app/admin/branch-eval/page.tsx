@@ -4,7 +4,7 @@ import Link from "next/link"
 import {
   Store, FileText, ClipboardCheck, ShieldCheck, ChevronRight,
   Loader2, Layers, BarChart3, Users, RefreshCw, Clock, Trash2,
-  Mail, User,
+  Mail, User, ClipboardList, Calendar, Sparkles,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -13,6 +13,7 @@ export default function BranchEvalAdminLanding() {
   const [me, setMe] = useState<any>(null)
   const [templates, setTemplates] = useState<any[]>([])
   const [evals, setEvals] = useState<any[]>([])
+  const [assignments, setAssignments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const load = () => {
@@ -21,8 +22,10 @@ export default function BranchEvalAdminLanding() {
       fetch("/api/branch-eval/me").then(r => r.json()),
       fetch("/api/branch-eval/templates").then(r => r.json()),
       fetch("/api/branch-eval/evaluations").then(r => r.json()),
-    ]).then(([m, t, e]) => {
+      fetch("/api/branch-eval/assignments").then(r => r.json()).catch(() => ({ assignments: [] })),
+    ]).then(([m, t, e, a]) => {
       setMe(m); setTemplates(t.templates ?? []); setEvals(e.evaluations ?? [])
+      setAssignments(a.assignments ?? [])
     }).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
@@ -40,6 +43,21 @@ export default function BranchEvalAdminLanding() {
     </div>
   )
 
+  // ── Assignment stats ──
+  const asgStats = (() => {
+    let total = 0, done = 0
+    let openAsg = 0, completedAsg = 0, overdueAsg = 0
+    const today = new Date().toISOString().slice(0, 10)
+    for (const a of assignments as any[]) {
+      total += a._stats?.total ?? 0
+      done += a._stats?.done ?? 0
+      if ((a._stats?.done ?? 0) === (a._stats?.total ?? 0) && (a._stats?.total ?? 0) > 0) completedAsg++
+      else openAsg++
+      if (a.due_date && a.due_date < today && (a._stats?.done ?? 0) < (a._stats?.total ?? 0)) overdueAsg++
+    }
+    return { total, done, openAsg, completedAsg, overdueAsg, totalAssignments: assignments.length }
+  })()
+
   const stats = {
     templates: templates.length,
     evals: evals.length,
@@ -50,7 +68,8 @@ export default function BranchEvalAdminLanding() {
       ? evals.filter((e: any) => e.percentage > 0).reduce((s: number, e: any) => s + Number(e.percentage), 0) /
         evals.filter((e: any) => e.percentage > 0).length
       : 0,
-    tagged: evals.filter((e: any) => e.target_manager_id).length,  // มีระบุผู้รับ
+    tagged: evals.filter((e: any) => e.target_manager_id).length,
+    assignments: assignments.length,
   }
 
   // ── Top recipients (top-5 หัวหน้าที่รับฟอร์มเยอะสุด) ──
@@ -125,12 +144,13 @@ export default function BranchEvalAdminLanding() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
         <Kpi icon={<Layers size={16} />} color="indigo" label="เทมเพลต" value={stats.templates} />
         <Kpi icon={<FileText size={16} />} color="sky" label="ฟอร์มทั้งหมด" value={stats.evals} sub={`ร่าง ${stats.draft}`} />
-        <Kpi icon={<Mail size={16} />} color="violet" label="ระบุผู้รับแล้ว" value={stats.tagged} sub={`${stats.evals > 0 ? Math.round(stats.tagged / stats.evals * 100) : 0}%`} />
+        <Kpi icon={<Mail size={16} />} color="violet" label="ระบุผู้รับ" value={stats.tagged} sub={`${stats.evals > 0 ? Math.round(stats.tagged / stats.evals * 100) : 0}%`} />
         <Kpi icon={<ClipboardCheck size={16} />} color="amber" label="รอรีวิว" value={stats.submitted} highlight={stats.submitted > 0} />
         <Kpi icon={<BarChart3 size={16} />} color="emerald" label="คะแนนเฉลี่ย" value={stats.avg > 0 ? `${stats.avg.toFixed(0)}%` : "—"} />
+        <Kpi icon={<ClipboardList size={16} />} color="orange" label="📋 การบ้าน" value={stats.assignments} sub={`${asgStats.openAsg} เปิด · ${asgStats.completedAsg} เสร็จ`} highlight={asgStats.overdueAsg > 0} />
       </div>
 
       {/* ── 2 columns: Top Recipients + Top Templates ── */}
@@ -222,9 +242,67 @@ export default function BranchEvalAdminLanding() {
           title="รายงาน / สถิติ" desc="คะแนนเฉลี่ย · แนวโน้ม · จุดอ่อน" />
         <MenuCard href="/admin/branch-eval/permissions" icon={<ShieldCheck size={18} />} color="rose"
           title="สิทธิ์" desc="มอบ admin / supervisor / evaluator" />
+        <MenuCard href="/admin/branch-eval/assignments" icon={<ClipboardList size={18} />} color="orange"
+          title="📋 การบ้าน" desc="มอบหมาย + ติดตามความคืบหน้า" />
+        <MenuCard href="/app/branch-eval/manage/ai-chat" icon={<Sparkles size={18} />} color="violet"
+          title="🤖 AI ผู้ช่วย" desc="ถามข้อมูลประเมิน · scoped ปลอดภัย" />
         <MenuCard href="/admin/branch-eval/trash" icon={<Trash2 size={18} />} color="slate"
           title="ถังขยะ" desc="กู้คืน / ลบถาวร template + ฟอร์ม" />
       </div>
+
+      {/* ── 📋 การบ้านที่กำลังดำเนินอยู่ — top 5 ── */}
+      {assignments.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-50 flex items-center gap-2">
+            <ClipboardList size={13} className="text-orange-600" />
+            <p className="font-black text-sm text-slate-800">📋 การบ้านที่กำลังดำเนิน</p>
+            <span className="ml-auto text-[10px] font-bold text-slate-400">
+              {asgStats.totalAssignments} ทั้งหมด · {asgStats.openAsg} เปิด · {asgStats.completedAsg} เสร็จ
+              {asgStats.overdueAsg > 0 && <span className="text-rose-600"> · {asgStats.overdueAsg} เลยกำหนด</span>}
+            </span>
+            <Link href="/admin/branch-eval/assignments" className="text-[11px] text-indigo-600 hover:text-indigo-700 font-bold">
+              ดูทั้งหมด →
+            </Link>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {(assignments as any[]).slice(0, 5).map((a: any) => {
+              const stats = a._stats
+              const overdue = a.due_date && new Date(a.due_date) < new Date() && stats.done < stats.total
+              const isDone = stats.done === stats.total && stats.total > 0
+              return (
+                <Link key={a.id} href={`/admin/branch-eval/assignments/${a.id}`}
+                  className="flex items-center gap-3 p-3 hover:bg-slate-50">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                    isDone ? "bg-emerald-100 text-emerald-700"
+                    : overdue ? "bg-rose-100 text-rose-700"
+                    : "bg-orange-100 text-orange-700"
+                  }`}>
+                    <ClipboardList size={14} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold truncate">{a.title}</p>
+                    <p className="text-[10px] text-slate-500 truncate">
+                      {a.template?.name}
+                      {a.assigner && <> · มอบโดย {a.assigner.first_name_th} {a.assigner.last_name_th}</>}
+                      {a.due_date && <> · <Calendar size={9} className="inline" /> {format(new Date(a.due_date), "d MMM", { locale: th })}</>}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={`h-full ${isDone ? "bg-emerald-500" : overdue ? "bg-rose-500" : "bg-orange-500"}`}
+                          style={{ width: `${stats.progress}%` }} />
+                      </div>
+                      <span className="text-[10px] font-black text-slate-700">{stats.done}/{stats.total}</span>
+                    </div>
+                  </div>
+                  {overdue && <span className="text-[9px] font-black text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded-full">เลยกำหนด</span>}
+                  {isDone && <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full">เสร็จ ✓</span>}
+                  <ChevronRight size={13} className="text-slate-300" />
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Recent evaluations */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -278,6 +356,7 @@ function Kpi({ icon, color, label, value, sub, highlight }: any) {
     amber:   { bg: "bg-amber-50",   text: "text-amber-600",   ring: "ring-amber-300" },
     emerald: { bg: "bg-emerald-50", text: "text-emerald-600", ring: "ring-emerald-200" },
     violet:  { bg: "bg-violet-50",  text: "text-violet-600",  ring: "ring-violet-200" },
+    orange:  { bg: "bg-orange-50",  text: "text-orange-600",  ring: "ring-orange-300" },
   }
   const p = palette[color] ?? palette.indigo
   return (
@@ -299,6 +378,8 @@ function MenuCard({ href, icon, color, title, desc }: any) {
     rose:    "bg-rose-50 text-rose-600 group-hover:border-rose-200",
     emerald: "bg-emerald-50 text-emerald-600 group-hover:border-emerald-200",
     slate:   "bg-slate-50 text-slate-600 group-hover:border-slate-200",
+    orange:  "bg-orange-50 text-orange-600 group-hover:border-orange-200",
+    violet:  "bg-violet-50 text-violet-600 group-hover:border-violet-200",
   }
   return (
     <Link href={href} className="group bg-white border border-slate-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex items-center gap-3">

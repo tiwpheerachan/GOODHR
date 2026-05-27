@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
   const svc = createServiceClient()
   const access = await getBranchEvalAccess(svc, user.id)
   const body = await req.json()
-  const { branch_id, template_id, visit_date, visit_time, store_manager, store_staff, target_manager_id } = body
+  const { branch_id, template_id, visit_date, visit_time, store_manager, store_staff, target_manager_id, assignment_id } = body
 
   if (!branch_id || !template_id) return NextResponse.json({ error: "missing branch_id/template_id" }, { status: 400 })
   if (!canFillBranch(access, branch_id)) return NextResponse.json({ error: "ไม่มีสิทธิ์กรอกประเมินสาขานี้" }, { status: 403 })
@@ -132,6 +132,7 @@ export async function POST(req: NextRequest) {
     template_version: tpl.version,
     evaluator_id: access.employeeId,
     target_manager_id: target_manager_id || null,  // ป้าย "ส่งถึงใคร" (optional)
+    assignment_id: assignment_id || null,           // link กับการบ้าน (ถ้ามี)
     visit_date: visit_date ?? new Date().toISOString().slice(0, 10),
     visit_time: visit_time ?? null,
     store_manager: store_manager ?? null,
@@ -245,7 +246,7 @@ export async function PATCH(req: NextRequest) {
   // อนุญาตเฉพาะ field ที่กำหนด — กัน injection
   const allowed = ["visit_date", "visit_time", "store_manager", "store_staff",
                    "general_notes", "action_plan", "deleted_at",
-                   "target_manager_id"]  // ผู้กรอกแก้ "ส่งถึงใคร" ได้ตลอด
+                   "target_manager_id", "assignment_id"]  // ผู้กรอกแก้ "ส่งถึงใคร" + link การบ้านได้
   const safe: any = { updated_at: new Date().toISOString() }
   for (const k of allowed) if (k in updates) safe[k] = updates[k]
   if (Object.keys(safe).length === 1) {

@@ -170,8 +170,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const initials = emp?.first_name_th?.[0] ?? (user as any)?.email?.[0]?.toUpperCase() ?? "U"
   const displayName = emp ? `${emp.first_name_th} ${emp.last_name_th}` : (user as any)?.email?.split("@")[0] ?? "HRMS"
 
-  // ทุกหน้าใน /app/training/* ใช้ responsive layout (เดสก์ท็อปกว้าง, มือถือเหมือนเดิม)
-  const isWideLayout = pathname.startsWith("/app/training")
+  // ทุกหน้าใน /app/training/* + /app/branch-eval/manage/* ใช้ responsive layout
+  // (เดสก์ท็อป ≥1024 = เต็มจอ, มือถือ ≤430px = column เหมือนเดิม)
+  const isWideLayout =
+    pathname.startsWith("/app/training") ||
+    pathname.startsWith("/app/branch-eval/manage")
 
   return (
     <div className={isWideLayout ? "responsive-container" : "mobile-container"}>

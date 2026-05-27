@@ -4,6 +4,7 @@ import Link from "next/link"
 import {
   Store, FileText, ShieldCheck, ChevronRight,
   Layers, BarChart3, Clock, ArrowLeft, ShieldAlert, Trash2, Mail,
+  ClipboardList, Sparkles, Calendar,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -11,6 +12,7 @@ import { th } from "date-fns/locale"
 export default function SupervisorManagePage() {
   const [me, setMe] = useState<any>(null)
   const [evals, setEvals] = useState<any[]>([])
+  const [assignments, setAssignments] = useState<any[]>([])
   const [branches, setBranches] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -20,8 +22,10 @@ export default function SupervisorManagePage() {
       fetch("/api/branch-eval/me").then(r => r.json()),
       fetch("/api/branch-eval/evaluations").then(r => r.json()),
       fetch("/api/branch-eval/branches-for-me").then(r => r.json()),
-    ]).then(([m, e, b]) => {
+      fetch("/api/branch-eval/assignments").then(r => r.json()).catch(() => ({ assignments: [] })),
+    ]).then(([m, e, b, a]) => {
       setMe(m); setEvals(e.evaluations ?? []); setBranches(b.branches ?? [])
+      setAssignments(a.assignments ?? [])
     }).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
@@ -55,7 +59,20 @@ export default function SupervisorManagePage() {
         evals.filter((e: any) => e.percentage > 0).length
       : 0,
     sentToMe: evals.filter((e: any) => e.target_manager_id === me?.employee_id).length,
+    assignments: assignments.length,
   }
+
+  // ── Assignment stats ──
+  const asgStats = (() => {
+    let openAsg = 0, completedAsg = 0, overdueAsg = 0
+    const today = new Date().toISOString().slice(0, 10)
+    for (const a of assignments as any[]) {
+      if ((a._stats?.done ?? 0) === (a._stats?.total ?? 0) && (a._stats?.total ?? 0) > 0) completedAsg++
+      else openAsg++
+      if (a.due_date && a.due_date < today && (a._stats?.done ?? 0) < (a._stats?.total ?? 0)) overdueAsg++
+    }
+    return { openAsg, completedAsg, overdueAsg }
+  })()
 
   const recent = evals.slice(0, 5)
   // ฟอร์มที่ "ส่งถึงฉัน" (target_manager_id = me) — ผู้ส่งไม่ใช่ตัวเอง
@@ -89,12 +106,15 @@ export default function SupervisorManagePage() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
         <Kpi color="slate" label="ฟอร์มทั้งหมด" value={stats.total} />
         <Kpi color="amber" label="รอรีวิว" value={stats.submitted} highlight={stats.submitted > 0} />
         <Kpi color="emerald" label="รีวิวแล้ว" value={stats.reviewed} />
         <Kpi color="indigo" label="คะแนนเฉลี่ย" value={stats.avg > 0 ? `${stats.avg.toFixed(0)}%` : "—"} />
         <Kpi color="violet" label="📩 ส่งถึงฉัน" value={stats.sentToMe} highlight={stats.sentToMe > 0} />
+        <Kpi color="orange" label="📋 การบ้าน" value={stats.assignments}
+          sub={`${asgStats.openAsg} เปิด · ${asgStats.completedAsg} เสร็จ`}
+          highlight={asgStats.overdueAsg > 0} />
       </div>
 
       {/* ── 📩 ฟอร์มที่ส่งถึงฉัน — ขึ้นเฉพาะถ้ามี ── */}
@@ -136,8 +156,8 @@ export default function SupervisorManagePage() {
         </div>
       )}
 
-      {/* Menu */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* Menu — 1 col mobile / 2 col tablet / 3 col desktop / 4 col wide */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {me?.is_eval_admin && (
           <MenuCard href="/app/branch-eval/manage/templates"
             icon={<Layers size={18} />} color="violet"
@@ -147,6 +167,10 @@ export default function SupervisorManagePage() {
           icon={<FileText size={18} />} color="sky"
           title={me?.is_eval_admin ? "ฟอร์มทั้งระบบ" : "ฟอร์มในสาขาฉันดูแล"}
           desc="ดู / รีวิว / comment ฟอร์ม" />
+        <MenuCard href="/app/branch-eval/manage/assignments"
+          icon={<ClipboardList size={18} />} color="orange"
+          title="📋 มอบการบ้าน"
+          desc="มอบหมายให้ลูกน้องประเมิน + ติดตามความคืบหน้า" />
         <MenuCard href="/app/branch-eval/manage/permissions"
           icon={<ShieldCheck size={18} />} color="rose"
           title="จัดสิทธิ์"
@@ -154,6 +178,10 @@ export default function SupervisorManagePage() {
         <MenuCard href="/app/branch-eval/manage/reports"
           icon={<BarChart3 size={18} />} color="emerald"
           title="รายงาน / สถิติ" desc="คะแนน · แนวโน้ม · top/bottom" />
+        <MenuCard href="/app/branch-eval/manage/ai-chat"
+          icon={<Sparkles size={18} />} color="violet"
+          title="🤖 AI ผู้ช่วย"
+          desc="ถามข้อมูลประเมินสาขา · scoped ปลอดภัย" />
         {me?.is_eval_admin && (
           <MenuCard href="/app/branch-eval/manage/trash"
             icon={<Trash2 size={18} />} color="slate"
@@ -163,6 +191,67 @@ export default function SupervisorManagePage() {
           icon={<Store size={18} />} color="indigo"
           title="กลับไปกรอกฟอร์มเอง" desc="โหมดผู้ประเมิน — เริ่มประเมินใหม่" />
       </div>
+
+      {/* ── 📋 การบ้านที่กำลังดำเนิน — top 5 ── */}
+      {assignments.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-50 flex items-center gap-2 flex-wrap">
+            <ClipboardList size={13} className="text-orange-600" />
+            <p className="font-black text-sm text-slate-800">📋 การบ้านที่กำลังดำเนิน</p>
+            <span className="text-[10px] font-bold text-slate-400">
+              {assignments.length} ทั้งหมด · {asgStats.openAsg} เปิด · {asgStats.completedAsg} เสร็จ
+              {asgStats.overdueAsg > 0 && <span className="text-rose-600"> · {asgStats.overdueAsg} เลยกำหนด</span>}
+            </span>
+            <Link href="/app/branch-eval/manage/assignments" className="ml-auto text-[11px] text-indigo-600 hover:text-indigo-700 font-bold">
+              ดูทั้งหมด →
+            </Link>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {(assignments as any[]).slice(0, 5).map((a: any) => {
+              const s = a._stats
+              const overdue = a.due_date && new Date(a.due_date) < new Date() && s.done < s.total
+              const isDone = s.done === s.total && s.total > 0
+              return (
+                <Link key={a.id} href={`/app/branch-eval/manage/assignments/${a.id}`}
+                  className="flex items-center gap-3 p-3 hover:bg-slate-50">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                    isDone ? "bg-emerald-100 text-emerald-700"
+                    : overdue ? "bg-rose-100 text-rose-700"
+                    : "bg-orange-100 text-orange-700"
+                  }`}>
+                    <ClipboardList size={14} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold truncate">{a.title}</p>
+                    <p className="text-[10px] text-slate-500 truncate">
+                      {a.template?.name}
+                      {a.assigner && <> · มอบโดย {a.assigner.first_name_th} {a.assigner.last_name_th}</>}
+                      {a.due_date && <> · <Calendar size={9} className="inline" /> {format(new Date(a.due_date), "d MMM", { locale: th })}</>}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={`h-full ${isDone ? "bg-emerald-500" : overdue ? "bg-rose-500" : "bg-orange-500"}`}
+                          style={{ width: `${s.progress}%` }} />
+                      </div>
+                      <span className="text-[10px] font-black text-slate-700">{s.done}/{s.total}</span>
+                      {s.avg_score != null && (
+                        <span className={`text-[10px] font-black ${
+                          Number(s.avg_score) >= 80 ? "text-emerald-700"
+                          : Number(s.avg_score) >= 60 ? "text-amber-700"
+                          : "text-rose-700"
+                        }`}>{Number(s.avg_score).toFixed(0)}%</span>
+                      )}
+                    </div>
+                  </div>
+                  {overdue && <span className="text-[9px] font-black text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded-full">เลยกำหนด</span>}
+                  {isDone && <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full">เสร็จ ✓</span>}
+                  <ChevronRight size={13} className="text-slate-300" />
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Recent */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -209,19 +298,23 @@ export default function SupervisorManagePage() {
   )
 }
 
-function Kpi({ color, label, value, highlight }: any) {
+function Kpi({ color, label, value, sub, highlight }: any) {
   const palette: Record<string, { bg: string; text: string; ring: string }> = {
     slate:   { bg: "bg-slate-50",   text: "text-slate-700",   ring: "ring-slate-200" },
     amber:   { bg: "bg-amber-50",   text: "text-amber-700",   ring: "ring-amber-300" },
     emerald: { bg: "bg-emerald-50", text: "text-emerald-700", ring: "ring-emerald-200" },
     indigo:  { bg: "bg-indigo-50",  text: "text-indigo-700",  ring: "ring-indigo-200" },
     violet:  { bg: "bg-violet-50",  text: "text-violet-700",  ring: "ring-violet-300" },
+    orange:  { bg: "bg-orange-50",  text: "text-orange-700",  ring: "ring-orange-300" },
+    rose:    { bg: "bg-rose-50",    text: "text-rose-700",    ring: "ring-rose-300" },
+    sky:     { bg: "bg-sky-50",     text: "text-sky-700",     ring: "ring-sky-200" },
   }
-  const p = palette[color]
+  const p = palette[color] ?? palette.slate
   return (
     <div className={`${p.bg} border border-white rounded-2xl p-3 shadow-sm ${highlight ? `ring-2 ${p.ring}` : ""}`}>
       <p className={`text-[10px] font-bold uppercase ${p.text} opacity-80`}>{label}</p>
       <p className={`text-xl font-black ${p.text} leading-none mt-1`}>{value}</p>
+      {sub && <p className={`text-[10px] font-bold ${p.text} opacity-60 mt-0.5`}>{sub}</p>}
     </div>
   )
 }
@@ -234,6 +327,7 @@ function MenuCard({ href, icon, color, title, desc }: any) {
     indigo:  "bg-indigo-50 text-indigo-600 group-hover:border-indigo-200",
     violet:  "bg-violet-50 text-violet-600 group-hover:border-violet-200",
     slate:   "bg-slate-50 text-slate-600 group-hover:border-slate-200",
+    orange:  "bg-orange-50 text-orange-600 group-hover:border-orange-200",
   }
   return (
     <Link href={href} className="group bg-white border border-slate-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex items-center gap-3">
