@@ -112,40 +112,49 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     bottom_branches: bot5,
   }
 
-  // ── Call Claude ──
-  const sys = `คุณเป็น AI ผู้ช่วยวิเคราะห์ระบบประเมินสาขา (Branch Evaluation Analytics).
-ผู้ใช้คือ หัวหน้า/ผู้จัดการ ที่ดูสรุปการบ้านมอบหมายให้ทีม
+  // ── Call Claude (streaming + natural prose) ──
+  const instructions = `คุณคือผู้ช่วยวิเคราะห์ระบบประเมินสาขา GOODHR
 
-หน้าที่ของคุณ:
-- วิเคราะห์ข้อมูลการบ้านที่ผู้ใช้ส่งมา → สรุปเป็นภาษาไทยกระชับ (ไม่เกิน 400 คำ)
-- มีหัวข้อชัดเจน: ความคืบหน้า, ผลคะแนน, จุดเสี่ยง, recommendation
-- ใช้ bullet points / emoji ให้อ่านง่าย (✅ ⚠️ 📊 🎯)
-- ห้ามตอบคำถามเรื่องเงินเดือน บุคคล หรือเรื่องอื่นที่ไม่ใช่ branch evaluation`
+ตอบเป็นภาษาไทย กระชับ เหมือนคนพิมพ์คุยปกติ
+ห้ามใช้ markdown เช่น ** __ # หรือ bullet ขึ้นต้นด้วย - หรือ *
+ห้ามใช้หัวข้อแบบ "สรุปภาพรวม:" "Recommendation:" หรือเลข 1. 2. 3.
+ให้เขียนเป็นย่อหน้าธรรมชาติต่อกัน ไม่เกิน 250 คำ
+อ้างชื่อ ตัวเลข เปอร์เซ็นต์จริงจาก data
+emoji ใช้พอประมาณ ไม่ต้องใส่ทุกบรรทัด
 
-  const userMsg = `วิเคราะห์การบ้านนี้ให้หน่อย:
+ห้ามตอบเรื่องเงินเดือน บุคคล สุขภาพ หรือนอกเหนือจาก branch evaluation`
 
-\`\`\`json
-${JSON.stringify(ctx, null, 2)}
-\`\`\`
+  const userMsg = `วิเคราะห์การบ้านนี้ — ขอครอบคลุม ภาพรวมความคืบหน้า, ใครทำได้ดี/สาขาคะแนนสูง, จุดเสี่ยง (ตามไม่ทัน/คะแนนต่ำ/เลยกำหนด), และคำแนะนำที่หัวหน้าควรทำต่อ:
 
-กรุณาให้:
-1. **📊 สรุปภาพรวม** — โดยรวมเป็นยังไง
-2. **🏆 ทำได้ดี** — ลูกน้องที่เด่น, สาขาคะแนนสูง
-3. **⚠️ จุดเสี่ยง** — ใครยังตามไม่ทัน, สาขาคะแนนต่ำ, เลยกำหนดไหม
-4. **🎯 Recommendation** — หัวหน้าควรดูแลอะไรต่อ (action items)`
+${JSON.stringify(ctx)}`
 
   try {
-    const resp = await anthropic.messages.create({
+    const stream = anthropic.messages.stream({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 1500,
-      system: sys,
+      max_tokens: 800,
+      system: instructions,
       messages: [{ role: "user", content: userMsg }],
     })
-    const summary = resp.content
-      .filter((c: any) => c.type === "text")
-      .map((c: any) => c.text)
-      .join("\n")
-    return NextResponse.json({ summary, stats: ctx.stats })
+
+    const encoder = new TextEncoder()
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const evt of stream) {
+            if (evt.type === "content_block_delta" && (evt.delta as any).type === "text_delta") {
+              controller.enqueue(encoder.encode((evt.delta as any).text as string))
+            }
+          }
+        } catch (e: any) {
+          controller.enqueue(encoder.encode(`\n\n[ข้อผิดพลาด: ${e.message || "AI error"}]`))
+        } finally {
+          controller.close()
+        }
+      },
+    })
+    return new Response(readable, {
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache, no-transform" },
+    })
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "AI error" }, { status: 500 })
   }

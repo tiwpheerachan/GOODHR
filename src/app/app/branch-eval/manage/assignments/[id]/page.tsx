@@ -150,15 +150,40 @@ export default function AssignmentDetailPage() {
   // ── AI insight ──
   const runAiInsight = async () => {
     setAiLoading(true)
-    setAiResult(null)
+    setAiResult("")
     try {
       const res = await fetch(`/api/branch-eval/assignments/${id}/ai`, { method: "POST" })
-      const d = await res.json()
       if (!res.ok) {
-        toast.error(d.error || "AI วิเคราะห์ไม่สำเร็จ")
+        // Error path — อาจเป็น JSON หรือ text
+        const text = await res.text()
+        let msg = text
+        try { msg = JSON.parse(text).error || text } catch {}
+        toast.error(msg || "AI วิเคราะห์ไม่สำเร็จ")
+        setAiResult(null)
         return
       }
-      setAiResult(d.summary)
+      // Streaming response → append chunks
+      const reader = res.body?.getReader()
+      if (!reader) {
+        const text = await res.text()
+        // อาจเป็น JSON เก่า { summary: ... } หรือ plain text
+        try { setAiResult(JSON.parse(text).summary || text) } catch { setAiResult(text) }
+        return
+      }
+      const decoder = new TextDecoder()
+      let acc = ""
+      let pending = false
+      const flush = () => { pending = false; setAiResult(acc) }
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        acc += decoder.decode(value, { stream: true })
+        if (!pending) { pending = true; requestAnimationFrame(flush) }
+      }
+      flush()
+    } catch (e: any) {
+      toast.error(e.message || "AI error")
+      setAiResult(null)
     } finally {
       setAiLoading(false)
     }
@@ -732,10 +757,13 @@ function AiTab({ loading, result, onRun, canRun }: any) {
         </div>
       </div>
 
-      {result && (
+      {(result || loading) && (
         <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
           <div className="text-sm text-slate-700 whitespace-pre-wrap font-[Sarabun] leading-relaxed">
-            {result}
+            {result ? result.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1").replace(/^#+\s*/gm, "") : ""}
+            {loading && (
+              <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-violet-500 align-middle animate-pulse" />
+            )}
           </div>
         </div>
       )}

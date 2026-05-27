@@ -4,12 +4,170 @@ import Link from "next/link"
 import {
   ArrowLeft, Sparkles, Send, Loader2, Shield, AlertCircle, User, Bot,
   RotateCw, Globe, ClipboardList, FileText, UserCog, ChevronDown, X,
+  BarChart3, FileDown,
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
+import * as XLSX from "xlsx"
 
-type Msg = { role: "user" | "assistant"; content: string }
+type Msg = { role: "user" | "assistant"; content: string; attachments?: ChatAttachments }
+type ChatAttachments = {
+  summary?: { title: string; sub?: string; total?: number; done?: number }
+  chart?: {
+    title: string
+    type: "bar" | "donut"
+    unit?: string
+    data: { label: string; value: number; sub?: string; color?: string }[]
+  }
+  xlsx?: { filename: string; sheets: { name: string; rows: any[] }[] }
+}
+
+// Safety net — strip markdown ที่ AI อาจหลุดมา (** __ # ที่ต้นบรรทัด)
+function stripMd(s: string): string {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/^#+\s*/gm, "")
+    .replace(/^[*-]\s+/gm, "• ")
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Attachments — Chart + XLSX download (per AI message)
+// ════════════════════════════════════════════════════════════════════
+const COLOR_MAP: Record<string, string> = {
+  emerald: "#10b981",
+  rose: "#f43f5e",
+  orange: "#f97316",
+  amber: "#f59e0b",
+  sky: "#0ea5e9",
+  indigo: "#6366f1",
+  violet: "#8b5cf6",
+  slate: "#94a3b8",
+}
+
+function AttachmentsView({ att }: { att: ChatAttachments }) {
+  const downloadXlsx = () => {
+    if (!att.xlsx) return
+    const wb = XLSX.utils.book_new()
+    for (const s of att.xlsx.sheets) {
+      const ws = XLSX.utils.json_to_sheet(s.rows)
+      XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 30))
+    }
+    XLSX.writeFile(wb, att.xlsx.filename)
+    toast.success("ดาวน์โหลดแล้ว")
+  }
+
+  const hasChart = att.chart && att.chart.data.length > 0
+  const hasXlsx = att.xlsx && att.xlsx.sheets.length > 0
+
+  if (!hasChart && !hasXlsx && !att.summary) return null
+
+  return (
+    <div className="mt-2 bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-3">
+      {/* Summary header */}
+      {att.summary && (
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center flex-shrink-0">
+            <BarChart3 size={16} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-black text-sm text-slate-800 truncate">📎 ข้อมูลแนบ — {att.summary.title}</p>
+            {att.summary.sub && <p className="text-[10px] text-slate-500 truncate">{att.summary.sub}</p>}
+            {att.summary.total != null && (
+              <p className="text-[10px] text-emerald-700 font-bold">
+                ทำแล้ว {att.summary.done ?? 0}/{att.summary.total}
+                {att.summary.total > 0 && ` (${Math.round((att.summary.done ?? 0)/att.summary.total*100)}%)`}
+              </p>
+            )}
+          </div>
+          {hasXlsx && (
+            <button onClick={downloadXlsx}
+              className="inline-flex items-center gap-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-sm flex-shrink-0">
+              <FileDown size={13}/> XLSX
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Chart */}
+      {hasChart && (
+        <div className="bg-white rounded-xl p-3 border border-slate-100">
+          <p className="text-[11px] font-black text-slate-700 mb-2">📊 {att.chart!.title}</p>
+          {att.chart!.type === "bar" ? <BarChartMini chart={att.chart!} /> : <DonutChartMini chart={att.chart!} />}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BarChartMini({ chart }: { chart: NonNullable<ChatAttachments["chart"]> }) {
+  const maxValue = Math.max(...chart.data.map(d => d.value), 100)
+  return (
+    <div className="space-y-1.5">
+      {chart.data.map((d, i) => {
+        const pct = maxValue > 0 ? (d.value / maxValue) * 100 : 0
+        const color = COLOR_MAP[d.color || "indigo"] || COLOR_MAP.indigo
+        return (
+          <div key={i}>
+            <div className="flex items-center justify-between text-[10px] mb-0.5">
+              <span className="font-bold text-slate-700 truncate flex-1 pr-2">{d.label}</span>
+              <span className="font-black text-slate-800 tabular-nums flex-shrink-0">
+                {d.value.toFixed(chart.unit === "%" ? 0 : 0)}{chart.unit || ""}
+              </span>
+            </div>
+            <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(2, pct)}%`, backgroundColor: color }} />
+            </div>
+            {d.sub && <p className="text-[9px] text-slate-400 mt-0.5">{d.sub}</p>}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function DonutChartMini({ chart }: { chart: NonNullable<ChatAttachments["chart"]> }) {
+  const total = chart.data.reduce((s, d) => s + d.value, 0)
+  if (total === 0) return <p className="text-xs text-slate-400 text-center py-4">ไม่มีข้อมูล</p>
+
+  const R = 28, CIRC = 2 * Math.PI * R
+  let offset = 0
+  const segments = chart.data.map((d, i) => {
+    const pct = d.value / total
+    const dash = pct * CIRC
+    const color = COLOR_MAP[d.color || "indigo"] || COLOR_MAP.indigo
+    const seg = (
+      <circle key={i} cx="36" cy="36" r={R} fill="none" stroke={color} strokeWidth="14"
+        strokeDasharray={`${dash} ${CIRC - dash}`} strokeDashoffset={-offset} />
+    )
+    offset += dash
+    return seg
+  })
+
+  return (
+    <div className="flex items-center gap-4">
+      <svg viewBox="0 0 72 72" className="flex-shrink-0" width="72" height="72" style={{ transform: "rotate(-90deg)" }}>
+        {segments}
+      </svg>
+      <div className="flex-1 space-y-1">
+        {chart.data.map((d, i) => {
+          const pct = total > 0 ? (d.value / total) * 100 : 0
+          const color = COLOR_MAP[d.color || "indigo"] || COLOR_MAP.indigo
+          return (
+            <div key={i} className="flex items-center gap-1.5 text-[10px]">
+              <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
+              <span className="font-bold text-slate-700 flex-1">{d.label}</span>
+              <span className="font-black text-slate-800 tabular-nums">
+                {d.value} <span className="text-slate-400 font-normal">({pct.toFixed(0)}%)</span>
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 type Scope =
   | { type: "system" }
   | { type: "assignment"; id: string; label: string }
@@ -79,6 +237,10 @@ export default function BranchEvalAiChatPage() {
     setMessages(newMsgs)
     setInput("")
     setLoading(true)
+
+    // เพิ่ม assistant placeholder เปล่าๆ ไว้ก่อน → จะ update ระหว่าง stream
+    setMessages(m => [...m, { role: "assistant", content: "" }])
+
     try {
       const scopePayload: any = { type: scope.type }
       if ("id" in scope) scopePayload.id = scope.id
@@ -87,15 +249,77 @@ export default function BranchEvalAiChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: newMsgs, scope: scopePayload }),
       })
-      const d = await res.json()
+
       if (!res.ok) {
-        toast.error(d.error || "AI error")
-        setMessages(m => [...m, { role: "assistant", content: `⚠️ ${d.error || "เกิดข้อผิดพลาด"}` }])
+        const text = await res.text()
+        let msg = text
+        try { msg = JSON.parse(text).error || text } catch {}
+        toast.error(msg || "AI error")
+        setMessages(m => {
+          const next = [...m]
+          next[next.length - 1] = { role: "assistant", content: `⚠️ ${msg || "เกิดข้อผิดพลาด"}` }
+          return next
+        })
         return
       }
-      setMessages(m => [...m, { role: "assistant", content: d.reply }])
+
+      // Stream tokens — update last message ทีละชิ้น
+      const reader = res.body?.getReader()
+      if (!reader) {
+        const txt = await res.text()
+        setMessages(m => {
+          const next = [...m]
+          next[next.length - 1] = { role: "assistant", content: txt }
+          return next
+        })
+        return
+      }
+      const decoder = new TextDecoder()
+      let acc = ""
+      // throttle setMessages เป็น batched (rAF) เพื่อไม่ให้ render lag
+      let pending = false
+      const flush = () => {
+        pending = false
+        setMessages(m => {
+          const next = [...m]
+          next[next.length - 1] = { role: "assistant", content: acc }
+          return next
+        })
+      }
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        acc += decoder.decode(value, { stream: true })
+        if (!pending) {
+          pending = true
+          requestAnimationFrame(flush)
+        }
+      }
+      flush()  // final
+
+      // ── Fetch attachments หลัง AI ตอบเสร็จ ──
+      try {
+        const aRes = await fetch("/api/branch-eval/chat/attachments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope: scopePayload }),
+        })
+        if (aRes.ok) {
+          const attachments: ChatAttachments = await aRes.json()
+          setMessages(m => {
+            const next = [...m]
+            next[next.length - 1] = { ...next[next.length - 1], attachments }
+            return next
+          })
+        }
+      } catch {}
     } catch (e: any) {
       toast.error(e.message || "Network error")
+      setMessages(m => {
+        const next = [...m]
+        next[next.length - 1] = { role: "assistant", content: `⚠️ ${e.message || "เกิดข้อผิดพลาด"}` }
+        return next
+      })
     } finally {
       setLoading(false)
     }
@@ -308,14 +532,21 @@ export default function BranchEvalAiChatPage() {
                 <Bot size={14} />
               </div>
             )}
-            <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
-              m.role === "user"
-                ? "bg-orange-500 text-white"
-                : "bg-white border border-slate-100 text-slate-800 shadow-sm"
-            }`}>
-              <p className={`text-sm whitespace-pre-wrap leading-relaxed ${m.role === "user" ? "" : "font-[Sarabun]"}`}>
-                {m.content}
-              </p>
+            <div className={`max-w-[80%] ${m.role === "user" ? "" : "w-full"}`}>
+              <div className={`rounded-2xl px-4 py-2.5 ${
+                m.role === "user"
+                  ? "bg-orange-500 text-white"
+                  : "bg-white border border-slate-100 text-slate-800 shadow-sm"
+              }`}>
+                <p className={`text-sm whitespace-pre-wrap leading-relaxed ${m.role === "user" ? "" : "font-[Sarabun]"}`}>
+                  {m.role === "assistant" ? stripMd(m.content) : m.content}
+                  {m.role === "assistant" && loading && i === messages.length - 1 && (
+                    <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-violet-500 align-middle animate-pulse" />
+                  )}
+                </p>
+              </div>
+              {/* Attachments — แสดงใต้ AI message */}
+              {m.role === "assistant" && m.attachments && <AttachmentsView att={m.attachments} />}
             </div>
             {m.role === "user" && (
               <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center flex-shrink-0">
@@ -325,15 +556,9 @@ export default function BranchEvalAiChatPage() {
           </div>
         ))}
 
-        {loading && (
-          <div className="flex gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white flex items-center justify-center">
-              <Bot size={14} />
-            </div>
-            <div className="bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-sm">
-              <Loader2 size={14} className="animate-spin text-violet-500" />
-            </div>
-          </div>
+        {/* Show "thinking" only when streaming hasn't started yet */}
+        {loading && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.content === "" && (
+          <div className="text-[10px] text-slate-400 pl-11 italic">กำลังคิด...</div>
         )}
       </div>
 
