@@ -253,9 +253,10 @@ export default function DashboardPage() {
             0 8px 32px rgba(0,0,0,.18),
             0 2px 8px rgba(0,0,0,.1),
             inset 0 1px 0 rgba(255,255,255,.15);
-          transform:perspective(800px) rotateX(1deg);
-          transition:transform .3s ease;
           isolation:isolate;  /* ให้ z-index ของลูกอ้างอิงในขอบเขตนี้ */
+          /* clip-path เพิ่ม — บาง browser (Safari) บังคับ border-radius บน canvas child */
+          -webkit-mask-image: -webkit-radial-gradient(white, black);
+          mask-image: radial-gradient(white, black);
         }
         .hero-card::before {
           content:''; position:absolute; inset:0;
@@ -282,7 +283,7 @@ export default function DashboardPage() {
             {/* MeshGradient animated background — เปลี่ยนสีเรื่อยๆ */}
             <MeshGradient
               className="absolute inset-0 w-full h-full"
-              style={{ zIndex: 0 }}
+              style={{ zIndex: 0, borderRadius: 22, overflow: "hidden" }}
               colors={cfg.colors}
               speed={0.25}
               distortion={0.85}
@@ -291,7 +292,7 @@ export default function DashboardPage() {
             {/* Overlay layer — เพิ่มมิติให้สวยขึ้น (blend mode + ความเร็วต่างกัน) */}
             <MeshGradient
               className="absolute inset-0 w-full h-full"
-              style={{ zIndex: 1, opacity: 0.4, mixBlendMode: "overlay" }}
+              style={{ zIndex: 1, opacity: 0.4, mixBlendMode: "overlay", borderRadius: 22, overflow: "hidden" }}
               colors={[cfg.colors[1], "#ffffff", cfg.colors[3], cfg.colors[4] || cfg.colors[2]]}
               speed={0.4}
               distortion={1}
