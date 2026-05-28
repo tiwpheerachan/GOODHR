@@ -54,8 +54,8 @@ function AssistiveTouch({ unreadAnn }: { unreadAnn: number }) {
     const dy = e.clientY - dragRef.current.startY
     if (Math.abs(dx) > 5 || Math.abs(dy) > 5) dragRef.current.moved = true
     setPos({
-      x: Math.max(8, Math.min(window.innerWidth - 56, dragRef.current.startPosX + dx)),
-      y: Math.max(60, Math.min(window.innerHeight - 120, dragRef.current.startPosY + dy)),
+      x: Math.max(8, Math.min(window.innerWidth - 68, dragRef.current.startPosX + dx)),
+      y: Math.max(60, Math.min(window.innerHeight - 130, dragRef.current.startPosY + dy)),
     })
   }
 
@@ -102,15 +102,53 @@ function AssistiveTouch({ unreadAnn }: { unreadAnn: number }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
-        <div className={`w-12 h-12 rounded-2xl shadow-xl flex items-center justify-center cursor-pointer transition-all duration-200 ${
-          open
-            ? "bg-slate-800 scale-110"
-            : "bg-gradient-to-br from-indigo-500 to-violet-600 hover:shadow-2xl hover:scale-105 opacity-80 hover:opacity-100"
-        }`}>
-          {open ? <X size={20} className="text-white"/> : <Grip size={20} className="text-white"/>}
+        {/* ── น้อง SHD Mascot ── */}
+        <div className={`shd-mascot ${open ? "shd-open" : ""} ${dragging ? "shd-drag" : ""}`}>
+          {/* Outer aura — เปล่งแสงทอง */}
+          <span className="shd-aura"/>
+
+          {/* Rotating halo ring — สีทอง */}
+          <span className="shd-halo"/>
+
+          {/* Orbiting sparkles — ดาวๆ หมุนรอบ */}
+          <span className="shd-orbit">
+            <span className="shd-sparkle s1"/>
+            <span className="shd-sparkle s2"/>
+            <span className="shd-sparkle s3"/>
+            <span className="shd-sparkle s4"/>
+          </span>
+
+          {/* Antenna */}
+          <span className="shd-antenna">
+            <span className="shd-antenna-dot"/>
+          </span>
+
+          {/* Body / Face */}
+          <div className="shd-body">
+            {open ? (
+              <X size={22} className="text-white relative z-10"/>
+            ) : (
+              <>
+                {/* Eyes */}
+                <span className="shd-eye shd-eye-left"/>
+                <span className="shd-eye shd-eye-right"/>
+                {/* Cheeks */}
+                <span className="shd-cheek shd-cheek-left"/>
+                <span className="shd-cheek shd-cheek-right"/>
+                {/* Mouth */}
+                <span className="shd-mouth"/>
+                {/* Label */}
+                <span className="shd-label">SHD</span>
+              </>
+            )}
+          </div>
+
+          {/* Shadow on ground */}
+          <span className="shd-shadow"/>
         </div>
+
         {!open && unreadAnn > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 shadow-sm animate-pulse">
+          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center px-1 shadow-md animate-pulse z-20 ring-2 ring-white">
             {unreadAnn}
           </span>
         )}
@@ -120,6 +158,273 @@ function AssistiveTouch({ unreadAnn }: { unreadAnn: number }) {
         @keyframes scaleIn {
           from { transform: scale(0.8); opacity: 0; }
           to { transform: scale(1); opacity: 1; }
+        }
+
+        /* ── น้อง SHD — Living Mascot ── */
+        .shd-mascot {
+          position: relative;
+          width: 60px; height: 60px;
+          cursor: pointer;
+          animation: shd-bob 2.4s ease-in-out infinite;
+          transition: transform .2s ease;
+        }
+        .shd-mascot:hover { animation-play-state: paused; transform: scale(1.1); }
+        .shd-mascot:active { transform: scale(0.92); }
+        .shd-drag { animation: none !important; transform: scale(1.08); }
+        .shd-drag .shd-body { animation: none !important; }
+
+        /* Pulsing aura — เปล่งแสงทองรอบนอก */
+        .shd-aura {
+          position: absolute;
+          inset: -14px;
+          border-radius: 50%;
+          background: radial-gradient(circle,
+            rgba(251, 191, 36, 0.5) 0%,
+            rgba(245, 158, 11, 0.3) 30%,
+            rgba(139, 92, 246, 0.15) 55%,
+            transparent 75%);
+          filter: blur(8px);
+          animation: shd-aura-pulse 2.6s ease-in-out infinite;
+          z-index: -2;
+          pointer-events: none;
+        }
+
+        /* Rotating halo ring — แหวนทองหมุน */
+        .shd-halo {
+          position: absolute;
+          inset: -5px;
+          border-radius: 50%;
+          background: conic-gradient(
+            from 0deg,
+            #fbbf24 0%,
+            #fde047 12%,
+            #f59e0b 25%,
+            #fbbf24 38%,
+            #ec4899 50%,
+            #8b5cf6 65%,
+            #fbbf24 80%,
+            #fde047 92%,
+            #fbbf24 100%);
+          animation: shd-halo-spin 6s linear infinite;
+          z-index: -1;
+          mask: radial-gradient(circle, transparent 56%, black 60%, black 96%, transparent 100%);
+          -webkit-mask: radial-gradient(circle, transparent 56%, black 60%, black 96%, transparent 100%);
+          filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.6));
+          pointer-events: none;
+        }
+
+        /* Orbiting sparkles */
+        .shd-orbit {
+          position: absolute;
+          inset: -8px;
+          z-index: 3;
+          animation: shd-halo-spin 8s linear infinite reverse;
+          pointer-events: none;
+        }
+        .shd-sparkle {
+          position: absolute;
+          width: 5px; height: 5px;
+          border-radius: 50%;
+          background: radial-gradient(circle, #fffbeb 0%, #fbbf24 50%, transparent 80%);
+          box-shadow:
+            0 0 6px rgba(251, 191, 36, 1),
+            0 0 12px rgba(251, 191, 36, 0.7);
+          animation: shd-sparkle-twinkle 1.8s ease-in-out infinite;
+        }
+        .shd-sparkle.s1 { top: 0; left: 50%; transform: translateX(-50%); animation-delay: 0s; }
+        .shd-sparkle.s2 { right: 0; top: 50%; transform: translateY(-50%); animation-delay: 0.45s; width: 3px; height: 3px; }
+        .shd-sparkle.s3 { bottom: 0; left: 50%; transform: translateX(-50%); animation-delay: 0.9s; }
+        .shd-sparkle.s4 { left: 0; top: 50%; transform: translateY(-50%); animation-delay: 1.35s; width: 3px; height: 3px; }
+
+        /* Body — gold + purple gradient + gold rim */
+        .shd-body {
+          position: relative;
+          width: 60px; height: 60px;
+          border-radius: 50%;
+          background: radial-gradient(circle at 30% 25%,
+            #fde047 0%,
+            #fbbf24 18%,
+            #a78bfa 40%,
+            #8b5cf6 65%,
+            #6d28d9 100%);
+          box-shadow:
+            0 8px 24px rgba(251, 191, 36, 0.45),
+            0 4px 14px rgba(109, 40, 217, 0.4),
+            inset 0 -8px 14px rgba(67, 20, 154, 0.35),
+            inset 0 2px 4px rgba(255, 251, 235, 0.5),
+            inset 0 0 0 1.5px rgba(251, 191, 36, 0.55);
+          animation: shd-wobble 4s ease-in-out infinite;
+          display: flex; align-items: center; justify-content: center;
+          overflow: hidden;
+          z-index: 2;
+        }
+        .shd-mascot:hover .shd-body { animation-play-state: paused; }
+
+        /* Glossy highlight overlay */
+        .shd-body::before {
+          content: '';
+          position: absolute; top: 4px; left: 8px;
+          width: 18px; height: 12px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.45);
+          filter: blur(2px);
+          z-index: 1;
+        }
+
+        /* Eyes */
+        .shd-eye {
+          position: absolute;
+          width: 7px; height: 9px;
+          background: #1e1b4b;
+          border-radius: 50%;
+          top: 22px;
+          animation: shd-blink 3.8s ease-in-out infinite;
+          z-index: 2;
+        }
+        .shd-eye::after {
+          content: '';
+          position: absolute;
+          top: 1px; left: 1px;
+          width: 3px; height: 3px;
+          background: white;
+          border-radius: 50%;
+        }
+        .shd-eye-left { left: 17px; }
+        .shd-eye-right { right: 17px; animation-delay: 0.04s; }
+
+        /* Cheeks */
+        .shd-cheek {
+          position: absolute;
+          width: 7px; height: 5px;
+          background: rgba(244, 114, 182, 0.7);
+          border-radius: 50%;
+          top: 35px;
+          filter: blur(1px);
+          z-index: 2;
+          animation: shd-cheek-glow 2.6s ease-in-out infinite;
+        }
+        .shd-cheek-left { left: 10px; }
+        .shd-cheek-right { right: 10px; }
+        .shd-mascot:hover .shd-cheek {
+          background: rgba(244, 114, 182, 0.95);
+          width: 9px; height: 6px;
+        }
+
+        /* Mouth — small smile */
+        .shd-mouth {
+          position: absolute;
+          bottom: 16px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 10px; height: 5px;
+          border-bottom: 2px solid #1e1b4b;
+          border-radius: 0 0 10px 10px;
+          z-index: 2;
+          transition: all .2s ease;
+        }
+        .shd-mascot:hover .shd-mouth {
+          width: 14px; height: 6px;
+          border-bottom-width: 2.5px;
+        }
+
+        /* SHD label — subtle text below smile */
+        .shd-label {
+          position: absolute;
+          bottom: 4px;
+          left: 50%;
+          transform: translateX(-50%);
+          font-size: 7px;
+          font-weight: 900;
+          color: rgba(255, 255, 255, 0.55);
+          letter-spacing: 1px;
+          z-index: 2;
+        }
+
+        /* Antenna */
+        .shd-antenna {
+          position: absolute;
+          top: -8px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 2px; height: 10px;
+          background: linear-gradient(to top, #8b5cf6, #c4b5fd);
+          border-radius: 2px;
+          z-index: 1;
+          animation: shd-antenna-sway 2.4s ease-in-out infinite;
+          transform-origin: bottom center;
+        }
+        .shd-antenna-dot {
+          position: absolute;
+          top: -5px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 7px; height: 7px;
+          border-radius: 50%;
+          background: radial-gradient(circle at 30% 30%, #fef3c7 0%, #fbbf24 70%, #f59e0b 100%);
+          box-shadow: 0 0 8px rgba(251, 191, 36, 0.8), 0 0 16px rgba(251, 191, 36, 0.5);
+          animation: shd-antenna-glow 1.8s ease-in-out infinite;
+        }
+
+        /* Shadow on ground */
+        .shd-shadow {
+          position: absolute;
+          bottom: -8px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 40px; height: 6px;
+          background: radial-gradient(ellipse, rgba(0,0,0,0.18) 0%, transparent 70%);
+          z-index: -1;
+          animation: shd-shadow-scale 2.4s ease-in-out infinite;
+        }
+
+        /* Open state — transform to red close button */
+        .shd-open .shd-body {
+          background: radial-gradient(circle at 30% 25%, #fb7185 0%, #e11d48 60%, #9f1239 100%);
+          animation: none;
+          transform: rotate(90deg);
+        }
+        .shd-open .shd-antenna { display: none; }
+
+        /* Keyframes */
+        @keyframes shd-bob {
+          0%, 100% { transform: translateY(0); }
+          50%      { transform: translateY(-4px); }
+        }
+        @keyframes shd-wobble {
+          0%, 100% { transform: rotate(-3deg); }
+          50%      { transform: rotate(3deg); }
+        }
+        @keyframes shd-blink {
+          0%, 92%, 100% { transform: scaleY(1); }
+          94%, 98%      { transform: scaleY(0.1); }
+        }
+        @keyframes shd-cheek-glow {
+          0%, 100% { opacity: 0.7; }
+          50%      { opacity: 1; }
+        }
+        @keyframes shd-antenna-sway {
+          0%, 100% { transform: translateX(-50%) rotate(-8deg); }
+          50%      { transform: translateX(-50%) rotate(8deg); }
+        }
+        @keyframes shd-antenna-glow {
+          0%, 100% { box-shadow: 0 0 6px rgba(251, 191, 36, 0.7), 0 0 12px rgba(251, 191, 36, 0.5); transform: translateX(-50%) scale(1); }
+          50%      { box-shadow: 0 0 14px rgba(251, 191, 36, 1), 0 0 28px rgba(251, 191, 36, 0.85); transform: translateX(-50%) scale(1.2); }
+        }
+        @keyframes shd-shadow-scale {
+          0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.6; }
+          50%      { transform: translateX(-50%) scale(0.85); opacity: 0.4; }
+        }
+        @keyframes shd-aura-pulse {
+          0%, 100% { transform: scale(1);   opacity: 0.6; }
+          50%      { transform: scale(1.18); opacity: 1; }
+        }
+        @keyframes shd-halo-spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        @keyframes shd-sparkle-twinkle {
+          0%, 100% { opacity: 0.4; filter: blur(0px); }
+          50%      { opacity: 1;   filter: blur(0.5px); }
         }
       `}</style>
     </>

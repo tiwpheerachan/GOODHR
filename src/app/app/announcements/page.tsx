@@ -1,6 +1,6 @@
 "use client"
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Megaphone, Pin, Clock, Heart, MessageCircle, Eye, ChevronDown, X, ChevronLeft, ChevronRight, Download } from "lucide-react"
+import { Megaphone, Pin, Clock, Heart, MessageCircle, Eye, ChevronDown, X, ChevronLeft, ChevronRight, Download, Check } from "lucide-react"
 import { format, formatDistanceToNow } from "date-fns"
 import { th } from "date-fns/locale"
 
@@ -454,6 +454,18 @@ export default function UserAnnouncementsPage() {
     setAnns(p => p.map(a => a.id === id ? { ...a, is_read: true } : a))
   }
 
+  const acknowledge = async (id: string) => {
+    // Optimistic update
+    const now = new Date().toISOString()
+    setAnns(p => p.map(a => a.id === id ? { ...a, my_acknowledged_at: now, ack_count: (a.ack_count || 0) + 1, is_read: true } : a))
+    const res = await fetch("/api/announcements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "acknowledge", announcement_id: id }) })
+    const d = await res.json()
+    if (!d.success) {
+      // revert ถ้า fail
+      setAnns(p => p.map(a => a.id === id ? { ...a, my_acknowledged_at: null, ack_count: Math.max(0, (a.ack_count || 1) - 1) } : a))
+    }
+  }
+
   const react = async (annId: string, type: string) => {
     setPicker(null)
     const res = await fetch("/api/announcements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "react", announcement_id: annId, reaction_type: type }) })
@@ -625,6 +637,40 @@ export default function UserAnnouncementsPage() {
                     </span>
                   </div>
                 )}
+
+                {/* ── Acknowledge banner ── */}
+                <div className="px-4 pt-2 pb-1">
+                  {a.my_acknowledged_at ? (
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">
+                          <Check size={12} strokeWidth={3}/>
+                        </div>
+                        <p className="text-xs font-bold text-emerald-800">
+                          รับทราบแล้ว
+                          <span className="text-[10px] font-normal text-emerald-600 ml-1.5">
+                            {format(new Date(a.my_acknowledged_at), "d MMM yyyy HH:mm", { locale: th })}
+                          </span>
+                        </p>
+                      </div>
+                      {a.ack_count > 0 && (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
+                          {a.ack_count} คน
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <button onClick={e => { e.stopPropagation(); acknowledge(a.id) }}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-black transition-all active:scale-95 shadow-sm">
+                      <Check size={16} strokeWidth={3}/> รับทราบประกาศนี้
+                      {a.ack_count > 0 && (
+                        <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-full">
+                          {a.ack_count} คนรับทราบแล้ว
+                        </span>
+                      )}
+                    </button>
+                  )}
+                </div>
 
                 {/* Action bar */}
                 <div className="px-4 py-1 border-t border-slate-100 flex items-center relative">

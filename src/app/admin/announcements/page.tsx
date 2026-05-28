@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import {
   Plus, Edit2, Trash2, Pin, Send, X, Loader2, Megaphone, ImagePlus, MessageCircle,
+  Check, Clock as ClockIcon, Users,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -27,6 +28,7 @@ export default function AdminAnnouncementsPage() {
   const [companies, setCompanies] = useState<any[]>([])
   const [departments, setDepartments] = useState<any[]>([])
   const [uploading, setUploading] = useState(false)
+  const [ackModal, setAckModal] = useState<any>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
@@ -202,6 +204,15 @@ export default function AdminAnnouncementsPage() {
                         <ImagePlus size={9}/> {images.length}
                       </span>
                     )}
+                    {/* ── รับทราบ badge ── */}
+                    <button onClick={(e) => { e.stopPropagation(); setAckModal(a) }}
+                      className={`text-[10px] font-bold flex items-center gap-0.5 px-2 py-0.5 rounded-full transition ${
+                        a.ack_count > 0
+                          ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                          : "bg-slate-50 text-slate-500 hover:bg-slate-100 border border-slate-200"
+                      }`}>
+                      <Check size={10} strokeWidth={3}/> รับทราบ {a.ack_count || 0}
+                    </button>
                   </div>
                 </div>
 
@@ -319,6 +330,132 @@ export default function AdminAnnouncementsPage() {
           </div>
         </div>
       )}
+
+      {/* Acknowledgement Modal */}
+      {ackModal && <AckModal announcement={ackModal} onClose={() => setAckModal(null)} />}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// AckModal — แสดงรายชื่อคนรับทราบ + คนที่ยังไม่รับทราบ
+// ════════════════════════════════════════════════════════════════════
+function AckModal({ announcement, onClose }: { announcement: any; onClose: () => void }) {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState<"acked" | "pending">("acked")
+  const [search, setSearch] = useState("")
+
+  useEffect(() => {
+    fetch("/api/announcements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "list_acknowledgements", announcement_id: announcement.id }),
+    })
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [announcement.id])
+
+  const list = data ? (tab === "acked" ? data.acknowledged : data.pending) : []
+  const filtered = list.filter((p: any) => {
+    if (!search.trim()) return true
+    const s = search.toLowerCase()
+    return `${p.name} ${p.nickname || ""} ${p.employee_code || ""} ${p.department || ""}`.toLowerCase().includes(s)
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white flex items-center justify-between">
+          <div>
+            <h3 className="font-black flex items-center gap-2"><Check size={18}/> รายชื่อผู้รับทราบ</h3>
+            <p className="text-[11px] opacity-90 truncate max-w-[400px]">{announcement.title}</p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-white/20 rounded"><X size={18}/></button>
+        </div>
+
+        {loading ? (
+          <div className="py-16 text-center">
+            <Loader2 size={28} className="mx-auto animate-spin text-emerald-400 mb-2"/>
+            <p className="text-xs text-slate-500">กำลังโหลด...</p>
+          </div>
+        ) : (
+          <>
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-2 p-4 border-b border-slate-100 bg-slate-50">
+              <div className="bg-white rounded-xl p-2.5 text-center border border-slate-100">
+                <p className="text-[10px] font-bold text-slate-500 uppercase">ทั้งหมด</p>
+                <p className="text-2xl font-black text-slate-800">{data?.stats?.total ?? 0}</p>
+                <p className="text-[10px] text-slate-400">คน</p>
+              </div>
+              <div className="bg-emerald-50 rounded-xl p-2.5 text-center border border-emerald-100">
+                <p className="text-[10px] font-bold text-emerald-600 uppercase">รับทราบแล้ว</p>
+                <p className="text-2xl font-black text-emerald-700">{data?.stats?.acknowledged ?? 0}</p>
+                <p className="text-[10px] text-emerald-500">
+                  {data?.stats?.total > 0 ? `${Math.round((data.stats.acknowledged/data.stats.total)*100)}%` : "0%"}
+                </p>
+              </div>
+              <div className="bg-amber-50 rounded-xl p-2.5 text-center border border-amber-100">
+                <p className="text-[10px] font-bold text-amber-600 uppercase">ยังไม่รับทราบ</p>
+                <p className="text-2xl font-black text-amber-700">{data?.stats?.pending ?? 0}</p>
+                <p className="text-[10px] text-amber-500">
+                  {data?.stats?.total > 0 ? `${Math.round((data.stats.pending/data.stats.total)*100)}%` : "0%"}
+                </p>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-slate-200">
+              <button onClick={() => setTab("acked")}
+                className={`flex-1 px-4 py-2.5 text-xs font-bold transition ${tab === "acked" ? "border-b-2 border-emerald-500 text-emerald-700" : "text-slate-500"}`}>
+                ✓ รับทราบแล้ว ({data?.acknowledged?.length ?? 0})
+              </button>
+              <button onClick={() => setTab("pending")}
+                className={`flex-1 px-4 py-2.5 text-xs font-bold transition ${tab === "pending" ? "border-b-2 border-amber-500 text-amber-700" : "text-slate-500"}`}>
+                ⏳ ยังไม่รับทราบ ({data?.pending?.length ?? 0})
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="px-4 py-2 border-b border-slate-100">
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="ค้นหาชื่อ / รหัส / แผนก..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400"/>
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
+              {filtered.length === 0 ? (
+                <p className="text-center text-xs text-slate-400 py-12 italic">
+                  {tab === "acked" ? "ยังไม่มีใครรับทราบ" : "ทุกคนรับทราบแล้ว 🎉"}
+                </p>
+              ) : filtered.map((p: any) => (
+                <div key={p.employee_id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 ${tab === "acked" ? "bg-emerald-500" : "bg-slate-400"}`}>
+                    {p.avatar_url ? <img src={p.avatar_url} alt="" className="w-full h-full rounded-full object-cover"/> : (p.name?.[0] || "?")}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-800 truncate">
+                      {p.name}
+                      {p.nickname && <span className="text-slate-400 font-normal ml-1">({p.nickname})</span>}
+                    </p>
+                    <p className="text-[10px] text-slate-400 truncate">
+                      {p.employee_code}{p.department && ` · ${p.department}`}
+                    </p>
+                  </div>
+                  {tab === "acked" && p.acknowledged_at && (
+                    <span className="text-[10px] font-bold text-emerald-700 flex items-center gap-1 flex-shrink-0">
+                      <ClockIcon size={10}/>
+                      {format(new Date(p.acknowledged_at), "d MMM HH:mm", { locale: th })}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

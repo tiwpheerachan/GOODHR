@@ -48,12 +48,37 @@ export async function GET(req: NextRequest) {
 
   const annIds = anns.map(a => a.id)
 
-  // Get reads
+  // Get reads + my acknowledgement
   let reads: string[] = []
+  const myAckMap: Record<string, string> = {}  // announcement_id → acknowledged_at
   if (userData?.employee_id) {
     const { data: rd } = await supa.from("announcement_reads")
-      .select("announcement_id").eq("employee_id", userData.employee_id).in("announcement_id", annIds)
+      .select("announcement_id, acknowledged_at").eq("employee_id", userData.employee_id).in("announcement_id", annIds)
     reads = (rd ?? []).map((r: any) => r.announcement_id)
+    for (const r of (rd ?? [])) {
+      if (r.acknowledged_at) myAckMap[r.announcement_id] = r.acknowledged_at
+    }
+  }
+
+  // Acknowledgement counts per announcement (+ list ของผู้รับทราบ ถ้า admin)
+  const ackCountMap: Record<string, number> = {}
+  const ackListMap: Record<string, Array<{ employee_id: string; name: string; avatar_url: string | null; acknowledged_at: string }>> = {}
+  const { data: allAcks } = await supa.from("announcement_reads")
+    .select("announcement_id, employee_id, acknowledged_at, employee:employees!employee_id(first_name_th, last_name_th, nickname, avatar_url, employee_code)")
+    .in("announcement_id", annIds)
+    .not("acknowledged_at", "is", null)
+  for (const id of annIds) { ackCountMap[id] = 0; ackListMap[id] = [] }
+  for (const a of (allAcks ?? [])) {
+    ackCountMap[a.announcement_id] = (ackCountMap[a.announcement_id] || 0) + 1
+    if (mode === "admin" && isAdmin) {
+      const e = a.employee as any
+      ackListMap[a.announcement_id].push({
+        employee_id: a.employee_id,
+        name: e ? (e.nickname || `${e.first_name_th} ${e.last_name_th}`) : a.employee_id,
+        avatar_url: e?.avatar_url ?? null,
+        acknowledged_at: a.acknowledged_at,
+      })
+    }
   }
 
   // Get reactions (counts + my reaction + reactor profiles)
@@ -91,6 +116,9 @@ export async function GET(req: NextRequest) {
   const result = anns.map(a => ({
     ...a,
     is_read: reads.includes(a.id),
+    my_acknowledged_at: myAckMap[a.id] ?? null,
+    ack_count: ackCountMap[a.id] || 0,
+    ack_list: mode === "admin" && isAdmin ? (ackListMap[a.id] || []) : undefined,
     reactions: reactionMap[a.id] || { counts: {}, total: 0, my: null, reactors: [] },
     comment_count: commentCountMap[a.id] || 0,
   }))
@@ -205,6 +233,73 @@ export async function POST(req: NextRequest) {
       employee_id: userData.employee_id,
     }, { onConflict: "announcement_id,employee_id" })
     return NextResponse.json({ success: true })
+  }
+
+  // ── User: acknowledge — กดปุ่ม "รับทราบ" ──
+  if (action === "acknowledge") {
+    if (!userData?.employee_id) return NextResponse.json({ error: "No employee" }, { status: 400 })
+    const now = new Date().toISOString()
+    await supa.from("announcement_reads").upsert({
+      announcement_id: body.announcement_id,
+      employee_id: userData.employee_id,
+      acknowledged_at: now,
+    }, { onConflict: "announcement_id,employee_id" })
+    return NextResponse.json({ success: true, acknowledged_at: now })
+  }
+
+  // ── Admin: ดูรายชื่อคนที่รับทราบ + คนที่ยังไม่รับทราบ ──
+  if (action === "list_acknowledgements") {
+    if (!isAdmin) return NextResponse.json({ error: "Admin only" }, { status: 403 })
+    const { announcement_id } = body
+
+    // ดึงประกาศเพื่อเช็คว่า target อะไร (company / department)
+    const { data: ann } = await supa.from("announcements")
+      .select("company_id, department_id").eq("id", announcement_id).maybeSingle()
+    if (!ann) return NextResponse.json({ error: "ไม่พบประกาศ" }, { status: 404 })
+
+    // ดึงคนที่รับทราบ
+    const { data: acked } = await supa.from("announcement_reads")
+      .select("employee_id, acknowledged_at, read_at, employee:employees!employee_id(first_name_th, last_name_th, nickname, avatar_url, employee_code, department:departments(name))")
+      .eq("announcement_id", announcement_id)
+      .not("acknowledged_at", "is", null)
+      .order("acknowledged_at", { ascending: false })
+
+    // ดึง audience ทั้งหมด (active employees ใน scope ของประกาศ)
+    let audQ = supa.from("employees")
+      .select("id, first_name_th, last_name_th, nickname, avatar_url, employee_code, department:departments(name)")
+      .eq("is_active", true)
+    if (ann.company_id) audQ = audQ.eq("company_id", ann.company_id)
+    if (ann.department_id) audQ = audQ.eq("department_id", ann.department_id)
+    const { data: audience } = await audQ
+
+    const ackedIds = new Set((acked ?? []).map((a: any) => a.employee_id))
+    const notAcked = (audience ?? []).filter((e: any) => !ackedIds.has(e.id))
+
+    return NextResponse.json({
+      acknowledged: (acked ?? []).map((a: any) => ({
+        employee_id: a.employee_id,
+        name: `${a.employee?.first_name_th || ""} ${a.employee?.last_name_th || ""}`,
+        nickname: a.employee?.nickname || null,
+        employee_code: a.employee?.employee_code || null,
+        avatar_url: a.employee?.avatar_url || null,
+        department: a.employee?.department?.name || null,
+        acknowledged_at: a.acknowledged_at,
+        read_at: a.read_at,
+      })),
+      pending: notAcked.map((e: any) => ({
+        employee_id: e.id,
+        name: `${e.first_name_th || ""} ${e.last_name_th || ""}`,
+        nickname: e.nickname,
+        employee_code: e.employee_code,
+        avatar_url: e.avatar_url,
+        department: e.department?.name || null,
+      })),
+      stats: {
+        total: audience?.length ?? 0,
+        acknowledged: acked?.length ?? 0,
+        pending: notAcked.length,
+      },
+    })
   }
 
   // ── User: react (toggle) ──
