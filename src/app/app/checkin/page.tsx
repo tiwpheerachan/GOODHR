@@ -723,7 +723,6 @@ export default function CheckInPage() {
 
   const mapRef = useRef<HTMLDivElement>(null)
   const mapObj = useRef<any>(null)
-  const mapReadyRef = useRef(false)
   const userPin = useRef<any>(null)
   const drawables = useRef<any[]>([])
   const watchIdRef = useRef<number | null>(null)
@@ -733,6 +732,9 @@ export default function CheckInPage() {
   const [sdkReady, setSdkReady] = useState(false)
   const [sdkLoadAttempt, setSdkLoadAttempt] = useState(0)
   const [mapInited, setMapInited] = useState(false)
+  const [mapError, setMapError] = useState<string | null>(null)
+  const [initRetry, setInitRetry] = useState(0)
+  const [gpsPermission, setGpsPermission] = useState<"granted" | "denied" | "prompt" | "unknown">("unknown")
   const [branches, setBranches] = useState<Branch[]>([])
   const [nearest, setNearest] = useState<Branch | null>(null)
   const [distance, setDistance] = useState<number | null>(null)
@@ -853,25 +855,35 @@ export default function CheckInPage() {
 
   useEffect(() => { if (!mapInited || !pos || branches.length === 0) return; redraw(pos.lat, pos.lng, branches) }, [mapInited, pos, branches, redraw])
 
-  const initMap = useCallback((lat: number, lng: number) => {
-    if (!mapRef.current || !window.google) return
-    const map = new window.google.maps.Map(mapRef.current, {
-      center: { lat, lng }, zoom: 17,
-      mapTypeControl: false, streetViewControl: false, fullscreenControl: false, zoomControl: false,
-      gestureHandling: "greedy",
-      styles: [
-        { featureType: "poi", stylers: [{ visibility: "off" }] },
-        { featureType: "transit", stylers: [{ visibility: "off" }] },
-        { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
-      ],
-    })
-    mapObj.current = map
-    const pinSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#6366f1" stroke="white" stroke-width="3"/><circle cx="12" cy="12" r="4" fill="white"/></svg>`
-    userPin.current = new window.google.maps.Marker({
-      map, position: { lat, lng }, zIndex: 99,
-      icon: { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(pinSvg)}`, scaledSize: new window.google.maps.Size(24, 24), anchor: new window.google.maps.Point(12, 12) }
-    })
-    setMapInited(true)
+  const initMap = useCallback((lat: number, lng: number): boolean => {
+    // ตรวจครบทุกอย่าง: DOM ref + google.maps.Map class
+    if (!mapRef.current) return false
+    if (!window.google?.maps?.Map || typeof window.google.maps.Map !== "function") return false
+    try {
+      const map = new window.google.maps.Map(mapRef.current, {
+        center: { lat, lng }, zoom: 17,
+        mapTypeControl: false, streetViewControl: false, fullscreenControl: false, zoomControl: false,
+        gestureHandling: "greedy",
+        styles: [
+          { featureType: "poi", stylers: [{ visibility: "off" }] },
+          { featureType: "transit", stylers: [{ visibility: "off" }] },
+          { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+        ],
+      })
+      mapObj.current = map
+      const pinSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#6366f1" stroke="white" stroke-width="3"/><circle cx="12" cy="12" r="4" fill="white"/></svg>`
+      userPin.current = new window.google.maps.Marker({
+        map, position: { lat, lng }, zIndex: 99,
+        icon: { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(pinSvg)}`, scaledSize: new window.google.maps.Size(24, 24), anchor: new window.google.maps.Point(12, 12) }
+      })
+      setMapInited(true)
+      setMapError(null)
+      return true
+    } catch (e: any) {
+      console.error("[checkin] initMap failed:", e)
+      setMapError(e?.message || "ไม่สามารถสร้างแผนที่ได้")
+      return false
+    }
   }, [])
 
   const panToUser = useCallback((lat: number, lng: number) => {
@@ -898,7 +910,8 @@ export default function CheckInPage() {
         setGpsL(false)
         setGpsRetryCount(c => c + 1)
         if (err.code === err.PERMISSION_DENIED) {
-          setGpsError("GPS ถูกปิด — กรุณาเปิดในการตั้งค่าเบราว์เซอร์")
+          setGpsError("GPS ถูกปิดอยู่ — กรุณาเปิดสิทธิ์ในการตั้งค่าเบราว์เซอร์")
+          setGpsPermission("denied")
           toast.error("กรุณาเปิดสิทธิ์ GPS ในการตั้งค่า")
         } else if (err.code === err.POSITION_UNAVAILABLE) {
           setGpsError("ไม่สามารถระบุตำแหน่งได้ — ลองออกไปที่โล่งแล้วกดลองใหม่")
@@ -912,9 +925,12 @@ export default function CheckInPage() {
     )
   }, [sdkReady, initMap])
 
-  // SDK callback — only mark ready, don't init map yet
+  // SDK callback — set ใน useLayoutEffect/early effect ก่อน Script load
   useEffect(() => {
-    window.initCheckinMap = () => { setSdkReady(true) }
+    // ตั้งตั้งแต่ first render — ป้องกัน script load ก่อน effect
+    if (typeof window !== "undefined") {
+      window.initCheckinMap = () => { setSdkReady(true) }
+    }
     return () => { try { delete (window as any).initCheckinMap } catch {} }
   }, [])
 
@@ -922,38 +938,97 @@ export default function CheckInPage() {
     setSdkReady(true)
   }, [])
 
-  // When SDK ready, init map (with default or cached pos) then start watchPosition
+  // ── Map init with auto-retry ──
+  // ลอง init ทุกครั้งที่ sdkReady/initRetry เปลี่ยน — ถ้า fail จะ retry เองทุก 200ms (สูงสุด 30 ครั้ง = 6 วินาที)
   useEffect(() => {
-    if (!sdkReady || mapReadyRef.current) return
-    mapReadyRef.current = true
+    if (mapInited) return
+    if (!sdkReady) return
 
-    // Init map with last known or default position
-    const defaultLat = pos?.lat ?? 13.7563
-    const defaultLng = pos?.lng ?? 100.5018
-    initMap(defaultLat, defaultLng)
+    const ok = initMap(pos?.lat ?? 13.7563, pos?.lng ?? 100.5018)
+    if (ok) return
 
-    // Start continuous GPS tracking
-    if (!navigator.geolocation) return
+    // Schedule retry (ถ้ายังไม่เกิน 30 ครั้ง)
+    if (initRetry < 30) {
+      const t = setTimeout(() => setInitRetry(c => c + 1), 200)
+      return () => clearTimeout(t)
+    } else {
+      // เกิน 30 ครั้งแล้วยังไม่ขึ้น → แสดง error ที่ user เห็น + กดปุ่ม Retry
+      if (!mapError) setMapError("โหลดแผนที่ไม่สำเร็จ — กดปุ่มลองใหม่")
+    }
+  }, [sdkReady, initRetry, mapInited, initMap, mapError, pos])
+
+  // ── GPS Permission detection (ถ้า browser รองรับ Permissions API) ──
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !(navigator as any).permissions) return
+    let cancelled = false
+    ;(navigator as any).permissions.query({ name: "geolocation" }).then((p: any) => {
+      if (cancelled) return
+      setGpsPermission(p.state)
+      p.onchange = () => setGpsPermission(p.state)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // ── GPS tracking — เริ่มเมื่อ map พร้อม ──
+  useEffect(() => {
+    if (!mapInited) return
+    if (!navigator.geolocation) {
+      setGpsError("เบราว์เซอร์ไม่รองรับ GPS")
+      return
+    }
     setGpsL(true)
 
-    // Quick coarse position first
+    // Quick coarse position first — ไม่สนใจ error
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => panToUser(coords.latitude, coords.longitude),
       () => {},
       { enableHighAccuracy: false, timeout: 5000, maximumAge: 30000 }
     )
 
-    // Then continuous high-accuracy watch
+    // Continuous high-accuracy watch
     watchIdRef.current = navigator.geolocation.watchPosition(
-      ({ coords }) => panToUser(coords.latitude, coords.longitude),
-      (err) => { if (err.code === err.PERMISSION_DENIED) { toast.error("กรุณาเปิด GPS"); setGpsL(false) } },
+      ({ coords }) => {
+        panToUser(coords.latitude, coords.longitude)
+        setGpsError(null)  // clear error เมื่อได้ position
+      },
+      (err) => {
+        setGpsL(false)
+        if (err.code === err.PERMISSION_DENIED) {
+          setGpsError("GPS ถูกปิดอยู่ — กรุณาเปิดสิทธิ์ในการตั้งค่าเบราว์เซอร์")
+          setGpsPermission("denied")
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          setGpsError("ไม่สามารถระบุตำแหน่งได้ — ลองออกที่โล่งแล้วลองใหม่")
+        } else if (err.code === err.TIMEOUT) {
+          setGpsError("GPS ใช้เวลานานเกินไป — กดปุ่มลองใหม่")
+        }
+      },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
     )
 
     return () => {
-      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current)
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+        watchIdRef.current = null
+      }
     }
-  }, [sdkReady, initMap, panToUser])
+  }, [mapInited, panToUser])
+
+  // ── Cleanup on unmount (รวมทั้ง mapObj) ──
+  useEffect(() => () => {
+    mapObj.current = null
+    userPin.current = null
+    drawables.current = []
+  }, [])
+
+  // Manual retry — reset state + force re-init
+  const reloadMap = useCallback(() => {
+    setMapError(null)
+    setInitRetry(0)
+    setMapInited(false)
+    mapObj.current = null
+    userPin.current = null
+    drawables.current = []
+  }, [])
 
   // ── Derived ──
   const inRadius = checkinAnywhere || (nearest !== null && distance !== null && distance <= (nearest.geo_radius_m || 200))
@@ -972,8 +1047,16 @@ export default function CheckInPage() {
   // exempt → ถือว่าอยู่ใน grace เสมอ (ไม่หัก)
   const isLateWithinGrace = isLate && (lateAfterGrace === 0 || isAttendanceExempt)
 
+  // แยก message ตามสถานะ GPS จริง (permission denied vs loading vs error)
+  const gpsErrorMessage = () => {
+    if (gpsPermission === "denied") return "GPS ถูกปิดอยู่ — กรุณาเปิดสิทธิ์ในการตั้งค่าเบราว์เซอร์"
+    if (gpsError) return gpsError
+    if (gpsLoading) return "ระบบกำลังค้นหาตำแหน่ง รอสักครู่..."
+    return "ระบบยังไม่ได้รับตำแหน่ง GPS — กดปุ่ม 📍 ด้านบนเพื่อค้นหาใหม่"
+  }
+
   const handleClockIn = async () => {
-    if (!pos) return toast.error("กรุณาเปิด GPS ก่อน")
+    if (!pos) return toast.error(gpsErrorMessage())
     const r = await clockIn(pos.lat, pos.lng)
     if (r.success) {
       setBurstType("in")
@@ -983,7 +1066,7 @@ export default function CheckInPage() {
   }
 
   const handleClockOut = async () => {
-    if (!pos) return toast.error("กรุณาเปิด GPS ก่อน")
+    if (!pos) return toast.error(gpsErrorMessage())
     const r = await clockOut(pos.lat, pos.lng)
     if (r.success) {
       setBurstType("out")
@@ -1030,10 +1113,31 @@ export default function CheckInPage() {
 
           {/* Loading state */}
           {!mapInited && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gray-50 z-10">
-              {MAPS_KEY
-                ? <><Loader2 size={24} className="animate-spin text-indigo-400" /><p className="text-sm text-gray-400">กำลังโหลดแผนที่...</p></>
-                : <><MapPin size={28} className="text-gray-300" /><p className="text-sm text-gray-400 text-center px-6">ตั้งค่า Google Maps API Key</p></>}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gray-50 z-10 px-6">
+              {!MAPS_KEY ? (
+                <><MapPin size={28} className="text-gray-300" /><p className="text-sm text-gray-400 text-center">ตั้งค่า Google Maps API Key</p></>
+              ) : mapError ? (
+                <>
+                  <MapPin size={28} className="text-rose-400" />
+                  <p className="text-sm text-rose-600 text-center font-bold">{mapError}</p>
+                  <button onClick={reloadMap}
+                    className="mt-1 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-bold rounded-xl shadow inline-flex items-center gap-2">
+                    <Crosshair size={14}/> โหลดแผนที่ใหม่
+                  </button>
+                  <p className="text-[10px] text-slate-400 text-center">หรือลอง refresh หน้าเว็บ (F5)</p>
+                </>
+              ) : (
+                <>
+                  <Loader2 size={24} className="animate-spin text-indigo-400" />
+                  <p className="text-sm text-gray-400">กำลังโหลดแผนที่{initRetry > 5 ? ` (${initRetry})` : "..."}</p>
+                  {initRetry > 15 && (
+                    <button onClick={reloadMap}
+                      className="mt-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 underline">
+                      ใช้เวลานานผิดปกติ — กดเพื่อโหลดใหม่
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
 
@@ -1045,30 +1149,6 @@ export default function CheckInPage() {
             className="absolute top-4 right-4 w-10 h-10 bg-white rounded-xl shadow-lg flex items-center justify-center z-20 text-gray-500 hover:text-indigo-500 active:scale-95 transition-all border border-gray-100/50">
             {gpsLoading ? <Loader2 size={16} className="animate-spin" /> : <Crosshair size={16} />}
           </button>
-
-          {/* GPS Error + Retry Banner */}
-          {gpsError && (
-            <div className="absolute bottom-4 left-4 right-4 z-20 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-red-200 px-4 py-3" style={{ animation: "float-up .3s ease both" }}>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                  <MapPin size={12} className="text-red-500" />
-                </div>
-                <p className="text-xs font-bold text-red-600 flex-1">{gpsError}</p>
-              </div>
-              <button onClick={getLocation} disabled={gpsLoading}
-                className="w-full py-2 rounded-xl bg-indigo-500 text-white text-sm font-bold active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                {gpsLoading
-                  ? <><Loader2 size={14} className="animate-spin" /> กำลังค้นหา...</>
-                  : <><Crosshair size={14} /> ลองใหม่อีกครั้ง {gpsRetryCount > 0 ? `(ครั้งที่ ${gpsRetryCount + 1})` : ""}</>
-                }
-              </button>
-              {gpsRetryCount >= 2 && (
-                <p className="text-[10px] text-slate-400 text-center mt-1.5">
-                  💡 ลองปิด-เปิด GPS ในการตั้งค่ามือถือ หรือเปลี่ยนไปใช้ Wi-Fi
-                </p>
-              )}
-            </div>
-          )}
 
           {/* Location status badge — top left */}
           {nearest && (
@@ -1091,8 +1171,32 @@ export default function CheckInPage() {
 
         </div>
 
+        {/* ═══════ GPS Error Banner — standalone (z-40, อยู่นอก map → กดได้แน่นอน) ═══════ */}
+        {gpsError && (
+          <div className="relative z-40 mx-4 -mt-12 bg-white rounded-2xl shadow-xl border-2 border-red-200 px-4 py-3" style={{ animation: "float-up .3s ease both" }}>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <MapPin size={13} className="text-red-500" />
+              </div>
+              <p className="text-xs font-bold text-red-600 flex-1">{gpsError}</p>
+            </div>
+            <button onClick={getLocation} disabled={gpsLoading}
+              className="w-full py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-bold active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-md">
+              {gpsLoading
+                ? <><Loader2 size={14} className="animate-spin" /> กำลังค้นหา...</>
+                : <><Crosshair size={14} /> ลองใหม่อีกครั้ง {gpsRetryCount > 0 ? `(ครั้งที่ ${gpsRetryCount + 1})` : ""}</>
+              }
+            </button>
+            {gpsRetryCount >= 2 && (
+              <p className="text-[10px] text-slate-400 text-center mt-1.5">
+                💡 ลองปิด-เปิด GPS ในการตั้งค่ามือถือ หรือเปลี่ยนไปใช้ Wi-Fi
+              </p>
+            )}
+          </div>
+        )}
+
         {/* ═══════ Content section — overlapping map ═══════ */}
-        <div className="relative z-20" style={{ marginTop: -100 }}>
+        <div className="relative z-20" style={{ marginTop: gpsError ? -40 : -100 }}>
 
           {/* White gradient fading up into the map */}
           <div className="h-32 pointer-events-none" style={{ background: "linear-gradient(to top, #ffffff 0%, rgba(255,255,255,0.95) 20%, rgba(255,255,255,0.6) 50%, rgba(255,255,255,0) 100%)" }} />

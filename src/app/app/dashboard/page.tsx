@@ -14,9 +14,10 @@ import {
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
+import { MeshGradient } from "@paper-design/shaders-react"
 
 const DAY_CFG = [
-  { gradient:"linear-gradient(135deg,#8b5cf6 0%,#a855f7 50%,#c084fc 100%)", accent:"#8b5cf6", tag:"วันหยุด 🌸", shadow:"rgba(139,92,246,.3)", quotes:[
+  { colors:["#581c87","#a855f7","#ec4899","#f97316","#fbbf24"], gradient:"linear-gradient(135deg,#8b5cf6 0%,#a855f7 50%,#c084fc 100%)", accent:"#8b5cf6", tag:"วันหยุด 🌸", shadow:"rgba(139,92,246,.3)", quotes:[
     "วันอาทิตย์ไม่ต้องตื่นเช้า ถ้าตื่นเช้าแสดงว่าเป็น PM 😴",
     "โทรศัพท์ปิดเสียง กายบนโซฟา ใจสงบ 🛋️",
     "การพักผ่อนคือการลงทุนที่คืนทุนเร็วที่สุด 💤",
@@ -28,7 +29,7 @@ const DAY_CFG = [
     "ปล่อยให้ตัวเองขี้เกียจได้บ้าง มันโอเคมาก 🐢",
     "ออกไปรับแดดอ่อนๆ แค่นั้นก็ดีแล้ว ☀️",
   ]},
-  { gradient:"linear-gradient(135deg,#3b82f6 0%,#6366f1 50%,#8b5cf6 100%)", accent:"#3b82f6", tag:"เริ่มสัปดาห์ ☁️", shadow:"rgba(59,130,246,.3)", quotes:[
+  { colors:["#1e3a8a","#3b82f6","#6366f1","#8b5cf6","#06b6d4"], gradient:"linear-gradient(135deg,#3b82f6 0%,#6366f1 50%,#8b5cf6 100%)", accent:"#3b82f6", tag:"เริ่มสัปดาห์ ☁️", shadow:"rgba(59,130,246,.3)", quotes:[
     "วันจันทร์ก็เหมือนกาแฟ ขมนิดหน่อยแต่ทำให้ตื่น ☕",
     "กาแฟ + จันทร์ = ยังไหวอยู่ 💪",
     "สัปดาห์ใหม่ บทเรียนใหม่ 📖",
@@ -40,7 +41,7 @@ const DAY_CFG = [
     "ยิ้มให้จันทร์ก่อน จันทร์จะยิ้มตอบ 😊",
     "ถ้าผ่านจันทร์ได้ทุกอย่างก็ง่ายขึ้น 🎯",
   ]},
-  { gradient:"linear-gradient(135deg,#f97316 0%,#ef4444 50%,#f43f5e 100%)", accent:"#f97316", tag:"ลุยเลย 🔥", shadow:"rgba(249,115,22,.3)", quotes:[
+  { colors:["#7c2d12","#f97316","#ef4444","#fbbf24","#fb7185"], gradient:"linear-gradient(135deg,#f97316 0%,#ef4444 50%,#f43f5e 100%)", accent:"#f97316", tag:"ลุยเลย 🔥", shadow:"rgba(249,115,22,.3)", quotes:[
     "อังคารไฟแรง จันทร์ผ่านมาได้แล้ว! 🥊",
     "ถ้าผ่านจันทร์มาได้ อังคารก็แค่เรื่องเล็ก 😤",
     "สู้ๆ อีกสามวันก็ศุกร์แล้ว 🎉",
@@ -52,7 +53,7 @@ const DAY_CFG = [
     "พลังเต็มถัง ออกรถเลย 🏎️",
     "ทำมากกว่าที่คาดหวัง ผลลัพธ์จะน่าประหลาดใจ 🌟",
   ]},
-  { gradient:"linear-gradient(135deg,#10b981 0%,#14b8a6 50%,#06b6d4 100%)", accent:"#10b981", tag:"กึ่งกลาง 🌿", shadow:"rgba(16,185,129,.3)", quotes:[
+  { colors:["#064e3b","#10b981","#14b8a6","#06b6d4","#fbbf24"], gradient:"linear-gradient(135deg,#10b981 0%,#14b8a6 50%,#06b6d4 100%)", accent:"#10b981", tag:"กึ่งกลาง 🌿", shadow:"rgba(16,185,129,.3)", quotes:[
     "พุธ = ครึ่งทาง อีกครึ่งทางง่ายกว่า 🏔️",
     "วันพุธคือยอดเขา ข้างหน้าลงเขา 🎿",
     "พุธ: วันที่กาแฟทำงานหนักที่สุด ☕",
@@ -64,7 +65,7 @@ const DAY_CFG = [
     "หมดแรงนิดหน่อยก็ไม่เป็นไร พักแล้วลุยต่อ 🌱",
     "ทุกขั้นตอนสำคัญ แม้แต่ขั้นกลางๆ 🧩",
   ]},
-  { gradient:"linear-gradient(135deg,#6366f1 0%,#818cf8 50%,#a78bfa 100%)", accent:"#6366f1", tag:"เกือบถึง ⭐", shadow:"rgba(99,102,241,.3)", quotes:[
+  { colors:["#312e81","#6366f1","#a78bfa","#ec4899","#fbbf24"], gradient:"linear-gradient(135deg,#6366f1 0%,#818cf8 50%,#a78bfa 100%)", accent:"#6366f1", tag:"เกือบถึง ⭐", shadow:"rgba(99,102,241,.3)", quotes:[
     "พฤหัสฯ คือแสงสว่างปลายอุโมงค์ 🌟",
     "อีกวันเดียว! กำหมัดไว้ 👊",
     "ใกล้ๆ แล้ว เหนื่อยหน่อยแต่ถึง 🏅",
@@ -76,7 +77,7 @@ const DAY_CFG = [
     "เหลือแค่ก้าวสุดท้าย ก้าวเลย 👣",
     "พฤหัสฯ คือวันที่นับถอยหลังสู่ศุกร์ ⏳",
   ]},
-  { gradient:"linear-gradient(135deg,#f59e0b 0%,#f97316 50%,#ef4444 100%)", accent:"#f59e0b", tag:"ศุกร์!! 🎉", shadow:"rgba(245,158,11,.3)", quotes:[
+  { colors:["#7c2d12","#f59e0b","#f97316","#fb7185","#fbbf24"], gradient:"linear-gradient(135deg,#f59e0b 0%,#f97316 50%,#ef4444 100%)", accent:"#f59e0b", tag:"ศุกร์!! 🎉", shadow:"rgba(245,158,11,.3)", quotes:[
     "ศุกร์แล้วว!! มาไกลมากนะเพื่อน 🎊",
     "TGIF — Thank God It's Friday 🙌",
     "ศุกร์: วันที่ประสิทธิภาพสูงสุดช่วง 17:00–17:30 น. 😂",
@@ -88,7 +89,7 @@ const DAY_CFG = [
     "ปิดงานให้หมด แล้วไปพัก! ✅",
     "ศุกร์คือรางวัลของคนที่สู้มาทั้งสัปดาห์ 🥇",
   ]},
-  { gradient:"linear-gradient(135deg,#0ea5e9 0%,#06b6d4 50%,#14b8a6 100%)", accent:"#0ea5e9", tag:"วันหยุด 😴", shadow:"rgba(14,165,233,.3)", quotes:[
+  { colors:["#164e63","#0ea5e9","#06b6d4","#14b8a6","#a78bfa"], gradient:"linear-gradient(135deg,#0ea5e9 0%,#06b6d4 50%,#14b8a6 100%)", accent:"#0ea5e9", tag:"วันหยุด 😴", shadow:"rgba(14,165,233,.3)", quotes:[
     "เสาร์คือวันที่ alarm ต้องหยุดพัก ⏰",
     "พักผ่อนเยอะๆ นะ จันทร์ยังอีกไกล 🌙",
     "วันนี้ห้ามคิดเรื่องงาน เด็ดขาด 🚫",
@@ -247,8 +248,6 @@ export default function DashboardPage() {
         }
         .hero-card {
           border-radius:22px;
-          background-size:300% 300%;
-          animation:gradientShift 8s ease infinite;
           position:relative; overflow:hidden;
           box-shadow:
             0 8px 32px rgba(0,0,0,.18),
@@ -256,39 +255,59 @@ export default function DashboardPage() {
             inset 0 1px 0 rgba(255,255,255,.15);
           transform:perspective(800px) rotateX(1deg);
           transition:transform .3s ease;
+          isolation:isolate;  /* ให้ z-index ของลูกอ้างอิงในขอบเขตนี้ */
         }
         .hero-card::before {
           content:''; position:absolute; inset:0;
-          background:linear-gradient(135deg,rgba(255,255,255,.12) 0%,transparent 50%,rgba(255,255,255,.05) 100%);
-          border-radius:22px; pointer-events:none; z-index:1;
+          background:linear-gradient(135deg,rgba(255,255,255,.18) 0%,transparent 50%,rgba(255,255,255,.06) 100%);
+          border-radius:22px; pointer-events:none; z-index:2;
         }
         .hero-card::after {
           content:''; position:absolute; top:-50%; left:-50%;
           width:60%; height:200%;
-          background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);
+          background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);
           animation:shineSwipe 6s ease-in-out infinite;
-          pointer-events:none; z-index:2;
+          pointer-events:none; z-index:3;
         }
       `}</style>
 
       <div className="px-4 pt-3 pb-10 space-y-3 min-h-screen" style={{ background:"#f0f2f5" }}>
 
-        {/* ── GREETING CARD (3D Credit Card) ──── */}
+        {/* ── GREETING CARD (Animated MeshGradient Card) ──── */}
         <div {...up(0)}>
           <div className="hero-card" style={{
             padding:"22px 22px 18px",
-            background: cfg.gradient,
+            background: cfg.colors[0],  // base fallback color ขณะที่ shader load
           }}>
+            {/* MeshGradient animated background — เปลี่ยนสีเรื่อยๆ */}
+            <MeshGradient
+              className="absolute inset-0 w-full h-full"
+              style={{ zIndex: 0 }}
+              colors={cfg.colors}
+              speed={0.25}
+              distortion={0.85}
+              swirl={0.25}
+            />
+            {/* Overlay layer — เพิ่มมิติให้สวยขึ้น (blend mode + ความเร็วต่างกัน) */}
+            <MeshGradient
+              className="absolute inset-0 w-full h-full"
+              style={{ zIndex: 1, opacity: 0.4, mixBlendMode: "overlay" }}
+              colors={[cfg.colors[1], "#ffffff", cfg.colors[3], cfg.colors[4] || cfg.colors[2]]}
+              speed={0.4}
+              distortion={1}
+              swirl={0.5}
+            />
+
             {/* Glass circle decorations */}
             <div style={{ position:"absolute", top:-40, right:-30, width:140, height:140,
-              borderRadius:"50%", background:"rgba(255,255,255,.06)", zIndex:0 }}/>
+              borderRadius:"50%", background:"rgba(255,255,255,.08)", zIndex:2 }}/>
             <div style={{ position:"absolute", bottom:-30, left:-25, width:100, height:100,
-              borderRadius:"50%", background:"rgba(255,255,255,.04)", zIndex:0 }}/>
+              borderRadius:"50%", background:"rgba(255,255,255,.05)", zIndex:2 }}/>
             <div style={{ position:"absolute", top:"40%", right:"10%", width:60, height:60,
-              borderRadius:"50%", background:"rgba(255,255,255,.03)", zIndex:0 }}/>
+              borderRadius:"50%", background:"rgba(255,255,255,.04)", zIndex:2 }}/>
 
             {/* Top row: date + live clock */}
-            <div className="flex items-center justify-between relative" style={{ zIndex:3 }}>
+            <div className="flex items-center justify-between relative" style={{ zIndex:5 }}>
               <p style={{ fontSize:11, color:"rgba(255,255,255,.6)", fontWeight:500, letterSpacing:"0.02em" }}>
                 {mounted ? `วัน${DOW_TH[dow]} ${format(now,"d MMM yyyy",{locale:th})}` : ""}
               </p>
@@ -307,7 +326,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Main greeting: name + sub on same line */}
-            <div className="relative" style={{ zIndex:3, marginTop:16 }}>
+            <div className="relative" style={{ zIndex:5, marginTop:16 }}>
               <h1 style={{
                 fontSize:24, fontWeight:900, color:"#fff",
                 letterSpacing:"-0.03em", lineHeight:1.2,
@@ -321,7 +340,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Divider line + quote */}
-            <div className="relative" style={{ zIndex:3, marginTop:16 }}>
+            <div className="relative" style={{ zIndex:5, marginTop:16 }}>
               <div style={{ height:1, background:"linear-gradient(90deg,rgba(255,255,255,.15),rgba(255,255,255,.05),transparent)", marginBottom:12 }}/>
               <p className="italic leading-relaxed" style={{
                 fontSize:12, color:"rgba(255,255,255,.6)",
@@ -333,7 +352,7 @@ export default function DashboardPage() {
 
             {/* Card chip decoration (like credit card) */}
             <div style={{
-              position:"absolute", bottom:18, right:22, zIndex:3,
+              position:"absolute", bottom:18, right:22, zIndex:5,
               width:32, height:24, borderRadius:5,
               background:"linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.04))",
               border:"1px solid rgba(255,255,255,.08)",
