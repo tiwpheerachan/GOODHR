@@ -58,6 +58,13 @@ export async function GET(req: NextRequest) {
     teamEmployeeIds = (teamRows ?? []).map((r: any) => r.employee_id)
   }
 
+  // ── กรอง active เท่านั้น (กันรวมพนักงานที่ลาออกไปแล้ว) ──
+  if (teamEmployeeIds.length > 0) {
+    const { data: activeEmps } = await supa.from("employees")
+      .select("id").in("id", teamEmployeeIds).eq("is_active", true)
+    teamEmployeeIds = (activeEmps ?? []).map((e: any) => e.id)
+  }
+
   if (teamEmployeeIds.length === 0) {
     return NextResponse.json({ days: {}, employees: [], balances: [] })
   }
@@ -69,6 +76,7 @@ export async function GET(req: NextRequest) {
     .in("status", ["approved", "pending"])
     .lte("start_date", lastDay)
     .gte("end_date", firstDay)
+    .is("deleted_at", null)
 
   // Get employee details
   const { data: employees } = await supa.from("employees")
@@ -137,7 +145,8 @@ export async function GET(req: NextRequest) {
       on_leave: onLeave,
       pending: pending,
       quota_pct: quotaPct,
-      quota_ok: quotaPct >= 60,
+      quota_ok: quotaPct >= 70,  // ปรับ 60 → 70 ให้ตรงกับกฎใหม่
+      threshold_pct: 70,
     }
   }
 

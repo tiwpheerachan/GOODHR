@@ -110,7 +110,15 @@ function LeaveNewInner() {
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // ── Team quota state ──
-  const [quota, setQuota] = useState<{ team_size: number; working: number; on_leave: number; pending_leave: number; quota_pct: number; quota_ok: boolean } | null>(null)
+  const [quota, setQuota] = useState<{
+    team_size: number; working: number; on_leave: number; pending_leave: number
+    quota_pct: number; quota_ok: boolean; is_blocked?: boolean
+    is_accounting_pool?: boolean; is_small_team?: boolean
+    threshold_pct?: number
+    max_leave_allowed?: number; min_working?: number
+    worst_day?: { date: string; on_leave_now: number; working_now: number; working_pct: number; after_my_request_pct: number; blocks_my_request: boolean } | null
+    per_day?: Array<{ date: string; working_pct: number; after_my_request_pct: number; blocks_my_request: boolean; on_leave_now: number }>
+  } | null>(null)
   const [quotaLoading, setQuotaLoading] = useState(false)
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -148,7 +156,7 @@ function LeaveNewInner() {
   })
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
 
-  // ── Fetch team quota when leave dates change ──
+  // ── Fetch team quota when leave dates change (range) ──
   useEffect(() => {
     if (formType !== "leave" || !form.start_date) { setQuota(null); return }
     const fetchQuota = async () => {
@@ -157,7 +165,10 @@ function LeaveNewInner() {
         const res = await fetch("/api/leave/team-quota", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ date: form.start_date }),
+          body: JSON.stringify({
+            start_date: form.start_date,
+            end_date: form.end_date || form.start_date,
+          }),
         })
         const json = await res.json()
         if (res.ok && !json.error) setQuota(json)
@@ -166,7 +177,7 @@ function LeaveNewInner() {
       finally { setQuotaLoading(false) }
     }
     fetchQuota()
-  }, [formType, form.start_date]) // eslint-disable-line
+  }, [formType, form.start_date, form.end_date]) // eslint-disable-line
 
   // ── Resignation state ──
   const [resignStep, setResignStep] = useState(1)
@@ -202,6 +213,17 @@ function LeaveNewInner() {
     setSubmitErr(null)
     if (!empId || !companyId) {
       setSubmitErr("ไม่พบข้อมูลพนักงาน กรุณาล็อกอินใหม่")
+      return
+    }
+    // ── Block leave submission ถ้าทีมจะเกินโควต้า 70% ──
+    if (formType === "leave" && quota?.is_blocked) {
+      const worstDate = quota.worst_day?.date
+      const worstDateStr = worstDate ? format(new Date(worstDate), "d MMM yyyy", { locale: th }) : ""
+      setSubmitErr(
+        `❌ ทีมเกินโควต้าลา — ต้องมีคนทำงานอย่างน้อย ${quota.min_working ?? Math.ceil((quota.team_size || 0) * 0.7)}/${quota.team_size} คน (70%)\n` +
+        `วันที่ ${worstDateStr} จะมีคนทำงานเหลือเพียง ${quota.worst_day?.after_my_request_pct?.toFixed(0)}% หากคุณลาด้วย\n\n` +
+        `กรุณาติดต่อ HR หากมีความจำเป็นที่ต้องลาจริงๆ`
+      )
       return
     }
     setLoading(true)
@@ -801,25 +823,69 @@ function LeaveNewInner() {
 
                   {/* Team Quota Info — แสดงเฉพาะฟอร์มใบลา */}
                   {formType === "leave" && quota && (
-                    <div className={`rounded-2xl px-4 py-3 flex items-start gap-2.5 border ${
-                      quota.quota_ok
-                        ? "bg-emerald-50 border-emerald-200"
-                        : "bg-amber-50 border-amber-200"
+                    <div className={`rounded-2xl px-4 py-3 border-2 ${
+                      quota.is_blocked
+                        ? "bg-rose-50 border-rose-300"
+                        : quota.worst_day && quota.worst_day.after_my_request_pct < 80
+                          ? "bg-amber-50 border-amber-300"
+                          : "bg-emerald-50 border-emerald-200"
                     }`}>
-                      <Info size={14} className={`mt-0.5 flex-shrink-0 ${quota.quota_ok ? "text-emerald-500" : "text-amber-500"}`} />
-                      <div className="text-xs leading-relaxed">
-                        <p className={`font-bold ${quota.quota_ok ? "text-emerald-700" : "text-amber-700"}`}>
-                          โควต้าทีมวันที่ {form.start_date}
-                        </p>
-                        <p className={quota.quota_ok ? "text-emerald-600" : "text-amber-600"}>
-                          ทีม {quota.team_size} คน · ทำงาน {quota.working} · ลา {quota.on_leave} · รอ {quota.pending_leave} ·
-                          <span className="font-bold"> {quota.quota_pct}% พร้อมทำงาน</span>
-                        </p>
-                        {!quota.quota_ok && (
-                          <p className="text-amber-600 mt-0.5 font-semibold">
-                            ⚠️ โควต้าทีมต่ำกว่า 60% — คุณยังสามารถยื่นลาได้ แต่หัวหน้าอาจพิจารณาเพิ่มเติม
+                      <div className="flex items-start gap-2.5">
+                        {quota.is_blocked
+                          ? <AlertCircle size={16} className="mt-0.5 flex-shrink-0 text-rose-600" />
+                          : <Info size={14} className={`mt-0.5 flex-shrink-0 ${quota.worst_day && quota.worst_day.after_my_request_pct < 80 ? "text-amber-500" : "text-emerald-500"}`} />
+                        }
+                        <div className="text-xs leading-relaxed flex-1">
+                          <p className={`font-black ${
+                            quota.is_blocked ? "text-rose-700"
+                            : quota.worst_day && quota.worst_day.after_my_request_pct < 80 ? "text-amber-700"
+                            : "text-emerald-700"
+                          }`}>
+                            {quota.is_blocked ? "🚫 ทีมเกินโควต้าลา — ลาไม่ได้" : "โควต้าทีม"}
+                            {quota.is_accounting_pool && (
+                              <span className="ml-1 text-[10px] font-bold bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full">
+                                ทีมบัญชี · รวมทุกบริษัท
+                              </span>
+                            )}
+                            {quota.is_small_team && !quota.is_accounting_pool && (
+                              <span className="ml-1 text-[10px] font-bold bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full">
+                                ทีมเล็ก · ลาได้ 1 คน
+                              </span>
+                            )}
                           </p>
-                        )}
+
+                          <p className={`mt-0.5 ${
+                            quota.is_blocked ? "text-rose-700"
+                            : quota.worst_day && quota.worst_day.after_my_request_pct < 80 ? "text-amber-700"
+                            : "text-emerald-700"
+                          }`}>
+                            ทีม <b>{quota.team_size}</b> คน · ลา <b>{quota.on_leave}</b> · รอ <b>{quota.pending_leave}</b>
+                            {" · "}กำหนด <b>≥ {quota.threshold_pct ?? 70}%</b> ทำงาน
+                            {quota.max_leave_allowed != null && (
+                              <> · ลาได้สูงสุด <b>{quota.max_leave_allowed}</b> คน</>
+                            )}
+                          </p>
+
+                          {quota.worst_day && (
+                            <p className={`mt-1 ${
+                              quota.is_blocked ? "text-rose-700"
+                              : "text-slate-600"
+                            }`}>
+                              📅 วันที่วิกฤตสุด <b>{format(new Date(quota.worst_day.date), "d MMM", { locale: th })}</b>:
+                              {" "}ปัจจุบัน {quota.worst_day.working_pct?.toFixed(0)}% ทำงาน
+                              {" · "}หากคุณลาด้วย <b className={quota.is_blocked ? "text-rose-700" : ""}>{quota.worst_day.after_my_request_pct?.toFixed(0)}%</b>
+                            </p>
+                          )}
+
+                          {quota.is_blocked && (
+                            <div className="mt-2 bg-white border border-rose-200 rounded-xl px-3 py-2">
+                              <p className="font-black text-rose-700 text-xs">⚠️ ระบบล็อกการยื่นลาวันที่นี้</p>
+                              <p className="text-rose-600 mt-0.5">
+                                ถ้ามีความจำเป็นจริงๆ <b>กรุณาติดต่อ HR โดยตรง</b>
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -883,14 +949,19 @@ function LeaveNewInner() {
                     </div>
                   )}
 
-                  <button type="submit" disabled={loading || !empId}
-                    className="w-full py-3.5 disabled:opacity-50 text-white font-black text-sm rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.97]"
+                  <button type="submit"
+                    disabled={loading || !empId || (formType === "leave" && !!quota?.is_blocked)}
+                    className="w-full py-3.5 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-sm rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.97]"
                     style={{
-                      background: "linear-gradient(135deg,#3b82f6 0%,#6366f1 50%,#8b5cf6 100%)",
-                      boxShadow: "0 4px 15px rgba(99,102,241,.3)",
+                      background: formType === "leave" && quota?.is_blocked
+                        ? "linear-gradient(135deg,#94a3b8 0%,#64748b 100%)"
+                        : "linear-gradient(135deg,#3b82f6 0%,#6366f1 50%,#8b5cf6 100%)",
+                      boxShadow: formType === "leave" && quota?.is_blocked
+                        ? "none"
+                        : "0 4px 15px rgba(99,102,241,.3)",
                     }}>
-                    {loading ? <Loader2 size={15} className="animate-spin" /> : <Send size={14} />}
-                    {loading ? "กำลังส่ง..." : "ส่งคำร้อง"}
+                    {loading ? <Loader2 size={15} className="animate-spin" /> : (formType === "leave" && quota?.is_blocked ? <AlertCircle size={14}/> : <Send size={14} />)}
+                    {loading ? "กำลังส่ง..." : (formType === "leave" && quota?.is_blocked ? "ลาวันนี้ไม่ได้ — โควต้าเต็ม" : "ส่งคำร้อง")}
                   </button>
                 </form>
               </div>
