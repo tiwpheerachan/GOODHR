@@ -651,8 +651,8 @@ export default function AdminDashboard() {
           {l:"ขาดงาน",       v:kpi.absentToday,  icon:XCircle,       bg:"bg-red-50",    ic:"text-red-500",    vc:"text-red-700",    href:"/admin/attendance"},
           {l:"รออนุมัติลา", v:kpi.pendingLeave, icon:Calendar,      bg:"bg-orange-50", ic:"text-orange-500", vc:"text-orange-700", href:"/admin/leave"},
           {l:"รอแก้เวลา",   v:kpi.pendingAdj,   icon:AlertCircle,   bg:"bg-yellow-50", ic:"text-yellow-600", vc:"text-yellow-700", href:"/admin/attendance"},
-          {l:"พนักงานใหม่", v:kpi.newHires,     icon:UserPlus,      bg:"bg-sky-50",    ic:"text-sky-500",    vc:"text-sky-700",    href:"/admin/employees"},
-          {l:"ใกล้หมดทดลอง",v:kpi.probCount,   icon:AlertTriangle, bg:"bg-rose-50",   ic:"text-rose-500",   vc:"text-rose-700",   href:"/admin/employees"},
+          {l:"พนักงานใหม่", v:kpi.newHires,     icon:UserPlus,      bg:"bg-sky-50",    ic:"text-sky-500",    vc:"text-sky-700",    href:"/admin/probation-employees"},
+          {l:"ใกล้หมดทดลอง",v:kpi.probCount,   icon:AlertTriangle, bg:"bg-rose-50",   ic:"text-rose-500",   vc:"text-rose-700",   href:"/admin/probation-employees"},
         ].map(k=>(
           <Link key={k.l} href={k.href} className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:border-indigo-200 hover:shadow-md transition-all block">
             <div className={`w-8 h-8 ${k.bg} rounded-xl flex items-center justify-center mb-2.5`}>

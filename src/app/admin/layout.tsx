@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Users, Clock, CreditCard, Calendar, CalendarDays,
   Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target, Camera, CalendarClock,
   Network, ClipboardCheck, Megaphone, MessageCircle, ScrollText, Shield, Package, Table2, PieChart, Sparkles, GraduationCap,
-  UserPlus, Store,
+  UserPlus, Store, Briefcase,
 } from "lucide-react"
 
 const SIDEBAR = [
@@ -17,6 +17,7 @@ const SIDEBAR = [
   { href: "/admin/org",                  icon: Network,         label: "โครงสร้าง",      badge: null as string|null },
   { href: "/admin/org-chart",            icon: Network,         label: "ผังองค์กร",      badge: null as string|null },
   { href: "/admin/employees",            icon: Users,           label: "พนักงาน",       badge: null as string|null },
+  { href: "/admin/probation-employees",  icon: Briefcase,       label: "พนักงานทดลองงาน", badge: null as string|null },
   { href: "/admin/approvals",            icon: ClipboardCheck,  label: "คำร้อง",         badge: null as string|null },
   { href: "/admin/announcements",        icon: Megaphone,       label: "ประกาศ",         badge: null as string|null },
   { href: "/admin/chat",                 icon: MessageCircle,   label: "แชท",            badge: null as string|null },
