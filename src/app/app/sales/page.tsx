@@ -160,15 +160,24 @@ async function classifyCode(raw: string, formatName?: string): Promise<{
   const startsWithLetter = /^[A-Za-z]/.test(clean)
   const hasSpecial = /[-_./]/.test(clean)
 
-  // EAN/UPC numeric patterns (checksum ผิด แต่ length ตรง)
+  // EAN/UPC numeric patterns
   if (isDigits) {
-    if (len === 13 || len === 12) return { type: "barcode", confidence: 80, reason: `${len} digits — EAN/UPC pattern` }
-    if (len === 14)               return { type: "barcode", confidence: 75, reason: "GTIN-14" }
-    if (len === 8)                return { type: "barcode", confidence: 75, reason: "EAN-8" }
+    // ── 13-digit ที่ checksum ผิดและไม่อยู่ใน DB → "misread" → reject ──
+    //    (เพราะ ZXing บางครั้งอ่านพลาด 1-2 หลัก แล้วได้ตัวเลข 13 หลักที่ดูคล้าย)
+    if (len === 13) {
+      return { type: "barcode", confidence: 25, reason: `⚠ 13 digits — checksum ผิด (อาจอ่านพลาด)` }
+    }
+    if (len === 12) {
+      return { type: "barcode", confidence: 25, reason: `⚠ UPC-A checksum ผิด (อาจอ่านพลาด)` }
+    }
+    if (len === 8) {
+      return { type: "barcode", confidence: 25, reason: `⚠ EAN-8 checksum ผิด (อาจอ่านพลาด)` }
+    }
+    if (len === 14) return { type: "barcode", confidence: 75, reason: "GTIN-14" }
     // ตัวเลขสั้น 5-10 → order
-    if (len >= 5 && len <= 10)    return { type: "order", confidence: 75, reason: `${len} digits — order` }
-    // ตัวเลขยาว 15+ → SN ตัวเลขล้วน (rare แต่มี)
-    if (len >= 15)                return { type: "sn", confidence: 70, reason: `${len} digits ยาว — SN ตัวเลข` }
+    if (len >= 5 && len <= 10) return { type: "order", confidence: 75, reason: `${len} digits — order` }
+    // ตัวเลขยาว 15+ → SN ตัวเลขล้วน
+    if (len >= 15) return { type: "sn", confidence: 70, reason: `${len} digits ยาว — SN ตัวเลข` }
   }
 
   // Alphanumeric — classic SN pattern (Dreame, Apple, etc.)
@@ -729,6 +738,8 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
   const [aiState, setAiState] = useState<"idle" | "countdown" | "scanning" | "done" | "failed">("idle")
   const [aiCountdown, setAiCountdown] = useState(10)
   const aiTriggeredRef = useRef(false)
+  // ── Stability check — เก็บค่าที่ scan ได้ครั้งแรก รอ confirm ครั้งที่ 2 ──
+  const pendingRef = useRef<Map<string, number>>(new Map())
 
   // ── AI: capture video frame + ส่งให้ Claude อ่าน ──
   const triggerAIScan = async () => {
@@ -868,11 +879,23 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
     // Continuous mode (barcode purpose) — smart classify
     if (detectedRef.current.find(d => d.value === clean)) return
 
+    const cls = await classifyCode(decoded, fmt)
+
+    // ── Stability check — ถ้า confidence ต่ำ ต้องอ่านเจอ 2 ครั้ง ──
+    //    เก็บใน pendingRef แทน detectedRef เพื่อรอ confirm
+    if (cls.confidence < 50) {
+      const c = pendingRef.current.get(clean) ?? 0
+      if (c < 1) {
+        pendingRef.current.set(clean, c + 1)
+        return  // ยังไม่ accept — รอเจอซ้ำอีกครั้ง
+      }
+    }
+    pendingRef.current.delete(clean)
+
     playFeedback()
     setLastSeen({ value: decoded, format: fmt })
     setTimeout(() => setLastSeen(prev => prev?.value === decoded ? null : prev), 700)
 
-    const cls = await classifyCode(decoded, fmt)
     const item: Detected = {
       value: clean, type: cls.type, format: fmt,
       product: cls.product ?? null,
@@ -1121,12 +1144,12 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
   const hasSn = detected.some(d => d.type === "sn")
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/95 backdrop-blur-sm flex flex-col"
-      style={{ height: "100dvh", maxHeight: "100dvh" }}>
+    <div className="fixed inset-0 z-[70] bg-black flex flex-col"
+      style={{ height: "100svh", maxHeight: "100svh" }}>
 
       {/* ── Header (safe-area top) ── */}
-      <div className={`flex items-center justify-between px-3 py-2.5 bg-gradient-to-r ${meta.color} text-white shadow flex-shrink-0`}
-        style={{ paddingTop: `max(env(safe-area-inset-top), 10px)` }}>
+      <div className={`flex items-center justify-between px-3 py-2 bg-gradient-to-r ${meta.color} text-white shadow flex-shrink-0 relative z-10`}
+        style={{ paddingTop: `max(env(safe-area-inset-top), 8px)` }}>
         <p className="font-black flex items-center gap-1.5 text-sm truncate min-w-0">
           <Camera size={14} className="flex-shrink-0"/>
           <span className="truncate">{meta.title}{continuous && " · ต่อเนื่อง"}</span>
@@ -1140,155 +1163,140 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
         </div>
       </div>
 
-      {/* ── Main area — flex column ที่ปรับอัตราเอง ── */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-
-        {/* Scanner box — กินพื้นที่ส่วนใหญ่ */}
-        <div className="flex-1 flex items-center justify-center min-h-0 p-2 sm:p-3">
-          <div className="relative w-full max-w-md mx-auto h-full flex items-center justify-center">
-            <div className="relative w-full"
-              style={{ aspectRatio: "4 / 5", maxHeight: "100%", maxWidth: "100%" }}>
-              <div ref={containerRef} id="barcode-scanner-region"
-                className="absolute inset-0 bg-black rounded-2xl overflow-hidden border-2 border-white/20"
-                style={{ minHeight: 240 }}>
-                {/* Video element สำหรับ native + ZXing (html5-qrcode จะใส่ video เอง) */}
-                {(engine === "native" || engine === "zxing") && (
-                  <video ref={videoRef} playsInline muted autoPlay
-                    className="absolute inset-0 w-full h-full object-cover"/>
-                )}
-              </div>
-
-              {/* ─── Scanning overlay ─── */}
-              {!lastSeen && !error && (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="absolute inset-0 bg-black/30 rounded-2xl"/>
-                  <div className="relative w-[85%] aspect-[16/9] max-h-[60%]">
-                    <div className={`absolute -inset-1 rounded-2xl border-2 ${meta.auraClass} animate-[scanAura_2s_ease-in-out_infinite]`}/>
-                    <div className="absolute inset-0 rounded-xl border border-white/20 backdrop-blur-[1px]"/>
-                    <div className="absolute inset-x-2 top-0 bottom-0 overflow-hidden">
-                      <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-rose-500 to-transparent shadow-[0_0_18px_4px_rgba(244,63,94,0.7)] animate-[scanLine_2.6s_ease-in-out_infinite]"/>
-                    </div>
-                    <div className="absolute inset-0 overflow-hidden rounded-xl">
-                      <div className="absolute -inset-y-2 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-12 animate-[scanShine_3s_ease-in-out_infinite]"/>
-                    </div>
-                    <span className={`absolute top-0 left-0 w-6 h-6 border-t-[3px] border-l-[3px] ${meta.cornerClass} rounded-tl-xl animate-[cornerPulse_1.4s_ease-in-out_infinite]`}/>
-                    <span className={`absolute top-0 right-0 w-6 h-6 border-t-[3px] border-r-[3px] ${meta.cornerClass} rounded-tr-xl animate-[cornerPulse_1.4s_ease-in-out_0.2s_infinite]`}/>
-                    <span className={`absolute bottom-0 left-0 w-6 h-6 border-b-[3px] border-l-[3px] ${meta.cornerClass} rounded-bl-xl animate-[cornerPulse_1.4s_ease-in-out_0.4s_infinite]`}/>
-                    <span className={`absolute bottom-0 right-0 w-6 h-6 border-b-[3px] border-r-[3px] ${meta.cornerClass} rounded-br-xl animate-[cornerPulse_1.4s_ease-in-out_0.6s_infinite]`}/>
-                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 flex items-center gap-1 text-white/90 text-[9px] font-black tracking-widest uppercase whitespace-nowrap">
-                      <span className={`w-1.5 h-1.5 rounded-full ${meta.pulseDotClass} animate-pulse`}/>
-                      <span className="animate-[scanBlink_1.2s_ease-in-out_infinite]">Scanning</span>
-                      <span className="inline-flex gap-0.5">
-                        <span className="animate-[scanDot_1.4s_ease-in-out_infinite]">.</span>
-                        <span className="animate-[scanDot_1.4s_ease-in-out_0.2s_infinite]">.</span>
-                        <span className="animate-[scanDot_1.4s_ease-in-out_0.4s_infinite]">.</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* ─── Success state ─── */}
-              {lastSeen && (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl overflow-hidden">
-                  <div className="absolute inset-0 bg-emerald-400/40 backdrop-blur-sm animate-[successBurst_0.6s_ease-out]"/>
-                  <div className="absolute w-32 h-32 sm:w-48 sm:h-48 rounded-full border-4 border-emerald-300/60 animate-[ringExpand_0.7s_ease-out]"/>
-                  <div className="absolute w-32 h-32 sm:w-48 sm:h-48 rounded-full border-4 border-white/40 animate-[ringExpand_0.9s_ease-out_0.1s]"/>
-                  <div className="bg-white rounded-2xl px-4 py-3 sm:px-6 sm:py-5 shadow-2xl text-center scale-0 animate-[popIn_0.4s_cubic-bezier(0.34,1.56,0.64,1)_forwards] relative z-10 max-w-[80%]">
-                    <div className="w-10 h-10 sm:w-14 sm:h-14 mx-auto rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white flex items-center justify-center mb-1.5 shadow-lg ring-4 ring-emerald-200/50">
-                      <Check size={22} strokeWidth={3}/>
-                    </div>
-                    <p className="text-[9px] sm:text-[10px] font-black text-emerald-600 uppercase tracking-wider">{lastSeen.format || "Detected"}</p>
-                    <p className="text-xs sm:text-sm font-black text-slate-800 font-mono mt-0.5 break-all">{cleanDecoded(lastSeen.value)}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* ─── AI overlay states ─── */}
-              {continuous && aiState === "scanning" && (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl overflow-hidden bg-black/50 backdrop-blur-sm">
-                  <div className="bg-white/95 rounded-2xl px-5 py-4 shadow-2xl text-center max-w-[80%] animate-[popIn_0.3s_ease-out_forwards]">
-                    <div className="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white flex items-center justify-center shadow-lg ring-4 ring-purple-200/50 mb-2 animate-pulse">
-                      <span className="text-xl">🤖</span>
-                    </div>
-                    <p className="text-xs font-black text-purple-700">AI กำลังอ่านรูป...</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Claude Vision ดูฉลากให้</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+      {/* ── Scanner area เต็มพื้นที่ที่เหลือ — video ใต้สุด + overlay ทับ ── */}
+      <div className="flex-1 relative min-h-0 overflow-hidden bg-black">
+        {/* Video (เต็มพื้นที่) */}
+        <div ref={containerRef} id="barcode-scanner-region" className="absolute inset-0 bg-black overflow-hidden">
+          {(engine === "native" || engine === "zxing") && (
+            <video ref={videoRef} playsInline muted autoPlay
+              className="absolute inset-0 w-full h-full object-cover"/>
+          )}
         </div>
 
-        {/* Bottom info area — error / detected list / hint */}
-        <div className="flex-shrink-0 px-3 pb-2 space-y-2 max-h-[42vh] overflow-y-auto">
-          {error && (
-            <div className="bg-rose-500/20 border border-rose-500/40 rounded-xl p-2.5 text-rose-100 text-xs text-center">
-              <AlertCircle size={13} className="inline mr-1"/> {error}
-              <p className="text-[10px] mt-0.5 opacity-80">โปรดอนุญาตการเข้าถึงกล้อง</p>
-            </div>
-          )}
+        {/* ─── Viewfinder cutout — เบลอนอกกรอบ + กรอบชัด ─── */}
+        {!lastSeen && !error && aiState !== "scanning" && (
+          <div className="pointer-events-none absolute inset-0">
+            {/* 4 strips: top / bottom / left / right (เบลอ + ดิม) */}
+            <div className="absolute top-0 inset-x-0 bg-black/65 backdrop-blur-sm" style={{ height: "22%" }}/>
+            <div className="absolute bottom-0 inset-x-0 bg-black/65 backdrop-blur-sm" style={{ height: "22%" }}/>
+            <div className="absolute left-0 bg-black/65 backdrop-blur-sm" style={{ top: "22%", bottom: "22%", width: "6%" }}/>
+            <div className="absolute right-0 bg-black/65 backdrop-blur-sm" style={{ top: "22%", bottom: "22%", width: "6%" }}/>
 
-          {continuous && detected.length > 0 && (
-            <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-xl p-2.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-black uppercase tracking-wider text-white/80">
-                  ✓ ตรวจเจอ {detected.length} รหัส
-                </p>
-                <div className="flex gap-1 text-[9px]">
-                  {hasBarcode && <span className="bg-indigo-500/40 text-indigo-100 px-1.5 py-0.5 rounded-full font-black">📦 BC</span>}
-                  {hasSn && <span className="bg-emerald-500/40 text-emerald-100 px-1.5 py-0.5 rounded-full font-black">🔢 SN</span>}
-                </div>
+            {/* Scan window — โปร่งใส ไม่มี backdrop, มีกรอบสีสด */}
+            <div className="absolute" style={{ top: "22%", bottom: "22%", left: "6%", right: "6%" }}>
+              {/* Border หลัก — ชัด สีตามสี purpose */}
+              <div className={`absolute inset-0 border-2 ${meta.cornerClass.split(" ").find(c => c.startsWith("border-"))} rounded-2xl shadow-[0_0_0_3px_rgba(0,0,0,0.4),inset_0_0_20px_rgba(0,0,0,0.2)]`}/>
+
+              {/* Corner brackets ใหญ่ ชัด */}
+              <span className={`absolute -top-0.5 -left-0.5 w-9 h-9 border-t-[5px] border-l-[5px] ${meta.cornerClass} rounded-tl-2xl`}/>
+              <span className={`absolute -top-0.5 -right-0.5 w-9 h-9 border-t-[5px] border-r-[5px] ${meta.cornerClass} rounded-tr-2xl`}/>
+              <span className={`absolute -bottom-0.5 -left-0.5 w-9 h-9 border-b-[5px] border-l-[5px] ${meta.cornerClass} rounded-bl-2xl`}/>
+              <span className={`absolute -bottom-0.5 -right-0.5 w-9 h-9 border-b-[5px] border-r-[5px] ${meta.cornerClass} rounded-br-2xl`}/>
+
+              {/* Animated scan line */}
+              <div className="absolute inset-x-3 top-0 bottom-0 overflow-hidden rounded-2xl">
+                <div className="absolute inset-x-0 h-[3px] bg-gradient-to-r from-transparent via-rose-500 to-transparent shadow-[0_0_20px_5px_rgba(244,63,94,0.8)] animate-[scanLine_2.6s_ease-in-out_infinite]"/>
               </div>
-              <div className="space-y-1">
-                {detected.map(d => (
-                  <DetectedRow key={d.value} item={d} onRemove={() => removeDetected(d.value)} onReclassify={(t: "barcode" | "sn" | "order") => reclassify(d.value, t)}/>
-                ))}
+
+              {/* "Scanning..." label */}
+              <div className="absolute -top-8 left-1/2 -translate-x-1/2 flex items-center gap-1.5 text-white text-[11px] font-black tracking-widest uppercase whitespace-nowrap drop-shadow-lg">
+                <span className={`w-2 h-2 rounded-full ${meta.pulseDotClass} animate-pulse`}/>
+                <span className="animate-[scanBlink_1.2s_ease-in-out_infinite]">Scanning</span>
+                <span className="inline-flex gap-0.5">
+                  <span className="animate-[scanDot_1.4s_ease-in-out_infinite]">.</span>
+                  <span className="animate-[scanDot_1.4s_ease-in-out_0.2s_infinite]">.</span>
+                  <span className="animate-[scanDot_1.4s_ease-in-out_0.4s_infinite]">.</span>
+                </span>
+              </div>
+
+              {/* Hint ใต้กรอบ */}
+              <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 text-white/90 text-[10px] text-center whitespace-nowrap drop-shadow-lg">
+                {purpose === "barcode" && "เล็งบาร์โค้ดให้อยู่ในกรอบ"}
+                {purpose === "sn" && "เล็ง Serial Number ในกรอบ"}
+                {purpose === "order" && "เล็งเลข Order ในกรอบ"}
               </div>
             </div>
-          )}
-
-          <div className="text-center text-white/70 text-[10px] leading-tight">
-            <p className="flex items-center justify-center gap-1.5 flex-wrap">
-              <span className="opacity-70">QR · Code128 · EAN · UPC · DataMatrix · Code39 · ITF · PDF417</span>
-              {engine === "native" && (
-                <span className="text-emerald-300 font-black bg-emerald-500/20 px-1.5 py-0.5 rounded-full text-[9px]">⚡ Native</span>
-              )}
-              {engine === "zxing" && (
-                <span className="text-blue-300 font-black bg-blue-500/20 px-1.5 py-0.5 rounded-full text-[9px]">⚡ ZXing</span>
-              )}
-            </p>
-            {continuous && aiState === "countdown" && aiCountdown > 0 && (
-              <div className="mt-1.5 flex items-center justify-center gap-2 flex-wrap">
-                <p className="text-purple-200 text-[10px] flex items-center gap-1">
-                  <span>🤖</span>
-                  <span>
-                    {detected.length === 0
-                      ? "AI อ่านรูปใน"
-                      : !hasBarcode
-                      ? "ยังขาด Barcode — AI อ่านใน"
-                      : !hasSn
-                      ? "ยังขาด SN — AI อ่านใน"
-                      : "AI ใน"}
-                    {" "}<b className="text-white tabular-nums">{aiCountdown}s</b>
-                  </span>
-                </p>
-                <button onClick={triggerAIScan}
-                  className="px-2 py-0.5 bg-purple-500 hover:bg-purple-600 text-white text-[10px] font-black rounded-full">
-                  ใช้เลย
-                </button>
-              </div>
-            )}
-            {continuous && detected.length === 0 && aiState !== "countdown" && (
-              <p className="mt-1 text-indigo-200 text-[10px]">
-                {engine === "native"
-                  ? "💡 จับ barcode + SN พร้อมกันได้ในรอบเดียว"
-                  : "💡 เลื่อนกล้องเล็กๆ ผ่านแต่ละรหัส"}
-              </p>
-            )}
           </div>
+        )}
+
+        {/* ─── Success state (over video) ─── */}
+        {lastSeen && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30">
+            <div className="absolute inset-0 bg-emerald-400/30 animate-[successBurst_0.5s_ease-out]"/>
+            <div className="absolute w-40 h-40 rounded-full border-4 border-emerald-300/70 animate-[ringExpand_0.7s_ease-out]"/>
+            <div className="bg-white rounded-2xl px-5 py-3 shadow-2xl text-center max-w-[80%] animate-[popIn_0.4s_cubic-bezier(0.34,1.56,0.64,1)_forwards] relative z-10">
+              <div className="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white flex items-center justify-center mb-1.5 shadow-lg ring-4 ring-emerald-200/50">
+                <Check size={22} strokeWidth={3}/>
+              </div>
+              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider">{lastSeen.format || "Detected"}</p>
+              <p className="text-xs font-black text-slate-800 font-mono mt-0.5 break-all">{cleanDecoded(lastSeen.value)}</p>
+            </div>
+          </div>
+        )}
+
+        {/* ─── AI overlay ─── */}
+        {continuous && aiState === "scanning" && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="bg-white/95 rounded-2xl px-5 py-4 shadow-2xl text-center max-w-[80%]">
+              <div className="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white flex items-center justify-center shadow-lg ring-4 ring-purple-200/50 mb-2 animate-pulse">
+                <span className="text-xl">🤖</span>
+              </div>
+              <p className="text-xs font-black text-purple-700">AI กำลังอ่านรูป...</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">Claude Vision ดูฉลากให้</p>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Engine badge + countdown — มุมบนขวาบนกล้อง ─── */}
+        <div className="absolute top-2 right-2 flex flex-col items-end gap-1 z-10 pointer-events-none">
+          {engine === "native" && (
+            <span className="text-emerald-300 font-black bg-emerald-500/30 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] shadow">⚡ Native</span>
+          )}
+          {engine === "zxing" && (
+            <span className="text-blue-100 font-black bg-blue-500/30 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] shadow">⚡ ZXing</span>
+          )}
+          {continuous && aiState === "countdown" && aiCountdown > 0 && aiCountdown <= 10 && (
+            <button onClick={triggerAIScan}
+              className="pointer-events-auto bg-purple-500/80 hover:bg-purple-600 backdrop-blur-md text-white text-[10px] font-black px-2.5 py-1 rounded-full shadow flex items-center gap-1">
+              <span>🤖</span>
+              <span>
+                {!hasBarcode && !hasSn ? "AI" : !hasBarcode ? "AI หา BC" : !hasSn ? "AI หา SN" : "AI"}
+                {" "}{aiCountdown}s
+              </span>
+            </button>
+          )}
         </div>
+
+        {/* ─── Error overlay ─── */}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center p-4 bg-black/80 z-20">
+            <div className="bg-rose-500/20 border border-rose-500/40 rounded-xl p-4 text-rose-100 text-xs text-center max-w-md">
+              <AlertCircle size={20} className="inline mr-1"/> {error}
+              <p className="text-[10px] mt-1 opacity-80">โปรดอนุญาตการเข้าถึงกล้องในเบราว์เซอร์</p>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* ── Detected codes panel — fixed at bottom (above buttons) ── */}
+      {continuous && detected.length > 0 && (
+        <div className="flex-shrink-0 px-3 pt-2 pb-1 bg-black/85 backdrop-blur-md border-t border-white/10">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[10px] font-black uppercase tracking-wider text-white/80">
+              ✓ ตรวจเจอ {detected.length} รหัส
+            </p>
+            <div className="flex gap-1 text-[9px]">
+              {hasBarcode && <span className="bg-indigo-500/40 text-indigo-100 px-1.5 py-0.5 rounded-full font-black">📦 BC</span>}
+              {hasSn && <span className="bg-emerald-500/40 text-emerald-100 px-1.5 py-0.5 rounded-full font-black">🔢 SN</span>}
+            </div>
+          </div>
+          <div className="space-y-1 max-h-[22vh] overflow-y-auto pr-1">
+            {detected.map(d => (
+              <DetectedRow key={d.value} item={d} onRemove={() => removeDetected(d.value)} onReclassify={(t: "barcode" | "sn" | "order") => reclassify(d.value, t)}/>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ─── Bottom action bar (continuous) ─── */}
       {continuous && (
