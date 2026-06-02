@@ -16,49 +16,132 @@ import PersonalDashboard from "@/components/sales/PersonalDashboard"
 type ScanPurpose = "barcode" | "sn" | "order"
 type CodeType = "barcode" | "sn" | "order"
 
-// ── Clean decoded text: ลบ prefix "SN:" "Barcode:" + whitespace ──
+// ════════════════════════════════════════════════════════════════════
+// Smart code classifier (trained จากข้อมูลจริง)
+// ════════════════════════════════════════════════════════════════════
+//
+// ─── PATTERNS อ้างอิงจากข้อมูลจริง ───
+//
+// EAN-13 / GS1 retail barcodes:
+//   - 13 digits (last = check digit)
+//   - Country/manufacturer prefix
+//   - Examples: 6976233670423 (Dreame), 8851234567890 (Thailand)
+//   - All numeric, no letters
+//
+// EAN-8 / UPC-A / UPC-E:
+//   - 8 / 12 / 8 digits respectively, all numeric
+//
+// GTIN-14 (carton barcode):
+//   - 14 digits
+//
+// Serial Number (SN) patterns:
+//   - มักมี prefix "SN:", "S/N:", "P/N:", "Serial:" บน label
+//   - Encoded ใน Code128 มักไม่มี prefix (เก็บแค่ค่า)
+//   - ความยาว 10-24 chars, alphanumeric, มัก UPPERCASE
+//   - มักขึ้นต้นด้วยตัวอักษร (รหัสรุ่น/ผู้ผลิต)
+//   - ตัวอย่างจริง: APVDHMN0F13102572 (Dreame, 17 ตัว), P2287R3B9TH1074515 (18 ตัว),
+//                  Apple SN: C02ABC3DEF (10 ตัว)
+//
+// Order Number patterns:
+//   - 5-10 digits, all numeric (เช่น 9428555)
+//   - หรือ alphanumeric + prefix ORD/PO/INV/#
+//   - ความยาวสั้น (≤ 12 chars)
+// ════════════════════════════════════════════════════════════════════
+
+const SN_PREFIX_PATTERNS = [
+  /^\s*(SN|S\/N|S\.N\.?|SR|SERIAL\s*NO?|SERIAL\s*NUMBER|P\/N|PART\s*NO?|IMEI|MAC|UID|UUID)\s*[:#=\-]\s*/i,
+]
+const ORDER_PREFIX_PATTERNS = [
+  /^\s*(ORD(?:ER)?|PO|P\.O\.|INV(?:OICE)?|REF|REFERENCE|ORDER\s*NO?)\s*[:#=\-]\s*/i,
+  /^#\s*/,  // "#12345"
+]
+const BARCODE_PREFIX_PATTERNS = [
+  /^\s*(BC|BARCODE|EAN|UPC|GTIN|ITEM\s*CODE)\s*[:#=\-]\s*/i,
+]
+
+// ── Clean decoded text: ลบ prefix + whitespace + zero-width chars ──
 function cleanDecoded(raw: string): string {
   let s = (raw || "").trim()
-  // remove common prefixes (ใช้สำหรับ "value" ที่จะเก็บลง field)
-  s = s.replace(/^(SN|S\/N|Serial Number|Serial No|Barcode|BC|EAN|UPC|Order|Order Number|ORD|PO)\s*[:\-#]\s*/i, "")
-  // remove zero-width chars
-  s = s.replace(/[​-‍﻿]/g, "")
+  // ลบ prefix ทุกแบบ
+  for (const re of [...SN_PREFIX_PATTERNS, ...ORDER_PREFIX_PATTERNS, ...BARCODE_PREFIX_PATTERNS]) {
+    if (re.test(s)) { s = s.replace(re, ""); break }
+  }
+  // ลบ zero-width chars
+  s = s.replace(/[​-‍﻿]/g, "").trim()
   return s
 }
 
-// ── Detect prefix hint จาก raw value (ก่อน clean) ──
-function detectPrefixHint(raw: string): CodeType | null {
+// ── Detect prefix hint จาก raw value ──
+function detectPrefixHint(raw: string): { type: CodeType; matched: string } | null {
   const v = (raw || "").trim()
-  if (/^(SN|S\/N|Serial)\s*[:\-#]/i.test(v)) return "sn"
-  if (/^(ORD|Order|PO)\s*[:\-#]/i.test(v)) return "order"
-  if (/^(BC|Barcode|EAN|UPC)\s*[:\-#]/i.test(v)) return "barcode"
+  for (const re of SN_PREFIX_PATTERNS) {
+    const m = v.match(re); if (m) return { type: "sn", matched: m[1] }
+  }
+  for (const re of ORDER_PREFIX_PATTERNS) {
+    const m = v.match(re); if (m) return { type: "order", matched: m[1] || "#" }
+  }
+  for (const re of BARCODE_PREFIX_PATTERNS) {
+    const m = v.match(re); if (m) return { type: "barcode", matched: m[1] }
+  }
   return null
 }
 
-// ── Heuristic classifier (รัน async เพื่อ lookup product ด้วย) ──
-//   ลำดับ priority:
-//   1. prefix hint (SN:, ORD:, BC:)
-//   2. format ของ barcode reader (QR/Code128/...)
-//   3. lookup product DB ทุกครั้ง (เร็วและถูกที่สุด)
-//   4. heuristic จาก pattern:
-//      - 8-14 digits → EAN/UPC barcode
-//      - alphanumeric ยาว ≥ 10 + เริ่มด้วยตัวอักษร → SN
-//      - alphanumeric สั้น 5-9 ตัว → Order
-//      - default → SN
+// ── Validate EAN-13 check digit (เพิ่มความมั่นใจของ classification) ──
+function isValidEAN13(s: string): boolean {
+  if (!/^\d{13}$/.test(s)) return false
+  const digits = s.split("").map(Number)
+  let sum = 0
+  for (let i = 0; i < 12; i++) sum += digits[i] * (i % 2 === 0 ? 1 : 3)
+  const check = (10 - (sum % 10)) % 10
+  return check === digits[12]
+}
+function isValidEAN8(s: string): boolean {
+  if (!/^\d{8}$/.test(s)) return false
+  const d = s.split("").map(Number)
+  let sum = 0
+  for (let i = 0; i < 7; i++) sum += d[i] * (i % 2 === 0 ? 3 : 1)
+  const check = (10 - (sum % 10)) % 10
+  return check === d[7]
+}
+function isValidUPCA(s: string): boolean {
+  if (!/^\d{12}$/.test(s)) return false
+  const d = s.split("").map(Number)
+  let sum = 0
+  for (let i = 0; i < 11; i++) sum += d[i] * (i % 2 === 0 ? 3 : 1)
+  const check = (10 - (sum % 10)) % 10
+  return check === d[11]
+}
+
+// ── Main classifier ──
 async function classifyCode(raw: string, formatName?: string): Promise<{
   type: CodeType
   product?: any | null
-  confidence: number  // 0-100
+  confidence: number
   reason: string
 }> {
   const clean = cleanDecoded(raw)
-  // 1. Prefix override (มั่นใจที่สุด)
-  const prefix = detectPrefixHint(raw)
-  if (prefix === "sn") return { type: "sn", confidence: 99, reason: "prefix SN:" }
-  if (prefix === "order") return { type: "order", confidence: 99, reason: "prefix ORD:" }
-  if (prefix === "barcode") return { type: "barcode", confidence: 95, reason: "prefix BC:" }
+  if (!clean) return { type: "sn", confidence: 0, reason: "ค่าว่าง" }
 
-  // 2. DB lookup ก่อน — ถ้าเจอใน products = ของจริง
+  // ─── 1. PREFIX (most certain) ───
+  const prefix = detectPrefixHint(raw)
+  if (prefix) {
+    return { type: prefix.type, confidence: 99, reason: `prefix "${prefix.matched}:"` }
+  }
+
+  // ─── 2. SCANNER FORMAT (EAN/UPC = product barcode สูง) ───
+  if (formatName) {
+    const fn = formatName.toLowerCase().replace(/[-_]/g, "")
+    if (/^(ean13|ean8|upca|upce|gtin)$/.test(fn)) {
+      return { type: "barcode", confidence: 95, reason: `${formatName}` }
+    }
+  }
+
+  // ─── 3. CHECK DIGIT validation (EAN/UPC) ───
+  if (isValidEAN13(clean)) return { type: "barcode", confidence: 98, reason: "EAN-13 valid checksum" }
+  if (isValidUPCA(clean))  return { type: "barcode", confidence: 98, reason: "UPC-A valid checksum" }
+  if (isValidEAN8(clean))  return { type: "barcode", confidence: 98, reason: "EAN-8 valid checksum" }
+
+  // ─── 4. DB LOOKUP ───
   try {
     const r = await fetch(`/api/products?barcode=${encodeURIComponent(clean)}`)
     const d = await r.json()
@@ -67,40 +150,51 @@ async function classifyCode(raw: string, formatName?: string): Promise<{
     }
   } catch {}
 
-  // 3. Format-based hints
-  // EAN-13/EAN-8/UPC-A → product barcode แน่นอน (12-13 digits)
-  if (formatName && /EAN_13|EAN_8|UPC_A|UPC_E/i.test(formatName)) {
-    return { type: "barcode", confidence: 90, reason: `format ${formatName}` }
-  }
-
-  // 4. Pattern heuristics
+  // ─── 5. PATTERN HEURISTICS ───
   const len = clean.length
   const isDigits = /^\d+$/.test(clean)
+  const isAlnum = /^[A-Za-z0-9]+$/.test(clean)
   const hasLetter = /[A-Za-z]/.test(clean)
+  const hasDigit = /\d/.test(clean)
+  const isAllUpper = !/[a-z]/.test(clean) && hasLetter
   const startsWithLetter = /^[A-Za-z]/.test(clean)
-  const isAlnum = /^[A-Za-z0-9\-]+$/.test(clean)
+  const hasSpecial = /[-_./]/.test(clean)
 
-  if (isDigits && len >= 8 && len <= 14) {
-    return { type: "barcode", confidence: 75, reason: `${len} digits — เหมือน barcode` }
+  // EAN/UPC numeric patterns (checksum ผิด แต่ length ตรง)
+  if (isDigits) {
+    if (len === 13 || len === 12) return { type: "barcode", confidence: 80, reason: `${len} digits — EAN/UPC pattern` }
+    if (len === 14)               return { type: "barcode", confidence: 75, reason: "GTIN-14" }
+    if (len === 8)                return { type: "barcode", confidence: 75, reason: "EAN-8" }
+    // ตัวเลขสั้น 5-10 → order
+    if (len >= 5 && len <= 10)    return { type: "order", confidence: 75, reason: `${len} digits — order` }
+    // ตัวเลขยาว 15+ → SN ตัวเลขล้วน (rare แต่มี)
+    if (len >= 15)                return { type: "sn", confidence: 70, reason: `${len} digits ยาว — SN ตัวเลข` }
   }
-  // SN ทั่วไป: ขึ้นต้นด้วยตัวอักษร + alphanumeric ≥ 10 chars
-  if (startsWithLetter && hasLetter && isAlnum && len >= 10) {
-    return { type: "sn", confidence: 85, reason: `${len} ตัว ขึ้นต้นด้วยตัวอักษร — เหมือน SN` }
+
+  // Alphanumeric — classic SN pattern (Dreame, Apple, etc.)
+  if (isAlnum && hasLetter && hasDigit && startsWithLetter) {
+    // 14-24 ตัว uppercase = SN ของอุปกรณ์ระดับ premium (Dreame, etc.)
+    if (len >= 14 && len <= 26 && isAllUpper) {
+      return { type: "sn", confidence: 95, reason: `${len} ตัว UPPERCASE — SN เครื่อง` }
+    }
+    // 10-14 ตัว = SN ทั่วไป (Apple, Samsung)
+    if (len >= 10 && len <= 14) {
+      return { type: "sn", confidence: 85, reason: `${len} ตัว alphanumeric — SN` }
+    }
+    // 5-9 ตัว = อาจเป็น order code
+    if (len >= 5 && len <= 9) {
+      return { type: "order", confidence: 60, reason: `${len} ตัว alphanumeric สั้น — order` }
+    }
   }
-  // Order: alphanumeric 5-10 chars (มักจะมีทั้งตัวอักษร + เลข)
-  if (isAlnum && len >= 5 && len <= 10 && hasLetter && !startsWithLetter) {
-    return { type: "order", confidence: 60, reason: `${len} ตัว — น่าจะเป็น order` }
+
+  // มี special chars → likely SN/serial (เช่น "ABC-123-456")
+  if (hasSpecial && len >= 8) {
+    return { type: "sn", confidence: 65, reason: "มี - หรือ _ — น่าจะ SN" }
   }
-  // ตัวเลขสั้นๆ → order
-  if (isDigits && len >= 5 && len <= 9) {
-    return { type: "order", confidence: 55, reason: `${len} digits สั้น — น่าจะเป็น order` }
-  }
-  // ตัวเลขยาวเกิน (>= 15 chars) → SN
-  if (len >= 14) {
-    return { type: "sn", confidence: 70, reason: `${len} ตัว ยาว — เป็น SN` }
-  }
-  // default → SN (เพราะปลอดภัยที่สุด)
-  return { type: "sn", confidence: 40, reason: "ไม่ตรง pattern อะไรเลย — เดาเป็น SN" }
+
+  // Default
+  if (isDigits) return { type: "barcode", confidence: 40, reason: `${len} digits — เดา barcode` }
+  return { type: "sn", confidence: 35, reason: "ไม่ตรง pattern — เดาเป็น SN" }
 }
 
 export default function EmployeeSalesPage() {
@@ -597,6 +691,8 @@ type Detected = {
   type: "barcode" | "sn" | "order"
   format?: string
   product?: any | null  // ผล lookup จาก /api/products
+  reason?: string       // ทำไม classifier เลือก type นี้
+  confidence?: number   // 0-100
   at: number
 }
 
@@ -651,24 +747,44 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
     setTimeout(() => setLastSeen(prev => prev?.value === decoded ? null : prev), 700)
 
     const cls = await classifyCode(decoded, fmt)
-    const item: Detected = { value: clean, type: cls.type, format: fmt, product: cls.product ?? null, at: Date.now() }
+    const item: Detected = {
+      value: clean, type: cls.type, format: fmt,
+      product: cls.product ?? null,
+      reason: cls.reason, confidence: cls.confidence,
+      at: Date.now(),
+    }
     setDetected(prev => prev.find(d => d.value === clean) ? prev : [...prev, item])
   }
 
+  // ── Step 1: ตรวจ engine ที่จะใช้ ──
   useEffect(() => {
-    let mounted = true
+    let cancelled = false
+    ;(async () => {
+      if (typeof window === "undefined") return
+      if ("BarcodeDetector" in window) {
+        try {
+          const BD = (window as any).BarcodeDetector
+          const formats = await BD.getSupportedFormats()
+          if (cancelled) return
+          if (formats && formats.length > 0) { setEngine("native"); return }
+        } catch {}
+      }
+      if (!cancelled) setEngine("fallback")
+    })()
+    return () => { cancelled = true }
+  }, [])
 
-    // ── ลองใช้ Native BarcodeDetector ก่อน (จับได้หลายรหัส/เฟรม) ──
-    const tryNative = async () => {
-      if (typeof window === "undefined" || !("BarcodeDetector" in window)) return false
+  // ── Step 2: เริ่มทำงานตาม engine ──
+  useEffect(() => {
+    if (engine === "starting") return
+    let cancelled = false
+
+    const startNative = async () => {
       try {
         const BD = (window as any).BarcodeDetector
         const supportedFormats: string[] = await BD.getSupportedFormats()
-        // เลือก format ที่ใช้จริง
         const wanted = ["code_128", "code_39", "code_93", "ean_13", "ean_8", "upc_a", "upc_e", "itf", "codabar", "qr_code", "data_matrix", "pdf417", "aztec"]
         const formats = wanted.filter(f => supportedFormats.includes(f))
-        if (formats.length === 0) return false
-
         const detector = new BD({ formats })
 
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -681,56 +797,44 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
           },
           audio: false,
         })
-        if (!mounted) { stream.getTracks().forEach(t => t.stop()); return true }
-
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
         streamRef.current = stream
-        scannerRef.current = stream
 
-        // Setup video element manually
-        const root = containerRef.current
-        if (!root) return true
-        const video = document.createElement("video")
-        video.setAttribute("playsinline", "true")
-        video.muted = true
-        video.style.width = "100%"
-        video.style.height = "100%"
-        video.style.objectFit = "cover"
+        const video = videoRef.current
+        if (!video) { setError("video element not ready"); return }
         video.srcObject = stream
-        root.innerHTML = ""
-        root.appendChild(video)
-        videoRef.current = video
-        await video.play()
+        await video.play().catch(() => {})
 
-        setEngine("native")
-
-        // Detect loop — ~15fps
+        // Detect loop ~14fps
         let lastTs = 0
         const loop = async (ts: number) => {
-          if (!mounted) return
-          if (ts - lastTs > 70) {  // ~14fps
+          if (cancelled) return
+          if (ts - lastTs > 70) {
             lastTs = ts
             try {
               const codes: Array<{ rawValue: string; format: string }> = await detector.detect(video)
-              for (const c of codes) {
-                handleDetected(c.rawValue, c.format)
-              }
+              for (const c of codes) handleDetected(c.rawValue, c.format)
             } catch {}
           }
           rafRef.current = requestAnimationFrame(loop)
         }
         rafRef.current = requestAnimationFrame(loop)
-        return true
       } catch (e: any) {
-        console.warn("BarcodeDetector failed:", e?.message)
-        return false
+        console.warn("Native scanner failed:", e?.message)
+        // fallback หาก native ล้มเหลว
+        if (!cancelled) setEngine("fallback")
       }
     }
 
-    // ── Fallback: html5-qrcode ──
     const startFallback = async () => {
       try {
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
-        if (!mounted || !containerRef.current) return
+        if (cancelled || !containerRef.current) return
+
+        // รอให้ container มี dimensions
+        await new Promise(r => setTimeout(r, 80))
+        if (cancelled || !containerRef.current) return
+
         const formats = [
           Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.DATA_MATRIX,
           Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_93,
@@ -741,17 +845,16 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
         ]
         const scanner = new Html5Qrcode("barcode-scanner-region", { formatsToSupport: formats, verbose: false } as any)
         fallbackRef.current = scanner
-        scannerRef.current = scanner
 
         const qrbox = (vw: number, vh: number) => ({
-          width: Math.floor(vw * 0.94),
-          height: Math.floor(vh * 0.80),
+          width: Math.max(150, Math.floor(vw * 0.94)),
+          height: Math.max(150, Math.floor(vh * 0.80)),
         })
 
         await scanner.start(
           { facingMode: { ideal: "environment" } },
           {
-            fps: 25, qrbox, aspectRatio: 1, disableFlip: false,
+            fps: 20, qrbox, aspectRatio: 1, disableFlip: false,
             videoConstraints: {
               facingMode: { ideal: "environment" },
               width:  { ideal: 1920 },
@@ -764,19 +867,17 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
           (decoded: string, result: any) => handleDetected(decoded, result?.result?.format?.formatName),
           () => {}
         )
-        setEngine("fallback")
       } catch (e: any) {
-        setError(e?.message || "เปิดกล้องไม่ได้ — กรุณาอนุญาตการเข้าถึงกล้องในเบราว์เซอร์")
+        console.error("Fallback scanner failed:", e)
+        if (!cancelled) setError(e?.message || "เปิดกล้องไม่ได้ — โปรดอนุญาตการเข้าถึงกล้อง")
       }
     }
 
-    ;(async () => {
-      const ok = await tryNative()
-      if (!ok && mounted) await startFallback()
-    })()
+    if (engine === "native") startNative()
+    else if (engine === "fallback") startFallback()
 
     return () => {
-      mounted = false
+      cancelled = true
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
@@ -785,9 +886,10 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
       if (fallbackRef.current) {
         try { fallbackRef.current.stop().catch(() => {}) } catch {}
         try { fallbackRef.current.clear?.() } catch {}
+        fallbackRef.current = null
       }
     }
-  }, [])
+  }, [engine])
 
   // ── Torch toggle (รองรับทั้ง native stream + html5-qrcode) ──
   const toggleTorch = async () => {
@@ -854,7 +956,14 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
             <div className="relative w-full"
               style={{ aspectRatio: "4 / 5", maxHeight: "100%", maxWidth: "100%" }}>
               <div ref={containerRef} id="barcode-scanner-region"
-                className="absolute inset-0 bg-black rounded-2xl overflow-hidden border-2 border-white/20"/>
+                className="absolute inset-0 bg-black rounded-2xl overflow-hidden border-2 border-white/20"
+                style={{ minHeight: 240 }}>
+                {/* Video element สำหรับ native engine (html5-qrcode จะใส่ video เอง) */}
+                {engine === "native" && (
+                  <video ref={videoRef} playsInline muted autoPlay
+                    className="absolute inset-0 w-full h-full object-cover"/>
+                )}
+              </div>
 
               {/* ─── Scanning overlay ─── */}
               {!lastSeen && !error && (
@@ -1040,12 +1149,17 @@ function DetectedRow({ item, onRemove, onReclassify }: any) {
     <div className={`relative rounded-lg border ${m.color} px-2 py-1.5 flex items-center gap-1.5`}>
       <span className="text-sm flex-shrink-0">{m.icon}</span>
       <div className="flex-1 min-w-0">
-        <p className="text-[9px] font-mono font-bold text-white truncate">{item.value}</p>
+        <p className="text-[10px] font-mono font-bold text-white truncate">{item.value}</p>
         {item.type === "barcode" && item.product && (
           <p className="text-[9px] text-white/70 truncate">✓ {item.product.name}</p>
         )}
         {item.type === "barcode" && !item.product && (
           <p className="text-[9px] text-amber-200/80">⚠ ไม่พบใน DB</p>
+        )}
+        {item.reason && !item.product && (
+          <p className="text-[8px] text-white/50 truncate">
+            {item.confidence != null && `${item.confidence}% · `}{item.reason}
+          </p>
         )}
       </div>
       <select value={item.type} onChange={e => onReclassify(e.target.value)}
