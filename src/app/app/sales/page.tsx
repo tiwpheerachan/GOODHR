@@ -724,6 +724,88 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
   const firedRef = useRef(false)
   const [engine, setEngine] = useState<"native" | "fallback" | "starting">("starting")
 
+  // ── AI fallback states ──
+  const [aiState, setAiState] = useState<"idle" | "countdown" | "scanning" | "done" | "failed">("idle")
+  const [aiCountdown, setAiCountdown] = useState(10)
+  const aiTriggeredRef = useRef(false)
+
+  // ── AI: capture video frame + ส่งให้ Claude อ่าน ──
+  const triggerAIScan = async () => {
+    if (aiTriggeredRef.current) return
+    aiTriggeredRef.current = true
+    setAiState("scanning")
+
+    const video = videoRef.current ||
+      (containerRef.current?.querySelector("video") as HTMLVideoElement | null)
+    if (!video || video.videoWidth === 0) {
+      setAiState("failed")
+      return
+    }
+    try {
+      // ── Capture frame เป็น canvas → resize → JPEG blob ──
+      const canvas = document.createElement("canvas")
+      const sw = video.videoWidth
+      const sh = video.videoHeight
+      const maxDim = 1280
+      const ratio = Math.min(maxDim / sw, maxDim / sh, 1)
+      canvas.width  = Math.round(sw * ratio)
+      canvas.height = Math.round(sh * ratio)
+      const ctx = canvas.getContext("2d")
+      if (!ctx) throw new Error("no canvas ctx")
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const blob: Blob = await new Promise((r, j) => canvas.toBlob(b => b ? r(b) : j(new Error("blob fail")), "image/jpeg", 0.85)!)
+
+      const fd = new FormData()
+      fd.append("image", new File([blob], "frame.jpg", { type: "image/jpeg" }))
+      const res = await fetch("/api/products/sales/ai-scan", { method: "POST", body: fd })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || "AI failed")
+
+      // ── Inject AI-found codes ผ่าน handleDetected (จะ classify + dedupe ให้) ──
+      let added = 0
+      for (const bc of (d.barcodes || [])) { handleDetected(`BC:${bc}`); added++ }
+      for (const sn of (d.serials || []))  { handleDetected(`SN:${sn}`); added++ }
+      for (const od of (d.orders || []))   { handleDetected(`ORD:${od}`); added++ }
+      setAiState(added > 0 ? "done" : "failed")
+      if (added === 0) {
+        toast("AI ไม่เห็นรหัสอะไรเลย ลองถือใหม่", { icon: "🤖" })
+        // อนุญาตให้ลองใหม่
+        setTimeout(() => { aiTriggeredRef.current = false; setAiState("idle"); setAiCountdown(10) }, 3000)
+      } else {
+        toast.success(`🤖 AI อ่านได้ ${added} รหัส!`)
+      }
+    } catch (e: any) {
+      setAiState("failed")
+      toast.error("AI ผิดพลาด: " + (e?.message || ""))
+      setTimeout(() => { aiTriggeredRef.current = false; setAiState("idle"); setAiCountdown(10) }, 3000)
+    }
+  }
+
+  // ── Countdown 10s: ถ้ายังไม่เจออะไร → trigger AI ──
+  useEffect(() => {
+    if (!continuous) return
+    if (detected.length > 0) {
+      // มีของแล้ว ไม่ต้อง AI
+      setAiState("idle"); setAiCountdown(10); aiTriggeredRef.current = false
+      return
+    }
+    if (engine === "starting") return
+    if (aiState !== "idle" && aiState !== "countdown") return
+
+    setAiState("countdown")
+    let cnt = 10
+    setAiCountdown(cnt)
+    const iv = setInterval(() => {
+      cnt -= 1
+      setAiCountdown(cnt)
+      if (cnt <= 0) {
+        clearInterval(iv)
+        triggerAIScan()
+      }
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [continuous, engine, detected.length])
+
   // ── unified handler ──
   const handleDetected = async (decoded: string, fmt?: string) => {
     const clean = cleanDecoded(decoded)
@@ -1010,6 +1092,19 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
                   </div>
                 </div>
               )}
+
+              {/* ─── AI overlay states ─── */}
+              {continuous && aiState === "scanning" && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl overflow-hidden bg-black/50 backdrop-blur-sm">
+                  <div className="bg-white/95 rounded-2xl px-5 py-4 shadow-2xl text-center max-w-[80%] animate-[popIn_0.3s_ease-out_forwards]">
+                    <div className="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white flex items-center justify-center shadow-lg ring-4 ring-purple-200/50 mb-2 animate-pulse">
+                      <span className="text-xl">🤖</span>
+                    </div>
+                    <p className="text-xs font-black text-purple-700">AI กำลังอ่านรูป...</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Claude Vision ดูฉลากให้</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1049,7 +1144,19 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
                 <span className="text-emerald-300 font-black bg-emerald-500/20 px-1.5 py-0.5 rounded-full text-[9px]">⚡ Multi</span>
               )}
             </p>
-            {continuous && detected.length === 0 && (
+            {continuous && detected.length === 0 && aiState === "countdown" && aiCountdown > 0 && (
+              <div className="mt-1.5 flex items-center justify-center gap-2">
+                <p className="text-purple-200 text-[10px] flex items-center gap-1">
+                  <span>🤖</span>
+                  <span>AI จะอ่านรูปใน <b className="text-white tabular-nums">{aiCountdown}s</b></span>
+                </p>
+                <button onClick={triggerAIScan}
+                  className="px-2 py-0.5 bg-purple-500 hover:bg-purple-600 text-white text-[10px] font-black rounded-full">
+                  ใช้เลย
+                </button>
+              </div>
+            )}
+            {continuous && detected.length === 0 && aiState !== "countdown" && (
               <p className="mt-1 text-indigo-200 text-[10px]">
                 {engine === "native"
                   ? "💡 จับ barcode + SN พร้อมกันได้ในรอบเดียว"
