@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Users, Clock, CreditCard, Calendar, CalendarDays,
   Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target, Camera, CalendarClock,
   Network, ClipboardCheck, Megaphone, MessageCircle, ScrollText, Shield, Package, Table2, PieChart, Sparkles, GraduationCap,
-  UserPlus, Store, Briefcase,
+  UserPlus, Store, Briefcase, ScanLine,
 } from "lucide-react"
 
 const SIDEBAR = [
@@ -34,6 +34,7 @@ const SIDEBAR = [
   { href: "/equipment/dashboard",       icon: Package,         label: "อุปกรณ์",        badge: null as string|null },
   { href: "/admin/training",            icon: GraduationCap,   label: "ระบบเรียนรู้",   badge: null as string|null },
   { href: "/admin/branch-eval",         icon: Store,           label: "ประเมินสาขา",    badge: null as string|null },
+  { href: "/admin/sales",               icon: ScanLine,        label: "ขายสินค้า PC",    badge: null as string|null },
   { href: "/admin/recruitment",         icon: UserPlus,        label: "รับสมัครงาน",    badge: null as string|null },
   { href: "/admin/payroll",              icon: CreditCard,      label: "เงินเดือน",      badge: null as string|null },
   { href: "/admin/payroll-rules",        icon: BookOpen,        label: "สูตรคำนวณ",     badge: null as string|null },
@@ -55,6 +56,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const supabase    = createClient()
   const [badgeCounts, setBadgeCounts] = useState<Record<string,number>>({})
+
+  // ── ระดับสิทธิ์ขายสินค้า (สำหรับ employee/manager ที่ได้รับ permission พิเศษ) ──
+  const role = user?.role
+  const isFullAdmin = role === "super_admin" || role === "hr_admin"
+  const isManagerRole = role === "manager"
+
+  // กรอง sidebar:
+  // - super_admin/hr_admin → เห็นทุก item
+  // - คนอื่น (manager + permission holder) → เห็นเฉพาะ /admin/sales
+  const visibleSidebar = isFullAdmin
+    ? SIDEBAR
+    : SIDEBAR.filter(s => s.href === "/admin/sales")
 
   useEffect(() => {
     const companyId = (user as any)?.company_id ?? user?.employee?.company_id
@@ -88,7 +101,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const roleLabel   = ROLE_LABEL[user?.role ?? ""] ?? user?.role ?? ""
 
   const pageLabel =
-    SIDEBAR.slice().sort((a,b) => b.href.length - a.href.length).find(i => pathname.startsWith(i.href))?.label ??
+    visibleSidebar.slice().sort((a,b) => b.href.length - a.href.length).find(i => pathname.startsWith(i.href))?.label ??
     (pathname.startsWith("/admin/profile") ? "โปรไฟล์" : "Admin")
 
   return (
@@ -118,7 +131,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Nav */}
         <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
-          {SIDEBAR.map(({ href, icon: Icon, label }) => {
+          {!isFullAdmin && (
+            <Link href={isManagerRole ? "/manager/dashboard" : "/app/dashboard"} onClick={() => setOpen(false)}
+              className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50 mb-2 border border-slate-100">
+              ← กลับ{isManagerRole ? " Manager" : " หน้าหลัก"}
+            </Link>
+          )}
+          {visibleSidebar.map(({ href, icon: Icon, label }) => {
             const active = href === "/admin/attendance"
               ? pathname === "/admin/attendance" || pathname === "/admin/attendance/"
               : href === "/admin/shifts"

@@ -3,7 +3,7 @@ import { usePathname } from "next/navigation"
 import Link from "next/link"
 import {
   Home, Clock, Calendar, CalendarDays, CalendarClock, User, Bell, Users, Shield, Target,
-  Megaphone, FileText, Grip, X, MessageCircle, Package, GraduationCap, Store,
+  Megaphone, FileText, Grip, X, MessageCircle, Package, GraduationCap, Store, ScanLine,
 } from "lucide-react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useEffect, useState, useRef, useCallback } from "react"
@@ -28,6 +28,7 @@ const FLOAT_MENU = [
   { href: "/app/equipment",         icon: Package,       label: "ยืมอุปกรณ์",  color: "from-cyan-500 to-teal-500" },
   { href: "/app/training",          icon: GraduationCap, label: "ห้องเรียน",   color: "from-sky-500 to-blue-500" },
   { href: "/app/branch-eval",       icon: Store,         label: "ประเมินสาขา",  color: "from-indigo-500 to-violet-500" },
+  { href: "/app/sales",             icon: ScanLine,      label: "ขายสินค้า",    color: "from-pink-500 to-rose-500" },
   { href: "/app/payslip",           icon: FileText,      label: "สลิป",        color: "from-emerald-500 to-green-500" },
 ]
 

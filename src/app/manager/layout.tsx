@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/manager/leave-calendar", icon: CalendarDays,    key: "leave_calendar" },
   { href: "/manager/approvals",      icon: CheckSquare,     key: "approvals"      },
 ]
+// หมายเหตุ: "ขายสินค้า PC" ย้ายไปอยู่บน home (/app/dashboard) สำหรับคนที่มีสิทธิ์
 
 export default function ManagerLayout({ children }: { children: React.ReactNode }) {
   return (

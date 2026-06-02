@@ -10,7 +10,7 @@ import Link from "next/link"
 import {
   Clock, ChevronRight, FileEdit, Timer, CalendarClock,
   AlertCircle, Shield, Users, TrendingUp, CalendarDays,
-  Wallet, MapPin, LogOut, Sparkles, UserX, CheckCircle,
+  Wallet, MapPin, LogOut, Sparkles, UserX, CheckCircle, ScanLine,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -113,6 +113,16 @@ export default function DashboardPage() {
   const emp  = user?.employee as any
   const isManager = ["manager","hr_admin","super_admin"].includes(role) || !!(user as any)?.is_evaluator
   const isAdmin   = ["hr_admin","super_admin"].includes(role)
+
+  // ── สิทธิ์ขายสินค้า (product_sale_permissions) — แสดงปุ่มถ้ามี admin/manager ──
+  const [salesAccess, setSalesAccess] = useState<"admin" | "manager" | "staff" | "none" | null>(null)
+  useEffect(() => {
+    if (!user?.employee_id) return
+    fetch("/api/products/sales?scope=me&limit=1")
+      .then(r => r.json()).then(d => setSalesAccess(d?.my_access ?? "none"))
+      .catch(() => setSalesAccess("none"))
+  }, [user?.employee_id])
+  const showSalesTile = salesAccess === "admin" || salesAccess === "manager"
 
   const [tick,    setTick]    = useState<Date|null>(null)
   const [mounted, setMounted] = useState(false)
@@ -393,6 +403,32 @@ export default function DashboardPage() {
                 <ChevronRight size={14} style={{ color:"#d1d5db" }}/>
               </Link>
             )}
+          </div>
+        )}
+
+        {/* ── SALES PERMISSION TILE (แถวเดี่ยว) ────────────────── */}
+        {showSalesTile && (
+          <div {...up(50)}>
+            <Link href="/admin/sales" className="s press flex items-center gap-3 px-4 py-3.5 group">
+              <div style={{ width:36, height:36, borderRadius:12, background:"rgba(15,23,42,.06)",
+                display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+              }}>
+                <ScanLine size={16} style={{ color:"#0f172a" }}/>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <p style={{ fontSize:13, fontWeight:700, color:"#1a1a1a" }}>ระบบขายสินค้า PC</p>
+                  <span style={{
+                    fontSize:9, fontWeight:800, padding:"1px 6px", borderRadius:4,
+                    background:"#f1f5f9", color:"#475569", letterSpacing:0.5,
+                  }}>
+                    {salesAccess === "admin" ? "ADMIN" : "MANAGER"}
+                  </span>
+                </div>
+                <p style={{ fontSize:10, color:"#94a3b8", marginTop:1 }}>Dashboard · ตาราง · คลัง · สิทธิ์</p>
+              </div>
+              <ChevronRight size={14} style={{ color:"#d1d5db" }}/>
+            </Link>
           </div>
         )}
 
