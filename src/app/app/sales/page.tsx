@@ -621,109 +621,183 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
   const onScanRef = useRef(onScan)
   useEffect(() => { onScanRef.current = onScan }, [onScan])
 
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const rafRef = useRef<number | null>(null)
+  const fallbackRef = useRef<any>(null)
+  const firedRef = useRef(false)
+  const [engine, setEngine] = useState<"native" | "fallback" | "starting">("starting")
+
+  // ── unified handler ──
+  const handleDetected = async (decoded: string, fmt?: string) => {
+    const clean = cleanDecoded(decoded)
+    if (!clean) return
+
+    // Single-shot mode (sn / order purpose)
+    if (!continuous) {
+      if (firedRef.current) return
+      firedRef.current = true
+      setLastSeen({ value: decoded, format: fmt })
+      playFeedback()
+      setTimeout(() => { onScanRef.current(decoded) }, 220)
+      return
+    }
+
+    // Continuous mode (barcode purpose) — smart classify
+    if (detectedRef.current.find(d => d.value === clean)) return
+
+    playFeedback()
+    setLastSeen({ value: decoded, format: fmt })
+    setTimeout(() => setLastSeen(prev => prev?.value === decoded ? null : prev), 700)
+
+    const cls = await classifyCode(decoded, fmt)
+    const item: Detected = { value: clean, type: cls.type, format: fmt, product: cls.product ?? null, at: Date.now() }
+    setDetected(prev => prev.find(d => d.value === clean) ? prev : [...prev, item])
+  }
+
   useEffect(() => {
     let mounted = true
-    let scanner: any = null
-    let firedOnce = false  // ยิง onScan ครั้งเดียว — ป้องกัน race
 
-    import("html5-qrcode").then(({ Html5Qrcode, Html5QrcodeSupportedFormats }) => {
-      if (!mounted || !containerRef.current) return
+    // ── ลองใช้ Native BarcodeDetector ก่อน (จับได้หลายรหัส/เฟรม) ──
+    const tryNative = async () => {
+      if (typeof window === "undefined" || !("BarcodeDetector" in window)) return false
+      try {
+        const BD = (window as any).BarcodeDetector
+        const supportedFormats: string[] = await BD.getSupportedFormats()
+        // เลือก format ที่ใช้จริง
+        const wanted = ["code_128", "code_39", "code_93", "ean_13", "ean_8", "upc_a", "upc_e", "itf", "codabar", "qr_code", "data_matrix", "pdf417", "aztec"]
+        const formats = wanted.filter(f => supportedFormats.includes(f))
+        if (formats.length === 0) return false
 
-      // ─ enable ทุก format ที่ใช้บ่อย: 1D + 2D ─
-      const formats = [
-        Html5QrcodeSupportedFormats.QR_CODE,
-        Html5QrcodeSupportedFormats.DATA_MATRIX,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.CODE_93,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.ITF,
-        Html5QrcodeSupportedFormats.CODABAR,
-        Html5QrcodeSupportedFormats.PDF_417,
-        Html5QrcodeSupportedFormats.AZTEC,
-      ]
-      scanner = new Html5Qrcode("barcode-scanner-region", { formatsToSupport: formats, verbose: false } as any)
-      scannerRef.current = scanner
+        const detector = new BD({ formats })
 
-      // ─ กล่องสแกนรูปสี่เหลี่ยมแนวนอน (1D barcode มักยาว) — คำนวณจากขนาด viewport ─
-      const qrbox = (vw: number, vh: number) => {
-        const w = Math.min(Math.floor(vw * 0.88), 520)
-        const h = Math.min(Math.floor(vh * 0.42), 220)
-        return { width: w, height: h }
-      }
-
-      scanner.start(
-        { facingMode: { ideal: "environment" } },
-        {
-          fps: 15,
-          qrbox,
-          aspectRatio: 1.6,
-          disableFlip: false,
-          videoConstraints: {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
             facingMode: { ideal: "environment" },
             width:  { ideal: 1920 },
             height: { ideal: 1080 },
-            // @ts-ignore — focusMode รองรับบางอุปกรณ์
+            // @ts-ignore
             focusMode: "continuous",
           },
-          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-        } as any,
-        async (decoded: string, result: any) => {
-          const clean = cleanDecoded(decoded)
-          if (!clean) return
-          const fmt = result?.result?.format?.formatName
+          audio: false,
+        })
+        if (!mounted) { stream.getTracks().forEach(t => t.stop()); return true }
 
-          // ── Single-shot mode (sn / order purpose) ──
-          if (!continuous) {
-            if (firedOnce) return
-            firedOnce = true
-            setLastSeen({ value: decoded, format: fmt })
-            playFeedback()
-            setTimeout(() => { onScanRef.current(decoded) }, 220)
-            return
+        streamRef.current = stream
+        scannerRef.current = stream
+
+        // Setup video element manually
+        const root = containerRef.current
+        if (!root) return true
+        const video = document.createElement("video")
+        video.setAttribute("playsinline", "true")
+        video.muted = true
+        video.style.width = "100%"
+        video.style.height = "100%"
+        video.style.objectFit = "cover"
+        video.srcObject = stream
+        root.innerHTML = ""
+        root.appendChild(video)
+        videoRef.current = video
+        await video.play()
+
+        setEngine("native")
+
+        // Detect loop — ~15fps
+        let lastTs = 0
+        const loop = async (ts: number) => {
+          if (!mounted) return
+          if (ts - lastTs > 70) {  // ~14fps
+            lastTs = ts
+            try {
+              const codes: Array<{ rawValue: string; format: string }> = await detector.detect(video)
+              for (const c of codes) {
+                handleDetected(c.rawValue, c.format)
+              }
+            } catch {}
           }
+          rafRef.current = requestAnimationFrame(loop)
+        }
+        rafRef.current = requestAnimationFrame(loop)
+        return true
+      } catch (e: any) {
+        console.warn("BarcodeDetector failed:", e?.message)
+        return false
+      }
+    }
 
-          // ── Continuous mode (barcode purpose) — smart classify ──
-          if (detectedRef.current.find(d => d.value === clean)) return
+    // ── Fallback: html5-qrcode ──
+    const startFallback = async () => {
+      try {
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
+        if (!mounted || !containerRef.current) return
+        const formats = [
+          Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.DATA_MATRIX,
+          Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_93,
+          Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.ITF, Html5QrcodeSupportedFormats.CODABAR,
+          Html5QrcodeSupportedFormats.PDF_417, Html5QrcodeSupportedFormats.AZTEC,
+        ]
+        const scanner = new Html5Qrcode("barcode-scanner-region", { formatsToSupport: formats, verbose: false } as any)
+        fallbackRef.current = scanner
+        scannerRef.current = scanner
 
-          playFeedback()
-          setLastSeen({ value: decoded, format: fmt })
-          setTimeout(() => setLastSeen(prev => prev?.value === decoded ? null : prev), 700)
+        const qrbox = (vw: number, vh: number) => ({
+          width: Math.floor(vw * 0.94),
+          height: Math.floor(vh * 0.80),
+        })
 
-          // Smart classifier (DB lookup → prefix → format → heuristic)
-          const cls = await classifyCode(decoded, fmt)
-          const item: Detected = {
-            value: clean,
-            type: cls.type,
-            format: fmt,
-            product: cls.product ?? null,
-            at: Date.now(),
-          }
-          setDetected(prev => prev.find(d => d.value === clean) ? prev : [...prev, item])
-        },
-        () => {}
-      ).catch((e: any) => {
+        await scanner.start(
+          { facingMode: { ideal: "environment" } },
+          {
+            fps: 25, qrbox, aspectRatio: 1, disableFlip: false,
+            videoConstraints: {
+              facingMode: { ideal: "environment" },
+              width:  { ideal: 1920 },
+              height: { ideal: 1080 },
+              // @ts-ignore
+              focusMode: "continuous",
+            },
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          } as any,
+          (decoded: string, result: any) => handleDetected(decoded, result?.result?.format?.formatName),
+          () => {}
+        )
+        setEngine("fallback")
+      } catch (e: any) {
         setError(e?.message || "เปิดกล้องไม่ได้ — กรุณาอนุญาตการเข้าถึงกล้องในเบราว์เซอร์")
-      })
-    })
+      }
+    }
+
+    ;(async () => {
+      const ok = await tryNative()
+      if (!ok && mounted) await startFallback()
+    })()
+
     return () => {
       mounted = false
-      if (scanner) {
-        try { scanner.stop().catch(() => {}) } catch {}
-        try { scanner.clear?.() } catch {}
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop())
+        streamRef.current = null
+      }
+      if (fallbackRef.current) {
+        try { fallbackRef.current.stop().catch(() => {}) } catch {}
+        try { fallbackRef.current.clear?.() } catch {}
       }
     }
   }, [])
 
-  // ── Torch toggle ──
+  // ── Torch toggle (รองรับทั้ง native stream + html5-qrcode) ──
   const toggleTorch = async () => {
     try {
-      const s = scannerRef.current
-      if (!s) return
-      await s.applyVideoConstraints({ advanced: [{ torch: !torch }] } as any)
+      if (engine === "native" && streamRef.current) {
+        const track = streamRef.current.getVideoTracks()[0]
+        await track.applyConstraints({ advanced: [{ torch: !torch }] } as any)
+      } else if (fallbackRef.current) {
+        await fallbackRef.current.applyVideoConstraints({ advanced: [{ torch: !torch }] } as any)
+      } else return
       setTorch(!torch)
     } catch {
       toast("อุปกรณ์ไม่รองรับไฟฉาย", { icon: "🔦" })
@@ -752,103 +826,106 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
   const hasSn = detected.some(d => d.type === "sn")
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/95 backdrop-blur-sm flex flex-col">
-      <div className={`flex items-center justify-between px-4 py-3 bg-gradient-to-r ${meta.color} text-white shadow`}>
-        <p className="font-black flex items-center gap-2"><Camera size={16}/> {meta.title}{continuous && " (ต่อเนื่อง)"}</p>
-        <div className="flex items-center gap-1">
+    <div className="fixed inset-0 z-[70] bg-black/95 backdrop-blur-sm flex flex-col"
+      style={{ height: "100dvh", maxHeight: "100dvh" }}>
+
+      {/* ── Header (safe-area top) ── */}
+      <div className={`flex items-center justify-between px-3 py-2.5 bg-gradient-to-r ${meta.color} text-white shadow flex-shrink-0`}
+        style={{ paddingTop: `max(env(safe-area-inset-top), 10px)` }}>
+        <p className="font-black flex items-center gap-1.5 text-sm truncate min-w-0">
+          <Camera size={14} className="flex-shrink-0"/>
+          <span className="truncate">{meta.title}{continuous && " · ต่อเนื่อง"}</span>
+        </p>
+        <div className="flex items-center gap-1 flex-shrink-0">
           <button onClick={toggleTorch}
-            className={"px-2.5 py-1 rounded-lg text-[11px] font-black transition-colors " + (torch ? "bg-yellow-300 text-amber-900" : "bg-white/15 hover:bg-white/25")}>
-            🔦 {torch ? "ปิด" : "เปิดไฟ"}
+            className={"px-2 py-1 rounded-lg text-[10px] font-black transition-colors " + (torch ? "bg-yellow-300 text-amber-900" : "bg-white/15 hover:bg-white/25")}>
+            🔦
           </button>
-          <button onClick={onClose} className="p-1.5 hover:bg-white/15 rounded-lg"><X size={18}/></button>
+          <button onClick={onClose} className="p-1.5 hover:bg-white/15 rounded-lg"><X size={16}/></button>
         </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-3 relative overflow-hidden">
-        <div className="w-full max-w-md">
-          {/* Scanner area */}
-          <div className="relative">
-            <div ref={containerRef} id="barcode-scanner-region"
-              className="w-full bg-black rounded-2xl overflow-hidden border-2 border-white/20"
-              style={{ minHeight: 280 }}
-            />
+      {/* ── Main area — flex column ที่ปรับอัตราเอง ── */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
 
-            {/* ─── Scanning overlay (animated) ─── */}
-            {!lastSeen && !error && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                {/* Dim everything outside frame */}
-                <div className="absolute inset-0 bg-black/30 mask-rect"/>
-                <div className="relative w-[88%] max-w-md aspect-[16/8.5]">
-                  {/* Outer pulsing aura */}
-                  <div className={`absolute -inset-1 rounded-2xl border-2 ${meta.auraClass} animate-[scanAura_2s_ease-in-out_infinite]`}/>
-                  {/* Main frame */}
-                  <div className="absolute inset-0 rounded-xl border border-white/20 backdrop-blur-[1px]"/>
-                  {/* Glowing scan line — sweeps up-down */}
-                  <div className="absolute inset-x-3 top-0 bottom-0 overflow-hidden">
-                    <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-rose-500 to-transparent shadow-[0_0_18px_4px_rgba(244,63,94,0.7)] animate-[scanLine_2.6s_ease-in-out_infinite]"/>
-                  </div>
-                  {/* Diagonal shine sweep */}
-                  <div className="absolute inset-0 overflow-hidden rounded-xl">
-                    <div className="absolute -inset-y-2 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-12 animate-[scanShine_3s_ease-in-out_infinite]"/>
-                  </div>
-                  {/* Corner brackets — animated pulse */}
-                  <span className={`absolute top-0 left-0 w-7 h-7 border-t-[3px] border-l-[3px] ${meta.cornerClass} rounded-tl-xl animate-[cornerPulse_1.4s_ease-in-out_infinite]`}/>
-                  <span className={`absolute top-0 right-0 w-7 h-7 border-t-[3px] border-r-[3px] ${meta.cornerClass} rounded-tr-xl animate-[cornerPulse_1.4s_ease-in-out_0.2s_infinite]`}/>
-                  <span className={`absolute bottom-0 left-0 w-7 h-7 border-b-[3px] border-l-[3px] ${meta.cornerClass} rounded-bl-xl animate-[cornerPulse_1.4s_ease-in-out_0.4s_infinite]`}/>
-                  <span className={`absolute bottom-0 right-0 w-7 h-7 border-b-[3px] border-r-[3px] ${meta.cornerClass} rounded-br-xl animate-[cornerPulse_1.4s_ease-in-out_0.6s_infinite]`}/>
-                  {/* "Scanning..." text */}
-                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 flex items-center gap-1.5 text-white/90 text-[10px] font-black tracking-widest uppercase">
-                    <span className={`w-1.5 h-1.5 rounded-full ${meta.pulseDotClass} animate-pulse`}/>
-                    <span className="animate-[scanBlink_1.2s_ease-in-out_infinite]">Scanning</span>
-                    <span className="inline-flex gap-0.5">
-                      <span className="animate-[scanDot_1.4s_ease-in-out_infinite]">.</span>
-                      <span className="animate-[scanDot_1.4s_ease-in-out_0.2s_infinite]">.</span>
-                      <span className="animate-[scanDot_1.4s_ease-in-out_0.4s_infinite]">.</span>
-                    </span>
+        {/* Scanner box — กินพื้นที่ส่วนใหญ่ */}
+        <div className="flex-1 flex items-center justify-center min-h-0 p-2 sm:p-3">
+          <div className="relative w-full max-w-md mx-auto h-full flex items-center justify-center">
+            <div className="relative w-full"
+              style={{ aspectRatio: "4 / 5", maxHeight: "100%", maxWidth: "100%" }}>
+              <div ref={containerRef} id="barcode-scanner-region"
+                className="absolute inset-0 bg-black rounded-2xl overflow-hidden border-2 border-white/20"/>
+
+              {/* ─── Scanning overlay ─── */}
+              {!lastSeen && !error && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="absolute inset-0 bg-black/30 rounded-2xl"/>
+                  <div className="relative w-[85%] aspect-[16/9] max-h-[60%]">
+                    <div className={`absolute -inset-1 rounded-2xl border-2 ${meta.auraClass} animate-[scanAura_2s_ease-in-out_infinite]`}/>
+                    <div className="absolute inset-0 rounded-xl border border-white/20 backdrop-blur-[1px]"/>
+                    <div className="absolute inset-x-2 top-0 bottom-0 overflow-hidden">
+                      <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-rose-500 to-transparent shadow-[0_0_18px_4px_rgba(244,63,94,0.7)] animate-[scanLine_2.6s_ease-in-out_infinite]"/>
+                    </div>
+                    <div className="absolute inset-0 overflow-hidden rounded-xl">
+                      <div className="absolute -inset-y-2 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-12 animate-[scanShine_3s_ease-in-out_infinite]"/>
+                    </div>
+                    <span className={`absolute top-0 left-0 w-6 h-6 border-t-[3px] border-l-[3px] ${meta.cornerClass} rounded-tl-xl animate-[cornerPulse_1.4s_ease-in-out_infinite]`}/>
+                    <span className={`absolute top-0 right-0 w-6 h-6 border-t-[3px] border-r-[3px] ${meta.cornerClass} rounded-tr-xl animate-[cornerPulse_1.4s_ease-in-out_0.2s_infinite]`}/>
+                    <span className={`absolute bottom-0 left-0 w-6 h-6 border-b-[3px] border-l-[3px] ${meta.cornerClass} rounded-bl-xl animate-[cornerPulse_1.4s_ease-in-out_0.4s_infinite]`}/>
+                    <span className={`absolute bottom-0 right-0 w-6 h-6 border-b-[3px] border-r-[3px] ${meta.cornerClass} rounded-br-xl animate-[cornerPulse_1.4s_ease-in-out_0.6s_infinite]`}/>
+                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 flex items-center gap-1 text-white/90 text-[9px] font-black tracking-widest uppercase whitespace-nowrap">
+                      <span className={`w-1.5 h-1.5 rounded-full ${meta.pulseDotClass} animate-pulse`}/>
+                      <span className="animate-[scanBlink_1.2s_ease-in-out_infinite]">Scanning</span>
+                      <span className="inline-flex gap-0.5">
+                        <span className="animate-[scanDot_1.4s_ease-in-out_infinite]">.</span>
+                        <span className="animate-[scanDot_1.4s_ease-in-out_0.2s_infinite]">.</span>
+                        <span className="animate-[scanDot_1.4s_ease-in-out_0.4s_infinite]">.</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* ─── Success state ─── */}
-            {lastSeen && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl overflow-hidden">
-                {/* Burst */}
-                <div className="absolute inset-0 bg-emerald-400/40 backdrop-blur-sm animate-[successBurst_0.6s_ease-out]"/>
-                {/* Radiating rings */}
-                <div className="absolute w-48 h-48 rounded-full border-4 border-emerald-300/60 animate-[ringExpand_0.7s_ease-out]"/>
-                <div className="absolute w-48 h-48 rounded-full border-4 border-white/40 animate-[ringExpand_0.9s_ease-out_0.1s]"/>
-                <div className="bg-white rounded-2xl px-6 py-5 shadow-2xl text-center scale-0 animate-[popIn_0.4s_cubic-bezier(0.34,1.56,0.64,1)_forwards] relative z-10">
-                  <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white flex items-center justify-center mb-2 shadow-lg ring-4 ring-emerald-200/50">
-                    <Check size={26} strokeWidth={3}/>
+              {/* ─── Success state ─── */}
+              {lastSeen && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl overflow-hidden">
+                  <div className="absolute inset-0 bg-emerald-400/40 backdrop-blur-sm animate-[successBurst_0.6s_ease-out]"/>
+                  <div className="absolute w-32 h-32 sm:w-48 sm:h-48 rounded-full border-4 border-emerald-300/60 animate-[ringExpand_0.7s_ease-out]"/>
+                  <div className="absolute w-32 h-32 sm:w-48 sm:h-48 rounded-full border-4 border-white/40 animate-[ringExpand_0.9s_ease-out_0.1s]"/>
+                  <div className="bg-white rounded-2xl px-4 py-3 sm:px-6 sm:py-5 shadow-2xl text-center scale-0 animate-[popIn_0.4s_cubic-bezier(0.34,1.56,0.64,1)_forwards] relative z-10 max-w-[80%]">
+                    <div className="w-10 h-10 sm:w-14 sm:h-14 mx-auto rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white flex items-center justify-center mb-1.5 shadow-lg ring-4 ring-emerald-200/50">
+                      <Check size={22} strokeWidth={3}/>
+                    </div>
+                    <p className="text-[9px] sm:text-[10px] font-black text-emerald-600 uppercase tracking-wider">{lastSeen.format || "Detected"}</p>
+                    <p className="text-xs sm:text-sm font-black text-slate-800 font-mono mt-0.5 break-all">{cleanDecoded(lastSeen.value)}</p>
                   </div>
-                  <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider">{lastSeen.format || "Detected"}</p>
-                  <p className="text-sm font-black text-slate-800 font-mono mt-1 break-all max-w-[220px]">{cleanDecoded(lastSeen.value)}</p>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
+        </div>
 
+        {/* Bottom info area — error / detected list / hint */}
+        <div className="flex-shrink-0 px-3 pb-2 space-y-2 max-h-[42vh] overflow-y-auto">
           {error && (
-            <div className="mt-3 bg-rose-500/20 border border-rose-500/40 rounded-xl p-3 text-rose-100 text-xs text-center">
-              <AlertCircle size={14} className="inline mr-1"/> {error}
-              <p className="text-[10px] mt-1 opacity-80">ลองให้สิทธิ์เข้าถึงกล้อง หรือใช้การกรอกเอง</p>
+            <div className="bg-rose-500/20 border border-rose-500/40 rounded-xl p-2.5 text-rose-100 text-xs text-center">
+              <AlertCircle size={13} className="inline mr-1"/> {error}
+              <p className="text-[10px] mt-0.5 opacity-80">โปรดอนุญาตการเข้าถึงกล้อง</p>
             </div>
           )}
 
-          {/* ─── Detected codes panel (continuous mode) ─── */}
           {continuous && detected.length > 0 && (
-            <div className="mt-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-3">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] font-black uppercase tracking-wider text-white/80 flex items-center gap-1">
+            <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-xl p-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] font-black uppercase tracking-wider text-white/80">
                   ✓ ตรวจเจอ {detected.length} รหัส
                 </p>
                 <div className="flex gap-1 text-[9px]">
-                  {hasBarcode && <span className="bg-indigo-500/40 text-indigo-100 px-1.5 py-0.5 rounded-full font-black">📦 Barcode</span>}
+                  {hasBarcode && <span className="bg-indigo-500/40 text-indigo-100 px-1.5 py-0.5 rounded-full font-black">📦 BC</span>}
                   {hasSn && <span className="bg-emerald-500/40 text-emerald-100 px-1.5 py-0.5 rounded-full font-black">🔢 SN</span>}
                 </div>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 {detected.map(d => (
                   <DetectedRow key={d.value} item={d} onRemove={() => removeDetected(d.value)} onReclassify={(t: "barcode" | "sn" | "order") => reclassify(d.value, t)}/>
                 ))}
@@ -856,19 +933,30 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
             </div>
           )}
 
-          <div className="mt-3 text-center text-white/80 text-[11px] leading-relaxed">
-            <p>📱 รองรับ: QR · Code128 · EAN/UPC · Data Matrix · Code39 · ITF · PDF417</p>
-            <p className="mt-1 opacity-70">{meta.hint}</p>
-            {continuous && <p className="mt-1 text-indigo-200">💡 แสกนต่อเนื่องได้ — ระบบจะแยก barcode/SN ให้เอง · กด "เสร็จ" เมื่อพร้อม</p>}
+          <div className="text-center text-white/70 text-[10px] leading-tight">
+            <p className="flex items-center justify-center gap-1.5 flex-wrap">
+              <span className="opacity-70">QR · Code128 · EAN · UPC · DataMatrix · Code39 · ITF · PDF417</span>
+              {engine === "native" && (
+                <span className="text-emerald-300 font-black bg-emerald-500/20 px-1.5 py-0.5 rounded-full text-[9px]">⚡ Multi</span>
+              )}
+            </p>
+            {continuous && detected.length === 0 && (
+              <p className="mt-1 text-indigo-200 text-[10px]">
+                {engine === "native"
+                  ? "💡 จับ barcode + SN พร้อมกันได้ในรอบเดียว"
+                  : "💡 เลื่อนกล้องเล็กๆ ผ่านแต่ละรหัส"}
+              </p>
+            )}
           </div>
         </div>
       </div>
 
       {/* ─── Bottom action bar (continuous) ─── */}
       {continuous && (
-        <div className="px-4 py-3 border-t border-white/10 bg-black/60 backdrop-blur-md flex items-center gap-2">
+        <div className="px-3 py-2.5 border-t border-white/10 bg-black/60 backdrop-blur-md flex items-center gap-2 flex-shrink-0"
+          style={{ paddingBottom: `max(env(safe-area-inset-bottom), 10px)` }}>
           <button onClick={onClose}
-            className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl">
+            className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl flex-shrink-0">
             ยกเลิก
           </button>
           <button onClick={finishMulti} disabled={detected.length === 0}
@@ -949,26 +1037,25 @@ function DetectedRow({ item, onRemove, onReclassify }: any) {
   }
   const m = typeMeta[item.type]
   return (
-    <div className={`relative rounded-xl border ${m.color} px-2.5 py-2 flex items-center gap-2`}>
-      <span className="text-base">{m.icon}</span>
+    <div className={`relative rounded-lg border ${m.color} px-2 py-1.5 flex items-center gap-1.5`}>
+      <span className="text-sm flex-shrink-0">{m.icon}</span>
       <div className="flex-1 min-w-0">
-        <p className="text-[9px] font-black uppercase opacity-80">{m.label}{item.format ? ` · ${item.format}` : ""}</p>
-        <p className="text-xs font-mono font-bold text-white truncate">{item.value}</p>
+        <p className="text-[9px] font-mono font-bold text-white truncate">{item.value}</p>
         {item.type === "barcode" && item.product && (
-          <p className="text-[10px] text-white/80 truncate">✓ {item.product.name}{item.product.model && ` · ${item.product.model}`}</p>
+          <p className="text-[9px] text-white/70 truncate">✓ {item.product.name}</p>
         )}
         {item.type === "barcode" && !item.product && (
-          <p className="text-[10px] text-amber-200/80">⚠ ไม่พบใน DB</p>
+          <p className="text-[9px] text-amber-200/80">⚠ ไม่พบใน DB</p>
         )}
       </div>
       <select value={item.type} onChange={e => onReclassify(e.target.value)}
-        className="bg-black/30 border border-white/20 rounded-md px-1.5 py-0.5 text-[10px] font-bold text-white outline-none">
-        <option value="barcode">Barcode</option>
+        className="bg-black/30 border border-white/20 rounded px-1 py-0.5 text-[9px] font-bold text-white outline-none flex-shrink-0">
+        <option value="barcode">BC</option>
         <option value="sn">SN</option>
-        <option value="order">Order</option>
+        <option value="order">ORD</option>
       </select>
-      <button onClick={onRemove} className="p-1 hover:bg-white/20 rounded text-white/70 hover:text-white">
-        <X size={12}/>
+      <button onClick={onRemove} className="p-0.5 hover:bg-white/20 rounded text-white/70 hover:text-white flex-shrink-0">
+        <X size={11}/>
       </button>
     </div>
   )
