@@ -162,16 +162,9 @@ async function classifyCode(raw: string, formatName?: string): Promise<{
 
   // EAN/UPC numeric patterns
   if (isDigits) {
-    // ── 13-digit ที่ checksum ผิดและไม่อยู่ใน DB → "misread" → reject ──
-    //    (เพราะ ZXing บางครั้งอ่านพลาด 1-2 หลัก แล้วได้ตัวเลข 13 หลักที่ดูคล้าย)
-    if (len === 13) {
-      return { type: "barcode", confidence: 25, reason: `⚠ 13 digits — checksum ผิด (อาจอ่านพลาด)` }
-    }
-    if (len === 12) {
-      return { type: "barcode", confidence: 25, reason: `⚠ UPC-A checksum ผิด (อาจอ่านพลาด)` }
-    }
-    if (len === 8) {
-      return { type: "barcode", confidence: 25, reason: `⚠ EAN-8 checksum ผิด (อาจอ่านพลาด)` }
+    // ── 13/12/8-digit checksum ผิด + ไม่อยู่ใน DB → misread → reject ทันที (5%) ──
+    if (len === 13 || len === 12 || len === 8) {
+      return { type: "barcode", confidence: 5, reason: `❌ checksum ผิด + ไม่มีใน DB — อ่านพลาด` }
     }
     if (len === 14) return { type: "barcode", confidence: 75, reason: "GTIN-14" }
     // ตัวเลขสั้น 5-10 → order
@@ -881,13 +874,16 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
 
     const cls = await classifyCode(decoded, fmt)
 
-    // ── Stability check — ถ้า confidence ต่ำ ต้องอ่านเจอ 2 ครั้ง ──
-    //    เก็บใน pendingRef แทน detectedRef เพื่อรอ confirm
+    // ── Reject confidence ต่ำมาก (misread) ──
+    if (cls.confidence < 30) {
+      return  // ทิ้งไปเลย — ไม่ต้องโชว์
+    }
+    // ── Stability check — confidence 30-49 ต้อง confirm 2 ครั้ง ──
     if (cls.confidence < 50) {
       const c = pendingRef.current.get(clean) ?? 0
-      if (c < 1) {
+      if (c < 2) {
         pendingRef.current.set(clean, c + 1)
-        return  // ยังไม่ accept — รอเจอซ้ำอีกครั้ง
+        return
       }
     }
     pendingRef.current.delete(clean)
@@ -957,15 +953,28 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
         video.srcObject = stream
         await video.play().catch(() => {})
 
-        // Detect loop ~14fps
+        // Detect loop ~14fps + bbox filter (เฉพาะรหัสในกรอบ viewfinder)
         let lastTs = 0
         const loop = async (ts: number) => {
           if (cancelled) return
           if (ts - lastTs > 70) {
             lastTs = ts
             try {
-              const codes: Array<{ rawValue: string; format: string }> = await detector.detect(video)
-              for (const c of codes) handleDetected(c.rawValue, c.format)
+              const codes: Array<{ rawValue: string; format: string; boundingBox?: DOMRectReadOnly }> = await detector.detect(video)
+              const vw = video.videoWidth
+              const vh = video.videoHeight
+              // ─ Viewfinder bounds (ตรงกับ UI: top 22%, bottom 22%, L/R 6%) ─
+              const scanL = vw * 0.06, scanR = vw * 0.94
+              const scanT = vh * 0.22, scanB = vh * 0.78
+              for (const c of codes) {
+                // ── Filter: center of bbox ต้องอยู่ในกรอบ ──
+                if (c.boundingBox) {
+                  const cx = c.boundingBox.x + c.boundingBox.width / 2
+                  const cy = c.boundingBox.y + c.boundingBox.height / 2
+                  if (cx < scanL || cx > scanR || cy < scanT || cy > scanB) continue
+                }
+                handleDetected(c.rawValue, c.format)
+              }
             } catch {}
           }
           rafRef.current = requestAnimationFrame(loop)
@@ -1027,8 +1036,8 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
 
     const startZXing = async () => {
       try {
-        const { BrowserMultiFormatReader } = await import("@zxing/browser")
-        const { DecodeHintType, BarcodeFormat } = await import("@zxing/library")
+        const { MultiFormatReader, HTMLCanvasElementLuminanceSource, BinaryBitmap, HybridBinarizer,
+          DecodeHintType, BarcodeFormat } = await import("@zxing/library")
         if (cancelled) return
 
         // ─ Configure ZXing สำหรับ multi-format + try harder ─
@@ -1042,40 +1051,89 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
         ])
         hints.set(DecodeHintType.TRY_HARDER, true)
 
-        const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 80 })
+        const reader = new MultiFormatReader()
+        reader.setHints(hints)
         zxingControlsRef.current = reader
+
+        // ─ Get camera stream ตรงๆ ─
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width:  { ideal: 1920 },
+            height: { ideal: 1080 },
+            // @ts-ignore
+            focusMode: "continuous",
+          },
+          audio: false,
+        })
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
+        streamRef.current = stream
 
         const video = videoRef.current
         if (!video) { setError("video element not ready"); return }
+        video.srcObject = stream
+        await video.play().catch(() => {})
 
-        // Get back camera ID
-        const devices = await BrowserMultiFormatReader.listVideoInputDevices()
-        const backCam = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[devices.length - 1]
-        const deviceId = backCam?.deviceId
+        // ─ Off-screen canvas สำหรับ crop ─
+        const fullCanvas = document.createElement("canvas")
+        const fullCtx = fullCanvas.getContext("2d")!
+        const cropCanvas = document.createElement("canvas")
+        const cropCtx = cropCanvas.getContext("2d")!
 
-        // continuousDecodeFromVideoDevice อ่านต่อเนื่อง ทุก decode → callback
-        const controls = await reader.decodeFromVideoDevice(
-          deviceId,
-          video,
-          (result, err, ctrls) => {
-            if (cancelled) { ctrls.stop(); return }
-            if (result) {
-              const format = result.getBarcodeFormat()
-              const formatName = BarcodeFormat[format] || "UNKNOWN"
-              handleDetected(result.getText(), formatName)
-            }
-            // err ปกติคือ NotFoundException (no barcode) — ignore
+        // ─ Helper: decode 1 region (returns true ถ้าเจอ) ─
+        const decodeRegion = (sx: number, sy: number, sw: number, sh: number) => {
+          if (sw < 50 || sh < 30) return false
+          cropCanvas.width = sw
+          cropCanvas.height = sh
+          cropCtx.drawImage(fullCanvas, sx, sy, sw, sh, 0, 0, sw, sh)
+          try {
+            const lum = new HTMLCanvasElementLuminanceSource(cropCanvas)
+            const bin = new BinaryBitmap(new HybridBinarizer(lum))
+            const result = reader.decode(bin)
+            const fmt = BarcodeFormat[result.getBarcodeFormat()] || "UNKNOWN"
+            handleDetected(result.getText(), fmt)
+            return true
+          } catch {
+            return false
+          } finally {
+            reader.reset()
           }
-        )
-        zxingControlsRef.current = controls
-
-        // เก็บ stream เผื่อใช้ toggle torch
-        if (video.srcObject instanceof MediaStream) {
-          streamRef.current = video.srcObject
         }
+
+        // ─ Scan loop ~10fps with 3 sub-regions (full + top + bottom) ─
+        let lastTs = 0
+        const loop = (ts: number) => {
+          if (cancelled) return
+          if (video.videoWidth === 0) { rafRef.current = requestAnimationFrame(loop); return }
+          if (ts - lastTs < 100) { rafRef.current = requestAnimationFrame(loop); return }
+          lastTs = ts
+
+          const vw = video.videoWidth
+          const vh = video.videoHeight
+          fullCanvas.width = vw
+          fullCanvas.height = vh
+          fullCtx.drawImage(video, 0, 0, vw, vh)
+
+          // ── Crop: ตรงกับ viewfinder UI (22% top dim, 22% bottom dim, 6% L/R) ──
+          const cropY = Math.floor(vh * 0.22)
+          const cropH = Math.floor(vh * 0.56)
+          const cropX = Math.floor(vw * 0.06)
+          const cropW = Math.floor(vw * 0.88)
+
+          // ── 1. ลอง full crop ก่อน ──
+          decodeRegion(cropX, cropY, cropW, cropH)
+          // ── 2. แล้วลอง top half (เพื่อจับ Code128 ที่อยู่บน) ──
+          decodeRegion(cropX, cropY, cropW, Math.floor(cropH * 0.55))
+          // ── 3. แล้วลอง bottom half (เพื่อจับ EAN ที่อยู่ล่าง) ──
+          const halfY = cropY + Math.floor(cropH * 0.45)
+          const halfH = cropH - Math.floor(cropH * 0.45)
+          decodeRegion(cropX, halfY, cropW, halfH)
+
+          rafRef.current = requestAnimationFrame(loop)
+        }
+        rafRef.current = requestAnimationFrame(loop)
       } catch (e: any) {
         console.error("ZXing failed:", e)
-        // ถ้า ZXing ล้มเหลว fallback ไป html5-qrcode
         if (!cancelled) setEngine("fallback")
       }
     }
