@@ -721,8 +721,9 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
   const streamRef = useRef<MediaStream | null>(null)
   const rafRef = useRef<number | null>(null)
   const fallbackRef = useRef<any>(null)
+  const zxingControlsRef = useRef<any>(null)
   const firedRef = useRef(false)
-  const [engine, setEngine] = useState<"native" | "fallback" | "starting">("starting")
+  const [engine, setEngine] = useState<"native" | "zxing" | "fallback" | "starting">("starting")
 
   // ── AI fallback states ──
   const [aiState, setAiState] = useState<"idle" | "countdown" | "scanning" | "done" | "failed">("idle")
@@ -781,17 +782,22 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
     }
   }
 
-  // ── Countdown 10s: ถ้ายังไม่เจออะไร → trigger AI ──
+  // ── Smart Countdown — trigger AI เมื่อขาดของ ──
+  //   เงื่อนไข: ผ่าน 10s แล้วยังไม่ครบ (ไม่มี barcode หรือไม่มี SN) → AI
   useEffect(() => {
     if (!continuous) return
-    if (detected.length > 0) {
-      // มีของแล้ว ไม่ต้อง AI
-      setAiState("idle"); setAiCountdown(10); aiTriggeredRef.current = false
+    if (engine === "starting") return
+    if (aiTriggeredRef.current) return
+
+    const hasBC = detected.some(d => d.type === "barcode")
+    const hasSN = detected.some(d => d.type === "sn")
+    // ครบทั้ง 2 แล้ว → ไม่ต้อง AI
+    if (hasBC && hasSN) {
+      setAiState("done")
       return
     }
-    if (engine === "starting") return
-    if (aiState !== "idle" && aiState !== "countdown") return
 
+    // ─ เริ่มนับใหม่ทุกครั้งที่ detected เปลี่ยน ─
     setAiState("countdown")
     let cnt = 10
     setAiCountdown(cnt)
@@ -804,15 +810,53 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
       }
     }, 1000)
     return () => clearInterval(iv)
-  }, [continuous, engine, detected.length])
+  }, [continuous, engine, detected.length, detected.map(d => d.type).join(",")])
+
+  // ── reject toast throttle ──
+  const lastRejectAtRef = useRef(0)
+  const rejectToast = (msg: string) => {
+    const now = Date.now()
+    if (now - lastRejectAtRef.current < 2500) return
+    lastRejectAtRef.current = now
+    toast(msg, { icon: "⚠️" })
+  }
 
   // ── unified handler ──
   const handleDetected = async (decoded: string, fmt?: string) => {
     const clean = cleanDecoded(decoded)
     if (!clean) return
 
-    // Single-shot mode (sn / order purpose)
+    // Single-shot mode (sn / order purpose) — ต้อง filter ตาม purpose
     if (!continuous) {
+      // ── SN purpose: ปฏิเสธ EAN/UPC pure-digit product barcodes ──
+      if (purpose === "sn") {
+        const isEanUpc = fmt && /EAN_13|EAN_8|UPC_A|UPC_E/i.test(fmt)
+        const isPureDigit = /^\d+$/.test(clean)
+        const hasLetter = /[A-Za-z]/.test(clean)
+        // SN ต้องมีตัวอักษร หรือ ยาวกว่า 14 ตัว (กรณีตัวเลขล้วน)
+        const looksLikeSn = hasLetter || (isPureDigit && clean.length >= 14)
+        if (isEanUpc || (isPureDigit && clean.length <= 13 && !hasLetter)) {
+          rejectToast(`นี่คือ barcode สินค้า ไม่ใช่ SN — เล็งฉลาก SN`)
+          return
+        }
+        if (!looksLikeSn && clean.length < 5) {
+          rejectToast("ค่าสั้นเกินไป — SN ปกติ 10+ ตัว")
+          return
+        }
+      }
+      // ── Order purpose: ปฏิเสธ code ยาวเกิน 13 ──
+      if (purpose === "order") {
+        if (clean.length > 13) {
+          rejectToast(`ยาวเกินไป (${clean.length} ตัว) — Order ไม่ควรเกิน 13`)
+          return
+        }
+        const isEanUpc = fmt && /EAN_13|EAN_8|UPC_A|UPC_E/i.test(fmt)
+        if (isEanUpc) {
+          rejectToast("นี่คือ barcode สินค้า ไม่ใช่ order")
+          return
+        }
+      }
+
       if (firedRef.current) return
       firedRef.current = true
       setLastSeen({ value: decoded, format: fmt })
@@ -839,10 +883,12 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
   }
 
   // ── Step 1: ตรวจ engine ที่จะใช้ ──
+  // ลำดับ priority: Native BarcodeDetector → ZXing → html5-qrcode fallback
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       if (typeof window === "undefined") return
+      // 1. Native BarcodeDetector (Chrome Android, Edge — เร็วและ multi-detect)
       if ("BarcodeDetector" in window) {
         try {
           const BD = (window as any).BarcodeDetector
@@ -851,7 +897,8 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
           if (formats && formats.length > 0) { setEngine("native"); return }
         } catch {}
       }
-      if (!cancelled) setEngine("fallback")
+      // 2. ZXing — เก่งกว่า html5-qrcode สำหรับ Code128 1D + multi-detect
+      if (!cancelled) setEngine("zxing")
     })()
     return () => { cancelled = true }
   }, [])
@@ -955,12 +1002,72 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
       }
     }
 
+    const startZXing = async () => {
+      try {
+        const { BrowserMultiFormatReader } = await import("@zxing/browser")
+        const { DecodeHintType, BarcodeFormat } = await import("@zxing/library")
+        if (cancelled) return
+
+        // ─ Configure ZXing สำหรับ multi-format + try harder ─
+        const hints = new Map()
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+          BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93,
+          BarcodeFormat.EAN_13, BarcodeFormat.EAN_8,
+          BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
+          BarcodeFormat.ITF, BarcodeFormat.CODABAR,
+          BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX, BarcodeFormat.PDF_417, BarcodeFormat.AZTEC,
+        ])
+        hints.set(DecodeHintType.TRY_HARDER, true)
+
+        const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 80 })
+        zxingControlsRef.current = reader
+
+        const video = videoRef.current
+        if (!video) { setError("video element not ready"); return }
+
+        // Get back camera ID
+        const devices = await BrowserMultiFormatReader.listVideoInputDevices()
+        const backCam = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[devices.length - 1]
+        const deviceId = backCam?.deviceId
+
+        // continuousDecodeFromVideoDevice อ่านต่อเนื่อง ทุก decode → callback
+        const controls = await reader.decodeFromVideoDevice(
+          deviceId,
+          video,
+          (result, err, ctrls) => {
+            if (cancelled) { ctrls.stop(); return }
+            if (result) {
+              const format = result.getBarcodeFormat()
+              const formatName = BarcodeFormat[format] || "UNKNOWN"
+              handleDetected(result.getText(), formatName)
+            }
+            // err ปกติคือ NotFoundException (no barcode) — ignore
+          }
+        )
+        zxingControlsRef.current = controls
+
+        // เก็บ stream เผื่อใช้ toggle torch
+        if (video.srcObject instanceof MediaStream) {
+          streamRef.current = video.srcObject
+        }
+      } catch (e: any) {
+        console.error("ZXing failed:", e)
+        // ถ้า ZXing ล้มเหลว fallback ไป html5-qrcode
+        if (!cancelled) setEngine("fallback")
+      }
+    }
+
     if (engine === "native") startNative()
+    else if (engine === "zxing") startZXing()
     else if (engine === "fallback") startFallback()
 
     return () => {
       cancelled = true
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (zxingControlsRef.current) {
+        try { zxingControlsRef.current.stop?.() } catch {}
+        zxingControlsRef.current = null
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
         streamRef.current = null
@@ -973,12 +1080,16 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
     }
   }, [engine])
 
-  // ── Torch toggle (รองรับทั้ง native stream + html5-qrcode) ──
+  // ── Torch toggle (รองรับทั้ง native + ZXing + html5-qrcode) ──
   const toggleTorch = async () => {
     try {
-      if (engine === "native" && streamRef.current) {
-        const track = streamRef.current.getVideoTracks()[0]
-        await track.applyConstraints({ advanced: [{ torch: !torch }] } as any)
+      // native + zxing ใช้ video stream
+      if ((engine === "native" || engine === "zxing") && videoRef.current) {
+        const s = (videoRef.current.srcObject as MediaStream) || streamRef.current
+        if (s) {
+          const track = s.getVideoTracks()[0]
+          await track.applyConstraints({ advanced: [{ torch: !torch }] } as any)
+        }
       } else if (fallbackRef.current) {
         await fallbackRef.current.applyVideoConstraints({ advanced: [{ torch: !torch }] } as any)
       } else return
@@ -1040,8 +1151,8 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
               <div ref={containerRef} id="barcode-scanner-region"
                 className="absolute inset-0 bg-black rounded-2xl overflow-hidden border-2 border-white/20"
                 style={{ minHeight: 240 }}>
-                {/* Video element สำหรับ native engine (html5-qrcode จะใส่ video เอง) */}
-                {engine === "native" && (
+                {/* Video element สำหรับ native + ZXing (html5-qrcode จะใส่ video เอง) */}
+                {(engine === "native" || engine === "zxing") && (
                   <video ref={videoRef} playsInline muted autoPlay
                     className="absolute inset-0 w-full h-full object-cover"/>
                 )}
@@ -1141,14 +1252,26 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
             <p className="flex items-center justify-center gap-1.5 flex-wrap">
               <span className="opacity-70">QR · Code128 · EAN · UPC · DataMatrix · Code39 · ITF · PDF417</span>
               {engine === "native" && (
-                <span className="text-emerald-300 font-black bg-emerald-500/20 px-1.5 py-0.5 rounded-full text-[9px]">⚡ Multi</span>
+                <span className="text-emerald-300 font-black bg-emerald-500/20 px-1.5 py-0.5 rounded-full text-[9px]">⚡ Native</span>
+              )}
+              {engine === "zxing" && (
+                <span className="text-blue-300 font-black bg-blue-500/20 px-1.5 py-0.5 rounded-full text-[9px]">⚡ ZXing</span>
               )}
             </p>
-            {continuous && detected.length === 0 && aiState === "countdown" && aiCountdown > 0 && (
-              <div className="mt-1.5 flex items-center justify-center gap-2">
+            {continuous && aiState === "countdown" && aiCountdown > 0 && (
+              <div className="mt-1.5 flex items-center justify-center gap-2 flex-wrap">
                 <p className="text-purple-200 text-[10px] flex items-center gap-1">
                   <span>🤖</span>
-                  <span>AI จะอ่านรูปใน <b className="text-white tabular-nums">{aiCountdown}s</b></span>
+                  <span>
+                    {detected.length === 0
+                      ? "AI อ่านรูปใน"
+                      : !hasBarcode
+                      ? "ยังขาด Barcode — AI อ่านใน"
+                      : !hasSn
+                      ? "ยังขาด SN — AI อ่านใน"
+                      : "AI ใน"}
+                    {" "}<b className="text-white tabular-nums">{aiCountdown}s</b>
+                  </span>
                 </p>
                 <button onClick={triggerAIScan}
                   className="px-2 py-0.5 bg-purple-500 hover:bg-purple-600 text-white text-[10px] font-black rounded-full">
