@@ -19,6 +19,29 @@ export async function GET(req: NextRequest) {
   const month = sp.get("month") ? parseInt(sp.get("month")!) : null
   const companyId = sp.get("company_id") || null
   const departmentId = sp.get("department_id") || null
+  const dateMode = (sp.get("date_mode") || "calendar") as "calendar" | "payroll"
+
+  // ── คำนวณช่วงวันที่ตาม mode ──
+  // calendar: เดือนพ.ค. = 1-31 พ.ค.
+  // payroll:  เดือนพ.ค. = 22 เม.ย. - 21 พ.ค. (รอบเงินเดือนพฤษภา)
+  let rangeStart: string | null = null
+  let rangeEnd: string | null = null
+  if (year && month) {
+    if (dateMode === "payroll") {
+      // payroll period: prev month 22 → current month 21
+      const prevYear = month === 1 ? year - 1 : year
+      const prevMonth = month === 1 ? 12 : month - 1
+      const pad = (n: number) => String(n).padStart(2, "0")
+      rangeStart = `${prevYear}-${pad(prevMonth)}-22`
+      rangeEnd = `${year}-${pad(month)}-21`
+    } else {
+      // calendar month
+      const pad = (n: number) => String(n).padStart(2, "0")
+      const lastDay = new Date(year, month, 0).getDate()
+      rangeStart = `${year}-${pad(month)}-01`
+      rangeEnd = `${year}-${pad(month)}-${pad(lastDay)}`
+    }
+  }
 
   // ── ดึงข้อมูลพนักงานทดลองงานทั้งหมด ──
   let q = svc.from("employees")
@@ -37,6 +60,9 @@ export async function GET(req: NextRequest) {
 
   if (companyId) q = q.eq("company_id", companyId)
   if (departmentId) q = q.eq("department_id", departmentId)
+  // ── Server-side filter ตาม range (เดิม client-side filter โดย hire_year/hire_month) ──
+  if (rangeStart) q = q.gte("hire_date", rangeStart)
+  if (rangeEnd)   q = q.lte("hire_date", rangeEnd)
 
   const { data: employees, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -128,12 +154,8 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  // ── Filter by hire month (ถ้าระบุ) ──
-  const filtered = enriched.filter((e: any) => {
-    if (year && e._derived.hire_year !== year) return false
-    if (month && e._derived.hire_month !== month) return false
-    return true
-  })
+  // Server-side filter ทำแล้วใน query (gte/lte hire_date)
+  const filtered = enriched
 
   // ── Aggregates สำหรับกราฟ ──
   const byMonth: Record<string, number> = {}   // "yyyy-mm" → count
@@ -219,6 +241,11 @@ export async function GET(req: NextRequest) {
     filters: {
       companies: companies ?? [],
       departments: departments ?? [],
+    },
+    range: {
+      mode: dateMode,
+      start: rangeStart,
+      end: rangeEnd,
     },
   })
 }

@@ -14,6 +14,7 @@ import toast from "react-hot-toast"
 
 type Filters = {
   scope: "this_month" | "all" | "custom"
+  date_mode: "calendar" | "payroll"  // เดือนปกติ vs รอบเงินเดือน
   year?: number
   month?: number
   company_id?: string
@@ -29,6 +30,7 @@ export default function AdminProbationEmployeesPage() {
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const [filters, setFilters] = useState<Filters>({
     scope: "this_month",
+    date_mode: "calendar",
     year: new Date().getFullYear(),
     month: new Date().getMonth() + 1,
     search: "",
@@ -41,6 +43,7 @@ export default function AdminProbationEmployeesPage() {
     if (filters.scope === "this_month" || filters.scope === "custom") {
       if (filters.year) params.set("year", String(filters.year))
       if (filters.month) params.set("month", String(filters.month))
+      params.set("date_mode", filters.date_mode)
     }
     if (filters.company_id) params.set("company_id", filters.company_id)
     if (filters.department_id) params.set("department_id", filters.department_id)
@@ -53,7 +56,7 @@ export default function AdminProbationEmployeesPage() {
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [filters.scope, filters.year, filters.month, filters.company_id, filters.department_id])
+  useEffect(() => { load() }, [filters.scope, filters.date_mode, filters.year, filters.month, filters.company_id, filters.department_id])
 
   const visibleEmployees = useMemo(() => {
     if (!data?.employees) return []
@@ -174,6 +177,35 @@ export default function AdminProbationEmployeesPage() {
               </>
             )}
           </div>
+
+          {/* ── Date Mode Toggle ── (เฉพาะตอน scope ไม่ใช่ "all") */}
+          {filters.scope !== "all" && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-[10px] font-black text-slate-500 uppercase">นับวันที่</p>
+              <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
+                <button onClick={() => setFilters(f => ({ ...f, date_mode: "calendar" }))}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                    filters.date_mode === "calendar" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  }`}>
+                  📅 เดือนปกติ
+                </button>
+                <button onClick={() => setFilters(f => ({ ...f, date_mode: "payroll" }))}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                    filters.date_mode === "payroll" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  }`}>
+                  💰 รอบเงินเดือน
+                </button>
+              </div>
+              {data?.range?.start && data?.range?.end && (
+                <span className="text-[10px] text-slate-500 font-bold bg-slate-50 px-2 py-1 rounded-md">
+                  {filters.date_mode === "payroll" ? "รอบเงินเดือน:" : "ช่วง:"}{" "}
+                  <span className="text-slate-700">
+                    {format(new Date(data.range.start), "d MMM", { locale: th })} → {format(new Date(data.range.end), "d MMM yyyy", { locale: th })}
+                  </span>
+                </span>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-2 flex-wrap items-center">
             <select value={filters.company_id || ""} onChange={e => setFilters(f => ({ ...f, company_id: e.target.value || undefined }))}
