@@ -115,6 +115,7 @@ export default function EmployeeSalesPage() {
 
   // ── Form state ──
   const [form, setForm] = useState({
+    barcode: "",
     sold_price: "",
     sn: "",
     order_number: "",
@@ -158,6 +159,7 @@ export default function EmployeeSalesPage() {
         setActiveProduct(codes.product)
         setForm(f => ({
           ...f,
+          barcode: codes.barcode || "",
           sold_price: codes.product.default_price ? String(codes.product.default_price) : "",
           sn: codes.sn || "",
           order_number: codes.order || "",
@@ -168,6 +170,7 @@ export default function EmployeeSalesPage() {
         setActiveProduct({ __unknown: true, barcode: codes.barcode })
         setForm(f => ({
           ...f,
+          barcode: codes.barcode || "",
           sold_price: "", sn: codes.sn || "", order_number: codes.order || "",
           qty: "1", note: "", manual_name: "", manual_brand: "",
         }))
@@ -179,7 +182,7 @@ export default function EmployeeSalesPage() {
       setActiveProduct({ __unknown: true, barcode: null })
       setForm(f => ({
         ...f,
-        sold_price: "", sn: codes.sn || "", order_number: codes.order || "",
+        barcode: "", sold_price: "", sn: codes.sn || "", order_number: codes.order || "",
         qty: "1", note: "", manual_name: "", manual_brand: "",
       }))
       toast(`ได้ SN — กรอกชื่อสินค้า + ราคา`, { icon: "🔢" })
@@ -221,10 +224,24 @@ export default function EmployeeSalesPage() {
     const looksLikeSn = !/^\d{8,14}$/.test(code)
     const res = await fetch(`/api/products?barcode=${encodeURIComponent(code)}`)
     const d = await res.json()
+
+    // ── re-scan barcode จากภายใน EntryModal — แค่อัพเดต field ไม่ reset ──
+    if (activeProduct && !looksLikeSn) {
+      setForm(f => ({ ...f, barcode: code }))
+      if (d.product) {
+        setActiveProduct(d.product)
+        toast.success(`อัพเดตเป็น: ${d.product.name}`)
+      } else {
+        toast.success(`อัพเดต barcode แล้ว`)
+      }
+      return
+    }
+
     if (d.product) {
       setActiveProduct(d.product)
       setForm(f => ({
         ...f,
+        barcode: code,
         sold_price: d.product.default_price ? String(d.product.default_price) : "",
         sn: "", order_number: "", qty: "1", note: "",
       }))
@@ -233,6 +250,7 @@ export default function EmployeeSalesPage() {
       setActiveProduct({ __unknown: true, barcode: looksLikeSn ? null : code })
       setForm(f => ({
         ...f,
+        barcode: looksLikeSn ? "" : code,
         sold_price: "", sn: looksLikeSn ? code : "",
         order_number: "", qty: "1", note: "", manual_name: "", manual_brand: "",
       }))
@@ -245,7 +263,7 @@ export default function EmployeeSalesPage() {
 
   const resetForm = () => {
     setActiveProduct(null)
-    setForm({ sold_price: "", sn: "", order_number: "", qty: "1", note: "", manual_name: "", manual_brand: "" })
+    setForm({ barcode: "", sold_price: "", sn: "", order_number: "", qty: "1", note: "", manual_name: "", manual_brand: "" })
     if (proofPreviewUrl) URL.revokeObjectURL(proofPreviewUrl)
     setProofPhoto(null)
     setProofPreviewUrl(null)
@@ -282,7 +300,7 @@ export default function EmployeeSalesPage() {
 
       // ── 2. Save sale ──
       const payload = activeProduct.__unknown ? {
-        barcode: activeProduct.barcode || null,
+        barcode: form.barcode || activeProduct.barcode || null,
         product_name: form.manual_name.trim(),
         brand: form.manual_brand || null,
         sold_price: priceN,
@@ -293,7 +311,7 @@ export default function EmployeeSalesPage() {
         proof_photo_url,
       } : {
         product_id: activeProduct.id,
-        barcode: activeProduct.barcode,
+        barcode: form.barcode || activeProduct.barcode,
         product_name: activeProduct.name,
         brand: activeProduct.brand,
         category: activeProduct.category,
@@ -470,7 +488,7 @@ export default function EmployeeSalesPage() {
         <ScannerModal
           purpose={scannerOpen}
           onScan={(code) => onBarcodeScanned(code, scannerOpen)}
-          onMultiScan={scannerOpen === "barcode" ? onMultiScanned : undefined}
+          onMultiScan={(scannerOpen === "barcode" && !activeProduct) ? onMultiScanned : undefined}
           onClose={() => setScannerOpen(null)}
         />
       )}
@@ -489,6 +507,7 @@ export default function EmployeeSalesPage() {
           submitting={submitting}
           onScanSn={() => setScannerOpen("sn")}
           onScanOrder={() => setScannerOpen("order")}
+          onScanBarcode={() => setScannerOpen("barcode")}
           proofPhoto={proofPhoto}
           proofPreviewUrl={proofPreviewUrl}
           onOpenPhoto={() => setPhotoCaptureOpen(true)}
@@ -733,7 +752,7 @@ function ScannerModal({ purpose, onScan, onMultiScan, onClose }: {
   const hasSn = detected.some(d => d.type === "sn")
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex flex-col">
+    <div className="fixed inset-0 z-[70] bg-black/95 backdrop-blur-sm flex flex-col">
       <div className={`flex items-center justify-between px-4 py-3 bg-gradient-to-r ${meta.color} text-white shadow`}>
         <p className="font-black flex items-center gap-2"><Camera size={16}/> {meta.title}{continuous && " (ต่อเนื่อง)"}</p>
         <div className="flex items-center gap-1">
@@ -1031,7 +1050,7 @@ function SearchModal({ onPick, onClose }: { onPick: (p: any) => void; onClose: (
 // ════════════════════════════════════════════════════════════════════
 // EntryModal — แสดงรายละเอียดสินค้า + ฟอร์มกรอกราคา/SN/Order
 // ════════════════════════════════════════════════════════════════════
-function EntryModal({ product, form, setForm, onSubmit, onClose, submitting, onScanSn, onScanOrder, proofPhoto, proofPreviewUrl, onOpenPhoto, onRemovePhoto }: any) {
+function EntryModal({ product, form, setForm, onSubmit, onClose, submitting, onScanSn, onScanOrder, onScanBarcode, proofPhoto, proofPreviewUrl, onOpenPhoto, onRemovePhoto }: any) {
   const isUnknown = product.__unknown
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
@@ -1116,6 +1135,28 @@ function EntryModal({ product, form, setForm, onSubmit, onClose, submitting, onS
               )}
             </div>
           )}
+
+          {/* Barcode — แสดง+แก้ได้เสมอ */}
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1">
+                <Hash size={11} className="text-indigo-500"/> Barcode สินค้า
+              </span>
+              {form.barcode && <span className="text-[9px] font-black bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">✓ มี Barcode</span>}
+            </div>
+            <div className="flex items-center gap-1.5 mt-1">
+              <input value={form.barcode}
+                onChange={e => setForm((f: any) => ({ ...f, barcode: e.target.value }))}
+                placeholder="กรอกหรือสแกน barcode"
+                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 font-mono"/>
+              {onScanBarcode && (
+                <button type="button" onClick={onScanBarcode}
+                  className="px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-[11px] font-black rounded-lg flex items-center gap-1 shadow-sm">
+                  <Camera size={12}/> สแกน
+                </button>
+              )}
+            </div>
+          </div>
 
           {/* Price (required) */}
           <label className="block">
