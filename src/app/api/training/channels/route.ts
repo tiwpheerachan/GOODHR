@@ -32,7 +32,8 @@ export async function GET(req: NextRequest) {
       ...access.viewerChannels.map(v => v.channel_id),
     ]))
     q = q.in("id", ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"])
-  } else if (access.companyId) {
+  } else if (!access.isSuperAdmin && access.companyId) {
+    // super_admin → เห็นทุก company; hr_admin → เห็นเฉพาะ company ตัวเอง
     q = q.eq("company_id", access.companyId)
   }
 

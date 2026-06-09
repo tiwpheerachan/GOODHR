@@ -29,6 +29,8 @@ export type ViewerChannel = { channel_id: string; scope: ViewerScope }
 export type ViewerChannelWithPerm = ViewerChannel & { permission_id: string }
 
 export type TrainingAccess = {
+  role: string | null                          // raw users.role — เผื่อใช้แยก super_admin จาก hr_admin
+  isSuperAdmin: boolean
   isBaseAdmin: boolean
   isTrainingAdmin: boolean
   isSupervisor: boolean
@@ -51,17 +53,21 @@ export async function getTrainingAccess(
 
   if (!dbUser) {
     return {
+      role: null, isSuperAdmin: false,
       isBaseAdmin: false, isTrainingAdmin: false, isSupervisor: false, isViewer: false,
       supervisorChannelIds: [], viewerChannels: [], employeeId: null, companyId: null,
     }
   }
 
+  const role = dbUser.role ?? null
+  const isSuperAdmin = role === "super_admin"
   const isBaseAdmin = ["super_admin", "hr_admin"].includes(dbUser.role)
   const employeeId = dbUser.employee_id ?? null
   const companyId = (dbUser.employees as any)?.company_id ?? null
 
   if (!employeeId) {
     return {
+      role, isSuperAdmin,
       isBaseAdmin, isTrainingAdmin: isBaseAdmin, isSupervisor: false, isViewer: false,
       supervisorChannelIds: [], viewerChannels: [], employeeId: null, companyId,
     }
@@ -94,6 +100,7 @@ export async function getTrainingAccess(
     }))
 
   return {
+    role, isSuperAdmin,
     isBaseAdmin, isTrainingAdmin,
     isSupervisor: supervisorChannelIds.length > 0,
     isViewer: viewerChannels.length > 0,
