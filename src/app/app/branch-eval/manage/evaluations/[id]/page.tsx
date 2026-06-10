@@ -13,9 +13,11 @@ import toast from "react-hot-toast"
 import * as XLSX from "xlsx"
 
 const STATUS_LABEL: Record<string, { l: string; c: string }> = {
-  draft:     { l: "ร่าง",     c: "bg-slate-100 text-slate-700" },
-  submitted: { l: "รอรีวิว",  c: "bg-amber-100 text-amber-700" },
-  reviewed:  { l: "รีวิวแล้ว", c: "bg-emerald-100 text-emerald-700" },
+  draft:     { l: "ร่าง",      c: "bg-slate-100 text-slate-700" },
+  submitted: { l: "รออนุมัติ", c: "bg-amber-100 text-amber-700" },
+  reviewed:  { l: "รีวิวแล้ว", c: "bg-sky-100 text-sky-700" },
+  approved:  { l: "✓ อนุมัติ",  c: "bg-emerald-100 text-emerald-700" },
+  rejected:  { l: "✗ ปฏิเสธ",   c: "bg-rose-100 text-rose-700" },
 }
 
 export default function AdminEvaluationDetailPage() {
@@ -29,6 +31,25 @@ export default function AdminEvaluationDetailPage() {
   const [aiStats, setAiStats] = useState<any | null>(null)
   const [aiCharts, setAiCharts] = useState<any | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [reviewerNotes, setReviewerNotes] = useState("")
+  const [approvalActing, setApprovalActing] = useState<"approve" | "reject" | null>(null)
+
+  // ── Approve/Reject ──
+  const submitApproval = async (action: "approve" | "reject") => {
+    if (!data?.evaluation) return
+    setApprovalActing(action)
+    try {
+      const res = await fetch("/api/branch-eval/evaluations", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action, reviewer_notes: reviewerNotes || null }),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "ไม่สำเร็จ"); return }
+      toast.success(action === "approve" ? "อนุมัติเรียบร้อย ✓" : "ปฏิเสธเรียบร้อย")
+      setReviewerNotes("")
+      await load()
+    } finally { setApprovalActing(null) }
+  }
 
   const load = async () => {
     setLoading(true)
@@ -223,10 +244,71 @@ export default function AdminEvaluationDetailPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
             {ev.general_notes && <NotePanel title="หมายเหตุทั่วไป" body={ev.general_notes} color="slate" />}
             {ev.action_plan && <NotePanel title="Action Plan" body={ev.action_plan} color="amber" />}
-            {ev.reviewer_notes && <NotePanel title="Reviewer Notes" body={ev.reviewer_notes} color="emerald" />}
+            {ev.reviewer_notes && (
+              <NotePanel
+                title={ev.status === "rejected" ? "เหตุผลปฏิเสธ" : ev.status === "approved" ? "ความเห็นจากผู้อนุมัติ" : "Reviewer Notes"}
+                body={ev.reviewer_notes}
+                color={ev.status === "rejected" ? "rose" : "emerald"}
+              />
+            )}
           </div>
         )}
       </div>
+
+      {/* ─── Approval panel — เห็นเฉพาะคนที่อนุมัติได้ + ฟอร์มอยู่ในสถานะ submitted ─── */}
+      {data?.access?.can_approve && ev.status === "submitted" && (
+        <div className="bg-gradient-to-br from-amber-50 via-white to-emerald-50 rounded-2xl border-2 border-amber-200 p-4 lg:p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-sm">
+              <BadgeCheck size={16} className="text-white"/>
+            </div>
+            <div>
+              <p className="font-black text-slate-800 text-sm">รออนุมัติ</p>
+              <p className="text-[11px] text-slate-500">
+                กดอนุมัติหรือปฏิเสธฟอร์มนี้ — ความเห็นจะถูกส่งไปยัง{ev.evaluator ? ` ${ev.evaluator.first_name_th}` : "ผู้กรอก"}
+              </p>
+            </div>
+          </div>
+          <textarea value={reviewerNotes} onChange={e => setReviewerNotes(e.target.value)}
+            rows={3} placeholder="ความเห็น / Feedback (ไม่บังคับ) — เช่น 'จุดที่ควรปรับปรุง', 'ส่วนที่ทำได้ดี', เหตุผลที่ปฏิเสธ..."
+            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-400 resize-none"/>
+          <div className="flex gap-2 mt-3">
+            <button onClick={() => submitApproval("reject")} disabled={approvalActing !== null}
+              className="flex-1 py-2.5 bg-white hover:bg-rose-50 border-2 border-rose-200 text-rose-700 text-sm font-black rounded-xl flex items-center justify-center gap-1.5 disabled:opacity-40 transition">
+              {approvalActing === "reject" ? <Loader2 size={14} className="animate-spin"/> : "✗"}
+              ปฏิเสธ
+            </button>
+            <button onClick={() => submitApproval("approve")} disabled={approvalActing !== null}
+              className="flex-[2] py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-sm font-black rounded-xl flex items-center justify-center gap-1.5 disabled:opacity-40 shadow-sm transition">
+              {approvalActing === "approve" ? <Loader2 size={14} className="animate-spin"/> : <BadgeCheck size={14}/>}
+              อนุมัติ
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── เมื่อ approved/rejected แล้ว — แสดงผล + ปุ่ม "เปลี่ยนสถานะ" ──── */}
+      {data?.access?.can_approve && (ev.status === "approved" || ev.status === "rejected") && (
+        <div className={"rounded-2xl border-2 p-4 shadow-sm " + (ev.status === "approved"
+          ? "bg-emerald-50 border-emerald-200"
+          : "bg-rose-50 border-rose-200")}>
+          <div className="flex items-start gap-3">
+            <div className={"w-9 h-9 rounded-xl flex items-center justify-center shadow-sm flex-shrink-0 " +
+              (ev.status === "approved" ? "bg-emerald-500" : "bg-rose-500")}>
+              <BadgeCheck size={16} className="text-white"/>
+            </div>
+            <div className="flex-1">
+              <p className={"font-black text-sm " + (ev.status === "approved" ? "text-emerald-800" : "text-rose-800")}>
+                {ev.status === "approved" ? "ฟอร์มนี้ได้รับอนุมัติแล้ว ✓" : "ฟอร์มนี้ถูกปฏิเสธ ✗"}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                โดย {ev.reviewer ? `${ev.reviewer.first_name_th} ${ev.reviewer.last_name_th}` : "—"}
+                {ev.reviewed_at && ` · ${format(new Date(ev.reviewed_at), "d MMM yyyy HH:mm", { locale: th })}`}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Item-by-item breakdown */}
       <div className="bg-white rounded-2xl border border-slate-100 p-3 shadow-sm">

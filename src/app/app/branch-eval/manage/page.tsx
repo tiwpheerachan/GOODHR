@@ -54,6 +54,8 @@ export default function SupervisorManagePage() {
     draft: evals.filter(e => e.status === "draft").length,
     submitted: evals.filter(e => e.status === "submitted").length,
     reviewed: evals.filter(e => e.status === "reviewed").length,
+    approved: evals.filter(e => e.status === "approved").length,
+    rejected: evals.filter(e => e.status === "rejected").length,
     avg: evals.length > 0 && evals.some((e: any) => e.percentage > 0)
       ? evals.filter((e: any) => e.percentage > 0).reduce((s: number, e: any) => s + Number(e.percentage), 0) /
         evals.filter((e: any) => e.percentage > 0).length
@@ -99,7 +101,7 @@ export default function SupervisorManagePage() {
             </h1>
             <p className="text-slate-400 text-sm">
               {branches.length} สาขา · {evals.length} ฟอร์ม
-              {stats.submitted > 0 && <span className="ml-1.5 text-amber-600 font-bold">· {stats.submitted} รอรีวิว</span>}
+              {stats.submitted > 0 && <span className="ml-1.5 text-amber-600 font-bold">· {stats.submitted} รออนุมัติ</span>}
             </p>
           </div>
         </div>
@@ -108,8 +110,8 @@ export default function SupervisorManagePage() {
       {/* KPI */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
         <Kpi color="slate" label="ฟอร์มทั้งหมด" value={stats.total} />
-        <Kpi color="amber" label="รอรีวิว" value={stats.submitted} highlight={stats.submitted > 0} />
-        <Kpi color="emerald" label="รีวิวแล้ว" value={stats.reviewed} />
+        <Kpi color="amber" label="รออนุมัติ" value={stats.submitted} highlight={stats.submitted > 0} />
+        <Kpi color="emerald" label="อนุมัติแล้ว" value={stats.approved} sub={stats.rejected > 0 ? `ปฏิเสธ ${stats.rejected}` : undefined}/>
         <Kpi color="indigo" label="คะแนนเฉลี่ย" value={stats.avg > 0 ? `${stats.avg.toFixed(0)}%` : "—"} />
         <Kpi color="violet" label="📩 ส่งถึงฉัน" value={stats.sentToMe} highlight={stats.sentToMe > 0} />
         <Kpi color="orange" label="📋 การบ้าน" value={stats.assignments}
@@ -146,7 +148,11 @@ export default function SupervisorManagePage() {
                   : ev.status === "submitted" ? "bg-amber-100 text-amber-700"
                   : "bg-emerald-100 text-emerald-700"
                 }`}>
-                  {ev.status === "draft" ? "ร่าง" : ev.status === "submitted" ? "รอรีวิว" : "รีวิวแล้ว"}
+                  {ev.status === "draft" ? "ร่าง"
+                  : ev.status === "submitted" ? "รออนุมัติ"
+                  : ev.status === "approved" ? "✓ อนุมัติ"
+                  : ev.status === "rejected" ? "✗ ปฏิเสธ"
+                  : "รีวิวแล้ว"}
                 </span>
                 {ev.percentage > 0 && <span className="text-sm font-black text-emerald-700">{Number(ev.percentage).toFixed(0)}%</span>}
                 <ChevronRight size={13} className="text-slate-300" />
@@ -163,6 +169,10 @@ export default function SupervisorManagePage() {
             icon={<Layers size={18} />} color="violet"
             title="เทมเพลต" desc="สร้าง / แก้ / import checklist" />
         )}
+        <MenuCard href="/app/branch-eval/manage/pending-approvals"
+          icon={<ClipboardList size={18} />} color="amber"
+          title={`รออนุมัติ ${stats.submitted > 0 ? `(${stats.submitted})` : ""}`.trim()}
+          desc="ฟอร์มที่ส่งถึงคุณ + รอตัดสินใจ ✓ หรือ ✗" />
         <MenuCard href="/app/branch-eval/manage/evaluations"
           icon={<FileText size={18} />} color="sky"
           title={me?.is_eval_admin ? "ฟอร์มทั้งระบบ" : "ฟอร์มในสาขาฉันดูแล"}
@@ -285,7 +295,11 @@ export default function SupervisorManagePage() {
                   : ev.status === "submitted" ? "bg-amber-100 text-amber-700"
                   : "bg-emerald-100 text-emerald-700"
                 }`}>
-                  {ev.status === "draft" ? "ร่าง" : ev.status === "submitted" ? "รอรีวิว" : "รีวิวแล้ว"}
+                  {ev.status === "draft" ? "ร่าง"
+                  : ev.status === "submitted" ? "รออนุมัติ"
+                  : ev.status === "approved" ? "✓ อนุมัติ"
+                  : ev.status === "rejected" ? "✗ ปฏิเสธ"
+                  : "รีวิวแล้ว"}
                 </span>
                 {ev.percentage > 0 && <span className="text-sm font-black text-emerald-700">{Number(ev.percentage).toFixed(0)}%</span>}
                 <ChevronRight size={13} className="text-slate-300" />
@@ -328,6 +342,7 @@ function MenuCard({ href, icon, color, title, desc }: any) {
     violet:  "bg-violet-50 text-violet-600 group-hover:border-violet-200",
     slate:   "bg-slate-50 text-slate-600 group-hover:border-slate-200",
     orange:  "bg-orange-50 text-orange-600 group-hover:border-orange-200",
+    amber:   "bg-amber-50 text-amber-600 group-hover:border-amber-200",
   }
   return (
     <Link href={href} className="group bg-white border border-slate-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex items-center gap-3">

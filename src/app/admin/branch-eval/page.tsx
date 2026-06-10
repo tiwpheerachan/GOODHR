@@ -64,6 +64,8 @@ export default function BranchEvalAdminLanding() {
     draft: evals.filter(e => e.status === "draft").length,
     submitted: evals.filter(e => e.status === "submitted").length,
     reviewed: evals.filter(e => e.status === "reviewed").length,
+    approved: evals.filter(e => e.status === "approved").length,
+    rejected: evals.filter(e => e.status === "rejected").length,
     avg: evals.length > 0 && evals.some((e: any) => e.percentage > 0)
       ? evals.filter((e: any) => e.percentage > 0).reduce((s: number, e: any) => s + Number(e.percentage), 0) /
         evals.filter((e: any) => e.percentage > 0).length
@@ -148,7 +150,7 @@ export default function BranchEvalAdminLanding() {
         <Kpi icon={<Layers size={16} />} color="indigo" label="เทมเพลต" value={stats.templates} />
         <Kpi icon={<FileText size={16} />} color="sky" label="ฟอร์มทั้งหมด" value={stats.evals} sub={`ร่าง ${stats.draft}`} />
         <Kpi icon={<Mail size={16} />} color="violet" label="ระบุผู้รับ" value={stats.tagged} sub={`${stats.evals > 0 ? Math.round(stats.tagged / stats.evals * 100) : 0}%`} />
-        <Kpi icon={<ClipboardCheck size={16} />} color="amber" label="รอรีวิว" value={stats.submitted} highlight={stats.submitted > 0} />
+        <Kpi icon={<ClipboardCheck size={16} />} color="amber" label="รออนุมัติ" value={stats.submitted} sub={stats.approved + stats.rejected > 0 ? `✓ ${stats.approved} · ✗ ${stats.rejected}` : undefined} highlight={stats.submitted > 0} />
         <Kpi icon={<BarChart3 size={16} />} color="emerald" label="คะแนนเฉลี่ย" value={stats.avg > 0 ? `${stats.avg.toFixed(0)}%` : "—"} />
         <Kpi icon={<ClipboardList size={16} />} color="orange" label="📋 การบ้าน" value={stats.assignments} sub={`${asgStats.openAsg} เปิด · ${asgStats.completedAsg} เสร็จ`} highlight={asgStats.overdueAsg > 0} />
       </div>
@@ -234,10 +236,13 @@ export default function BranchEvalAdminLanding() {
 
       {/* Menu */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <MenuCard href="/admin/branch-eval/pending-approvals" icon={<ClipboardCheck size={18} />} color="amber"
+          title={`รออนุมัติ ${stats.submitted > 0 ? `(${stats.submitted})` : ""}`.trim()}
+          desc="ตรวจและตัดสินใจฟอร์ม ✓ หรือ ✗" />
         <MenuCard href="/admin/branch-eval/templates" icon={<Layers size={18} />} color="indigo"
           title="เทมเพลต" desc="สร้าง/แก้/import checklist ต่างๆ" />
         <MenuCard href="/admin/branch-eval/evaluations" icon={<FileText size={18} />} color="sky"
-          title="ฟอร์มที่ส่งแล้ว" desc="ดู/รีวิวฟอร์มทุกสาขา" />
+          title="ฟอร์มทั้งหมด" desc="ดูฟอร์มทุกสถานะทุกสาขา" />
         <MenuCard href="/admin/branch-eval/reports" icon={<BarChart3 size={18} />} color="emerald"
           title="รายงาน / สถิติ" desc="คะแนนเฉลี่ย · แนวโน้ม · จุดอ่อน" />
         <MenuCard href="/admin/branch-eval/permissions" icon={<ShieldCheck size={18} />} color="rose"
@@ -334,9 +339,15 @@ export default function BranchEvalAdminLanding() {
                 <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
                   ev.status === "draft" ? "bg-slate-100 text-slate-700"
                   : ev.status === "submitted" ? "bg-amber-100 text-amber-700"
-                  : "bg-emerald-100 text-emerald-700"
+                  : ev.status === "approved" ? "bg-emerald-100 text-emerald-700"
+                  : ev.status === "rejected" ? "bg-rose-100 text-rose-700"
+                  : "bg-sky-100 text-sky-700"
                 }`}>
-                  {ev.status === "draft" ? "ร่าง" : ev.status === "submitted" ? "รอรีวิว" : "รีวิวแล้ว"}
+                  {ev.status === "draft" ? "ร่าง"
+                  : ev.status === "submitted" ? "รออนุมัติ"
+                  : ev.status === "approved" ? "✓ อนุมัติ"
+                  : ev.status === "rejected" ? "✗ ปฏิเสธ"
+                  : "รีวิวแล้ว"}
                 </span>
                 {ev.percentage > 0 && <span className="text-sm font-black text-emerald-700">{Number(ev.percentage).toFixed(0)}%</span>}
                 <ChevronRight size={13} className="text-slate-300" />
@@ -380,6 +391,7 @@ function MenuCard({ href, icon, color, title, desc }: any) {
     slate:   "bg-slate-50 text-slate-600 group-hover:border-slate-200",
     orange:  "bg-orange-50 text-orange-600 group-hover:border-orange-200",
     violet:  "bg-violet-50 text-violet-600 group-hover:border-violet-200",
+    amber:   "bg-amber-50 text-amber-600 group-hover:border-amber-200",
   }
   return (
     <Link href={href} className="group bg-white border border-slate-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex items-center gap-3">

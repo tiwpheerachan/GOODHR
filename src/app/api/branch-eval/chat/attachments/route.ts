@@ -308,7 +308,9 @@ async function buildSystemAttachments(svc: any, access: any) {
       title: "ภาพรวมระบบประเมินสาขา",
       sub: `60 วันล่าสุด · ${evList.length} ฟอร์ม · ${ranked.length} สาขา`,
       total: evList.length,
-      done: evList.filter(e => e.status === "reviewed").length,
+      done: evList.filter(e =>
+        e.status === "reviewed" || e.status === "approved" || e.status === "rejected"
+      ).length,
     },
     chart,
     xlsx: {

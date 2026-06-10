@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
   const templateId = sp.get("template_id")             // filter ตาม template
   const status = sp.get("status")
   const showDeleted = sp.get("deleted") === "1"
+  const pendingForMe = sp.get("pending_for_me") === "1"
 
   // ── single evaluation ──
   if (id) {
@@ -53,6 +54,8 @@ export async function GET(req: NextRequest) {
     ])
 
     const canEdit = canManageBranch(access, (ev.branch as any).id) || ev.evaluator_id === access.employeeId
+    const isTargetMgr = (ev as any).target_manager_id != null && (ev as any).target_manager_id === access.employeeId
+    const canApprove = canManageBranch(access, (ev.branch as any).id) || isTargetMgr || access.isEvalAdmin
     return NextResponse.json({
       evaluation: ev,
       items: items ?? [],
@@ -60,8 +63,10 @@ export async function GET(req: NextRequest) {
       photos: photos ?? [],
       access: {
         can_edit: canEdit,
-        can_review: canManageBranch(access, (ev.branch as any).id),
+        can_review: canManageBranch(access, (ev.branch as any).id),  // legacy alias
+        can_approve: canApprove,
         is_owner: ev.evaluator_id === access.employeeId,
+        is_target_manager: isTargetMgr,
       },
     })
   }
@@ -83,6 +88,24 @@ export async function GET(req: NextRequest) {
   if (branchId) q = q.eq("branch_id", branchId)
   if (status) q = q.eq("status", status)
   if (templateId) q = q.eq("template_id", templateId)
+
+  // ── ?pending_for_me=1 → submitted + (target_manager_id=me OR branch ที่ supervise) ──
+  // admin → ดูทั้งหมดที่ status=submitted
+  if (pendingForMe) {
+    q = q.eq("status", "submitted")
+    if (!access.isEvalAdmin) {
+      const managed = access.supervisorBranchIds ?? []
+      const empId = access.employeeId
+      if (managed.length > 0 && empId) {
+        q = q.or(`branch_id.in.(${managed.join(",")}),target_manager_id.eq.${empId}`)
+      } else if (empId) {
+        q = q.eq("target_manager_id", empId)
+      } else {
+        // ไม่มีสิทธิ์อนุมัติอะไรเลย → return []
+        q = q.eq("id", "00000000-0000-0000-0000-000000000000")
+      }
+    }
+  }
   // filter "ส่งถึงฉัน"
   if (targetManagerId === "me") {
     q = q.eq("target_manager_id", access.employeeId)
@@ -235,11 +258,20 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true })
   }
 
-  // ── action: review (supervisor only) ──
-  if (action === "review") {
-    if (!isManager) return NextResponse.json({ error: "เฉพาะ supervisor ขึ้นไป" }, { status: 403 })
+  // ── action: review (legacy, alias เป็น approve) ──
+  // ── action: approve / reject — supervisor หรือ target_manager หรือ admin ──
+  if (action === "review" || action === "approve" || action === "reject") {
+    // target_manager ของฟอร์มนี้ก็อนุมัติได้
+    const { data: forCheck } = await svc.from("branch_evaluations")
+      .select("target_manager_id").eq("id", id).maybeSingle()
+    const isTargetMgr = forCheck?.target_manager_id != null
+      && forCheck.target_manager_id === access.employeeId
+    const isApprover = isManager || isTargetMgr || access.isEvalAdmin
+    if (!isApprover) return NextResponse.json({ error: "เฉพาะ supervisor / target manager / admin" }, { status: 403 })
+
+    const newStatus = action === "reject" ? "rejected" : "approved"
     await svc.from("branch_evaluations").update({
-      status: "reviewed",
+      status: newStatus,
       reviewed_by: access.employeeId,
       reviewed_at: new Date().toISOString(),
       reviewer_notes: updates.reviewer_notes ?? null,
@@ -251,17 +283,22 @@ export async function PATCH(req: NextRequest) {
         .select("percentage, evaluator_id, branch:branches(name), template:branch_eval_templates(name)")
         .eq("id", id).maybeSingle() as any
       if (full?.evaluator_id) {
+        const passed = newStatus === "approved"
         await svc.from("notifications").insert({
           employee_id: full.evaluator_id,
-          type: "branch_eval_reviewed",
-          title: `รีวิวฟอร์มประเมิน ${full?.branch?.name ?? "สาขา"} แล้ว`,
-          body: `${full?.template?.name ?? ""} · คะแนน ${Number(full?.percentage ?? 0).toFixed(0)}%`,
+          type: passed ? "branch_eval_approved" : "branch_eval_rejected",
+          title: passed
+            ? `อนุมัติฟอร์มประเมิน ${full?.branch?.name ?? "สาขา"} แล้ว ✓`
+            : `ปฏิเสธฟอร์มประเมิน ${full?.branch?.name ?? "สาขา"} ✗`,
+          body: `${full?.template?.name ?? ""} · คะแนน ${Number(full?.percentage ?? 0).toFixed(0)}%${
+            updates.reviewer_notes ? ` · "${String(updates.reviewer_notes).slice(0, 60)}"` : ""
+          }`,
           ref_table: "branch_evaluations", ref_id: id, is_read: false,
         })
       }
     } catch {}
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, status: newStatus })
   }
 
   // ── plain update (header fields) ──

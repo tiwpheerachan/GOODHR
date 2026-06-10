@@ -9,9 +9,11 @@ import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
 const STATUS_LABEL: Record<string, { l: string; c: string }> = {
-  draft:     { l: "ร่าง",     c: "bg-slate-100 text-slate-700" },
-  submitted: { l: "รอรีวิว",  c: "bg-amber-100 text-amber-700" },
-  reviewed:  { l: "รีวิวแล้ว", c: "bg-emerald-100 text-emerald-700" },
+  draft:     { l: "ร่าง",      c: "bg-slate-100 text-slate-700" },
+  submitted: { l: "รออนุมัติ", c: "bg-amber-100 text-amber-700" },
+  reviewed:  { l: "รีวิวแล้ว", c: "bg-sky-100 text-sky-700" },
+  approved:  { l: "✓ อนุมัติ",  c: "bg-emerald-100 text-emerald-700" },
+  rejected:  { l: "✗ ปฏิเสธ",   c: "bg-rose-100 text-rose-700" },
 }
 
 type ViewMode = "list" | "by_template"

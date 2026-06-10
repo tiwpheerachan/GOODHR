@@ -21,7 +21,7 @@ type Branch = {
 type Template = { id: string; name: string; description?: string; total_weight: number }
 type Eval = {
   id: string; template_id: string; branch_id: string
-  visit_date: string; status: "draft" | "submitted" | "reviewed"
+  visit_date: string; status: "draft" | "submitted" | "reviewed" | "approved" | "rejected"
   percentage: number; total_score: number; total_weight: number
   store_manager?: string; created_at: string
   branch?: { id: string; name: string; code: string }
@@ -30,8 +30,10 @@ type Eval = {
 
 const STATUS_COLOR: Record<string, { bg: string; text: string; label: string }> = {
   draft:     { bg: "bg-slate-100",   text: "text-slate-700",   label: "ร่าง" },
-  submitted: { bg: "bg-sky-100",     text: "text-sky-700",     label: "ส่งแล้ว" },
-  reviewed:  { bg: "bg-emerald-100", text: "text-emerald-700", label: "รีวิวแล้ว" },
+  submitted: { bg: "bg-amber-100",   text: "text-amber-700",   label: "รออนุมัติ" },
+  reviewed:  { bg: "bg-sky-100",     text: "text-sky-700",     label: "รีวิวแล้ว" },
+  approved:  { bg: "bg-emerald-100", text: "text-emerald-700", label: "✓ อนุมัติ" },
+  rejected:  { bg: "bg-rose-100",    text: "text-rose-700",    label: "✗ ปฏิเสธ" },
 }
 
 export default function BranchEvalLandingPage() {

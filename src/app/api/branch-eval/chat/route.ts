@@ -208,7 +208,11 @@ async function fetchSystemContext(svc: any, access: any) {
 
   const evList: any[] = evals ?? []
   const submitted = evList.filter((e: any) => e.status === "submitted").length
-  const reviewed = evList.filter((e: any) => e.status === "reviewed").length
+  const reviewed = evList.filter((e: any) =>
+    e.status === "reviewed" || e.status === "approved" || e.status === "rejected"
+  ).length
+  const approved = evList.filter((e: any) => e.status === "approved").length
+  const rejected = evList.filter((e: any) => e.status === "rejected").length
   const scored: any[] = evList.filter((e: any) => Number(e.percentage) > 0)
   const avg = scored.length > 0 ? scored.reduce((s: number, e: any) => s + Number(e.percentage), 0) / scored.length : 0
 
@@ -230,8 +234,10 @@ async function fetchSystemContext(svc: any, access: any) {
     period: `60 วันล่าสุด`,
     summary: {
       total_evaluations: evList.length,
-      submitted_pending_review: submitted,
-      reviewed: reviewed,
+      submitted_pending_approval: submitted,
+      decided: reviewed,
+      approved: approved,
+      rejected: rejected,
       avg_score_pct: avg.toFixed(1),
       total_assignments: asgRich.length,
       active_assignments: asgRich.filter(a => a.done_pct < 100).length,

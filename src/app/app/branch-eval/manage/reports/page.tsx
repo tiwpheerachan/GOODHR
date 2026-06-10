@@ -243,7 +243,10 @@ export default function ReportsPage() {
     return {
       n: filtered.length,
       avg: filtered.reduce((s, e) => s + Number(e.percentage), 0) / filtered.length,
-      reviewed: filtered.filter(e => e.status === "reviewed").length,
+      // ── "reviewed" รวมทุก status ที่ผ่านการตัดสินใจ (reviewed legacy + approved + rejected) ──
+      reviewed: filtered.filter(e =>
+        e.status === "reviewed" || e.status === "approved" || e.status === "rejected"
+      ).length,
     }
   }, [filtered])
 
@@ -262,7 +265,7 @@ export default function ReportsPage() {
         ["ช่วงข้อมูล", `${days} วันย้อนหลัง (ตั้งแต่ ${cutoff})`],
         [""],
         ["จำนวนฟอร์มทั้งหมด", stats.n],
-        ["จำนวนรีวิวแล้ว", stats.reviewed],
+        ["จำนวนฟอร์มที่ตัดสินใจแล้ว (อนุมัติ/ปฏิเสธ/รีวิว)", stats.reviewed],
         ["คะแนนเฉลี่ย (%)", Number(stats.avg.toFixed(2))],
         ["จำนวนสาขาที่ตรวจ", byBranch.length],
         ["จำนวนผู้ตรวจ", byEvaluator.length],
@@ -282,7 +285,11 @@ export default function ReportsPage() {
         "คะแนน (%)": Number(Number(e.percentage).toFixed(2)),
         "คะแนนได้": Number(e.total_score),
         "คะแนนเต็ม": Number(e.total_weight),
-        "สถานะ": e.status === "submitted" ? "รอรีวิว" : e.status === "reviewed" ? "รีวิวแล้ว" : "ร่าง",
+        "สถานะ": e.status === "submitted" ? "รออนุมัติ"
+          : e.status === "approved" ? "อนุมัติ"
+          : e.status === "rejected" ? "ปฏิเสธ"
+          : e.status === "reviewed" ? "รีวิวแล้ว"
+          : "ร่าง",
         "เช็คอินเวลา": e.checkin_at ? format(new Date(e.checkin_at), "yyyy-MM-dd HH:mm") : "",
         "ห่างจากสาขา (m)": e.checkin_distance_m ?? "",
       }))
@@ -408,7 +415,11 @@ export default function ReportsPage() {
         "เทมเพลต": e.template?.name ?? "",
         "ผู้ตรวจ": e.evaluator ? `${e.evaluator.first_name_th} ${e.evaluator.last_name_th}` : "",
         "รหัส": e.evaluator?.employee_code ?? "",
-        "สถานะ": e.status === "submitted" ? "รอรีวิว" : e.status === "reviewed" ? "รีวิวแล้ว" : "ร่าง",
+        "สถานะ": e.status === "submitted" ? "รออนุมัติ"
+          : e.status === "approved" ? "อนุมัติ"
+          : e.status === "rejected" ? "ปฏิเสธ"
+          : e.status === "reviewed" ? "รีวิวแล้ว"
+          : "ร่าง",
         "คะแนน (%)": Number(Number(e.percentage).toFixed(2)),
         "คะแนนได้": Number(e.total_score),
         "คะแนนเต็ม": Number(e.total_weight),
@@ -527,7 +538,7 @@ export default function ReportsPage() {
           {/* KPI */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
             <Kpi color="indigo" label="คะแนนเฉลี่ย" value={`${stats.avg.toFixed(1)}%`} />
-            <Kpi color="emerald" label="รีวิวแล้ว" value={`${stats.reviewed}/${stats.n}`}
+            <Kpi color="emerald" label="ตัดสินใจแล้ว" value={`${stats.reviewed}/${stats.n}`}
               sub={`${stats.n > 0 ? Math.round((stats.reviewed / stats.n) * 100) : 0}%`} />
             <Kpi color="sky" label="สาขาที่ตรวจ" value={byBranch.length} sub={`${filtered.length} visits`} />
             <Kpi color="amber" label="ผู้ตรวจ" value={byEvaluator.length} sub="คน" />

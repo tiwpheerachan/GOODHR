@@ -305,7 +305,10 @@ export default function BranchEvalDetailPage() {
   const passed = realItems.filter(i => answerById.get(i.id)?.is_pass === true).length
   const progressPct = realItems.length > 0 ? Math.round((answered / realItems.length) * 100) : 0
 
-  const STATUS_LABEL: Record<string, string> = { draft: "ร่าง", submitted: "ส่งแล้ว", reviewed: "รีวิวแล้ว" }
+  const STATUS_LABEL: Record<string, string> = {
+    draft: "ร่าง", submitted: "ส่งแล้ว", reviewed: "รีวิวแล้ว",
+    approved: "✓ อนุมัติ", rejected: "✗ ปฏิเสธ",
+  }
 
   return (
     <div className="p-4 lg:p-6 max-w-4xl mx-auto space-y-3 pb-32">
