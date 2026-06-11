@@ -69,14 +69,24 @@ export default function BranchEvalDetailPage() {
   }
   useEffect(() => { if (id) load() }, [id])
 
-  // โหลดรายชื่อพนักงาน (ใช้ร่วมกันทั้ง "ส่งฟอร์มให้ใคร" + "ประเมินใคร")
+  // ── server-side search (debounced) ──
+  // ใช้ร่วมกันทั้ง 2 picker: ส่ง q ที่ active อยู่ → ค้นใน DB เลย
+  const activeSearch = showMgrPicker ? mgrSearch : showEvalteePicker ? evalteeSearch : ""
   useEffect(() => {
-    if (mgrOptions.length > 0 || (!showMgrPicker && !showEvalteePicker)) return
-    fetch("/api/employees/search?q=&limit=500&all_companies=1")
-      .then(r => r.json())
-      .then(d => setMgrOptions(d.employees ?? []))
-      .catch(() => {})
-  }, [showMgrPicker, showEvalteePicker])
+    if (!showMgrPicker && !showEvalteePicker) return
+    const t = setTimeout(() => {
+      const params = new URLSearchParams({
+        q: activeSearch.trim(),
+        limit: "50",
+        all_companies: "1",
+      })
+      fetch(`/api/employees/search?${params}`)
+        .then(r => r.json())
+        .then(d => setMgrOptions(d.employees ?? []))
+        .catch(() => setMgrOptions([]))
+    }, activeSearch ? 250 : 0)
+    return () => clearTimeout(t)
+  }, [showMgrPicker, showEvalteePicker, activeSearch])
 
   if (loading) return (
     <div className="p-4 max-w-4xl mx-auto">
@@ -468,17 +478,12 @@ export default function BranchEvalDetailPage() {
                   placeholder="ค้นหาชื่อ / รหัส / ชื่อเล่น..." autoFocus
                   className="bg-slate-50 px-3 py-2 text-xs outline-none border-b border-slate-200" />
                 <div className="overflow-y-auto flex-1 divide-y divide-slate-50">
-                  {(() => {
-                    const s = mgrSearch.trim().toLowerCase()
-                    const list = !s ? mgrOptions.slice(0, 60) : mgrOptions.filter(e => {
-                      const hay = `${e.first_name_th || ""} ${e.last_name_th || ""} ${e.nickname || ""} ${e.first_name_en || ""} ${e.last_name_en || ""} ${e.employee_code || ""}`.toLowerCase()
-                      return hay.includes(s)
-                    }).slice(0, 50)
-                    if (list.length === 0) return <p className="text-center py-3 text-xs text-slate-400">ไม่พบ</p>
-                    return list.map(e => (
+                  {mgrOptions.length === 0
+                    ? <p className="text-center py-3 text-xs text-slate-400">{mgrSearch.trim() ? "ไม่พบ" : "กำลังโหลด..."}</p>
+                    : mgrOptions.map(e => (
                       <button key={e.id}
                         onClick={() => {
-                          saveTargetManager(e.id)  // auto-save ทันที
+                          saveTargetManager(e.id)
                           setShowMgrPicker(false)
                           setMgrSearch("")
                         }}
@@ -495,7 +500,7 @@ export default function BranchEvalDetailPage() {
                         </div>
                       </button>
                     ))
-                  })()}
+                  }
                 </div>
               </div>
             </>
@@ -556,14 +561,9 @@ export default function BranchEvalDetailPage() {
                   placeholder="ค้นหาชื่อ / รหัส / ชื่อเล่น..." autoFocus
                   className="bg-slate-50 px-3 py-2 text-xs outline-none border-b border-slate-200" />
                 <div className="overflow-y-auto flex-1 divide-y divide-slate-50">
-                  {(() => {
-                    const s = evalteeSearch.trim().toLowerCase()
-                    const list = !s ? mgrOptions.slice(0, 60) : mgrOptions.filter(e => {
-                      const hay = `${e.first_name_th || ""} ${e.last_name_th || ""} ${e.nickname || ""} ${e.first_name_en || ""} ${e.last_name_en || ""} ${e.employee_code || ""}`.toLowerCase()
-                      return hay.includes(s)
-                    }).slice(0, 50)
-                    if (list.length === 0) return <p className="text-center py-3 text-xs text-slate-400">ไม่พบ</p>
-                    return list.map(e => (
+                  {mgrOptions.length === 0
+                    ? <p className="text-center py-3 text-xs text-slate-400">{evalteeSearch.trim() ? "ไม่พบ" : "กำลังโหลด..."}</p>
+                    : mgrOptions.map(e => (
                       <button key={e.id}
                         onClick={() => {
                           saveEvaluatee(e.id)
@@ -583,7 +583,7 @@ export default function BranchEvalDetailPage() {
                         </div>
                       </button>
                     ))
-                  })()}
+                  }
                 </div>
               </div>
             </>
