@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   const supa = createServiceClient()
   const { data: userData } = await supa.from("users")
-    .select("role, employee:employees(company_id)")
+    .select("role, employee:employees(id, company_id)")
     .eq("id", user.id).single()
   if (!userData) return NextResponse.json({ employees: [] })
 
@@ -31,8 +31,21 @@ export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams
   const search = (params.get("q") || "").trim()
   const limit = Math.min(Math.max(parseInt(params.get("limit") || "20", 10) || 20, 1), 500)
-  const allCompanies = params.get("all_companies") === "1" && isAdmin
+  const scope = (params.get("scope") || "").toLowerCase()
   const includeInactive = params.get("include_inactive") === "1" && isAdmin
+
+  // ── cross-company access ──
+  //   - admin/hr ส่ง all_companies=1 ได้ตามปกติ
+  //   - scope=branch_eval → ผู้ใช้ที่มีสิทธิ์ branch_eval ใดๆ (admin/supervisor/evaluator)
+  //     ค้นข้ามบริษัทได้ — เพราะระบบประเมินสาขามี hierarchy ข้ามบริษัท
+  //     (เช่น PC ในบริษัท A ต้องส่งฟอร์มถึง Area Manager ในบริษัท B)
+  let allCompanies = params.get("all_companies") === "1" && isAdmin
+  if (!allCompanies && scope === "branch_eval") {
+    const { data: bePerms } = await supa.from("branch_eval_permissions")
+      .select("role").eq("employee_id", (userData.employee as any)?.id ?? "00000000-0000-0000-0000-000000000000")
+      .limit(1)
+    if ((bePerms ?? []).length > 0) allCompanies = true
+  }
 
   let query = supa.from("employees")
     .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, company_id, department:departments(name), position:positions(name)")

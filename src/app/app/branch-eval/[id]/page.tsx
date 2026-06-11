@@ -79,6 +79,7 @@ export default function BranchEvalDetailPage() {
         q: activeSearch.trim(),
         limit: "50",
         all_companies: "1",
+        scope: "branch_eval",
       })
       fetch(`/api/employees/search?${params}`)
         .then(r => r.json())
