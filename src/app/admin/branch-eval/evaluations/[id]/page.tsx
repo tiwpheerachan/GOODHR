@@ -10,6 +10,7 @@ import {
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
+import PhotoLightbox from "@/components/PhotoLightbox"
 import * as XLSX from "xlsx"
 
 const STATUS_LABEL: Record<string, { l: string; c: string }> = {
@@ -33,6 +34,9 @@ export default function AdminEvaluationDetailPage() {
   const [exporting, setExporting] = useState(false)
   const [reviewerNotes, setReviewerNotes] = useState("")
   const [approvalActing, setApprovalActing] = useState<"approve" | "reject" | null>(null)
+  // ── Photo lightbox ──
+  const [lightbox, setLightbox] = useState<{ urls: string[]; index: number; caption?: string } | null>(null)
+  const openLightbox = (urls: string[], index: number, caption?: string) => setLightbox({ urls, index, caption })
 
   // ── Approve/Reject ──
   const submitApproval = async (action: "approve" | "reject") => {
@@ -351,14 +355,24 @@ export default function AdminEvaluationDetailPage() {
                     : "bg-slate-300 text-slate-700"
                   }`}>{it.code}</div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-800">{it.question_th}</p>
+                    <p className="text-sm font-bold text-slate-800">
+                      {it.question_th}
+                      {it.requires_photo && (
+                        <span className="ml-1.5 inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                          <Camera size={8}/> บังคับรูป
+                        </span>
+                      )}
+                    </p>
                     {a?.note && <p className="text-[11px] text-slate-600 italic mt-0.5">💬 {a.note}</p>}
                     {(a?.photo_urls?.length > 0) && (
                       <div className="flex gap-1 mt-1.5 flex-wrap">
                         {a.photo_urls.map((url: string, i: number) => (
-                          <a key={i} href={url} target="_blank" rel="noreferrer" className="w-10 h-10 rounded overflow-hidden border border-slate-200">
+                          <button key={i} type="button"
+                            onClick={() => openLightbox(a.photo_urls, i, `ข้อ ${it.code}: ${it.question_th}`)}
+                            className="w-10 h-10 rounded overflow-hidden border border-slate-200 cursor-zoom-in hover:border-indigo-400 transition-colors">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={url} alt="" className="w-full h-full object-cover" />
-                          </a>
+                          </button>
                         ))}
                       </div>
                     )}
@@ -469,6 +483,16 @@ export default function AdminEvaluationDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Photo lightbox ── */}
+      {lightbox && (
+        <PhotoLightbox
+          urls={lightbox.urls}
+          startIndex={lightbox.index}
+          caption={lightbox.caption}
+          onClose={() => setLightbox(null)}
+        />
       )}
     </div>
   )

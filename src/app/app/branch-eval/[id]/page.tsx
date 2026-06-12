@@ -9,6 +9,7 @@ import {
   ClipboardCheck, BadgeCheck, Eye,
 } from "lucide-react"
 import toast from "react-hot-toast"
+import PhotoLightbox from "@/components/PhotoLightbox"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
@@ -41,6 +42,9 @@ export default function BranchEvalDetailPage() {
   const [headerEdit, setHeaderEdit] = useState({ general_notes: "", action_plan: "", visit_date: "", visit_time: "", target_manager_id: "" as string, evaluatee_id: "" as string })
   const [savingHeader, setSavingHeader] = useState(false)
   const [reviewerNotes, setReviewerNotes] = useState("")
+  // ── Photo lightbox ──
+  const [lightbox, setLightbox] = useState<{ urls: string[]; index: number; caption?: string } | null>(null)
+  const openLightbox = (urls: string[], index: number, caption?: string) => setLightbox({ urls, index, caption })
   // ── ผู้รับฟอร์ม (target manager) — pick จากพนักงานทั้งบริษัท ──
   const [mgrOptions, setMgrOptions] = useState<any[]>([])
   const [mgrSearch, setMgrSearch] = useState("")
@@ -473,10 +477,10 @@ export default function BranchEvalDetailPage() {
                 <Camera size={11} /> GPS + รูป
               </button>
               {ev.checkin_photo_url && (
-                <a href={ev.checkin_photo_url} target="_blank" rel="noreferrer"
-                  className="text-[11px] px-2.5 py-1 bg-white border border-emerald-300 text-emerald-700 rounded-lg font-bold inline-flex items-center gap-1">
+                <button type="button" onClick={() => openLightbox([ev.checkin_photo_url], 0, "รูปเช็คอิน GPS")}
+                  className="text-[11px] px-2.5 py-1 bg-white border border-emerald-300 text-emerald-700 rounded-lg font-bold inline-flex items-center gap-1 hover:bg-emerald-50">
                   <Eye size={11} /> ดูรูปเช็คอิน
-                </a>
+                </button>
               )}
             </div>
           )}
@@ -727,6 +731,11 @@ export default function BranchEvalDetailPage() {
                     const photos = (a?.photo_urls ?? []).filter(p => p !== url)
                     await saveAnswer(it.id, { photo_urls: photos })
                   }}
+                  onOpenLightbox={(index) => openLightbox(
+                    a?.photo_urls ?? [],
+                    index,
+                    `ข้อ ${it.code}: ${it.question_th}`,
+                  )}
                 />
               </div>
             )
@@ -830,6 +839,16 @@ export default function BranchEvalDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ── Photo lightbox ── */}
+      {lightbox && (
+        <PhotoLightbox
+          urls={lightbox.urls}
+          startIndex={lightbox.index}
+          caption={lightbox.caption}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </div>
   )
 }
@@ -858,13 +877,14 @@ function Field({ label, value, onChange, type = "text", disabled, placeholder }:
 }
 
 // ─────────────────────────────────────────────────────────────────
-function ItemRow({ item, answer, busy, disabled, photoMissing, onSetAnswer, onSetNote, onAddPhoto, onRemovePhoto }: {
+function ItemRow({ item, answer, busy, disabled, photoMissing, onSetAnswer, onSetNote, onAddPhoto, onRemovePhoto, onOpenLightbox }: {
   item: Item; answer?: Answer; busy: boolean; disabled: boolean
   photoMissing?: boolean
   onSetAnswer: (val: any) => void
   onSetNote: (note: string) => void
   onAddPhoto: () => void
   onRemovePhoto: (url: string) => void
+  onOpenLightbox: (index: number) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [note, setNote] = useState(answer?.note ?? "")
@@ -984,9 +1004,11 @@ function ItemRow({ item, answer, busy, disabled, photoMissing, onSetAnswer, onSe
           <div className="flex items-center gap-1.5 flex-wrap">
             {(answer?.photo_urls ?? []).map((url, i) => (
               <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 group">
-                <a href={url} target="_blank" rel="noreferrer">
+                <button type="button" onClick={() => onOpenLightbox(i)}
+                  className="block w-full h-full cursor-zoom-in">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={url} alt="" className="w-full h-full object-cover" />
-                </a>
+                </button>
                 {!disabled && (
                   <button onClick={() => onRemovePhoto(url)}
                     className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
