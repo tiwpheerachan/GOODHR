@@ -4,8 +4,50 @@ import {
   Users, Search, Upload, Sparkles, Loader2, X, Check, Link2, Unlink,
   CheckCircle2, AlertCircle, Filter, ChevronLeft, ChevronRight, RefreshCw,
   Building2, Phone, Mail, Hash, ShieldCheck, BadgeCheck, ChevronDown,
-  Tag, User, Calendar, MapPin, Briefcase, Eye, GraduationCap, Globe,
+  Tag, User, Calendar, MapPin, Briefcase, Eye, GraduationCap, Globe, Target,
 } from "lucide-react"
+
+// ── Region → emoji flag ──
+const REGION_FLAG: Record<string, string> = {
+  Thailand: "🇹🇭",
+  China: "🇨🇳",
+  Indonesia: "🇮🇩",
+  Philippines: "🇵🇭",
+  Brazil: "🇧🇷",
+  Vietnam: "🇻🇳",
+  Malaysia: "🇲🇾",
+  Singapore: "🇸🇬",
+  Mexico: "🇲🇽",
+  Saudi: "🇸🇦",
+  Other: "🌐",
+}
+
+// ── Match method meta ──
+const METHOD_META: Record<string, { label: string; color: string; icon: string }> = {
+  email:    { label: "Email match",    color: "bg-emerald-500", icon: "📧" },
+  phone:    { label: "Phone match",    color: "bg-blue-500",    icon: "📞" },
+  nickname: { label: "Nickname match", color: "bg-purple-500",  icon: "👤" },
+  code:     { label: "Existing code",  color: "bg-indigo-500",  icon: "🔑" },
+  name_en:  { label: "EN name match",  color: "bg-cyan-500",    icon: "🌐" },
+  manual:   { label: "Manual link",    color: "bg-amber-500",   icon: "✋" },
+}
+
+function brandPillColor(brand: string): string {
+  const u = brand.toUpperCase()
+  if (u.includes("DDPAI")) return "bg-blue-100 text-blue-700"
+  if (u.includes("ANKER")) return "bg-sky-100 text-sky-700"
+  if (u.includes("DREAME")) return "bg-purple-100 text-purple-700"
+  if (u.includes("WANBO")) return "bg-amber-100 text-amber-700"
+  if (u.includes("AKASO")) return "bg-rose-100 text-rose-700"
+  if (u.includes("MOVA")) return "bg-emerald-100 text-emerald-700"
+  if (u.includes("VINKO")) return "bg-teal-100 text-teal-700"
+  if (u.includes("XIAOMI") || u.includes("70MAI")) return "bg-orange-100 text-orange-700"
+  if (u.includes("MOLLY")) return "bg-pink-100 text-pink-700"
+  if (u.includes("LEVOIT")) return "bg-cyan-100 text-cyan-700"
+  if (u.includes("JIMMY") || u.includes("JISULIFE")) return "bg-yellow-100 text-yellow-800"
+  if (u.includes("SOUNDCORE")) return "bg-violet-100 text-violet-700"
+  return "bg-slate-100 text-slate-700"
+}
 import toast from "react-hot-toast"
 import { format } from "date-fns"
 
@@ -69,6 +111,13 @@ export default function FeishuUsersPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const PER_PAGE = 50
 
+  // ── Advanced filters ──
+  const [fCountry, setFCountry] = useState<string[]>([])
+  const [fMethod, setFMethod] = useState<string[]>([])
+  const [fBrand, setFBrand] = useState<string>("")
+  const [fCompanyUnit, setFCompanyUnit] = useState<string>("")
+  const [fDept, setFDept] = useState<string>("")
+
   const load = async () => {
     setLoading(true)
     try {
@@ -77,6 +126,11 @@ export default function FeishuUsersPage() {
         limit: String(PER_PAGE),
         offset: String(page * PER_PAGE),
       })
+      if (fCountry.length > 0) params.set("country", fCountry.join(","))
+      if (fMethod.length > 0) params.set("match_method", fMethod.join(","))
+      if (fBrand) params.set("brand", fBrand)
+      if (fCompanyUnit) params.set("company_unit", fCompanyUnit)
+      if (fDept) params.set("department", fDept)
       const res = await fetch(`/api/feishu-users?${params}`)
       const d = await res.json()
       if (res.ok) {
@@ -90,7 +144,12 @@ export default function FeishuUsersPage() {
   useEffect(() => {
     const t = setTimeout(load, q ? 300 : 0)
     return () => clearTimeout(t)
-  }, [filter, q, page])
+  }, [filter, q, page, fCountry, fMethod, fBrand, fCompanyUnit, fDept])
+
+  const clearFilters = () => {
+    setFCountry([]); setFMethod([]); setFBrand(""); setFCompanyUnit(""); setFDept(""); setPage(0)
+  }
+  const activeFilterCount = fCountry.length + fMethod.length + (fBrand ? 1 : 0) + (fCompanyUnit ? 1 : 0) + (fDept ? 1 : 0)
 
   const onImport = async (file: File) => {
     setImporting(true)
@@ -125,78 +184,141 @@ export default function FeishuUsersPage() {
 
   const totalPages = Math.ceil(total / PER_PAGE)
 
+  const matchRate = summary.match_rate ?? 0
+  const regions: any[] = summary.by_region ?? []
+  const methods: any[] = summary.by_method ?? []
+  const topBrands: any[] = summary.top_brands ?? []
+
   return (
-    <div className="space-y-4 max-w-7xl pb-12">
-      {/* Hero */}
-      <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 rounded-2xl p-5 text-white shadow-md relative overflow-hidden">
-        <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full bg-white/10"/>
-        <div className="absolute bottom-2 right-12 w-20 h-20 rounded-full bg-white/5"/>
-        <div className="relative flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
-            <Users size={22}/>
+    <div className="space-y-4 pb-12">
+
+      {/* ─── Top header bar ─── */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-500 flex items-center justify-center shadow-sm">
+            <Link2 size={20} className="text-white"/>
           </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-black">Feishu ↔ GoodHR Mapping</h1>
-            <p className="text-[11px] opacity-90 mt-0.5">เชื่อมข้อมูลพนักงานจาก Feishu Contacts กับ GoodHR ด้วย Feishu User ID</p>
+          <div>
+            <h1 className="text-xl font-black text-slate-800">Feishu Mapping</h1>
+            <p className="text-[11px] text-slate-500">เชื่อมข้อมูลพนักงานจาก Feishu Contacts กับ GoodHR ด้วย Feishu User ID</p>
           </div>
-          <button onClick={load} className="p-2 hover:bg-white/15 rounded-lg" title="Refresh">
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""}/>
-          </button>
         </div>
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2 relative">
-          {[
-            { l: "ทั้งหมด", v: summary.total, sub: "บัญชี" },
-            { l: "Active", v: summary.active, sub: "พนักงาน" },
-            { l: "Matched", v: summary.matched, sub: "เชื่อมแล้ว", hl: "emerald" },
-            { l: "Unmatched", v: summary.unmatched, sub: "ยังไม่ได้ map", hl: "rose" },
-          ].map(s => (
-            <div key={s.l} className="bg-white/15 backdrop-blur-sm rounded-xl p-2.5">
-              <p className="text-[10px] uppercase opacity-80 font-bold">{s.l}</p>
-              <p className="text-2xl font-black mt-0.5">{(s.v ?? 0).toLocaleString()}</p>
-              <p className="text-[10px] opacity-70">{s.sub}</p>
-            </div>
-          ))}
+        <div className="flex items-center gap-1.5">
+          <button onClick={load} title="Refresh"
+            className="p-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-sm">
+            <RefreshCw size={14} className={loading ? "animate-spin text-indigo-500" : "text-slate-500"}/>
+          </button>
+          <button onClick={() => fileRef.current?.click()} disabled={importing}
+            className="px-3.5 py-2 bg-white hover:bg-amber-50 border border-amber-200 text-amber-700 text-xs font-black rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-50">
+            {importing ? <Loader2 size={13} className="animate-spin"/> : <Upload size={13}/>}
+            Import XLSX
+          </button>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) onImport(f); e.target.value = "" }}/>
+          <button onClick={onAutoMatch} disabled={autoMatching}
+            className="px-3.5 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 text-white text-xs font-black rounded-xl flex items-center gap-1.5 shadow-sm">
+            {autoMatching ? <Loader2 size={13} className="animate-spin"/> : <Sparkles size={13}/>}
+            Auto-match
+          </button>
         </div>
       </div>
 
-      {/* Toolbar */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 flex items-center gap-2 flex-wrap">
-        <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
-          <Search size={13} className="text-slate-400"/>
-          <input value={q} onChange={e => { setQ(e.target.value); setPage(0) }}
-            placeholder="ค้นชื่อ / รหัส / email / เบอร์ / Feishu ID..."
-            className="flex-1 bg-transparent outline-none text-sm"/>
-          {q && <button onClick={() => setQ("")} className="text-slate-400 hover:text-slate-700"><X size={13}/></button>}
+      {/* ─── KPI Grid (5 cards) ─── */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <KpiCard icon={<Users size={16}/>} color="indigo" label="ทั้งหมด" value={summary.total ?? 0} sub="บัญชี Feishu"/>
+        <KpiCard icon={<CheckCircle2 size={16}/>} color="emerald" label="เชื่อมแล้ว" value={summary.matched ?? 0} sub={`${matchRate}% match rate`} progress={matchRate}/>
+        <KpiCard icon={<AlertCircle size={16}/>} color="rose" label="ยังไม่ map" value={summary.unmatched ?? 0} sub="คนจีน/บราซิล ส่วนใหญ่"/>
+        <KpiCard icon={<ShieldCheck size={16}/>} color="amber" label="Verified" value={summary.verified ?? 0} sub="ยืนยันด้วยตนเอง"/>
+        <KpiCard icon={<BadgeCheck size={16}/>} color="sky" label="Active" value={summary.active ?? 0} sub={`Inactive ${summary.inactive ?? 0}`}/>
+      </div>
+
+      {/* ─── Filter Bar (เต็ม + ละเอียด) ─── */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 space-y-2">
+        {/* Search + status filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex-1 min-w-[220px] flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
+            <Search size={13} className="text-slate-400"/>
+            <input value={q} onChange={e => { setQ(e.target.value); setPage(0) }}
+              placeholder="ค้นชื่อ (ไทย/อังกฤษ/จีน) · รหัส · email · เบอร์ · Feishu ID..."
+              className="flex-1 bg-transparent outline-none text-sm"/>
+            {q && <button onClick={() => setQ("")} className="text-slate-400 hover:text-slate-700"><X size={13}/></button>}
+          </div>
+
+          <div className="flex items-center gap-1 bg-slate-50 rounded-xl p-1">
+            {[
+              { v: "all", l: "ทั้งหมด", c: "indigo" },
+              { v: "matched", l: "Matched", c: "emerald" },
+              { v: "unmatched", l: "Unmatched", c: "rose" },
+              { v: "verified", l: "Verified", c: "amber" },
+            ].map(b => (
+              <button key={b.v} onClick={() => { setFilter(b.v); setPage(0) }}
+                className={"px-3 py-1.5 rounded-lg text-[11px] font-black transition " +
+                  (filter === b.v ? `bg-white shadow text-${b.c}-700` : "text-slate-500 hover:text-slate-700")}>
+                {b.l}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center gap-1 bg-slate-50 rounded-xl p-1">
-          {[
-            { v: "all", l: "ทั้งหมด" },
-            { v: "matched", l: "Matched" },
-            { v: "unmatched", l: "Unmatched" },
-            { v: "verified", l: "Verified" },
-          ].map(b => (
-            <button key={b.v} onClick={() => { setFilter(b.v); setPage(0) }}
-              className={"px-3 py-1.5 rounded-lg text-[11px] font-black transition " +
-                (filter === b.v ? "bg-white shadow text-indigo-700" : "text-slate-500 hover:text-slate-700")}>
-              {b.l}
+        {/* Detailed filters row */}
+        <div className="flex items-stretch gap-2 flex-wrap pt-2 border-t border-slate-100">
+          {/* Country (multi-select) */}
+          <FilterMulti
+            icon="🌐" label="ประเทศ"
+            options={regions.map((r: any) => ({ value: r.key, label: `${REGION_FLAG[r.key] ?? "🌐"} ${r.key}`, count: r.total }))}
+            selected={fCountry} onChange={(v: string[]) => { setFCountry(v); setPage(0) }}/>
+
+          {/* Match method (multi-select) */}
+          <FilterMulti
+            icon="🎯" label="วิธี Match"
+            options={methods.map((m: any) => ({ value: m.key, label: `${METHOD_META[m.key]?.icon ?? "🔗"} ${METHOD_META[m.key]?.label ?? m.key}`, count: m.count }))}
+            selected={fMethod} onChange={(v: string[]) => { setFMethod(v); setPage(0) }}/>
+
+          {/* Brand (single string contains) */}
+          <FilterSingle
+            icon="🏷️" label="แบรนด์"
+            options={topBrands.map((b: any) => ({ value: b.key, label: b.key, count: b.count }))}
+            selected={fBrand} onChange={(v: string) => { setFBrand(v); setPage(0) }}
+            withInput placeholder="ค้น/เลือกแบรนด์..."/>
+
+          {/* Company unit (Brazil Business Mgmt Center etc.) */}
+          <FilterSingle
+            icon="🏢" label="หน่วยธุรกิจ"
+            options={(summary.company_units ?? []).map((c: any) => ({ value: c.key, label: c.key, count: c.count }))}
+            selected={fCompanyUnit} onChange={(v: string) => { setFCompanyUnit(v); setPage(0) }}
+            withInput placeholder="ค้นหน่วยธุรกิจ..."/>
+
+          {/* Department (last 2 levels) */}
+          <FilterSingle
+            icon="📁" label="แผนก"
+            options={(summary.departments ?? []).map((c: any) => ({ value: c.key, label: c.key, count: c.count }))}
+            selected={fDept} onChange={(v: string) => { setFDept(v); setPage(0) }}
+            withInput placeholder="ค้นแผนก..."/>
+
+          {activeFilterCount > 0 && (
+            <button onClick={clearFilters}
+              className="ml-auto px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-black rounded-xl flex items-center gap-1 border border-rose-200">
+              <X size={12}/> ล้างฟิลเตอร์ ({activeFilterCount})
             </button>
-          ))}
+          )}
         </div>
 
-        <button onClick={() => fileRef.current?.click()} disabled={importing}
-          className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-black rounded-xl flex items-center gap-1 shadow-sm">
-          {importing ? <Loader2 size={13} className="animate-spin"/> : <Upload size={13}/>}
-          Import XLSX
-        </button>
-        <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) onImport(f); e.target.value = "" }}/>
-
-        <button onClick={onAutoMatch} disabled={autoMatching}
-          className="px-3 py-1.5 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 disabled:opacity-50 text-white text-xs font-black rounded-xl flex items-center gap-1 shadow-sm">
-          {autoMatching ? <Loader2 size={13} className="animate-spin"/> : <Sparkles size={13}/>}
-          Auto-match
-        </button>
+        {/* Active filter chips summary */}
+        {activeFilterCount > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-slate-100">
+            <span className="text-[10px] font-black text-slate-500 uppercase">กรองตาม:</span>
+            {fCountry.map(c => (
+              <ActiveChip key={`c-${c}`} label={`🌐 ${c}`} onRemove={() => setFCountry(fCountry.filter(x => x !== c))}/>
+            ))}
+            {fMethod.map(m => (
+              <ActiveChip key={`m-${m}`} label={`🎯 ${METHOD_META[m]?.label ?? m}`} onRemove={() => setFMethod(fMethod.filter(x => x !== m))}/>
+            ))}
+            {fBrand && <ActiveChip label={`🏷️ ${fBrand}`} onRemove={() => setFBrand("")}/>}
+            {fCompanyUnit && <ActiveChip label={`🏢 ${fCompanyUnit.slice(0, 40)}${fCompanyUnit.length > 40 ? "…" : ""}`} onRemove={() => setFCompanyUnit("")}/>}
+            {fDept && <ActiveChip label={`📁 ${fDept.slice(0, 40)}${fDept.length > 40 ? "…" : ""}`} onRemove={() => setFDept("")}/>}
+            <span className="ml-auto text-[10px] font-black text-slate-500">พบ {total.toLocaleString()} ราย</span>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -311,6 +433,170 @@ function brandColor(brand: string): string {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
+// FilterMulti — dropdown multi-select with counts
+// ════════════════════════════════════════════════════════════════════
+function FilterMulti({ icon, label, options, selected, onChange }: any) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState("")
+  const filtered = q ? options.filter((o: any) => String(o.label).toLowerCase().includes(q.toLowerCase())) : options
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)}
+        className={"px-3 py-2 bg-slate-50 hover:bg-white border rounded-xl text-xs font-bold flex items-center gap-1.5 transition " +
+          (selected.length > 0 ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-600")}>
+        <span>{icon}</span>
+        <span>{label}</span>
+        {selected.length > 0 && (
+          <span className="bg-indigo-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">{selected.length}</span>
+        )}
+        <ChevronDown size={11} className={"transition " + (open ? "rotate-180" : "")}/>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}/>
+          <div className="absolute z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl w-72 max-h-80 overflow-hidden flex flex-col">
+            <div className="px-2.5 py-2 border-b border-slate-100">
+              <input value={q} onChange={e => setQ(e.target.value)} autoFocus
+                placeholder="ค้น..." className="w-full bg-slate-50 px-2 py-1 text-xs rounded-lg outline-none border border-slate-200"/>
+            </div>
+            <div className="flex-1 overflow-y-auto p-1.5">
+              {filtered.length === 0 ? <p className="text-center text-xs text-slate-400 py-4">ไม่พบ</p>
+                : filtered.map((o: any) => {
+                  const checked = selected.includes(o.value)
+                  return (
+                    <button key={o.value}
+                      onClick={() => onChange(checked ? selected.filter((x: any) => x !== o.value) : [...selected, o.value])}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-indigo-50 rounded text-left">
+                      <div className={"w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 " +
+                        (checked ? "bg-indigo-500 border-indigo-500" : "border-slate-300")}>
+                        {checked && <Check size={9} strokeWidth={4} className="text-white"/>}
+                      </div>
+                      <span className="text-xs font-bold flex-1 truncate">{o.label}</span>
+                      <span className="text-[10px] text-slate-400 tabular-nums">{o.count}</span>
+                    </button>
+                  )
+                })}
+            </div>
+            {selected.length > 0 && (
+              <div className="px-2 py-1.5 border-t border-slate-100">
+                <button onClick={() => onChange([])}
+                  className="w-full text-[10px] font-bold text-rose-600 hover:bg-rose-50 py-1 rounded">
+                  ล้างที่เลือก ({selected.length})
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// FilterSingle — single select with optional free text input
+// ════════════════════════════════════════════════════════════════════
+function FilterSingle({ icon, label, options, selected, onChange, withInput, placeholder }: any) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState("")
+  const filtered = q ? options.filter((o: any) => String(o.label).toLowerCase().includes(q.toLowerCase())) : options
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)}
+        className={"px-3 py-2 bg-slate-50 hover:bg-white border rounded-xl text-xs font-bold flex items-center gap-1.5 transition " +
+          (selected ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-600")}>
+        <span>{icon}</span>
+        <span>{label}</span>
+        {selected && <span className="bg-indigo-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full truncate max-w-[100px]">{selected}</span>}
+        <ChevronDown size={11} className={"transition " + (open ? "rotate-180" : "")}/>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}/>
+          <div className="absolute z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl w-72 max-h-80 overflow-hidden flex flex-col">
+            {withInput && (
+              <div className="px-2.5 py-2 border-b border-slate-100 space-y-1">
+                <input value={q} onChange={e => setQ(e.target.value)} autoFocus
+                  placeholder={placeholder} className="w-full bg-slate-50 px-2 py-1 text-xs rounded-lg outline-none border border-slate-200"/>
+                {q.trim() && !options.find((o: any) => o.value === q.trim()) && (
+                  <button onClick={() => { onChange(q.trim()); setOpen(false); setQ("") }}
+                    className="w-full text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 py-1 rounded">
+                    + ใช้ "{q.trim()}" เป็น filter
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto p-1.5">
+              {filtered.length === 0 ? <p className="text-center text-xs text-slate-400 py-4">ไม่พบ</p>
+                : filtered.map((o: any) => {
+                  const active = selected === o.value
+                  return (
+                    <button key={o.value}
+                      onClick={() => { onChange(active ? "" : o.value); setOpen(false); setQ("") }}
+                      className={"w-full flex items-center gap-2 px-2 py-1.5 rounded text-left " +
+                        (active ? "bg-indigo-100" : "hover:bg-slate-50")}>
+                      {active && <Check size={11} className="text-indigo-600 flex-shrink-0"/>}
+                      <span className={"text-xs flex-1 truncate " + (active ? "font-black text-indigo-700" : "font-bold text-slate-700")}>{o.label}</span>
+                      <span className="text-[10px] text-slate-400 tabular-nums">{o.count}</span>
+                    </button>
+                  )
+                })}
+            </div>
+            {selected && (
+              <div className="px-2 py-1.5 border-t border-slate-100">
+                <button onClick={() => { onChange(""); setOpen(false) }}
+                  className="w-full text-[10px] font-bold text-rose-600 hover:bg-rose-50 py-1 rounded">
+                  ล้างที่เลือก
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function ActiveChip({ label, onRemove }: any) {
+  return (
+    <span className="inline-flex items-center gap-1 bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-full">
+      {label}
+      <button onClick={onRemove} className="hover:bg-indigo-200 rounded-full p-0.5">
+        <X size={9}/>
+      </button>
+    </span>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// KPI card — same style as admin dashboard
+// ════════════════════════════════════════════════════════════════════
+function KpiCard({ icon, color, label, value, sub, progress }: any) {
+  const colors: any = {
+    indigo:  { ring: "bg-indigo-100 text-indigo-600",   shadow: "shadow-indigo-100/40",  bar: "bg-indigo-500" },
+    emerald: { ring: "bg-emerald-100 text-emerald-600", shadow: "shadow-emerald-100/40", bar: "bg-emerald-500" },
+    rose:    { ring: "bg-rose-100 text-rose-600",       shadow: "shadow-rose-100/40",    bar: "bg-rose-500" },
+    amber:   { ring: "bg-amber-100 text-amber-600",     shadow: "shadow-amber-100/40",   bar: "bg-amber-500" },
+    sky:     { ring: "bg-sky-100 text-sky-600",         shadow: "shadow-sky-100/40",     bar: "bg-sky-500" },
+  }
+  const c = colors[color] ?? colors.indigo
+  return (
+    <div className={`bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md transition-all ${c.shadow}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <div className={`w-8 h-8 rounded-xl ${c.ring} flex items-center justify-center`}>{icon}</div>
+        <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{label}</p>
+      </div>
+      <p className="text-2xl font-black text-slate-800 tabular-nums">{Number(value).toLocaleString()}</p>
+      {sub && <p className="text-[10px] text-slate-400 mt-0.5">{sub}</p>}
+      {progress != null && (
+        <div className="mt-2 h-1 bg-slate-100 rounded-full overflow-hidden">
+          <div className={`h-full ${c.bar} transition-all`} style={{ width: `${progress}%` }}/>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Th({ children, className = "" }: any) {
   return <th className={`px-3 py-2 text-[10px] font-black uppercase text-slate-500 ${className}`}>{children}</th>
 }
