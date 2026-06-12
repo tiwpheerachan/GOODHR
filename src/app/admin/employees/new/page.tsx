@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, Save, Loader2, User, Briefcase, Banknote, ChevronRight,
   Key, Copy, Check, Eye, EyeOff, RefreshCw, Sparkles, Search, X, Building2,
-  Clock, CalendarDays, MapPin, Shield,
+  Clock, CalendarDays, MapPin, Shield, Link2, Globe2, Tag,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -15,6 +15,7 @@ const STEPS = [
   { icon: User,      label: "ข้อมูลส่วนตัว" },
   { icon: Briefcase, label: "การจ้างงาน"   },
   { icon: Banknote,  label: "เงินเดือน"    },
+  { icon: Link2,     label: "Feishu (ไม่บังคับ)" },
 ]
 
 const Field = ({ label, required, hint, children }: any) => (
@@ -110,8 +111,37 @@ export default function NewEmployeePage() {
     allowed_branch_ids: [] as string[],
     // auth
     password: generatePassword(),
+    // ── Feishu data (optional — เว้นว่างไว้แล้วกลับมากรอกย้อนหลังในแท็บ "🔗 Feishu Link" ได้) ──
+    feishu: {
+      feishu_user_id: "",
+      name: "",
+      name_cn: "",
+      name_en: "",
+      nickname: "",
+      employee_number: "",
+      email: "",
+      email_work: "",
+      email_business: "",
+      phone: "",
+      department_path: "",
+      job_title: "",
+      workforce_type: "",
+      start_date: "",
+      gender: "",
+      city: "",
+      status: "Active",
+      brand: "",
+      mentor: "",
+      direct_manager_raw: "",
+    },
   })
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }))
+  const setFeishu = (k: string, v: any) => setF((p: any) => ({ ...p, feishu: { ...p.feishu, [k]: v } }))
+  // มีข้อมูล Feishu กรอกหรือไม่ — ใช้ตัดสินว่าจะส่ง payload ไปหรือไม่
+  const hasFeishuData = (fv: any) =>
+    !!(fv?.feishu_user_id || fv?.name_cn || fv?.name_en || fv?.nickname ||
+       fv?.employee_number || fv?.email_work || fv?.email_business || fv?.phone ||
+       fv?.department_path || fv?.job_title || fv?.brand || fv?.mentor)
 
   const defaultCompanyId = user?.employee?.company_id ?? (user as any)?.company_id
 
@@ -180,6 +210,16 @@ export default function NewEmployeePage() {
       if (!f.employee_code) return "กรุณากรอกรหัสพนักงาน"
       if (!f.email)         return "กรุณากรอกอีเมล"
       if (!f.hire_date)     return "กรุณาเลือกวันเริ่มงาน"
+    }
+    if (step === 2) {
+      if (!f.base_salary) return "กรุณากรอกเงินเดือนฐาน"
+    }
+    if (step === 3) {
+      // ถ้ามีการกรอก Feishu data — ต้องมี feishu_user_id + name อย่างน้อย
+      if (hasFeishuData(f.feishu)) {
+        if (!f.feishu.feishu_user_id) return "Feishu User ID จำเป็น (เช่น e616f6g9) — หรือเว้นช่อง Feishu ว่างทั้งหมดเพื่อข้าม"
+        if (!f.feishu.name)            return "Feishu Display Name จำเป็น — หรือเว้นช่อง Feishu ว่างทั้งหมดเพื่อข้าม"
+      }
     }
     return null
   }
@@ -278,6 +318,8 @@ export default function NewEmployeePage() {
             post_ot_rate_normal: "", post_ot_rate_holiday: "", post_tax_withholding_pct: "",
             post_position_id: "", post_kpi_amount: "",
           }),
+          // ส่ง Feishu data เฉพาะเมื่อมีการกรอก (อย่างน้อย feishu_user_id)
+          feishu: hasFeishuData(f.feishu) ? f.feishu : null,
         }),
       })
       const data = await res.json()
@@ -289,6 +331,9 @@ export default function NewEmployeePage() {
         name: `${f.first_name_th} ${f.last_name_th}`,
       })
       toast.success("เพิ่มพนักงานสำเร็จ!")
+      if (data.feishu_warning) {
+        toast(data.feishu_warning, { icon: "⚠️", duration: 8000 })
+      }
     } catch (e: any) {
       toast.error(e.message || "เกิดข้อผิดพลาด")
     }
@@ -1023,6 +1068,157 @@ export default function NewEmployeePage() {
 
           </div>
         )}
+
+        {/* Step 3 — Feishu (Optional) */}
+        {step === 3 && (
+          <div className="space-y-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                <Link2 size={18} className="text-blue-600"/>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-black text-slate-800 text-base">ข้อมูล Feishu</h3>
+                <p className="text-[12px] text-slate-500 mt-0.5">
+                  ไม่บังคับ — สามารถข้าม แล้วกลับมากรอกย้อนหลังได้ในหน้าพนักงาน {">"} แท็บ <span className="font-bold text-blue-600">🔗 Feishu Link</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Notice */}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-[12px] text-blue-700 leading-relaxed">
+              <p className="font-bold mb-1">💡 ข้อมูลนี้ใช้สำหรับ map กับ Feishu Contacts</p>
+              <ul className="list-disc list-inside space-y-0.5 ml-1 text-blue-600">
+                <li>กรอกอย่างน้อย <b>Feishu User ID</b> + <b>Display Name</b> ถ้าต้องการสร้าง</li>
+                <li>เว้นช่อง Feishu User ID ว่าง = ข้าม Feishu ทั้งหมด</li>
+                <li>ระบบจะ link พนักงานนี้กับ Feishu user อัตโนมัติ (manually verified)</li>
+              </ul>
+            </div>
+
+            {/* ── Identity ── */}
+            <div className="border-2 border-slate-200 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <User size={14} className="text-slate-500"/>
+                <h4 className="font-bold text-slate-700 text-sm">ตัวตน (Identity)</h4>
+              </div>
+              <Field label="Feishu User ID" hint="Internal ID เช่น e616f6g9 (จาก Feishu Contacts → User ID)">
+                <Input value={f.feishu.feishu_user_id} onChange={(e:any) => setFeishu("feishu_user_id", e.target.value.trim())} placeholder="e616f6g9" className="font-mono"/>
+              </Field>
+              <Field label="Display Name (raw)" hint="ชื่อแบบที่ Feishu แสดง เช่น 陈安琪|CN-陈安琪">
+                <Input value={f.feishu.name} onChange={(e:any) => setFeishu("name", e.target.value)} placeholder="陈安琪|CN-陈安琪"/>
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="ชื่อจีน (Name CN)">
+                  <Input value={f.feishu.name_cn} onChange={(e:any) => setFeishu("name_cn", e.target.value)} placeholder="陈安琪"/>
+                </Field>
+                <Field label="ชื่ออังกฤษ (Name EN)">
+                  <Input value={f.feishu.name_en} onChange={(e:any) => setFeishu("name_en", e.target.value)} placeholder="Clara"/>
+                </Field>
+                <Field label="Nickname (Feishu)">
+                  <Input value={f.feishu.nickname} onChange={(e:any) => setFeishu("nickname", e.target.value)} placeholder="Clara"/>
+                </Field>
+                <Field label="Employee Number (Feishu)" hint="รูปแบบ Feishu เช่น SHD201">
+                  <Input value={f.feishu.employee_number} onChange={(e:any) => setFeishu("employee_number", e.target.value)} placeholder="SHD201" className="font-mono"/>
+                </Field>
+              </div>
+            </div>
+
+            {/* ── Contact ── */}
+            <div className="border-2 border-slate-200 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Globe2 size={14} className="text-slate-500"/>
+                <h4 className="font-bold text-slate-700 text-sm">การติดต่อ (Contact)</h4>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Work Email">
+                  <Input value={f.feishu.email_work} onChange={(e:any) => setFeishu("email_work", e.target.value.toLowerCase())} placeholder="user@company.com" type="email"/>
+                </Field>
+                <Field label="Business Email">
+                  <Input value={f.feishu.email_business} onChange={(e:any) => setFeishu("email_business", e.target.value.toLowerCase())} placeholder="user@biz.com" type="email"/>
+                </Field>
+                <Field label="Personal Email">
+                  <Input value={f.feishu.email} onChange={(e:any) => setFeishu("email", e.target.value.toLowerCase())} placeholder="user@gmail.com" type="email"/>
+                </Field>
+                <Field label="เบอร์โทร (Feishu)" hint="รูปแบบ +66... / +86...">
+                  <Input value={f.feishu.phone} onChange={(e:any) => setFeishu("phone", e.target.value)} placeholder="+8613580261303" className="font-mono"/>
+                </Field>
+              </div>
+            </div>
+
+            {/* ── Employment ── */}
+            <div className="border-2 border-slate-200 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Briefcase size={14} className="text-slate-500"/>
+                <h4 className="font-bold text-slate-700 text-sm">การจ้างงาน (Employment)</h4>
+              </div>
+              <Field label="Department Path" hint="path เต็มจาก Feishu เช่น SHD/Thailand Business Management Center/Thailand Team">
+                <Input value={f.feishu.department_path} onChange={(e:any) => setFeishu("department_path", e.target.value)} placeholder="SHD/Thailand Business Management Center/Thailand Team"/>
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Job Title (Feishu)">
+                  <Input value={f.feishu.job_title} onChange={(e:any) => setFeishu("job_title", e.target.value)} placeholder="营销推广专员"/>
+                </Field>
+                <Field label="Workforce Type">
+                  <Select value={f.feishu.workforce_type} onChange={(e:any) => setFeishu("workforce_type", e.target.value)}>
+                    <option value="">— ไม่ระบุ —</option>
+                    <option value="Regular">Regular</option>
+                    <option value="Intern">Intern</option>
+                    <option value="Contract">Contract</option>
+                    <option value="Outsource">Outsource</option>
+                  </Select>
+                </Field>
+                <Field label="Start Date (Feishu)">
+                  <Input type="date" value={f.feishu.start_date} onChange={(e:any) => setFeishu("start_date", e.target.value)}/>
+                </Field>
+                <Field label="สถานะ Feishu">
+                  <Select value={f.feishu.status} onChange={(e:any) => setFeishu("status", e.target.value)}>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                  </Select>
+                </Field>
+                <Field label="เพศ (Feishu)">
+                  <Select value={f.feishu.gender} onChange={(e:any) => setFeishu("gender", e.target.value)}>
+                    <option value="">— ไม่ระบุ —</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </Select>
+                </Field>
+                <Field label="เมือง (City)">
+                  <Input value={f.feishu.city} onChange={(e:any) => setFeishu("city", e.target.value)} placeholder="Bangkok"/>
+                </Field>
+              </div>
+            </div>
+
+            {/* ── Brand & Mentor ── */}
+            <div className="border-2 border-purple-200 bg-purple-50/40 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Tag size={14} className="text-purple-500"/>
+                <h4 className="font-bold text-purple-700 text-sm">แบรนด์ & พี่เลี้ยง</h4>
+              </div>
+              <Field label="แบรนด์ที่ดูแล (Feishu)" hint="เว้นวรรค/คั่นด้วย , — เช่น 'Anker, DDpai' (สำหรับแบรนด์ใน GoodHR ปรับในแท็บ '🏷️ แบรนด์ที่ดูแล' หลังสร้างพนักงาน)">
+                <Input value={f.feishu.brand} onChange={(e:any) => setFeishu("brand", e.target.value)} placeholder="Anker, DDpai, Dreame"/>
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="พี่เลี้ยง (Mentor)">
+                  <Input value={f.feishu.mentor} onChange={(e:any) => setFeishu("mentor", e.target.value)} placeholder="ชื่อพี่เลี้ยง"/>
+                </Field>
+                <Field label="Direct Manager (raw)" hint="ค่าดิบจาก Feishu">
+                  <Input value={f.feishu.direct_manager_raw} onChange={(e:any) => setFeishu("direct_manager_raw", e.target.value)} placeholder="Manager name"/>
+                </Field>
+              </div>
+            </div>
+
+            {/* Skip notice */}
+            {!hasFeishuData(f.feishu) && (
+              <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-4 text-center">
+                <Link2 size={20} className="mx-auto text-slate-300 mb-1"/>
+                <p className="text-xs text-slate-500 font-semibold">ยังไม่กรอกข้อมูล Feishu</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  ระบบจะข้ามขั้นตอน Feishu — สามารถมาเพิ่มภายหลังในหน้าพนักงาน &gt; แท็บ <span className="font-bold text-blue-500">🔗 Feishu Link</span>
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Navigation */}
@@ -1037,7 +1233,7 @@ export default function NewEmployeePage() {
             </button>
           : <button onClick={submit} disabled={loading} className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors disabled:opacity-60">
               {loading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              บันทึกพนักงาน
+              {hasFeishuData(f.feishu) ? "บันทึกพนักงาน + Feishu" : "บันทึกพนักงาน"}
             </button>
         }
       </div>

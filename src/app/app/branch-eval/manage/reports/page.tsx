@@ -4,8 +4,8 @@ import Link from "next/link"
 import {
   ArrowLeft, BarChart3, Store, RefreshCw, Loader2,
   AlertTriangle, Award, Download, Users, FileSpreadsheet,
-  Sparkles, X, FileText, Layers, ClipboardList, Clock, Target, TrendingUp,
-  Mail, Calendar, ChevronDown, ChevronRight as ChevRight, User,
+  Sparkles, X, FileText, Mail, Layers, ChevronDown, ChevronRight as ChevRight,
+  Calendar, Clock, Target, TrendingUp, ClipboardList,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -22,10 +22,6 @@ export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("overview")
   const [exporting, setExporting] = useState(false)
   const [exportingDeep, setExportingDeep] = useState(false)
-  const [expandedRow, setExpandedRow] = useState<Set<string>>(new Set())
-  const toggleRow = (key: string) => setExpandedRow(s => {
-    const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n
-  })
   const [aiOpen, setAiOpen] = useState(false)
   const [aiBranchId, setAiBranchId] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
@@ -33,19 +29,48 @@ export default function ReportsPage() {
   const [aiCharts, setAiCharts] = useState<any | null>(null)
   const [aiStats, setAiStats] = useState<any | null>(null)
   const [aiBranchName, setAiBranchName] = useState<string>("")
+  // ── expand state สำหรับ drill-down (key = row id) ──
+  const [expandedRow, setExpandedRow] = useState<Set<string>>(new Set())
+  const toggleRow = (k: string) => setExpandedRow(prev => {
+    const next = new Set(prev)
+    if (next.has(k)) next.delete(k); else next.add(k)
+    return next
+  })
 
-  const load = () => {
-    setLoading(true)
+  // ── lastRefresh สำหรับแสดง timestamp + indicator ──
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
+  const [refreshing, setRefreshing] = useState(false)
+
+  // ── silent=false: initial load (แสดง skeleton) / silent=true: auto-refresh (ไม่กระตุก) ──
+  const load = (silent: boolean = false) => {
+    if (silent) setRefreshing(true)
+    else setLoading(true)
     Promise.all([
       fetch("/api/branch-eval/evaluations").then(r => r.json()),
       fetch("/api/branch-eval/assignments").then(r => r.json()).catch(() => ({ assignments: [] })),
     ]).then(([e, a]) => {
       setEvals((e.evaluations ?? []).filter((x: any) => x.status !== "draft"))
       setAssignments(a.assignments ?? [])
-      setLoading(false)
+      setLastRefresh(new Date())
+    }).finally(() => {
+      if (silent) setRefreshing(false)
+      else setLoading(false)
     })
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(false) }, [])
+
+  // ── auto-refresh ทุก 30 วินาที (silent — ไม่กระตุก) ──
+  useEffect(() => {
+    const id = setInterval(() => load(true), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // ── refresh เมื่อ tab กลับมา active (สลับ tab/window กลับมา) ──
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "visible") load(true) }
+    document.addEventListener("visibilitychange", onVis)
+    return () => document.removeEventListener("visibilitychange", onVis)
+  }, [])
 
   const cutoff = useMemo(() => {
     const d = new Date(); d.setDate(d.getDate() - days)
@@ -117,8 +142,8 @@ export default function ReportsPage() {
       id: string; name: string; nickname: string
       received: number; branches: Set<string>; templates: Set<string>; scores: number[]; lastDate: string
     }>()
-    let unset = 0
-    for (const e of filtered as any[]) {
+    let unset = 0  // ไม่ระบุผู้รับ
+    for (const e of filtered) {
       if (!e.target_manager_id || !e.target_manager) { unset++; continue }
       const tm = e.target_manager
       const prev = m.get(tm.id) ?? {
@@ -190,7 +215,7 @@ export default function ReportsPage() {
       uses: number; branches: Set<string>; evaluators: Set<string>; recipients: Set<string>
       scores: number[]; lastDate: string
     }>()
-    for (const e of filtered as any[]) {
+    for (const e of filtered) {
       if (!e.template?.id) continue
       const t = e.template
       const prev = m.get(t.id) ?? {
@@ -219,19 +244,68 @@ export default function ReportsPage() {
     })).sort((a, b) => b.uses - a.uses)
   }, [filtered])
 
-  // ── Trend by week — เฉพาะฟอร์มที่มีคะแนน (percentage > 0) ──
+  // ── Score distribution (A/B/C/D) ──
+  const distribution = useMemo(() => {
+    const buckets = { A: 0, B: 0, C: 0, D: 0 }
+    for (const e of filtered) {
+      const p = Number(e.percentage)
+      if (p >= 90) buckets.A++
+      else if (p >= 75) buckets.B++
+      else if (p >= 60) buckets.C++
+      else buckets.D++
+    }
+    const total = filtered.length || 1
+    return [
+      { grade: "A", label: "ดีเยี่ยม (≥90%)",  count: buckets.A, pct: (buckets.A / total) * 100, color: "emerald" },
+      { grade: "B", label: "ดี (75-89%)",       count: buckets.B, pct: (buckets.B / total) * 100, color: "sky" },
+      { grade: "C", label: "พอใช้ (60-74%)",   count: buckets.C, pct: (buckets.C / total) * 100, color: "amber" },
+      { grade: "D", label: "ต้องปรับปรุง (<60%)", count: buckets.D, pct: (buckets.D / total) * 100, color: "rose" },
+    ]
+  }, [filtered])
+
+  // ── Activity by day-of-week ──
+  const byDayOfWeek = useMemo(() => {
+    const days = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
+    const counts: { day: string; count: number; sum: number; avg: number }[] = days.map(d => ({ day: d, count: 0, sum: 0, avg: 0 }))
+    for (const e of filtered) {
+      const dow = new Date(e.visit_date).getDay()
+      counts[dow].count++
+      counts[dow].sum += Number(e.percentage)
+    }
+    for (const c of counts) c.avg = c.count > 0 ? c.sum / c.count : 0
+    return counts
+  }, [filtered])
+
+  // ── Branch quadrant — visits × avg score ──
+  const branchQuadrant = useMemo(() => {
+    if (byBranch.length === 0) return { stars: [], focus: [], steady: [], forgotten: [] }
+    const avgVisits = byBranch.reduce((s, b) => s + b.count, 0) / byBranch.length
+    const stars: typeof byBranch = []      // high visits, high score
+    const focus: typeof byBranch = []      // high visits, low score
+    const steady: typeof byBranch = []     // low visits, high score
+    const forgotten: typeof byBranch = []  // low visits, low score
+    for (const b of byBranch) {
+      const highVisits = b.count >= avgVisits
+      const highScore = b.avg >= 75
+      if (highVisits && highScore) stars.push(b)
+      else if (highVisits && !highScore) focus.push(b)
+      else if (!highVisits && highScore) steady.push(b)
+      else forgotten.push(b)
+    }
+    return { stars, focus, steady, forgotten, avgVisits }
+  }, [byBranch])
+
+  // ── Trend by week ──
   const trend = useMemo(() => {
     const buckets = new Map<string, { sum: number; n: number }>()
     for (const e of filtered) {
-      const pct = Number(e.percentage)
-      if (!pct || isNaN(pct)) continue  // ข้ามฟอร์มที่ยังไม่มีคะแนน
       const d = new Date(e.visit_date)
       const y = d.getFullYear()
       const onejan = new Date(y, 0, 1)
       const wk = Math.ceil(((d.getTime() - onejan.getTime()) / 86400000 + onejan.getDay() + 1) / 7)
       const key = `${y}-W${String(wk).padStart(2, "0")}`
       const prev = buckets.get(key) ?? { sum: 0, n: 0 }
-      prev.sum += pct; prev.n++
+      prev.sum += Number(e.percentage); prev.n++
       buckets.set(key, prev)
     }
     return Array.from(buckets, ([key, v]) => ({ key, avg: v.sum / v.n, n: v.n })).sort((a, b) => a.key.localeCompare(b.key))
@@ -243,7 +317,7 @@ export default function ReportsPage() {
     return {
       n: filtered.length,
       avg: filtered.reduce((s, e) => s + Number(e.percentage), 0) / filtered.length,
-      // ── "reviewed" รวมทุก status ที่ผ่านการตัดสินใจ (reviewed legacy + approved + rejected) ──
+      // ตัดสินใจแล้ว = reviewed (legacy) + approved + rejected
       reviewed: filtered.filter(e =>
         e.status === "reviewed" || e.status === "approved" || e.status === "rejected"
       ).length,
@@ -494,7 +568,17 @@ export default function ReportsPage() {
           <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
             <BarChart3 size={20} className="text-emerald-600" /> รายงาน / Dashboard
           </h2>
-          <p className="text-slate-400 text-sm">ข้อมูล {filtered.length} ฟอร์ม ({days} วันย้อนหลัง)</p>
+          <p className="text-slate-400 text-sm flex items-center gap-1.5 flex-wrap">
+            ข้อมูล {filtered.length} ฟอร์ม ({days} วันย้อนหลัง)
+            <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+              {refreshing
+                ? <><Loader2 size={9} className="animate-spin" /> กำลังอัปเดต</>
+                : <>· อัปเดต {lastRefresh.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</>}
+            </span>
+            <span className="text-[9px] text-emerald-600 inline-flex items-center gap-0.5">
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> live · refresh ทุก 30 วิ
+            </span>
+          </p>
         </div>
         <div className="flex gap-2">
           <select value={days} onChange={e => setDays(Number(e.target.value))}
@@ -504,8 +588,10 @@ export default function ReportsPage() {
             <option value={180}>180 วัน</option>
             <option value={365}>1 ปี</option>
           </select>
-          <button onClick={load} className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50">
-            <RefreshCw size={12} />
+          <button onClick={() => load(true)} disabled={refreshing}
+            title="รีเฟรชเดี๋ยวนี้"
+            className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 disabled:opacity-50">
+            <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
           </button>
           <button onClick={() => askAI()} disabled={aiLoading || filtered.length === 0}
             className="px-3 py-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-sm disabled:opacity-40">
@@ -536,12 +622,14 @@ export default function ReportsPage() {
       ) : (
         <>
           {/* KPI */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
             <Kpi color="indigo" label="คะแนนเฉลี่ย" value={`${stats.avg.toFixed(1)}%`} />
             <Kpi color="emerald" label="ตัดสินใจแล้ว" value={`${stats.reviewed}/${stats.n}`}
               sub={`${stats.n > 0 ? Math.round((stats.reviewed / stats.n) * 100) : 0}%`} />
             <Kpi color="sky" label="สาขาที่ตรวจ" value={byBranch.length} sub={`${filtered.length} visits`} />
             <Kpi color="amber" label="ผู้ตรวจ" value={byEvaluator.length} sub="คน" />
+            <Kpi color="violet" label="📩 ส่งถึง" value={byRecipient.list.length} sub={`${byRecipient.unset} ไม่ระบุ`} />
+            <Kpi color="rose" label="📋 Template" value={byTemplate.length} sub="ใช้งาน" />
           </div>
 
           {/* Tabs */}
@@ -558,8 +646,19 @@ export default function ReportsPage() {
           {/* Tab: Overview */}
           {tab === "overview" && (
             <>
+              {/* ── แนวโน้มคะแนน (line + area chart with axis + values) ── */}
               <TrendChart trend={trend} />
 
+              {/* ── 2 columns: Score Distribution + Activity by Day ── */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <DistributionChart data={distribution} total={filtered.length} />
+                <DayOfWeekChart data={byDayOfWeek} />
+              </div>
+
+              {/* ── Branch Performance Quadrant ── */}
+              <QuadrantChart q={branchQuadrant} />
+
+              {/* ── Top 5 / Bottom 5 ── */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <BranchRanking title="Top 5 สาขาคะแนนสูงสุด" icon={<Award size={14} />} color="emerald" items={top5} />
                 <BranchRanking title="Bottom 5 สาขาต้องดูแล" icon={<AlertTriangle size={14} />} color="rose" items={bot5} />
@@ -645,7 +744,7 @@ export default function ReportsPage() {
                           </tr>
                           {expanded && (
                             <tr><td colSpan={9} className="bg-sky-50/30 p-0">
-                              <ManagerDrillDown forms={myForms} />
+                              <DrillDown forms={myForms} />
                             </td></tr>
                           )}
                         </Fragment>
@@ -685,47 +784,49 @@ export default function ReportsPage() {
                       {byEvaluator.map((ev, i) => {
                         const expanded = expandedRow.has(`ev_${ev.id}`)
                         const myForms = filtered.filter((f: any) => f.evaluator?.id === ev.id)
-                          .sort((a: any, c: any) => c.visit_date.localeCompare(a.visit_date))
+                          .sort((a: any, b: any) => b.visit_date.localeCompare(a.visit_date))
                         return (
-                        <Fragment key={ev.id}>
-                        <tr className="hover:bg-slate-50 cursor-pointer"
-                          onClick={() => toggleRow(`ev_${ev.id}`)}>
-                          <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
-                            {expanded ? <ChevronDown size={12} className="inline text-indigo-500"/> : <ChevRight size={12} className="inline text-slate-400"/>}
-                            <span className="ml-1">{i + 1}</span>
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <p className="font-bold text-sm">
-                              {ev.name}
-                              {ev.nickname && <span className="text-xs text-slate-400 ml-1">({ev.nickname})</span>}
-                            </p>
-                            <p className="text-[10px] text-slate-400">{ev.code}</p>
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <span className="inline-flex items-center gap-1 text-xs font-black bg-indigo-50 text-indigo-700 px-2 py-1 rounded">
-                              {ev.visits} ครั้ง
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{ev.branchCount}</td>
-                          <td className="px-3 py-2.5 text-center text-xs text-rose-600 font-bold">{ev.min.toFixed(0)}%</td>
-                          <td className="px-3 py-2.5 text-center">
-                            <span className={`text-sm font-black ${
-                              ev.avg >= 80 ? "text-emerald-600"
-                              : ev.avg >= 60 ? "text-amber-600"
-                              : "text-rose-600"
-                            }`}>{ev.avg.toFixed(1)}%</span>
-                          </td>
-                          <td className="px-3 py-2.5 text-center text-xs text-emerald-600 font-bold">{ev.max.toFixed(0)}%</td>
-                          <td className="px-3 py-2.5 text-[10px] text-slate-500">
-                            {ev.lastDate && format(new Date(ev.lastDate), "d MMM yyyy", { locale: th })}
-                          </td>
-                        </tr>
-                        {expanded && (
-                          <tr><td colSpan={8} className="bg-indigo-50/30 p-0">
-                            <ManagerDrillDown forms={myForms} />
-                          </td></tr>
-                        )}
-                        </Fragment>
+                          <Fragment key={ev.id}>
+                            <tr className="hover:bg-indigo-50/40 cursor-pointer"
+                              onClick={() => toggleRow(`ev_${ev.id}`)}>
+                              <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
+                                {expanded ? <ChevronDown size={12} className="inline text-indigo-500" /> : <ChevRight size={12} className="inline text-slate-400" />}
+                                <span className="ml-1">{i + 1}</span>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <p className="font-bold text-sm">
+                                  {ev.name}
+                                  {ev.nickname && <span className="text-xs text-slate-400 ml-1">({ev.nickname})</span>}
+                                </p>
+                                <p className="text-[10px] text-slate-400">{ev.code}</p>
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span className="inline-flex items-center gap-1 text-xs font-black bg-indigo-50 text-indigo-700 px-2 py-1 rounded">
+                                  {ev.visits} ครั้ง
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{ev.branchCount}</td>
+                              <td className="px-3 py-2.5 text-center text-xs text-rose-600 font-bold">{ev.min.toFixed(0)}%</td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span className={`text-sm font-black ${
+                                  ev.avg >= 80 ? "text-emerald-600"
+                                  : ev.avg >= 60 ? "text-amber-600"
+                                  : "text-rose-600"
+                                }`}>{ev.avg.toFixed(1)}%</span>
+                              </td>
+                              <td className="px-3 py-2.5 text-center text-xs text-emerald-600 font-bold">{ev.max.toFixed(0)}%</td>
+                              <td className="px-3 py-2.5 text-[10px] text-slate-500">
+                                {ev.lastDate && format(new Date(ev.lastDate), "d MMM yyyy", { locale: th })}
+                              </td>
+                            </tr>
+                            {expanded && (
+                              <tr>
+                                <td colSpan={8} className="bg-indigo-50/30 p-0">
+                                  <DrillDown forms={myForms} />
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
                         )
                       })}
                     </tbody>
@@ -735,11 +836,12 @@ export default function ReportsPage() {
             </div>
           )}
 
-          {/* Tab: Recipients */}
+          {/* Tab: Recipients (ส่งมอบถึงใคร) */}
           {tab === "recipients" && (
             <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
-                <p className="text-sm font-black text-slate-800">📩 ส่งมอบถึงใคร ({byRecipient.list.length})</p>
+                <Mail size={14} className="text-emerald-500" />
+                <p className="text-sm font-black text-slate-800">ส่งมอบถึงใคร ({byRecipient.list.length})</p>
                 {byRecipient.unset > 0 && (
                   <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full ml-auto">
                     + {byRecipient.unset} ฟอร์ม "ไม่ระบุผู้รับ"
@@ -747,7 +849,10 @@ export default function ReportsPage() {
                 )}
               </div>
               {byRecipient.list.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-sm">ยังไม่มีฟอร์มที่ระบุผู้รับในช่วงนี้</div>
+                <div className="py-12 text-center text-slate-400 text-sm">
+                  <Mail size={26} className="mx-auto mb-2 text-slate-300" />
+                  ยังไม่มีฟอร์มที่ระบุผู้รับในช่วงนี้
+                </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -757,7 +862,7 @@ export default function ReportsPage() {
                         <Th>ผู้รับฟอร์ม</Th>
                         <Th center>รับมาแล้ว</Th>
                         <Th center>จำนวนสาขา</Th>
-                        <Th center>Template</Th>
+                        <Th center>Template ใช้</Th>
                         <Th center>คะแนนเฉลี่ย</Th>
                         <Th>รับล่าสุด</Th>
                       </tr>
@@ -772,7 +877,7 @@ export default function ReportsPage() {
                             <tr className="hover:bg-emerald-50/40 cursor-pointer"
                               onClick={() => toggleRow(`rc_${r.id}`)}>
                               <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
-                                {expanded ? <ChevronDown size={12} className="inline text-emerald-500"/> : <ChevRight size={12} className="inline text-slate-400"/>}
+                                {expanded ? <ChevronDown size={12} className="inline text-emerald-500" /> : <ChevRight size={12} className="inline text-slate-400" />}
                                 <span className="ml-1">{i + 1}</span>
                               </td>
                               <td className="px-3 py-2.5">
@@ -800,9 +905,11 @@ export default function ReportsPage() {
                               </td>
                             </tr>
                             {expanded && (
-                              <tr><td colSpan={7} className="bg-emerald-50/30 p-0">
-                                <ManagerDrillDown forms={myForms} />
-                              </td></tr>
+                              <tr>
+                                <td colSpan={7} className="bg-emerald-50/30 p-0">
+                                  <DrillDown forms={myForms} />
+                                </td>
+                              </tr>
                             )}
                           </Fragment>
                         )
@@ -819,7 +926,7 @@ export default function ReportsPage() {
             <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
                 <Users size={14} className="text-indigo-500" />
-                <p className="text-sm font-black text-slate-800">👤 ผู้ถูกประเมิน ({byEvaluatee.list.length})</p>
+                <p className="text-sm font-black text-slate-800">ผู้ถูกประเมิน ({byEvaluatee.list.length})</p>
                 {byEvaluatee.unset > 0 && (
                   <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full ml-auto">
                     + {byEvaluatee.unset} ฟอร์ม "ไม่ระบุผู้ถูกประเมิน"
@@ -855,7 +962,7 @@ export default function ReportsPage() {
                             <tr className="hover:bg-indigo-50/40 cursor-pointer"
                               onClick={() => toggleRow(`ee_${r.id}`)}>
                               <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
-                                {expanded ? <ChevronDown size={12} className="inline text-indigo-500"/> : <ChevRight size={12} className="inline text-slate-400"/>}
+                                {expanded ? <ChevronDown size={12} className="inline text-indigo-500" /> : <ChevRight size={12} className="inline text-slate-400" />}
                                 <span className="ml-1">{i + 1}</span>
                               </td>
                               <td className="px-3 py-2.5">
@@ -883,9 +990,11 @@ export default function ReportsPage() {
                               </td>
                             </tr>
                             {expanded && (
-                              <tr><td colSpan={7} className="bg-indigo-50/30 p-0">
-                                <ManagerDrillDown forms={myForms} />
-                              </td></tr>
+                              <tr>
+                                <td colSpan={7} className="bg-indigo-50/30 p-0">
+                                  <DrillDown forms={myForms} />
+                                </td>
+                              </tr>
                             )}
                           </Fragment>
                         )
@@ -901,10 +1010,14 @@ export default function ReportsPage() {
           {tab === "templates" && (
             <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
-                <p className="text-sm font-black text-slate-800">📋 เทมเพลตที่ใช้ ({byTemplate.length})</p>
+                <Layers size={14} className="text-violet-500" />
+                <p className="text-sm font-black text-slate-800">เทมเพลตที่ใช้ ({byTemplate.length})</p>
               </div>
               {byTemplate.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-sm">ยังไม่มีการใช้งาน template ในช่วงนี้</div>
+                <div className="py-12 text-center text-slate-400 text-sm">
+                  <Layers size={26} className="mx-auto mb-2 text-slate-300" />
+                  ยังไม่มีการใช้งาน template ในช่วงนี้
+                </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -924,41 +1037,48 @@ export default function ReportsPage() {
                       {byTemplate.map((t, i) => {
                         const expanded = expandedRow.has(`tp_${t.id}`)
                         const myForms = filtered.filter((f: any) => f.template?.id === t.id)
-                          .sort((a: any, c: any) => c.visit_date.localeCompare(a.visit_date))
+                          .sort((a: any, b: any) => b.visit_date.localeCompare(a.visit_date))
                         return (
-                        <Fragment key={t.id}>
-                        <tr className="hover:bg-violet-50/40 cursor-pointer"
-                          onClick={() => toggleRow(`tp_${t.id}`)}>
-                          <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
-                            {expanded ? <ChevronDown size={12} className="inline text-violet-500"/> : <ChevRight size={12} className="inline text-slate-400"/>}
-                            <span className="ml-1">{i + 1}</span>
-                          </td>
-                          <td className="px-3 py-2.5"><p className="font-bold text-sm">{t.name}</p></td>
-                          <td className="px-3 py-2.5 text-center">
-                            <span className="inline-flex items-center gap-1 text-xs font-black bg-violet-50 text-violet-700 px-2 py-1 rounded">
-                              {t.uses} ครั้ง
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-center text-xs font-bold text-indigo-700">{t.evaluatorCount}</td>
-                          <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{t.branchCount}</td>
-                          <td className="px-3 py-2.5 text-center text-xs font-bold text-emerald-700">{t.recipientCount}</td>
-                          <td className="px-3 py-2.5 text-center">
-                            <span className={`text-sm font-black ${
-                              t.avg >= 80 ? "text-emerald-600"
-                              : t.avg >= 60 ? "text-amber-600"
-                              : "text-rose-600"
-                            }`}>{t.avg.toFixed(1)}%</span>
-                          </td>
-                          <td className="px-3 py-2.5 text-[10px] text-slate-500">
-                            {t.lastDate && format(new Date(t.lastDate), "d MMM yyyy", { locale: th })}
-                          </td>
-                        </tr>
-                        {expanded && (
-                          <tr><td colSpan={8} className="bg-violet-50/30 p-0">
-                            <ManagerDrillDown forms={myForms} />
-                          </td></tr>
-                        )}
-                        </Fragment>
+                          <Fragment key={t.id}>
+                            <tr className="hover:bg-violet-50/40 cursor-pointer"
+                              onClick={() => toggleRow(`tp_${t.id}`)}>
+                              <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">
+                                {expanded ? <ChevronDown size={12} className="inline text-violet-500" /> : <ChevRight size={12} className="inline text-slate-400" />}
+                                <span className="ml-1">{i + 1}</span>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <p className="font-bold text-sm flex items-center gap-1.5">
+                                  <Layers size={12} className="text-violet-500" />
+                                  {t.name}
+                                </p>
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span className="inline-flex items-center gap-1 text-xs font-black bg-violet-50 text-violet-700 px-2 py-1 rounded">
+                                  {t.uses} ครั้ง
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-center text-xs font-bold text-indigo-700">{t.evaluatorCount}</td>
+                              <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{t.branchCount}</td>
+                              <td className="px-3 py-2.5 text-center text-xs font-bold text-emerald-700">{t.recipientCount}</td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span className={`text-sm font-black ${
+                                  t.avg >= 80 ? "text-emerald-600"
+                                  : t.avg >= 60 ? "text-amber-600"
+                                  : "text-rose-600"
+                                }`}>{t.avg.toFixed(1)}%</span>
+                              </td>
+                              <td className="px-3 py-2.5 text-[10px] text-slate-500">
+                                {t.lastDate && format(new Date(t.lastDate), "d MMM yyyy", { locale: th })}
+                              </td>
+                            </tr>
+                            {expanded && (
+                              <tr>
+                                <td colSpan={8} className="bg-violet-50/30 p-0">
+                                  <DrillDown forms={myForms} />
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
                         )
                       })}
                     </tbody>
@@ -968,7 +1088,7 @@ export default function ReportsPage() {
             </div>
           )}
 
-          {/* Tab: Assignments — performance analytics */}
+          {/* Tab: Assignments (การบ้าน) */}
           {tab === "assignments" && (
             <AssignmentsTab assignments={assignments} />
           )}
@@ -1081,6 +1201,9 @@ function Kpi({ color, label, value, sub }: any) {
     emerald: { bg: "bg-emerald-50", text: "text-emerald-700" },
     sky:     { bg: "bg-sky-50",     text: "text-sky-700" },
     amber:   { bg: "bg-amber-50",   text: "text-amber-700" },
+    violet:  { bg: "bg-violet-50",  text: "text-violet-700" },
+    rose:    { bg: "bg-rose-50",    text: "text-rose-700" },
+    orange:  { bg: "bg-orange-50",  text: "text-orange-700" },
   }
   const p = palette[color]
   return (
@@ -1128,6 +1251,636 @@ function BranchRanking({ title, icon, color, items }: any) {
           <span className={`text-sm font-black ${p.text}`}>{b.avg.toFixed(1)}%</span>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Trend Chart — line + area + value labels + grid axis
+// ─────────────────────────────────────────────────────────────────
+function TrendChart({ trend }: { trend: { key: string; avg: number; n: number }[] }) {
+  if (trend.length === 0) {
+    return (
+      <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+        <p className="text-sm font-black text-slate-800 mb-2">📈 แนวโน้มคะแนนเฉลี่ย</p>
+        <p className="py-8 text-center text-xs text-slate-400">ยังไม่มีข้อมูล</p>
+      </div>
+    )
+  }
+  // คำนวณค่าสำคัญ
+  const max = Math.max(100, ...trend.map(t => t.avg))
+  const min = Math.min(0, ...trend.map(t => t.avg))
+  const avg = trend.reduce((s, t) => s + t.avg, 0) / trend.length
+  const first = trend[0]?.avg ?? 0
+  const last = trend[trend.length - 1]?.avg ?? 0
+  const delta = last - first
+  const trending = delta > 5 ? "up" : delta < -5 ? "down" : "flat"
+
+  // SVG dimensions
+  const W = 600
+  const H = 180
+  const PADL = 28; const PADR = 12; const PADT = 18; const PADB = 22
+  const innerW = W - PADL - PADR
+  const innerH = H - PADT - PADB
+
+  const xStep = trend.length > 1 ? innerW / (trend.length - 1) : 0
+  const yScale = (v: number) => PADT + innerH - ((v - min) / (max - min || 1)) * innerH
+
+  const points = trend.map((t, i) => ({
+    x: PADL + i * xStep,
+    y: yScale(t.avg),
+    label: t.key.slice(-3),
+    avg: t.avg,
+    n: t.n,
+  }))
+
+  // line path
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")
+  // area path (close to bottom)
+  const areaPath = `${linePath} L ${points[points.length - 1].x} ${PADT + innerH} L ${points[0].x} ${PADT + innerH} Z`
+
+  // gridlines (0, 25, 50, 75, 100)
+  const yTicks = [0, 25, 50, 75, 100].filter(v => v <= max + 5)
+
+  return (
+    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div>
+          <p className="text-sm font-black text-slate-800">📈 แนวโน้มคะแนนเฉลี่ยรายสัปดาห์</p>
+          <p className="text-[10px] text-slate-400">{trend.length} สัปดาห์ · เฉลี่ย {avg.toFixed(1)}%</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          {trending === "up" && (
+            <span className="flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full font-bold">
+              📈 ขึ้น {delta.toFixed(1)}%
+            </span>
+          )}
+          {trending === "down" && (
+            <span className="flex items-center gap-1 text-rose-700 bg-rose-50 px-2 py-1 rounded-full font-bold">
+              📉 ลง {Math.abs(delta).toFixed(1)}%
+            </span>
+          )}
+          {trending === "flat" && (
+            <span className="flex items-center gap-1 text-slate-700 bg-slate-100 px-2 py-1 rounded-full font-bold">
+              ➡️ คงที่
+            </span>
+          )}
+        </div>
+      </div>
+
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none" style={{ maxHeight: 240 }}>
+        {/* gridlines */}
+        {yTicks.map(v => (
+          <g key={v}>
+            <line x1={PADL} x2={W - PADR} y1={yScale(v)} y2={yScale(v)}
+              stroke="#e2e8f0" strokeDasharray="2 3" strokeWidth="1" />
+            <text x={PADL - 4} y={yScale(v) + 3} fontSize="9" textAnchor="end" fill="#94a3b8">
+              {v}
+            </text>
+          </g>
+        ))}
+        {/* avg line */}
+        <line x1={PADL} x2={W - PADR} y1={yScale(avg)} y2={yScale(avg)}
+          stroke="#a78bfa" strokeDasharray="4 3" strokeWidth="1.2" opacity="0.7" />
+        <text x={W - PADR - 2} y={yScale(avg) - 3} fontSize="8" textAnchor="end" fill="#a78bfa" fontWeight="bold">
+          เฉลี่ย {avg.toFixed(0)}%
+        </text>
+        {/* area fill */}
+        {points.length > 1 && (
+          <>
+            <defs>
+              <linearGradient id="trendArea" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
+                <stop offset="100%" stopColor="#6366f1" stopOpacity="0.02" />
+              </linearGradient>
+            </defs>
+            <path d={areaPath} fill="url(#trendArea)" />
+          </>
+        )}
+        {/* line */}
+        <path d={linePath} stroke="#6366f1" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        {/* points + labels */}
+        {points.map((p, i) => (
+          <g key={i}>
+            <circle cx={p.x} cy={p.y} r="3.5" fill="#fff" stroke="#6366f1" strokeWidth="2" />
+            <text x={p.x} y={p.y - 8} fontSize="9.5" textAnchor="middle" fill="#4f46e5" fontWeight="bold">
+              {p.avg.toFixed(0)}%
+            </text>
+            <text x={p.x} y={H - 6} fontSize="9" textAnchor="middle" fill="#64748b" fontWeight="bold">
+              {p.label}
+            </text>
+            <text x={p.x} y={H + 2} fontSize="7.5" textAnchor="middle" fill="#cbd5e1">
+              {p.n}f
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Score Distribution — bar with % + count
+// ─────────────────────────────────────────────────────────────────
+function DistributionChart({ data, total }: { data: any[]; total: number }) {
+  const palette: Record<string, { bg: string; bar: string; text: string }> = {
+    emerald: { bg: "bg-emerald-50", bar: "bg-emerald-500", text: "text-emerald-700" },
+    sky:     { bg: "bg-sky-50",     bar: "bg-sky-500",     text: "text-sky-700" },
+    amber:   { bg: "bg-amber-50",   bar: "bg-amber-500",   text: "text-amber-700" },
+    rose:    { bg: "bg-rose-50",    bar: "bg-rose-500",    text: "text-rose-700" },
+  }
+  return (
+    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+      <p className="text-sm font-black text-slate-800 mb-1">🎯 การกระจายเกรด</p>
+      <p className="text-[10px] text-slate-400 mb-3">ฟอร์มทั้งหมด {total} แบ่งตามคะแนน</p>
+      <div className="space-y-2">
+        {data.map(d => {
+          const p = palette[d.color]
+          return (
+            <div key={d.grade}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`w-6 h-6 rounded-md flex items-center justify-center text-white font-black text-[11px] ${p.bar}`}>
+                  {d.grade}
+                </span>
+                <span className="text-[11px] font-bold text-slate-700 flex-1 truncate">{d.label}</span>
+                <span className={`text-[11px] font-black ${p.text}`}>{d.count} ฟอร์ม ({d.pct.toFixed(0)}%)</span>
+              </div>
+              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div className={`h-full ${p.bar} rounded-full transition-all`} style={{ width: `${d.pct}%` }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Day-of-week activity chart
+// ─────────────────────────────────────────────────────────────────
+function DayOfWeekChart({ data }: { data: { day: string; count: number; avg: number }[] }) {
+  const maxCount = Math.max(1, ...data.map(d => d.count))
+  return (
+    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+      <p className="text-sm font-black text-slate-800 mb-1">📅 กิจกรรมรายวัน (ของสัปดาห์)</p>
+      <p className="text-[10px] text-slate-400 mb-3">วันไหนตรวจเยอะที่สุด · สีตามคะแนนเฉลี่ย</p>
+      <div className="flex items-end gap-1.5 h-24">
+        {data.map(d => {
+          const h = Math.max(4, (d.count / maxCount) * 100)
+          const color = d.count === 0 ? "bg-slate-200"
+            : d.avg >= 80 ? "bg-emerald-500"
+            : d.avg >= 60 ? "bg-amber-500"
+            : "bg-rose-500"
+          return (
+            <div key={d.day} className="flex-1 flex flex-col items-center gap-1 group">
+              <div className="text-[9px] font-bold text-slate-500 leading-none">
+                {d.count > 0 ? d.count : ""}
+              </div>
+              <div className="w-full flex-1 flex items-end">
+                <div className={`w-full ${color} rounded-t transition-all hover:opacity-80`}
+                  style={{ height: `${h}%` }}
+                  title={`${d.day}: ${d.count} ฟอร์ม · เฉลี่ย ${d.avg.toFixed(0)}%`} />
+              </div>
+              <div className="text-[10px] text-slate-500 font-bold">{d.day}</div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex items-center gap-2 mt-2 text-[9px] text-slate-400">
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 bg-emerald-500 rounded"/>≥80%</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 bg-amber-500 rounded"/>60-79</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 bg-rose-500 rounded"/>&lt;60%</span>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Quadrant Chart — Branch Performance Matrix
+// ─────────────────────────────────────────────────────────────────
+function QuadrantChart({ q }: { q: any }) {
+  const total = q.stars.length + q.focus.length + q.steady.length + q.forgotten.length
+  if (total === 0) return null
+  const items = [
+    { key: "stars",     items: q.stars,     icon: "⭐", title: "ดาวเด่น",       desc: "ตรวจบ่อย + คะแนนดี",       color: "emerald" },
+    { key: "focus",     items: q.focus,     icon: "🚨", title: "ต้องโฟกัส",    desc: "ตรวจบ่อย + คะแนนต่ำ",     color: "rose" },
+    { key: "steady",    items: q.steady,    icon: "💎", title: "ดีอย่างเงียบๆ", desc: "ตรวจน้อย + คะแนนดี",       color: "sky" },
+    { key: "forgotten", items: q.forgotten, icon: "🌑", title: "ถูกลืม",         desc: "ตรวจน้อย + คะแนนต่ำ",      color: "amber" },
+  ]
+  const palette: Record<string, { border: string; bg: string; text: string }> = {
+    emerald: { border: "border-emerald-200", bg: "bg-emerald-50/40", text: "text-emerald-700" },
+    rose:    { border: "border-rose-200",    bg: "bg-rose-50/40",    text: "text-rose-700" },
+    sky:     { border: "border-sky-200",     bg: "bg-sky-50/40",     text: "text-sky-700" },
+    amber:   { border: "border-amber-200",   bg: "bg-amber-50/40",   text: "text-amber-700" },
+  }
+  return (
+    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+      <div className="flex items-baseline justify-between mb-3">
+        <div>
+          <p className="text-sm font-black text-slate-800">🗺️ แผนที่สาขา (Performance Quadrant)</p>
+          <p className="text-[10px] text-slate-400">แบ่งสาขาตามจำนวนการตรวจ × คะแนน — เพื่อจัดลำดับความสำคัญ</p>
+        </div>
+        {q.avgVisits && (
+          <span className="text-[10px] text-slate-400">เฉลี่ย {q.avgVisits.toFixed(1)} visits/สาขา</span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {items.map(g => {
+          const p = palette[g.color]
+          return (
+            <div key={g.key} className={`border-2 ${p.border} ${p.bg} rounded-xl p-3`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-lg">{g.icon}</span>
+                <div>
+                  <p className={`text-xs font-black ${p.text}`}>{g.title}</p>
+                  <p className="text-[9px] text-slate-500">{g.desc}</p>
+                </div>
+                <span className={`ml-auto text-sm font-black ${p.text}`}>{g.items.length}</span>
+              </div>
+              {g.items.length > 0 && (
+                <div className="space-y-0.5 mt-1.5 max-h-[60px] overflow-y-auto">
+                  {g.items.slice(0, 5).map((b: any) => (
+                    <p key={b.id} className="text-[10px] text-slate-600 truncate flex items-center gap-1">
+                      <span className="font-bold flex-1 truncate">{b.name}</span>
+                      <span className={`font-black ${p.text}`}>{b.avg.toFixed(0)}%</span>
+                      <span className="text-slate-400 text-[9px]">·{b.count}x</span>
+                    </p>
+                  ))}
+                  {g.items.length > 5 && (
+                    <p className="text-[9px] text-slate-400 italic">+ {g.items.length - 5} อื่นๆ</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AssignmentsTab — แสดงสรุป "การบ้าน" + breakdown per assigner
+// ─────────────────────────────────────────────────────────────────
+function AssignmentsTab({ assignments }: { assignments: any[] }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  // ── Overall ──
+  const total = assignments.length
+  const completed = assignments.filter((a: any) => (a._stats?.done ?? 0) === (a._stats?.total ?? 0) && (a._stats?.total ?? 0) > 0).length
+  const overdue = assignments.filter((a: any) => {
+    const d = a._stats?.done ?? 0, t = a._stats?.total ?? 0
+    return a.due_date && a.due_date < today && d < t
+  }).length
+  const totalTargets = assignments.reduce((s, a: any) => s + (a._stats?.total ?? 0), 0)
+  const doneTargets = assignments.reduce((s, a: any) => s + (a._stats?.done ?? 0), 0)
+  const overallPct = totalTargets > 0 ? (doneTargets / totalTargets) * 100 : 0
+
+  // ── Performance aggregates ──
+  const allScoredCount = assignments.reduce((s, a: any) => s + (a._stats?.scored_count ?? 0), 0)
+  const weightedAvg = (() => {
+    let sumWeighted = 0, sumN = 0
+    for (const a of assignments) {
+      const n = a._stats?.scored_count ?? 0
+      const av = a._stats?.avg_score
+      if (n > 0 && av != null) { sumWeighted += Number(av) * n; sumN += n }
+    }
+    return sumN > 0 ? sumWeighted / sumN : 0
+  })()
+  const allPass = assignments.reduce((s, a: any) => s + (a._stats?.pass_count ?? 0), 0)
+  const allMid = assignments.reduce((s, a: any) => s + (a._stats?.mid_count ?? 0), 0)
+  const allLow = assignments.reduce((s, a: any) => s + (a._stats?.low_count ?? 0), 0)
+  const avgDaysAll = (() => {
+    const arr = assignments.map(a => a._stats?.avg_days_to_complete).filter(x => x != null)
+    if (arr.length === 0) return null
+    return arr.reduce((s: number, x: number) => s + x, 0) / arr.length
+  })()
+
+  // ── Group by assigner ──
+  type AsgGroup = { id: string; name: string; rows: any[]; total: number; done: number; sumPct: number; cntPct: number }
+  const byAssigner = (() => {
+    const m = new Map<string, AsgGroup>()
+    for (const a of assignments as any[]) {
+      if (!a.assigner) continue
+      const k = a.assigned_by
+      if (!m.has(k)) m.set(k, {
+        id: k, name: `${a.assigner.first_name_th} ${a.assigner.last_name_th}`,
+        rows: [], total: 0, done: 0, sumPct: 0, cntPct: 0,
+      })
+      const g = m.get(k)!
+      g.rows.push(a)
+      g.total += a._stats?.total ?? 0
+      g.done += a._stats?.done ?? 0
+      const n = a._stats?.scored_count ?? 0
+      if (n > 0 && a._stats?.avg_score != null) {
+        g.sumPct += Number(a._stats.avg_score) * n
+        g.cntPct += n
+      }
+    }
+    return Array.from(m.values()).sort((a, b) => b.rows.length - a.rows.length)
+  })()
+
+  // ── Per-assignment performance ranking ──
+  const perfRank = [...assignments]
+    .filter(a => (a._stats?.scored_count ?? 0) > 0)
+    .sort((a, b) => Number(b._stats.avg_score) - Number(a._stats.avg_score))
+
+  if (total === 0) {
+    return (
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-12 text-center">
+        <p className="text-sm text-slate-500">ยังไม่มีการบ้านในระบบ</p>
+        <p className="text-[10px] text-slate-400 mt-1">หัวหน้า/Supervisor สร้างการบ้านได้ที่ /app/branch-eval/manage/assignments</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Overall stats */}
+      <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+        <p className="text-sm font-black text-slate-800 mb-3 flex items-center gap-1.5">
+          <ClipboardList size={14} className="text-orange-500"/> 🗂️ ภาพรวมการบ้านทั้งระบบ
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <Kpi color="indigo" label="การบ้าน" value={total} />
+          <Kpi color="orange" label="กำลังทำ" value={total - completed} />
+          <Kpi color="emerald" label="เสร็จ" value={completed} sub={`${total > 0 ? Math.round(completed/total*100) : 0}%`} />
+          <Kpi color="rose" label="เลยกำหนด" value={overdue} />
+          <Kpi color="violet" label="งานรวม" value={`${doneTargets}/${totalTargets}`} sub={`${overallPct.toFixed(0)}%`} />
+        </div>
+        <div className="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-orange-400 to-emerald-500" style={{ width: `${overallPct}%` }} />
+        </div>
+      </div>
+
+      {/* Performance summary */}
+      <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+        <p className="text-sm font-black text-slate-800 mb-3 flex items-center gap-1.5">
+          <TrendingUp size={14} className="text-violet-500"/> 📈 ประสิทธิภาพรวม
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+          <Kpi color="violet" label="ฟอร์มที่มีคะแนน" value={allScoredCount} sub="จากการบ้านทั้งหมด" />
+          <Kpi color={weightedAvg >= 80 ? "emerald" : weightedAvg >= 60 ? "amber" : "rose"}
+            label="คะแนนเฉลี่ย" value={`${weightedAvg.toFixed(1)}%`} sub="weighted avg" />
+          <Kpi color="emerald" label="ดีเยี่ยม (≥80%)" value={allPass}
+            sub={allScoredCount > 0 ? `${((allPass/allScoredCount)*100).toFixed(0)}%` : "—"} />
+          <Kpi color="rose" label="ต้องปรับ (<60%)" value={allLow}
+            sub={allScoredCount > 0 ? `${((allLow/allScoredCount)*100).toFixed(0)}%` : "—"} />
+        </div>
+        {avgDaysAll != null && (
+          <div className="bg-slate-50 rounded-lg p-2.5 text-xs text-slate-700 flex items-center gap-2">
+            <Clock size={12} className="text-slate-500"/>
+            ⏱️ <b>เวลาเฉลี่ยที่ลูกน้องใช้</b>: {avgDaysAll.toFixed(1)} วัน (จากวันที่มอบหมาย → วันที่ส่ง)
+          </div>
+        )}
+        {allScoredCount > 0 && (
+          <div className="mt-3 space-y-1.5">
+            <AsgDistRow label="≥ 80% ดีเยี่ยม" color="emerald" count={allPass} total={allScoredCount} />
+            <AsgDistRow label="60-79% พอใช้" color="amber" count={allMid} total={allScoredCount} />
+            <AsgDistRow label="< 60% ต้องปรับ" color="rose" count={allLow} total={allScoredCount} />
+          </div>
+        )}
+      </div>
+
+      {/* Per-assignment performance ranking */}
+      {perfRank.length > 0 && (
+        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+          <p className="px-4 py-3 text-sm font-black text-slate-800 border-b border-slate-100 flex items-center gap-1.5">
+            <Target size={14} className="text-emerald-500"/> 🎯 ประสิทธิภาพแต่ละการบ้าน ({perfRank.length})
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-[10px]">
+                <tr>
+                  <Th>#</Th>
+                  <Th>การบ้าน</Th>
+                  <Th>ผู้มอบ</Th>
+                  <Th center>คืบหน้า</Th>
+                  <Th center>เฉลี่ย%</Th>
+                  <Th center>สูง/ต่ำ</Th>
+                  <Th center>ดี / กลาง / ต่ำ</Th>
+                  <Th center>วันเฉลี่ย</Th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {perfRank.map((a: any, i: number) => {
+                  const s = a._stats
+                  const avg = Number(s.avg_score)
+                  return (
+                    <tr key={a.id} className="hover:bg-emerald-50/30">
+                      <td className="px-2 py-2 text-slate-400 font-bold">{i + 1}</td>
+                      <td className="px-2 py-2">
+                        <a href={`/admin/branch-eval/assignments/${a.id}`}
+                          className="font-bold text-slate-800 hover:text-orange-700 truncate block max-w-[180px]">
+                          {a.title}
+                        </a>
+                        <p className="text-[9px] text-slate-400">{a.template?.name}</p>
+                      </td>
+                      <td className="px-2 py-2 text-[10px] text-slate-600">
+                        {a.assigner ? `${a.assigner.first_name_th}` : "—"}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <span className="text-xs font-black text-slate-700">{s.done}/{s.total}</span>
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <span className={`text-xs font-black ${
+                          avg >= 80 ? "text-emerald-700" : avg >= 60 ? "text-amber-700" : "text-rose-700"
+                        }`}>{avg.toFixed(1)}%</span>
+                      </td>
+                      <td className="px-2 py-2 text-center text-[10px] text-slate-500">
+                        <span className="text-emerald-600 font-bold">{Number(s.max_score).toFixed(0)}</span>
+                        {" / "}
+                        <span className="text-rose-600 font-bold">{Number(s.min_score).toFixed(0)}</span>
+                      </td>
+                      <td className="px-2 py-2 text-center text-[10px]">
+                        <span className="text-emerald-700 font-bold">{s.pass_count}</span>
+                        <span className="text-slate-400"> / </span>
+                        <span className="text-amber-700 font-bold">{s.mid_count}</span>
+                        <span className="text-slate-400"> / </span>
+                        <span className="text-rose-700 font-bold">{s.low_count}</span>
+                      </td>
+                      <td className="px-2 py-2 text-center text-[10px] text-slate-600 font-bold">
+                        {s.avg_days_to_complete != null ? `${Number(s.avg_days_to_complete).toFixed(1)} วัน` : "—"}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* By assigner */}
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <p className="px-4 py-3 text-sm font-black text-slate-800 border-b border-slate-100">
+          👥 หัวหน้าที่มอบการบ้าน ({byAssigner.length})
+        </p>
+        {byAssigner.length === 0 ? (
+          <p className="py-8 text-center text-xs text-slate-400">—</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr>
+                  <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase text-left">#</th>
+                  <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase text-left">ผู้มอบ</th>
+                  <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase text-center">การบ้าน</th>
+                  <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase text-center">งานทั้งหมด</th>
+                  <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase text-center">เสร็จ</th>
+                  <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase text-center">ความคืบหน้า</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {byAssigner.map((g, i) => {
+                  const pct = g.total > 0 ? (g.done / g.total) * 100 : 0
+                  return (
+                    <tr key={g.id} className="hover:bg-orange-50/30">
+                      <td className="px-3 py-2.5 text-xs text-slate-400 font-bold">{i + 1}</td>
+                      <td className="px-3 py-2.5"><p className="font-bold text-sm">{g.name}</p></td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className="inline-flex items-center gap-1 text-xs font-black bg-orange-50 text-orange-700 px-2 py-1 rounded">{g.rows.length}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-center text-xs font-bold text-slate-600">{g.total}</td>
+                      <td className="px-3 py-2.5 text-center text-xs font-bold text-emerald-700">{g.done}</td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div className={`h-full ${pct === 100 ? "bg-emerald-500" : "bg-orange-500"}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className={`text-xs font-black ${pct === 100 ? "text-emerald-700" : "text-slate-700"}`}>{pct.toFixed(0)}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* All assignments list */}
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <p className="px-4 py-3 text-sm font-black text-slate-800 border-b border-slate-100">
+          📋 รายการการบ้านทั้งหมด ({total})
+        </p>
+        <div className="divide-y divide-slate-50 max-h-[400px] overflow-y-auto">
+          {assignments.map((a: any) => {
+            const stats = a._stats
+            const isDone = stats.done === stats.total && stats.total > 0
+            const isOverdue = a.due_date && a.due_date < today && !isDone
+            return (
+              <a key={a.id} href={`/admin/branch-eval/assignments/${a.id}`}
+                className="flex items-center gap-3 p-3 hover:bg-slate-50">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  isDone ? "bg-emerald-100 text-emerald-700"
+                  : isOverdue ? "bg-rose-100 text-rose-700"
+                  : "bg-orange-100 text-orange-700"
+                }`}>
+                  <Layers size={12} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold truncate">{a.title}</p>
+                  <p className="text-[10px] text-slate-500 truncate">
+                    {a.template?.name}
+                    {a.assigner && <> · {a.assigner.first_name_th}</>}
+                    {a.due_date && <> · ครบ {format(new Date(a.due_date), "d MMM", { locale: th })}</>}
+                  </p>
+                </div>
+                {stats.avg_score != null && (
+                  <span className={`text-xs font-black ${
+                    Number(stats.avg_score) >= 80 ? "text-emerald-700"
+                    : Number(stats.avg_score) >= 60 ? "text-amber-700"
+                    : "text-rose-700"
+                  }`}>{Number(stats.avg_score).toFixed(0)}%</span>
+                )}
+                <div className="text-right text-xs">
+                  <p className="font-black">{stats.done}/{stats.total}</p>
+                  <div className="w-20 h-1 bg-slate-100 rounded-full mt-1">
+                    <div className={`h-full rounded-full ${isDone ? "bg-emerald-500" : isOverdue ? "bg-rose-500" : "bg-orange-500"}`}
+                      style={{ width: `${stats.progress}%` }} />
+                  </div>
+                </div>
+                {isOverdue && <span className="text-[9px] font-black text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded-full">เลย</span>}
+                {isDone && <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full">✓</span>}
+              </a>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AsgDistRow({ label, color, count, total }: any) {
+  const pct = total > 0 ? (count / total) * 100 : 0
+  const colors: Record<string, string> = {
+    emerald: "bg-emerald-500", amber: "bg-amber-500", rose: "bg-rose-500",
+  }
+  return (
+    <div className="flex items-center gap-2 text-[10px]">
+      <span className="font-bold text-slate-600 w-32 flex-shrink-0">{label}</span>
+      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+        <div className={`h-full ${colors[color]}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="font-black text-slate-700 w-20 text-right flex-shrink-0">{count} ({pct.toFixed(0)}%)</span>
+    </div>
+  )
+}
+
+// DrillDown — แสดงรายการฟอร์มของ evaluator / recipient / template ที่ user คลิกขยาย
+function DrillDown({ forms }: { forms: any[] }) {
+  if (forms.length === 0) return <p className="px-4 py-3 text-xs text-slate-400 italic">ไม่มีฟอร์มในช่วงนี้</p>
+  return (
+    <div className="px-4 py-2 space-y-1.5">
+      <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider mt-1.5 mb-1">
+        ตรวจอะไรไปบ้าง ({forms.length} ฟอร์ม)
+      </p>
+      <div className="space-y-1">
+        {forms.slice(0, 20).map(f => (
+          <Link key={f.id} href={`/admin/branch-eval/evaluations/${f.id}`}
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-all">
+            <Store size={11} className="text-sky-500 flex-shrink-0" />
+            <span className="text-xs font-bold text-slate-700 truncate">{f.branch?.name}</span>
+            <span className="text-[9px] text-slate-400 hidden sm:inline">·</span>
+            <span className="text-[10px] text-slate-500 truncate hidden sm:inline">{f.template?.name}</span>
+            <span className="text-[9px] text-slate-400">·</span>
+            <Calendar size={9} className="text-slate-400 flex-shrink-0" />
+            <span className="text-[10px] text-slate-500">{format(new Date(f.visit_date), "d MMM", { locale: th })}</span>
+            {f.target_manager && (
+              <>
+                <span className="text-[9px] text-slate-400">·</span>
+                <Mail size={9} className="text-emerald-500 flex-shrink-0" />
+                <span className="text-[10px] font-bold text-emerald-700 truncate">{f.target_manager.first_name_th}</span>
+              </>
+            )}
+            {f.evaluatee && (
+              <>
+                <span className="text-[9px] text-slate-400">·</span>
+                <Users size={9} className="text-indigo-500 flex-shrink-0" />
+                <span className="text-[10px] font-bold text-indigo-700 truncate">{f.evaluatee.first_name_th}</span>
+              </>
+            )}
+            <span className={`ml-auto text-xs font-black flex-shrink-0 ${
+              Number(f.percentage) >= 80 ? "text-emerald-600"
+              : Number(f.percentage) >= 60 ? "text-amber-600"
+              : "text-rose-600"
+            }`}>{Number(f.percentage).toFixed(0)}%</span>
+            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${
+              f.status === "draft" ? "bg-slate-100 text-slate-600"
+              : f.status === "submitted" ? "bg-amber-100 text-amber-700"
+              : "bg-emerald-100 text-emerald-700"
+            }`}>
+              {f.status === "draft" ? "ร่าง" : f.status === "submitted" ? "รอ" : "✓"}
+            </span>
+          </Link>
+        ))}
+        {forms.length > 20 && (
+          <p className="text-center text-[10px] text-slate-400 italic pt-1">+ อีก {forms.length - 20} ฟอร์ม — ดูทั้งหมดใน "ฟอร์มที่ส่งแล้ว"</p>
+        )}
+      </div>
     </div>
   )
 }
@@ -1194,511 +1947,6 @@ function ChartCard({ title, subtitle, data, color = "indigo", suffix = "" }: {
           )
         })}
       </div>
-    </div>
-  )
-}
-
-// ════════════════════════════════════════════════════════════════════
-// AssignmentsTab — performance analytics ของการบ้าน
-// ════════════════════════════════════════════════════════════════════
-function AssignmentsTab({ assignments }: { assignments: any[] }) {
-  const today = new Date().toISOString().slice(0, 10)
-
-  // Overall
-  const total = assignments.length
-  const completed = assignments.filter((a: any) =>
-    (a._stats?.done ?? 0) === (a._stats?.total ?? 0) && (a._stats?.total ?? 0) > 0).length
-  const overdue = assignments.filter((a: any) => {
-    const d = a._stats?.done ?? 0, t = a._stats?.total ?? 0
-    return a.due_date && a.due_date < today && d < t
-  }).length
-  const totalTargets = assignments.reduce((s, a: any) => s + (a._stats?.total ?? 0), 0)
-  const doneTargets = assignments.reduce((s, a: any) => s + (a._stats?.done ?? 0), 0)
-  const overallPct = totalTargets > 0 ? (doneTargets / totalTargets) * 100 : 0
-
-  // Performance aggregates (across all assignments)
-  const allScoredCount = assignments.reduce((s, a: any) => s + (a._stats?.scored_count ?? 0), 0)
-  const weightedAvg = (() => {
-    let sumWeighted = 0, sumN = 0
-    for (const a of assignments) {
-      const n = a._stats?.scored_count ?? 0
-      const av = a._stats?.avg_score
-      if (n > 0 && av != null) { sumWeighted += Number(av) * n; sumN += n }
-    }
-    return sumN > 0 ? sumWeighted / sumN : 0
-  })()
-  const allPass = assignments.reduce((s, a: any) => s + (a._stats?.pass_count ?? 0), 0)
-  const allMid = assignments.reduce((s, a: any) => s + (a._stats?.mid_count ?? 0), 0)
-  const allLow = assignments.reduce((s, a: any) => s + (a._stats?.low_count ?? 0), 0)
-  const avgDaysAll = (() => {
-    const arr = assignments.map(a => a._stats?.avg_days_to_complete).filter(x => x != null)
-    if (arr.length === 0) return null
-    return arr.reduce((s: number, x: number) => s + x, 0) / arr.length
-  })()
-
-  // Group by assigner
-  type AsgGroup = { id: string; name: string; rows: any[]; total: number; done: number; sumPct: number; cntPct: number }
-  const byAssigner = (() => {
-    const m = new Map<string, AsgGroup>()
-    for (const a of assignments as any[]) {
-      if (!a.assigner) continue
-      const k = a.assigned_by
-      if (!m.has(k)) m.set(k, {
-        id: k, name: `${a.assigner.first_name_th} ${a.assigner.last_name_th}`,
-        rows: [], total: 0, done: 0, sumPct: 0, cntPct: 0,
-      })
-      const g = m.get(k)!
-      g.rows.push(a)
-      g.total += a._stats?.total ?? 0
-      g.done += a._stats?.done ?? 0
-      const n = a._stats?.scored_count ?? 0
-      if (n > 0 && a._stats?.avg_score != null) {
-        g.sumPct += Number(a._stats.avg_score) * n
-        g.cntPct += n
-      }
-    }
-    return Array.from(m.values()).sort((a, b) => b.rows.length - a.rows.length)
-  })()
-
-  // Per-assignment performance ranking (by avg score)
-  const perfRank = [...assignments]
-    .filter(a => (a._stats?.scored_count ?? 0) > 0)
-    .sort((a, b) => Number(b._stats.avg_score) - Number(a._stats.avg_score))
-
-  if (total === 0) {
-    return (
-      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-12 text-center">
-        <ClipboardList size={32} className="mx-auto mb-2 text-slate-300" />
-        <p className="text-sm text-slate-500">ยังไม่มีการบ้าน</p>
-        <p className="text-[10px] text-slate-400 mt-1">สร้างการบ้านได้ที่หน้า "การบ้าน"</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-3">
-      {/* 1. Overall stats */}
-      <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-        <p className="text-sm font-black text-slate-800 mb-3 flex items-center gap-1.5">
-          <ClipboardList size={14} className="text-orange-500"/> ภาพรวมการบ้าน
-        </p>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-          <MiniKpi color="indigo" label="การบ้าน" value={total} />
-          <MiniKpi color="orange" label="กำลังทำ" value={total - completed} />
-          <MiniKpi color="emerald" label="เสร็จ" value={completed} sub={`${total > 0 ? Math.round(completed/total*100) : 0}%`} />
-          <MiniKpi color="rose" label="เลยกำหนด" value={overdue} />
-          <MiniKpi color="violet" label="งานรวม" value={`${doneTargets}/${totalTargets}`} sub={`${overallPct.toFixed(0)}%`} />
-        </div>
-        <div className="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden">
-          <div className="h-full bg-gradient-to-r from-orange-400 to-emerald-500" style={{ width: `${overallPct}%` }} />
-        </div>
-      </div>
-
-      {/* 2. Performance summary */}
-      <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-        <p className="text-sm font-black text-slate-800 mb-3 flex items-center gap-1.5">
-          <TrendingUp size={14} className="text-violet-500"/> 📈 ประสิทธิภาพรวม
-        </p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-          <MiniKpi color="violet" label="ฟอร์มที่มีคะแนน" value={allScoredCount} sub="จากการบ้านทั้งหมด" />
-          <MiniKpi color={weightedAvg >= 80 ? "emerald" : weightedAvg >= 60 ? "amber" : "rose"}
-            label="คะแนนเฉลี่ย" value={`${weightedAvg.toFixed(1)}%`} sub="weighted avg" />
-          <MiniKpi color="emerald" label="ดีเยี่ยม (≥80%)" value={allPass}
-            sub={allScoredCount > 0 ? `${((allPass/allScoredCount)*100).toFixed(0)}%` : "—"} />
-          <MiniKpi color="rose" label="ต้องปรับ (<60%)" value={allLow}
-            sub={allScoredCount > 0 ? `${((allLow/allScoredCount)*100).toFixed(0)}%` : "—"} />
-        </div>
-        {avgDaysAll != null && (
-          <div className="bg-slate-50 rounded-lg p-2.5 text-xs text-slate-700 flex items-center gap-2">
-            <Clock size={12} className="text-slate-500"/>
-            ⏱️ <b>เวลาเฉลี่ยที่ลูกน้องใช้</b>: {avgDaysAll.toFixed(1)} วัน (จากวันที่มอบหมาย → วันที่ส่ง)
-          </div>
-        )}
-        {/* Score distribution bars */}
-        {allScoredCount > 0 && (
-          <div className="mt-3 space-y-1.5">
-            <DistRow label="≥ 80% ดีเยี่ยม" color="emerald" count={allPass} total={allScoredCount} />
-            <DistRow label="60-79% พอใช้" color="amber" count={allMid} total={allScoredCount} />
-            <DistRow label="< 60% ต้องปรับ" color="rose" count={allLow} total={allScoredCount} />
-          </div>
-        )}
-      </div>
-
-      {/* 3. Performance per assignment table */}
-      {perfRank.length > 0 && (
-        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-          <p className="px-4 py-3 text-sm font-black text-slate-800 border-b border-slate-100 flex items-center gap-1.5">
-            <Target size={14} className="text-emerald-500"/> 🎯 ประสิทธิภาพแต่ละการบ้าน ({perfRank.length})
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 text-[10px]">
-                <tr>
-                  <Th>#</Th>
-                  <Th>การบ้าน</Th>
-                  <Th>ผู้มอบ</Th>
-                  <Th center>คืบหน้า</Th>
-                  <Th center>เฉลี่ย%</Th>
-                  <Th center>สูง/ต่ำ</Th>
-                  <Th center>ดี / กลาง / ต่ำ</Th>
-                  <Th center>วันเฉลี่ย</Th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {perfRank.map((a: any, i: number) => {
-                  const s = a._stats
-                  const avg = Number(s.avg_score)
-                  return (
-                    <tr key={a.id} className="hover:bg-emerald-50/30">
-                      <td className="px-2 py-2 text-slate-400 font-bold">{i + 1}</td>
-                      <td className="px-2 py-2">
-                        <a href={`/app/branch-eval/manage/assignments/${a.id}`}
-                          className="font-bold text-slate-800 hover:text-orange-700 truncate block max-w-[180px]">
-                          {a.title}
-                        </a>
-                        <p className="text-[9px] text-slate-400">{a.template?.name}</p>
-                      </td>
-                      <td className="px-2 py-2 text-[10px] text-slate-600">
-                        {a.assigner ? `${a.assigner.first_name_th}` : "—"}
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <span className="text-xs font-black text-slate-700">{s.done}/{s.total}</span>
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <span className={`text-xs font-black ${
-                          avg >= 80 ? "text-emerald-700" : avg >= 60 ? "text-amber-700" : "text-rose-700"
-                        }`}>{avg.toFixed(1)}%</span>
-                      </td>
-                      <td className="px-2 py-2 text-center text-[10px] text-slate-500">
-                        <span className="text-emerald-600 font-bold">{Number(s.max_score).toFixed(0)}</span>
-                        {" / "}
-                        <span className="text-rose-600 font-bold">{Number(s.min_score).toFixed(0)}</span>
-                      </td>
-                      <td className="px-2 py-2 text-center text-[10px]">
-                        <span className="text-emerald-700 font-bold">{s.pass_count}</span>
-                        <span className="text-slate-400"> / </span>
-                        <span className="text-amber-700 font-bold">{s.mid_count}</span>
-                        <span className="text-slate-400"> / </span>
-                        <span className="text-rose-700 font-bold">{s.low_count}</span>
-                      </td>
-                      <td className="px-2 py-2 text-center text-[10px] text-slate-600 font-bold">
-                        {s.avg_days_to_complete != null ? `${Number(s.avg_days_to_complete).toFixed(1)} วัน` : "—"}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 4. Per-assigner (หัวหน้าที่มอบ) — only if multiple */}
-      {byAssigner.length > 1 && (
-        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-          <p className="px-4 py-3 text-sm font-black text-slate-800 border-b border-slate-100">
-            👥 หัวหน้าที่มอบการบ้าน ({byAssigner.length})
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 text-[10px]">
-                <tr>
-                  <Th>#</Th>
-                  <Th>ผู้มอบ</Th>
-                  <Th center>การบ้าน</Th>
-                  <Th center>งาน (เสร็จ/รวม)</Th>
-                  <Th center>คะแนนเฉลี่ย</Th>
-                  <Th center>ความคืบหน้า</Th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {byAssigner.map((g, i) => {
-                  const pct = g.total > 0 ? (g.done / g.total) * 100 : 0
-                  const avg = g.cntPct > 0 ? g.sumPct / g.cntPct : null
-                  return (
-                    <tr key={g.id} className="hover:bg-orange-50/30">
-                      <td className="px-2 py-2 text-slate-400 font-bold">{i + 1}</td>
-                      <td className="px-2 py-2"><p className="font-bold">{g.name}</p></td>
-                      <td className="px-2 py-2 text-center">
-                        <span className="inline-flex text-[10px] font-black bg-orange-50 text-orange-700 px-2 py-0.5 rounded">{g.rows.length}</span>
-                      </td>
-                      <td className="px-2 py-2 text-center text-[10px] font-bold">{g.done}/{g.total}</td>
-                      <td className="px-2 py-2 text-center">
-                        {avg != null ? (
-                          <span className={`font-black ${avg >= 80 ? "text-emerald-700" : avg >= 60 ? "text-amber-700" : "text-rose-700"}`}>
-                            {avg.toFixed(1)}%
-                          </span>
-                        ) : <span className="text-slate-400">—</span>}
-                      </td>
-                      <td className="px-2 py-2">
-                        <div className="flex items-center gap-1.5">
-                          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div className={`h-full ${pct === 100 ? "bg-emerald-500" : "bg-orange-500"}`} style={{ width: `${pct}%` }} />
-                          </div>
-                          <span className={`text-[10px] font-black ${pct === 100 ? "text-emerald-700" : "text-slate-700"}`}>{pct.toFixed(0)}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 5. All assignments quick list */}
-      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-        <p className="px-4 py-3 text-sm font-black text-slate-800 border-b border-slate-100">
-          📋 รายการการบ้านทั้งหมด ({total})
-        </p>
-        <div className="divide-y divide-slate-50 max-h-[400px] overflow-y-auto">
-          {assignments.map((a: any) => {
-            const stats = a._stats
-            const isDone = stats.done === stats.total && stats.total > 0
-            const isOverdue = a.due_date && a.due_date < today && !isDone
-            return (
-              <a key={a.id} href={`/app/branch-eval/manage/assignments/${a.id}`}
-                className="flex items-center gap-3 p-3 hover:bg-slate-50">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                  isDone ? "bg-emerald-100 text-emerald-700"
-                  : isOverdue ? "bg-rose-100 text-rose-700"
-                  : "bg-orange-100 text-orange-700"
-                }`}>
-                  <Layers size={12} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold truncate">{a.title}</p>
-                  <p className="text-[10px] text-slate-500 truncate">
-                    {a.template?.name}
-                    {a.assigner && <> · {a.assigner.first_name_th}</>}
-                    {a.due_date && <> · ครบ {format(new Date(a.due_date), "d MMM", { locale: th })}</>}
-                  </p>
-                </div>
-                {stats.avg_score != null && (
-                  <span className={`text-xs font-black ${
-                    Number(stats.avg_score) >= 80 ? "text-emerald-700"
-                    : Number(stats.avg_score) >= 60 ? "text-amber-700"
-                    : "text-rose-700"
-                  }`}>{Number(stats.avg_score).toFixed(0)}%</span>
-                )}
-                <div className="text-right text-xs">
-                  <p className="font-black">{stats.done}/{stats.total}</p>
-                  <div className="w-16 h-1 bg-slate-100 rounded-full mt-1">
-                    <div className={`h-full rounded-full ${isDone ? "bg-emerald-500" : isOverdue ? "bg-rose-500" : "bg-orange-500"}`}
-                      style={{ width: `${stats.progress}%` }} />
-                  </div>
-                </div>
-                {isOverdue && <span className="text-[9px] font-black text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded-full">เลย</span>}
-                {isDone && <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full">✓</span>}
-              </a>
-            )
-          })}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// TrendChart — SVG line + area chart พร้อม gridlines + avg line + trend badge
-function TrendChart({ trend }: { trend: { key: string; avg: number; n: number }[] }) {
-  if (trend.length === 0) {
-    return (
-      <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
-        <p className="text-sm font-black text-slate-800 mb-2">📈 แนวโน้มคะแนนเฉลี่ย</p>
-        <p className="py-8 text-center text-xs text-slate-400">ยังไม่มีข้อมูล — รอฟอร์มที่มีคะแนน</p>
-      </div>
-    )
-  }
-  const max = Math.max(100, ...trend.map(t => t.avg))
-  const min = Math.min(0, ...trend.map(t => t.avg))
-  const avg = trend.reduce((s, t) => s + t.avg, 0) / trend.length
-  const first = trend[0]?.avg ?? 0
-  const last = trend[trend.length - 1]?.avg ?? 0
-  const delta = last - first
-  const trending = delta > 5 ? "up" : delta < -5 ? "down" : "flat"
-
-  const W = 600, H = 180
-  const PADL = 28, PADR = 12, PADT = 18, PADB = 22
-  const innerW = W - PADL - PADR
-  const innerH = H - PADT - PADB
-  const xStep = trend.length > 1 ? innerW / (trend.length - 1) : 0
-  const yScale = (v: number) => PADT + innerH - ((v - min) / (max - min || 1)) * innerH
-
-  const points = trend.map((t, i) => ({
-    x: PADL + i * xStep,
-    y: yScale(t.avg),
-    label: t.key.slice(-3),
-    avg: t.avg,
-    n: t.n,
-  }))
-
-  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")
-  const areaPath = points.length > 1
-    ? `${linePath} L ${points[points.length - 1].x} ${PADT + innerH} L ${points[0].x} ${PADT + innerH} Z`
-    : ""
-  const yTicks = [0, 25, 50, 75, 100].filter(v => v <= max + 5)
-
-  return (
-    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-        <div>
-          <p className="text-sm font-black text-slate-800">📈 แนวโน้มคะแนนเฉลี่ยรายสัปดาห์</p>
-          <p className="text-[10px] text-slate-400">{trend.length} สัปดาห์ · เฉลี่ย {avg.toFixed(1)}%</p>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          {trending === "up" && (
-            <span className="flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full font-bold">
-              📈 ขึ้น {delta.toFixed(1)}%
-            </span>
-          )}
-          {trending === "down" && (
-            <span className="flex items-center gap-1 text-rose-700 bg-rose-50 px-2 py-1 rounded-full font-bold">
-              📉 ลง {Math.abs(delta).toFixed(1)}%
-            </span>
-          )}
-          {trending === "flat" && (
-            <span className="flex items-center gap-1 text-slate-700 bg-slate-100 px-2 py-1 rounded-full font-bold">
-              ➡️ คงที่
-            </span>
-          )}
-        </div>
-      </div>
-
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none" style={{ maxHeight: 240 }}>
-        {yTicks.map(v => (
-          <g key={v}>
-            <line x1={PADL} x2={W - PADR} y1={yScale(v)} y2={yScale(v)}
-              stroke="#e2e8f0" strokeDasharray="2 3" strokeWidth="1" />
-            <text x={PADL - 4} y={yScale(v) + 3} fontSize="9" textAnchor="end" fill="#94a3b8">{v}</text>
-          </g>
-        ))}
-        <line x1={PADL} x2={W - PADR} y1={yScale(avg)} y2={yScale(avg)}
-          stroke="#a78bfa" strokeDasharray="4 3" strokeWidth="1.2" opacity="0.7" />
-        <text x={W - PADR - 2} y={yScale(avg) - 3} fontSize="8" textAnchor="end" fill="#a78bfa" fontWeight="bold">
-          เฉลี่ย {avg.toFixed(0)}%
-        </text>
-        {points.length > 1 && (
-          <>
-            <defs>
-              <linearGradient id="trendArea-mgr" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
-                <stop offset="100%" stopColor="#6366f1" stopOpacity="0.02" />
-              </linearGradient>
-            </defs>
-            <path d={areaPath} fill="url(#trendArea-mgr)" />
-          </>
-        )}
-        <path d={linePath} stroke="#6366f1" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        {points.map((p, i) => (
-          <g key={i}>
-            <circle cx={p.x} cy={p.y} r="3.5" fill="#fff" stroke="#6366f1" strokeWidth="2" />
-            <text x={p.x} y={p.y - 8} fontSize="9.5" textAnchor="middle" fill="#4f46e5" fontWeight="bold">
-              {p.avg.toFixed(0)}%
-            </text>
-            <text x={p.x} y={H - 6} fontSize="9" textAnchor="middle" fill="#64748b" fontWeight="bold">
-              {p.label}
-            </text>
-            <text x={p.x} y={H + 2} fontSize="7.5" textAnchor="middle" fill="#cbd5e1">
-              {p.n}f
-            </text>
-          </g>
-        ))}
-      </svg>
-    </div>
-  )
-}
-
-// DrillDown — รายการฟอร์มเมื่อกดขยาย → คลิกไปดูฟอร์มเต็มได้
-function ManagerDrillDown({ forms }: { forms: any[] }) {
-  if (forms.length === 0) return <p className="px-4 py-3 text-xs text-slate-400 italic">ไม่มีฟอร์มในช่วงนี้</p>
-  return (
-    <div className="px-4 py-2 space-y-1.5">
-      <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider mt-1.5 mb-1">
-        รายการฟอร์ม ({forms.length})
-      </p>
-      <div className="space-y-1">
-        {forms.slice(0, 20).map((f: any) => (
-          <Link key={f.id} href={`/app/branch-eval/manage/evaluations/${f.id}`}
-            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-all flex-wrap">
-            <Store size={11} className="text-sky-500 flex-shrink-0"/>
-            <span className="text-xs font-bold text-slate-700 truncate">{f.branch?.name}</span>
-            <span className="text-[10px] text-slate-500 truncate hidden sm:inline">{f.template?.name}</span>
-            <Calendar size={9} className="text-slate-400 flex-shrink-0"/>
-            <span className="text-[10px] text-slate-500">{format(new Date(f.visit_date), "d MMM", { locale: th })}</span>
-            {f.evaluator && (
-              <>
-                <User size={9} className="text-slate-400 flex-shrink-0"/>
-                <span className="text-[10px] font-bold text-slate-600 truncate">{f.evaluator.first_name_th}</span>
-              </>
-            )}
-            {f.target_manager && (
-              <>
-                <Mail size={9} className="text-emerald-500 flex-shrink-0"/>
-                <span className="text-[10px] font-bold text-emerald-700 truncate">{f.target_manager.first_name_th}</span>
-              </>
-            )}
-            {f.evaluatee && (
-              <>
-                <User size={9} className="text-indigo-500 flex-shrink-0"/>
-                <span className="text-[10px] font-bold text-indigo-700 truncate">{f.evaluatee.first_name_th}</span>
-              </>
-            )}
-            <span className={`ml-auto text-xs font-black flex-shrink-0 ${
-              Number(f.percentage) >= 80 ? "text-emerald-600"
-              : Number(f.percentage) >= 60 ? "text-amber-600"
-              : "text-rose-600"
-            }`}>{Number(f.percentage).toFixed(0)}%</span>
-            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${
-              f.status === "draft" ? "bg-slate-100 text-slate-600"
-              : f.status === "submitted" ? "bg-amber-100 text-amber-700"
-              : "bg-emerald-100 text-emerald-700"
-            }`}>
-              {f.status === "draft" ? "ร่าง" : f.status === "submitted" ? "รอ" : "✓"}
-            </span>
-          </Link>
-        ))}
-        {forms.length > 20 && (
-          <p className="text-center text-[10px] text-slate-400 italic pt-1">+ อีก {forms.length - 20} ฟอร์ม</p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function MiniKpi({ color, label, value, sub }: any) {
-  const palette: Record<string, { bg: string; text: string }> = {
-    indigo:  { bg: "bg-indigo-50",  text: "text-indigo-700" },
-    emerald: { bg: "bg-emerald-50", text: "text-emerald-700" },
-    amber:   { bg: "bg-amber-50",   text: "text-amber-700" },
-    rose:    { bg: "bg-rose-50",    text: "text-rose-700" },
-    orange:  { bg: "bg-orange-50",  text: "text-orange-700" },
-    violet:  { bg: "bg-violet-50",  text: "text-violet-700" },
-  }
-  const p = palette[color] ?? palette.indigo
-  return (
-    <div className={`${p.bg} rounded-xl p-2.5`}>
-      <p className={`text-[9px] font-bold uppercase ${p.text} opacity-80`}>{label}</p>
-      <p className={`text-xl font-black ${p.text} leading-none mt-0.5`}>{value}</p>
-      {sub && <p className={`text-[9px] font-bold ${p.text} opacity-60 mt-0.5`}>{sub}</p>}
-    </div>
-  )
-}
-
-function DistRow({ label, color, count, total }: any) {
-  const pct = total > 0 ? (count / total) * 100 : 0
-  const colors: Record<string, string> = {
-    emerald: "bg-emerald-500",
-    amber: "bg-amber-500",
-    rose: "bg-rose-500",
-  }
-  return (
-    <div className="flex items-center gap-2 text-[10px]">
-      <span className="font-bold text-slate-600 w-32 flex-shrink-0">{label}</span>
-      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-        <div className={`h-full ${colors[color]}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="font-black text-slate-700 w-12 text-right flex-shrink-0">{count} ({pct.toFixed(0)}%)</span>
     </div>
   )
 }

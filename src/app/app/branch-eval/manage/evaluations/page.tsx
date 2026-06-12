@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   ArrowLeft, FileText, Filter, Search, Store, ChevronRight,
-  Calendar, User, RefreshCw, Mail,
+  Calendar, User, RefreshCw, Mail, Loader2,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -25,14 +25,29 @@ export default function SupervisorEvaluationsPage() {
   const [targetMgrFilter, setTargetMgrFilter] = useState("")
   const [evalteeFilter, setEvalteeFilter] = useState("")
 
-  const load = () => {
-    setLoading(true)
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
+  const [refreshing, setRefreshing] = useState(false)
+
+  const load = (silent: boolean = false) => {
+    if (silent) setRefreshing(true)
+    else setLoading(true)
     fetch("/api/branch-eval/evaluations").then(r => r.json()).then(d => {
       setEvals(d.evaluations ?? [])
-      setLoading(false)
+      setLastRefresh(new Date())
+    }).finally(() => {
+      if (silent) setRefreshing(false)
+      else setLoading(false)
     })
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(false) }, [])
+
+  // auto-refresh ทุก 30 วินาที + เมื่อสลับ tab กลับมา
+  useEffect(() => {
+    const id = setInterval(() => load(true), 30_000)
+    const onVis = () => { if (document.visibilityState === "visible") load(true) }
+    document.addEventListener("visibilitychange", onVis)
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis) }
+  }, [])
 
   const branchOpts = useMemo(() => {
     const m = new Map<string, string>()
@@ -88,10 +103,22 @@ export default function SupervisorEvaluationsPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-2xl font-black text-slate-800">ฟอร์มในสาขาที่ฉันดูแล</h2>
-          <p className="text-slate-400 text-sm">{filtered.length} / {evals.length} ฟอร์ม</p>
+          <p className="text-slate-400 text-sm flex items-center gap-1.5 flex-wrap">
+            {filtered.length} / {evals.length} ฟอร์ม
+            <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+              {refreshing
+                ? <><Loader2 size={9} className="animate-spin" /> กำลังอัปเดต</>
+                : <>· อัปเดต {lastRefresh.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</>}
+            </span>
+            <span className="text-[9px] text-emerald-600 inline-flex items-center gap-0.5">
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> live · refresh ทุก 30 วิ
+            </span>
+          </p>
         </div>
-        <button onClick={load} className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50">
-          <RefreshCw size={12} />
+        <button onClick={() => load(true)} disabled={refreshing}
+          title="รีเฟรชเดี๋ยวนี้"
+          className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 disabled:opacity-50">
+          <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
         </button>
       </div>
 

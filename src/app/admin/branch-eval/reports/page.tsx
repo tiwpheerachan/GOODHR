@@ -37,18 +37,40 @@ export default function ReportsPage() {
     return next
   })
 
-  const load = () => {
-    setLoading(true)
+  // ── lastRefresh สำหรับแสดง timestamp + indicator ──
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
+  const [refreshing, setRefreshing] = useState(false)
+
+  // ── silent=false: initial load (แสดง skeleton) / silent=true: auto-refresh (ไม่กระตุก) ──
+  const load = (silent: boolean = false) => {
+    if (silent) setRefreshing(true)
+    else setLoading(true)
     Promise.all([
       fetch("/api/branch-eval/evaluations").then(r => r.json()),
       fetch("/api/branch-eval/assignments").then(r => r.json()).catch(() => ({ assignments: [] })),
     ]).then(([e, a]) => {
       setEvals((e.evaluations ?? []).filter((x: any) => x.status !== "draft"))
       setAssignments(a.assignments ?? [])
-      setLoading(false)
+      setLastRefresh(new Date())
+    }).finally(() => {
+      if (silent) setRefreshing(false)
+      else setLoading(false)
     })
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(false) }, [])
+
+  // ── auto-refresh ทุก 30 วินาที (silent — ไม่กระตุก) ──
+  useEffect(() => {
+    const id = setInterval(() => load(true), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // ── refresh เมื่อ tab กลับมา active (สลับ tab/window กลับมา) ──
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "visible") load(true) }
+    document.addEventListener("visibilitychange", onVis)
+    return () => document.removeEventListener("visibilitychange", onVis)
+  }, [])
 
   const cutoff = useMemo(() => {
     const d = new Date(); d.setDate(d.getDate() - days)
@@ -546,7 +568,17 @@ export default function ReportsPage() {
           <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
             <BarChart3 size={20} className="text-emerald-600" /> รายงาน / Dashboard
           </h2>
-          <p className="text-slate-400 text-sm">ข้อมูล {filtered.length} ฟอร์ม ({days} วันย้อนหลัง)</p>
+          <p className="text-slate-400 text-sm flex items-center gap-1.5 flex-wrap">
+            ข้อมูล {filtered.length} ฟอร์ม ({days} วันย้อนหลัง)
+            <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+              {refreshing
+                ? <><Loader2 size={9} className="animate-spin" /> กำลังอัปเดต</>
+                : <>· อัปเดต {lastRefresh.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</>}
+            </span>
+            <span className="text-[9px] text-emerald-600 inline-flex items-center gap-0.5">
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> live · refresh ทุก 30 วิ
+            </span>
+          </p>
         </div>
         <div className="flex gap-2">
           <select value={days} onChange={e => setDays(Number(e.target.value))}
@@ -556,8 +588,10 @@ export default function ReportsPage() {
             <option value={180}>180 วัน</option>
             <option value={365}>1 ปี</option>
           </select>
-          <button onClick={load} className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50">
-            <RefreshCw size={12} />
+          <button onClick={() => load(true)} disabled={refreshing}
+            title="รีเฟรชเดี๋ยวนี้"
+            className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 disabled:opacity-50">
+            <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
           </button>
           <button onClick={() => askAI()} disabled={aiLoading || filtered.length === 0}
             className="px-3 py-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-sm disabled:opacity-40">

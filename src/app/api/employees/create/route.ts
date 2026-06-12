@@ -37,6 +37,8 @@ export async function POST(req: Request) {
       // checkin settings
       checkin_anywhere, is_attendance_exempt,
       allowed_branch_ids,
+      // Feishu data (optional — กรอกในขั้นตอนที่ 4 ของ form หรือเว้นไว้กรอกย้อนหลังในแท็บ Feishu Link)
+      feishu,
     } = body
 
     // Validate: ป้องกันปี พ.ศ. (> 2100)
@@ -217,6 +219,60 @@ export async function POST(req: Request) {
       )
     }
 
+    // 9. สร้าง feishu_users row + auto-link → goodhr_employee_id (ถ้า admin กรอกข้อมูล Feishu)
+    let feishuWarning: string | null = null
+    if (feishu && typeof feishu === "object" && feishu.feishu_user_id) {
+      const fuId = String(feishu.feishu_user_id).trim()
+      const fuName = (feishu.name || "").trim() || fuId
+      // ตรวจสอบซ้ำ — feishu_user_id เป็น UNIQUE
+      const { data: existing } = await supabase.from("feishu_users")
+        .select("id, goodhr_employee_id, name").eq("feishu_user_id", fuId).maybeSingle()
+      if (existing) {
+        feishuWarning = `Feishu User ID "${fuId}" มีอยู่แล้วในระบบ (ผูกกับ "${existing.name}"${existing.goodhr_employee_id ? " ซึ่ง link กับพนักงานคนอื่น" : ""}) — ข้ามการสร้าง Feishu row, สามารถ link ด้วยตนเองในแท็บ 🔗 Feishu Link`
+      } else {
+        const norm = (s: any) => {
+          if (s == null) return null
+          const v = String(s).trim()
+          return v ? v : null
+        }
+        const normEmail = (s: any) => {
+          const v = norm(s); return v ? v.toLowerCase() : null
+        }
+        const { error: fErr } = await supabase.from("feishu_users").insert({
+          feishu_user_id:    fuId,
+          name:              fuName,
+          name_cn:           norm(feishu.name_cn),
+          name_en:           norm(feishu.name_en),
+          nickname:          norm(feishu.nickname),
+          employee_number:   norm(feishu.employee_number),
+          email:             normEmail(feishu.email),
+          email_work:        normEmail(feishu.email_work),
+          email_business:    normEmail(feishu.email_business),
+          phone:             norm(feishu.phone),
+          department_path:   norm(feishu.department_path),
+          job_title:         norm(feishu.job_title),
+          workforce_type:    norm(feishu.workforce_type),
+          start_date:        feishu.start_date || null,
+          gender:            norm(feishu.gender),
+          city:              norm(feishu.city),
+          status:            norm(feishu.status) || "Active",
+          brand:             norm(feishu.brand),
+          mentor:            norm(feishu.mentor),
+          direct_manager_raw: norm(feishu.direct_manager_raw),
+          // ── auto-link → newly created GoodHR employee ──
+          goodhr_employee_id: emp.id,
+          match_method:       "manual",
+          match_confidence:   100,
+          matched_at:         new Date().toISOString(),
+          manually_verified:  true,
+          match_note:         "Created via new employee form",
+        })
+        if (fErr) {
+          feishuWarning = `สร้าง Feishu user ไม่สำเร็จ: ${fErr.message} — สามารถ link ด้วยตนเองในแท็บ 🔗 Feishu Link`
+        }
+      }
+    }
+
     // Audit log
     const { data: actorUser } = await supabase.from("users").select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", caller.id).single()
     const ae = actorUser?.employee as any
@@ -229,7 +285,11 @@ export async function POST(req: Request) {
       companyId: company_id,
     })
 
-    return NextResponse.json({ employee_id: emp.id, auth_id: authId })
+    return NextResponse.json({
+      employee_id: emp.id,
+      auth_id: authId,
+      ...(feishuWarning ? { feishu_warning: feishuWarning } : {}),
+    })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
