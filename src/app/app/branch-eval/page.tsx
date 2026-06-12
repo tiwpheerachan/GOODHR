@@ -5,7 +5,7 @@ import {
   Store, ClipboardCheck, Loader2, MapPin, Plus, ChevronRight,
   Clock, CheckCircle2, FileText, ShieldAlert, Search, X,
   BadgeCheck, Settings, RefreshCw, Building2, ChevronDown, Check,
-  ClipboardList, Calendar,
+  ClipboardList, Calendar, Trash2,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -72,6 +72,21 @@ export default function BranchEvalLandingPage() {
     }).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
+
+  // ── ลบฉบับร่าง (เจ้าของเท่านั้น) ──
+  const deleteDraft = async (ev: Eval, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!confirm(`ลบฉบับร่างของสาขา "${ev.branch?.name}"?\nการลบนี้สามารถกู้คืนได้ในถังขยะ`)) return
+    const t = toast.loading("กำลังลบ...")
+    try {
+      const res = await fetch(`/api/branch-eval/evaluations?id=${ev.id}`, { method: "DELETE" })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "ลบไม่สำเร็จ", { id: t }); return }
+      toast.success("ลบฉบับร่างแล้ว", { id: t })
+      setEvals(prev => prev.filter(x => x.id !== ev.id))
+    } catch { toast.error("เครือข่ายมีปัญหา", { id: t }) }
+  }
 
   const stats = useMemo(() => ({
     total: evals.length,
@@ -311,29 +326,39 @@ export default function BranchEvalLandingPage() {
           <div className="space-y-2">
             {evals.map(ev => {
               const S = STATUS_COLOR[ev.status]
+              const isDraft = ev.status === "draft"
               return (
-                <Link key={ev.id} href={`/app/branch-eval/${ev.id}`}
-                  className="group flex items-center gap-3 p-2.5 bg-slate-50 hover:bg-white border border-slate-100 hover:border-indigo-200 rounded-xl transition-all">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-400 to-indigo-500 text-white flex items-center justify-center flex-shrink-0">
-                    <Store size={16} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="text-sm font-bold text-slate-800 truncate">{ev.branch?.name}</p>
-                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${S.bg} ${S.text}`}>{S.label}</span>
+                <div key={ev.id} className="relative group">
+                  <Link href={`/app/branch-eval/${ev.id}`}
+                    className="flex items-center gap-3 p-2.5 bg-slate-50 hover:bg-white border border-slate-100 hover:border-indigo-200 rounded-xl transition-all">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-400 to-indigo-500 text-white flex items-center justify-center flex-shrink-0">
+                      <Store size={16} />
                     </div>
-                    <p className="text-[10px] text-slate-500 mt-0.5">
-                      📋 {ev.template?.name} · 🗓 {format(new Date(ev.visit_date), "d MMM yyyy", { locale: th })}
-                    </p>
-                  </div>
-                  {ev.status !== "draft" && (
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-sm font-black text-emerald-700">{Number(ev.percentage).toFixed(0)}%</p>
-                      <p className="text-[9px] text-slate-400">{ev.total_score}/{ev.total_weight}</p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-sm font-bold text-slate-800 truncate">{ev.branch?.name}</p>
+                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${S.bg} ${S.text}`}>{S.label}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        📋 {ev.template?.name} · 🗓 {format(new Date(ev.visit_date), "d MMM yyyy", { locale: th })}
+                      </p>
                     </div>
-                  )}
-                  <ChevronRight size={14} className="text-slate-300 group-hover:text-indigo-600 flex-shrink-0" />
-                </Link>
+                    {!isDraft && (
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-sm font-black text-emerald-700">{Number(ev.percentage).toFixed(0)}%</p>
+                        <p className="text-[9px] text-slate-400">{ev.total_score}/{ev.total_weight}</p>
+                      </div>
+                    )}
+                    {isDraft && (
+                      <button onClick={e => deleteDraft(ev, e)}
+                        title="ลบฉบับร่าง"
+                        className="flex-shrink-0 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
+                        <Trash2 size={13}/>
+                      </button>
+                    )}
+                    <ChevronRight size={14} className="text-slate-300 group-hover:text-indigo-600 flex-shrink-0" />
+                  </Link>
+                </div>
               )
             })}
           </div>

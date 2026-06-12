@@ -89,6 +89,16 @@ export async function GET(req: NextRequest) {
   if (status) q = q.eq("status", status)
   if (templateId) q = q.eq("template_id", templateId)
 
+  // ── Drafts ซ่อนจากทุกคนยกเว้นเจ้าของฉบับร่าง ──
+  //   (admin/supervisor ไม่เห็น draft ของคนอื่นจนกว่าจะกด "ส่ง" → status เปลี่ยนเป็น submitted)
+  //   ถ้า caller ขอ status=draft ตรงๆ → ก็คืน เฉพาะของตัวเองอยู่ดี
+  if (!showDeleted && access.employeeId) {
+    q = q.or(`status.neq.draft,evaluator_id.eq.${access.employeeId}`)
+  } else if (!showDeleted) {
+    // ไม่มี employeeId → ตัด draft ออกหมด
+    q = q.neq("status", "draft")
+  }
+
   // ── ?pending_for_me=1 → submitted + (target_manager_id=me OR branch ที่ supervise) ──
   // admin → ดูทั้งหมดที่ status=submitted
   if (pendingForMe) {
@@ -198,6 +208,43 @@ export async function PATCH(req: NextRequest) {
   // ── action: submit ──
   if (action === "submit") {
     if (!isOwner && !isManager) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
+
+    // ── Validate: ข้อที่บังคับให้แนบรูป (requires_photo=true) ต้องมีอย่างน้อย 1 รูป ──
+    const { data: evRow } = await svc.from("branch_evaluations")
+      .select("template_id").eq("id", id).single()
+    if (evRow?.template_id) {
+      const [{ data: items }, { data: answers }] = await Promise.all([
+        svc.from("branch_eval_template_items")
+          .select("id, order_no, code, question_th, requires_photo, is_section")
+          .eq("template_id", evRow.template_id)
+          .eq("requires_photo", true),
+        svc.from("branch_evaluation_answers")
+          .select("item_id, photo_urls").eq("evaluation_id", id),
+      ])
+      const answerMap = new Map<string, string[]>()
+      for (const a of (answers ?? [])) {
+        answerMap.set(a.item_id, Array.isArray(a.photo_urls) ? a.photo_urls : [])
+      }
+      const missing = (items ?? [])
+        .filter((it: any) => !it.is_section)
+        .filter((it: any) => {
+          const ph = answerMap.get(it.id) ?? []
+          return ph.length === 0
+        })
+        .map((it: any) => ({
+          id: it.id,
+          order_no: it.order_no,
+          code: it.code,
+          question: it.question_th,
+        }))
+      if (missing.length > 0) {
+        return NextResponse.json({
+          error: `มีข้อที่บังคับให้แนบรูปแต่ยังไม่ได้แนบ (${missing.length} ข้อ)`,
+          missing_photo_items: missing,
+        }, { status: 400 })
+      }
+    }
+
     await svc.rpc("recalc_branch_evaluation_score", { p_eval_id: id })
 
     // ถ้ายังไม่ได้กรอกเวลา → ใช้เวลาที่กดส่งเป็น snapshot (timezone: Asia/Bangkok)

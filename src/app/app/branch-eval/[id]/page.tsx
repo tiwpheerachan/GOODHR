@@ -284,7 +284,43 @@ export default function BranchEvalDetailPage() {
   }
 
   // ── Submit evaluation ──
+  // ลบฉบับร่าง (เจ้าของ + สถานะ draft เท่านั้น)
+  const deleteDraft = async () => {
+    if (!confirm("ลบฉบับร่างนี้?\n— ระบบจะย้ายไปถังขยะ (กู้คืนได้)")) return
+    const t = toast.loading("กำลังลบ...")
+    try {
+      const res = await fetch(`/api/branch-eval/evaluations?id=${id}`, { method: "DELETE" })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "ลบไม่สำเร็จ", { id: t }); return }
+      toast.success("ลบฉบับร่างแล้ว", { id: t })
+      router.push("/app/branch-eval")
+    } catch { toast.error("เครือข่ายมีปัญหา", { id: t }) }
+  }
+
+  // ── Client-side validation: ข้อที่บังคับให้แนบรูปต้องมีรูป ──
+  //   (ตรงกับ backend — แสดง toast เร็วกว่าเดิมโดยไม่ต้องรอ server reply)
+  const missingPhotoItems = useMemo(() => {
+    return items
+      .filter((it: any) => !it.is_section && it.requires_photo)
+      .filter((it: any) => {
+        const a = answerById.get(it.id)
+        return !a?.photo_urls || a.photo_urls.length === 0
+      })
+  }, [items, answerById])
+
   const submit = async () => {
+    // ตรวจ require_photo ก่อนยิง API
+    if (missingPhotoItems.length > 0) {
+      const list = missingPhotoItems.slice(0, 3).map(it => `• ข้อ ${it.order_no}: ${it.question_th}`).join("\n")
+      const more = missingPhotoItems.length > 3 ? `\n…และอีก ${missingPhotoItems.length - 3} ข้อ` : ""
+      toast.error(`มีข้อที่บังคับให้แนบรูปแต่ยังไม่ได้แนบ ${missingPhotoItems.length} ข้อ:\n${list}${more}`,
+        { duration: 6000, style: { whiteSpace: "pre-line" } })
+      // scroll ไปข้อแรกที่ขาดรูป
+      const first = missingPhotoItems[0]
+      const el = document.getElementById(`item-${first.id}`)
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" })
+      return
+    }
     if (!confirm("ส่งฟอร์มเลย? (แก้ไขเพิ่มเติมได้หลังส่ง)")) return
     const t = toast.loading("กำลังส่ง...")
     const res = await fetch("/api/branch-eval/evaluations", {
@@ -292,7 +328,17 @@ export default function BranchEvalDetailPage() {
       body: JSON.stringify({ id, action: "submit" }),
     })
     const d = await res.json()
-    if (!res.ok) { toast.error(d.error, { id: t }); return }
+    if (!res.ok) {
+      // ถ้า backend ตอบ missing_photo_items มา → list ออกมา
+      if (d.missing_photo_items && Array.isArray(d.missing_photo_items)) {
+        const list = d.missing_photo_items.slice(0, 3).map((it: any) => `• ข้อ ${it.order_no}: ${it.question}`).join("\n")
+        const more = d.missing_photo_items.length > 3 ? `\n…และอีก ${d.missing_photo_items.length - 3} ข้อ` : ""
+        toast.error(`${d.error}\n${list}${more}`, { id: t, duration: 6000, style: { whiteSpace: "pre-line" } })
+      } else {
+        toast.error(d.error, { id: t })
+      }
+      return
+    }
     toast.success("ส่งแล้ว", { id: t })
     await load(true)  // silent
   }
@@ -346,11 +392,36 @@ export default function BranchEvalDetailPage() {
           <span className={`text-[10px] font-black px-2 py-1 rounded-full ${
             ev.status === "draft" ? "bg-slate-100 text-slate-700"
             : ev.status === "submitted" ? "bg-sky-100 text-sky-700"
+            : ev.status === "rejected" ? "bg-rose-100 text-rose-700"
             : "bg-emerald-100 text-emerald-700"
           }`}>
             {STATUS_LABEL[ev.status]}
           </span>
         </div>
+
+        {/* ── Rejection banner — เห็นเด่นๆ ตอน status=rejected ── */}
+        {ev.status === "rejected" && access.is_owner && (
+          <div className="mt-3 bg-gradient-to-r from-rose-500 to-pink-500 rounded-2xl p-4 text-white shadow-md">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-black">⚠️ แบบประเมินไม่ผ่าน — กรุณาแก้ไขใหม่</p>
+                <p className="text-[11px] opacity-90 mt-0.5">
+                  หัวหน้าปฏิเสธฟอร์มนี้ — แก้ไขแล้วกด <b>ส่งฟอร์ม</b> อีกครั้งเพื่อให้พิจารณาใหม่
+                  {ev.reviewer && <> · ปฏิเสธโดย {ev.reviewer.first_name_th} {ev.reviewer.last_name_th}</>}
+                </p>
+                {ev.reviewer_notes && (
+                  <div className="mt-2 bg-white/15 rounded-lg p-2.5 text-[11px]">
+                    <p className="font-bold opacity-80 text-[10px] mb-0.5">เหตุผลที่ปฏิเสธ:</p>
+                    <p className="whitespace-pre-wrap leading-relaxed">{ev.reviewer_notes}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* progress + score */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-3">
@@ -642,17 +713,23 @@ export default function BranchEvalDetailPage() {
               )
             }
             const a = answerById.get(it.id)
-            return <ItemRow key={it.id} item={it} answer={a}
-              busy={busy === it.id}
-              disabled={!access.can_edit}
-              onSetAnswer={(val) => saveAnswer(it.id, { answer_value: val })}
-              onSetNote={(note) => saveAnswer(it.id, { note })}
-              onAddPhoto={() => uploadPhotoForItem(it.id)}
-              onRemovePhoto={async (url) => {
-                const photos = (a?.photo_urls ?? []).filter(p => p !== url)
-                await saveAnswer(it.id, { photo_urls: photos })
-              }}
-            />
+            const isPhotoMissing = it.requires_photo && (!a?.photo_urls || a.photo_urls.length === 0)
+            return (
+              <div key={it.id} id={`item-${it.id}`}>
+                <ItemRow item={it} answer={a}
+                  busy={busy === it.id}
+                  disabled={!access.can_edit}
+                  photoMissing={isPhotoMissing}
+                  onSetAnswer={(val) => saveAnswer(it.id, { answer_value: val })}
+                  onSetNote={(note) => saveAnswer(it.id, { note })}
+                  onAddPhoto={() => uploadPhotoForItem(it.id)}
+                  onRemovePhoto={async (url) => {
+                    const photos = (a?.photo_urls ?? []).filter(p => p !== url)
+                    await saveAnswer(it.id, { photo_urls: photos })
+                  }}
+                />
+              </div>
+            )
           })}
         </div>
       </div>
@@ -725,17 +802,26 @@ export default function BranchEvalDetailPage() {
             <b className="text-slate-800">{answered}/{realItems.length}</b> ข้อ · <b className="text-indigo-700">{Number(ev.percentage).toFixed(1)}%</b>
           </p>
           <div className="flex gap-1.5">
-            {ev.status === "draft" && (
-              <button onClick={submit}
-                className={`px-4 py-2.5 text-white rounded-xl text-sm font-black inline-flex items-center gap-1.5 shadow ${
-                  answered === realItems.length
-                    ? "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 animate-pulse ring-2 ring-emerald-300"
-                    : "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
-                }`}>
-                <Send size={14} /> ส่งฟอร์ม
+            {ev.status === "draft" && access.is_owner && (
+              <button onClick={deleteDraft}
+                title="ลบฉบับร่าง"
+                className="px-3 py-2.5 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-bold inline-flex items-center gap-1.5">
+                <Trash2 size={12}/> ลบร่าง
               </button>
             )}
-            {ev.status !== "draft" && (
+            {(ev.status === "draft" || (ev.status === "rejected" && access.is_owner)) && (
+              <button onClick={submit}
+                className={`px-4 py-2.5 text-white rounded-xl text-sm font-black inline-flex items-center gap-1.5 shadow ${
+                  ev.status === "rejected"
+                    ? "bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 ring-2 ring-rose-300"
+                    : answered === realItems.length
+                      ? "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 animate-pulse ring-2 ring-emerald-300"
+                      : "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+                }`}>
+                <Send size={14} /> {ev.status === "rejected" ? "ส่งใหม่อีกครั้ง" : "ส่งฟอร์ม"}
+              </button>
+            )}
+            {ev.status !== "draft" && !(ev.status === "rejected" && access.is_owner) && (
               <Link href="/app/branch-eval"
                 className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black inline-flex items-center gap-1.5">
                 <ArrowLeft size={12} /> เสร็จสิ้น
@@ -772,8 +858,9 @@ function Field({ label, value, onChange, type = "text", disabled, placeholder }:
 }
 
 // ─────────────────────────────────────────────────────────────────
-function ItemRow({ item, answer, busy, disabled, onSetAnswer, onSetNote, onAddPhoto, onRemovePhoto }: {
+function ItemRow({ item, answer, busy, disabled, photoMissing, onSetAnswer, onSetNote, onAddPhoto, onRemovePhoto }: {
   item: Item; answer?: Answer; busy: boolean; disabled: boolean
+  photoMissing?: boolean
   onSetAnswer: (val: any) => void
   onSetNote: (note: string) => void
   onAddPhoto: () => void
@@ -786,7 +873,8 @@ function ItemRow({ item, answer, busy, disabled, onSetAnswer, onSetNote, onAddPh
 
   return (
     <div className={`border rounded-xl overflow-hidden transition-all ${
-      isPass === true ? "bg-emerald-50/60 border-emerald-200"
+      photoMissing ? "bg-amber-50/70 border-amber-300 ring-2 ring-amber-200"
+      : isPass === true ? "bg-emerald-50/60 border-emerald-200"
       : isPass === false ? "bg-rose-50/60 border-rose-200"
       : "bg-white border-slate-100"
     }`}>
@@ -797,8 +885,22 @@ function ItemRow({ item, answer, busy, disabled, onSetAnswer, onSetNote, onAddPh
           : "bg-slate-200 text-slate-600"
         }`}>{item.code}</div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-slate-800 leading-snug">{item.question_th}</p>
+          <p className="text-sm font-bold text-slate-800 leading-snug">
+            {item.question_th}
+            {item.requires_photo && (
+              <span className={`ml-1.5 inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.5 rounded ${
+                photoMissing ? "bg-amber-500 text-white" : "bg-amber-100 text-amber-700"
+              }`}>
+                <Camera size={8}/> บังคับรูป
+              </span>
+            )}
+          </p>
           {item.question_en && <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{item.question_en}</p>}
+          {photoMissing && (
+            <p className="text-[10px] font-bold text-amber-700 mt-0.5 inline-flex items-center gap-0.5">
+              <AlertCircle size={9}/> ต้องแนบรูปอย่างน้อย 1 รูป
+            </p>
+          )}
           {item.sub_notes.length > 0 && (
             <button onClick={() => setExpanded(s => !s)}
               className="text-[10px] text-indigo-600 hover:text-indigo-700 mt-1 inline-flex items-center gap-0.5">
