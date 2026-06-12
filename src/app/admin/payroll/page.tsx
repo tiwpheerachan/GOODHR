@@ -59,6 +59,33 @@ const calcOTAmt = (base: number, min: number, rate: number) =>
 // Column definition
 interface RCol { key: string; label: string; group: "info"|"income"|"deduction"|"summary"; get: (r: any, i: number) => string | number }
 
+// ── Auto-prorate helper ──
+//   ใช้ hire_date + งวด → คำนวณ "วันทำงานในงวด"
+//   ถ้าเริ่มงานก่อนงวด → null (ทำเต็มเดือน)
+//   ถ้าเริ่มงานในช่วงงวด → end - hire + 1 (inclusive)
+//   ถ้าเริ่มงานหลังงวด → null
+function computeAutoProrateDays(hireDate?: string | null, periodStart?: string | null, periodEnd?: string | null): number | null {
+  if (!hireDate || !periodStart || !periodEnd) return null
+  const h = new Date(hireDate)
+  const s = new Date(periodStart)
+  const e = new Date(periodEnd)
+  if (isNaN(h.getTime()) || isNaN(s.getTime()) || isNaN(e.getTime())) return null
+  const mid = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const hM = mid(h), sM = mid(s), eM = mid(e)
+  if (hM <= sM) return null
+  if (hM > eM)  return null
+  const days = Math.round((eM - hM) / 86_400_000) + 1
+  if (days < 1 || days >= 30) return null
+  return days
+}
+
+// applyAutoProrate(record): clone record + ถ้า prorate_days==null และมี _autoProrateDays → ใช้แทน
+function applyAutoProrate(r: any): any {
+  if (r?.prorate_days != null) return r
+  if (r?._autoProrateDays == null) return r
+  return { ...r, prorate_days: r._autoProrateDays }
+}
+
 const REG_COLS: RCol[] = [
   // info
   { key:"no",    label:"ลำดับ",          group:"info", get:(_,i)=>i+1 },
@@ -73,11 +100,12 @@ const REG_COLS: RCol[] = [
     if (Array.isArray(b)) return b.join(", ")
     return b || ""
   }},
-  { key:"days",  label:"วันทำงาน",       group:"info", get:r=>r.prorate_days ?? "" },
+  { key:"days",  label:"วันทำงาน",       group:"info", get:r=>r.prorate_days ?? r._autoProrateDays ?? "" },
   // income
   { key:"base",        label:"เงินเดือน",            group:"income", get:r=>n(r.base_salary) },
-  { key:"base_eff",    label:"ฐานเงินเดือนเดือนนี้",  group:"income", get:r=>recomputePayroll(r).effBase },
-  { key:"bonus",       label:"โบนัส KPI",             group:"income", get:r=>recomputePayroll(r).effBonus },
+  // ใช้ _autoProrateDays เป็น fallback ถ้า HR ยังไม่ได้กรอก prorate_days
+  { key:"base_eff",    label:"ฐานเงินเดือนเดือนนี้",  group:"income", get:r=>recomputePayroll(applyAutoProrate(r)).effBase },
+  { key:"bonus",       label:"โบนัส KPI",             group:"income", get:r=>recomputePayroll(applyAutoProrate(r)).effBonus },
   { key:"kpi_grade",   label:"เกรด",                  group:"income", get:r=>r.kpi_grade === "pending" ? "รอ" : r.kpi_grade||"" },
   { key:"ot_total",    label:"รวม OT",              group:"income", get:r=>{
     const fromMin = calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
@@ -117,12 +145,12 @@ const REG_COLS: RCol[] = [
   { key:"emp_prod",    label:"สินค้าพนักงาน",         group:"deduction", get:r=>n((r.deduction_extras||{}).employee_products) },
   { key:"legal",       label:"กรมบังคับคดี",          group:"deduction", get:r=>n((r.deduction_extras||{}).legal_enforcement) },
   { key:"student",     label:"กยศ.",                group:"deduction", get:r=>n((r.deduction_extras||{}).student_loan) },
-  { key:"sso",         label:"ประกันสังคม",           group:"deduction", get:r=>recomputePayroll(r).sso },
-  { key:"tax",         label:"ภาษีหัก ณ ที่จ่าย",     group:"deduction", get:r=>recomputePayroll(r).tax },
+  { key:"sso",         label:"ประกันสังคม",           group:"deduction", get:r=>recomputePayroll(applyAutoProrate(r)).sso },
+  { key:"tax",         label:"ภาษีหัก ณ ที่จ่าย",     group:"deduction", get:r=>recomputePayroll(applyAutoProrate(r)).tax },
   // summary
-  { key:"gross",       label:"รวมรายรับ",             group:"summary", get:r=>recomputePayroll(r).gross },
-  { key:"total_ded",   label:"รวมรายหัก",             group:"summary", get:r=>recomputePayroll(r).totalDed },
-  { key:"net",         label:"ยอดคงเหลือสุทธิ",       group:"summary", get:r=>recomputePayroll(r).net },
+  { key:"gross",       label:"รวมรายรับ",             group:"summary", get:r=>recomputePayroll(applyAutoProrate(r)).gross },
+  { key:"total_ded",   label:"รวมรายหัก",             group:"summary", get:r=>recomputePayroll(applyAutoProrate(r)).totalDed },
+  { key:"net",         label:"ยอดคงเหลือสุทธิ",       group:"summary", get:r=>recomputePayroll(applyAutoProrate(r)).net },
 ]
 
 const INFO_C = REG_COLS.filter(c => c.group === "info")
@@ -432,7 +460,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                   </div>
                 </td>
                 <td className="px-3 py-3 text-right">{(() => {
-                  const rc = recomputePayroll(r)
+                  const rc = recomputePayroll(applyAutoProrate(r))
                   return <>
                     <p className="font-bold text-slate-700">฿{thb(rc.effBase)}</p>
                     {rc.isProrated && <p className="text-[9px] text-amber-600 font-bold">({rc.prorateDays}/30 วัน)</p>}
@@ -440,7 +468,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                 })()}</td>
                 <td className="px-3 py-3 text-center">
                   {n(r.bonus) > 0 ? (() => {
-                    const rc = recomputePayroll(r)
+                    const rc = recomputePayroll(applyAutoProrate(r))
                     return (
                     <div>
                       <p className="font-bold text-purple-700">฿{thb(rc.effBonus)}</p>
@@ -471,7 +499,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                 })()}</td>
                 <td className="px-3 py-3 text-right">{totalDeductWork > 0 ? <p className="font-bold text-red-600">-฿{thb(totalDeductWork)}</p> : <span className="text-slate-200">—</span>}</td>
                 {(() => {
-                  const rc = recomputePayroll(r)
+                  const rc = recomputePayroll(applyAutoProrate(r))
                   return <>
                     <td className="px-3 py-3 text-right text-slate-600">-฿{thb(rc.sso)}</td>
                     <td className="px-3 py-3 text-right text-slate-600">-฿{thb(rc.tax)}</td>
@@ -491,14 +519,14 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
         <tfoot className="bg-indigo-50 border-t-2 border-indigo-100">
           <tr>
             <td className="px-4 py-3 font-black text-slate-700">{records.length} คน</td>
-            <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).effBase,0))}</td>
-            <td className="px-3 py-3 text-center font-bold text-purple-700">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).effBonus,0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-slate-700">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(applyAutoProrate(r)).effBase,0))}</td>
+            <td className="px-3 py-3 text-center font-bold text-purple-700">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(applyAutoProrate(r)).effBonus,0))}</td>
             <td className="px-3 py-3 text-right font-bold text-green-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other),0))}</td>
             <td className="px-3 py-3 font-bold text-amber-700">฿{thb(records.reduce((s:number,r:any)=>s+n(r.ot_amount),0))}</td>
             <td className="px-3 py-3 text-right font-bold text-red-600">-฿{thb(records.reduce((s:number,r:any)=>s+n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent),0))}</td>
-            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).sso,0))}</td>
-            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).tax,0))}</td>
-            <td className="px-3 py-3 text-right font-black text-indigo-700 text-sm">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(r).net,0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(applyAutoProrate(r)).sso,0))}</td>
+            <td className="px-3 py-3 text-right font-bold text-slate-600">-฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(applyAutoProrate(r)).tax,0))}</td>
+            <td className="px-3 py-3 text-right font-black text-indigo-700 text-sm">฿{thb(records.reduce((s:number,r:any)=>s+recomputePayroll(applyAutoProrate(r)).net,0))}</td>
             <td/>
           </tr>
         </tfoot>
@@ -678,7 +706,7 @@ function exportXLSX(records: any[], period: any) {
     }
     const allowTotal = (r:any) => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)
     // ใช้ effBonus (prorated) แทน r.bonus เพื่อให้ตรงกับ gross/net
-    const bonusTotal = (r:any) => recomputePayroll(r).effBonus+n(ie(r).kpi||0)+n(ie(r).incentive||0)+n(ie(r).performance_bonus||0)+n(ie(r).diligence_bonus||0)+n(ie(r).referral_bonus||0)
+    const bonusTotal = (r:any) => recomputePayroll(applyAutoProrate(r)).effBonus+n(ie(r).kpi||0)+n(ie(r).incentive||0)+n(ie(r).performance_bonus||0)+n(ie(r).diligence_bonus||0)+n(ie(r).referral_bonus||0)
     const commTotal  = (r:any) => n(r.commission)+n(ie(r).service_fee||0)+n(ie(r).campaign||0)
     const otherInc   = (r:any) => n(r.other_income)+n(ie(r).depreciation||0)+n(ie(r).expressway||0)+n(ie(r).fuel||0)+n(ie(r).retirement_fund||0)+n(ie(r).per_diem||0)
     const workDeduct = (r:any) => n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)
@@ -692,13 +720,13 @@ function exportXLSX(records: any[], period: any) {
       sum(bonusTotal),
       sum(commTotal),
       sum(otherInc),
-      sum(r=>recomputePayroll(r).gross),
+      sum(r=>recomputePayroll(applyAutoProrate(r)).gross),
       sum(workDeduct),
-      sum(r=>recomputePayroll(r).sso),
-      sum(r=>recomputePayroll(r).tax),
+      sum(r=>recomputePayroll(applyAutoProrate(r)).sso),
+      sum(r=>recomputePayroll(applyAutoProrate(r)).tax),
       sum(extraDeduct),
-      sum(r=>recomputePayroll(r).totalDed),
-      sum(r=>recomputePayroll(r).net),
+      sum(r=>recomputePayroll(applyAutoProrate(r)).totalDed),
+      sum(r=>recomputePayroll(applyAutoProrate(r)).net),
     ]
   })
   // total row
@@ -734,12 +762,12 @@ function exportXLSX(records: any[], period: any) {
         co, recs.length,
         sum(r=>n(r.base_salary)), sum(otA),
         sum(r=>n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)),
-        sum(r=>recomputePayroll(r).effBonus), sum(r=>n(r.commission)), sum(r=>n(r.other_income)),
-        sum(r=>recomputePayroll(r).gross),
+        sum(r=>recomputePayroll(applyAutoProrate(r)).effBonus), sum(r=>n(r.commission)), sum(r=>n(r.other_income)),
+        sum(r=>recomputePayroll(applyAutoProrate(r)).gross),
         sum(r=>n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)),
-        sum(r=>recomputePayroll(r).sso), sum(r=>recomputePayroll(r).tax),
+        sum(r=>recomputePayroll(applyAutoProrate(r)).sso), sum(r=>recomputePayroll(applyAutoProrate(r)).tax),
         sum(r=>n(r.deduct_loan)+n(r.deduct_other)),
-        sum(r=>recomputePayroll(r).totalDed), sum(r=>recomputePayroll(r).net),
+        sum(r=>recomputePayroll(applyAutoProrate(r)).totalDed), sum(r=>recomputePayroll(applyAutoProrate(r)).net),
       ]
     })
     const coTotRow = deptSumHeaders.map((_,ci) => ci===0 ? "รวมทั้งหมด" : coSumData.reduce((s,r)=>s+(typeof r[ci]==="number"?r[ci] as number:0),0))
@@ -769,7 +797,7 @@ function exportXLSX(records: any[], period: any) {
     ["ค่าที่พัก",                  grand(r=>n(r.allowance_housing))],
     ["ค่าเสื่อมรถยนต์",             grand(r=>n(r.allowance_vehicle))],
     ["เบี้ยเลี้ยงอื่นๆ",            grand(r=>n(r.allowance_other))],
-    ["Bonus / KPI",               grand(r=>recomputePayroll(r).effBonus+n(ie2(r).kpi||0))],
+    ["Bonus / KPI",               grand(r=>recomputePayroll(applyAutoProrate(r)).effBonus+n(ie2(r).kpi||0))],
     ["Incentive",                 grand(r=>n(ie2(r).incentive||0))],
     ["Performance Bonus",         grand(r=>n(ie2(r).performance_bonus||0))],
     ["Commission",                grand(r=>n(r.commission))],
@@ -796,13 +824,13 @@ function exportXLSX(records: any[], period: any) {
     ["กรมบังคับคดี",               grand(r=>n(de2(r).legal_enforcement||0))],
     ["กยศ.",                       grand(r=>n(de2(r).student_loan||0))],
     ["หักเงินกู้",                  grand(r=>n(r.deduct_loan))],
-    ["ประกันสังคม (นายจ้าง)",       grand(r=>recomputePayroll(r).sso)],
-    ["ภาษีหัก ณ ที่จ่าย",           grand(r=>recomputePayroll(r).tax)],
+    ["ประกันสังคม (นายจ้าง)",       grand(r=>recomputePayroll(applyAutoProrate(r)).sso)],
+    ["ภาษีหัก ณ ที่จ่าย",           grand(r=>recomputePayroll(applyAutoProrate(r)).tax)],
   ]
 
-  const totalGross  = grand(r=>recomputePayroll(r).gross)
-  const totalDeduct = grand(r=>recomputePayroll(r).totalDed)
-  const totalNet    = grand(r=>recomputePayroll(r).net)
+  const totalGross  = grand(r=>recomputePayroll(applyAutoProrate(r)).gross)
+  const totalDeduct = grand(r=>recomputePayroll(applyAutoProrate(r)).totalDed)
+  const totalNet    = grand(r=>recomputePayroll(applyAutoProrate(r)).net)
 
   // filter only non-zero items
   const incFiltered = incomeItems.filter(([,v])=>v>0)
@@ -854,12 +882,33 @@ function OTBadge({ label, minutes, color }: { label: string; minutes: number; co
 
 // ── Edit payroll modal ─────────────────────────────────────────────────
 function EditModal({
-  record, onClose, onSaved,
-}: { record: any; onClose: () => void; onSaved: (updated: any) => void }) {
+  record, period, onClose, onSaved,
+}: { record: any; period?: any; onClose: () => void; onSaved: (updated: any) => void }) {
   const supabase = createClient()
   const emp = record.employee
   const ie = record.income_extras ?? {}
   const de = record.deduction_extras ?? {}
+
+  // ── Suggest prorate_days from hire_date × payroll period ──
+  //   หา overlap: max(hire_date, period.start_date) → period.end_date
+  //   ถ้า hire_date <= period.start_date → ทำเต็มเดือน (suggestion = null)
+  //   ถ้า hire_date > period.end_date     → ยังไม่ได้เริ่ม (suggestion = null)
+  //   ถ้าอยู่ระหว่าง                       → end_date - hire_date + 1
+  const proratesuggestion = (() => {
+    const hire = emp?.hire_date ? new Date(emp.hire_date) : null
+    const ps = period?.start_date ? new Date(period.start_date) : null
+    const pe = period?.end_date ? new Date(period.end_date) : null
+    if (!hire || !ps || !pe) return null
+    if (isNaN(hire.getTime()) || isNaN(ps.getTime()) || isNaN(pe.getTime())) return null
+    // ปัดเป็น 00:00 ของแต่ละวัน
+    const toMid = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
+    const h = toMid(hire), s = toMid(ps), e = toMid(pe)
+    if (h <= s) return null            // เริ่มงานก่อนงวด → ไม่ต้อง prorate
+    if (h > e)  return null            // ยังไม่ถึงงวด → ไม่ต้อง prorate (ไม่ควรมี record อยู่แล้ว)
+    const msPerDay = 86_400_000
+    const days = Math.round((e.getTime() - h.getTime()) / msPerDay) + 1   // inclusive
+    return { days, hireDate: h, periodStart: s, periodEnd: e }
+  })()
 
   // editable fields — init เป็น string ทั้งหมด เพื่อให้ input type=number ทำงานถูก
   const s = (v: any) => v != null && v !== 0 ? String(v) : ""
@@ -872,9 +921,15 @@ function EditModal({
   const calcKpiFromGrade = (g: string) => Math.round(kpiStd * kpiMultiplier(g))
 
   // ── Prorate days (วันทำงานจริง) — null/30 = เต็มเดือน ──
-  const [prorateDaysInput, setProrateDaysInput] = useState<string>(
-    record.prorate_days != null ? String(record.prorate_days) : ""
-  )
+  //   ถ้ายังไม่เคยตั้งค่า (= null) และระบบคำนวณ suggestion ได้ → ใส่ค่าให้อัตโนมัติ
+  //   HR สามารถแก้ไขได้ตามปกติ
+  const [prorateDaysInput, setProrateDaysInput] = useState<string>(() => {
+    if (record.prorate_days != null) return String(record.prorate_days)
+    if (proratesuggestion) return String(proratesuggestion.days)
+    return ""
+  })
+  // ผู้ใช้แตะ input หรือยัง — ถ้าแตะแล้ว ห้าม auto-overwrite
+  const [proratemanuallyEdited, setProratemanuallyEdited] = useState<boolean>(record.prorate_days != null)
 
   // ── Multi-brand picker ──
   const [brandList, setBrandList] = useState<string[]>(normalizeBrands(emp?.brand))
@@ -1244,18 +1299,40 @@ function EditModal({
           <div className="grid grid-cols-3 gap-3 mb-3">
             {/* Prorate days */}
             <div className="bg-amber-50/60 border border-amber-100 rounded-xl px-3 py-2.5">
-              <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1.5">วันทำงานจริง (Prorate)</p>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">วันทำงานจริง (Prorate)</p>
+                {proratesuggestion && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-200/60 text-amber-800 flex items-center gap-0.5"
+                    title={`เริ่มงาน ${format(proratesuggestion.hireDate, "d MMM yyyy", { locale: th })} · งวด ${format(proratesuggestion.periodStart, "d MMM", { locale: th })}–${format(proratesuggestion.periodEnd, "d MMM", { locale: th })}`}>
+                    ✨ auto
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   type="number"
                   min={1} max={30}
                   value={prorateDaysInput}
-                  onChange={e => setProrateDaysInput(e.target.value)}
+                  onChange={e => { setProrateDaysInput(e.target.value); setProratemanuallyEdited(true) }}
                   placeholder="30 (เต็มเดือน)"
                   className="w-24 px-2.5 py-1.5 rounded-lg border border-amber-200 text-sm font-bold text-slate-700 outline-none focus:border-amber-400"
                 />
                 <span className="text-[10px] text-amber-700">/ 30 วัน</span>
               </div>
+
+              {/* Suggestion banner */}
+              {proratesuggestion && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-[9px] text-amber-700">
+                  <span>💡 เริ่มงาน {format(proratesuggestion.hireDate, "d MMM", { locale: th })} → งวดนี้ทำ <b>{proratesuggestion.days}</b> วัน</span>
+                  {proratemanuallyEdited && Number(prorateDaysInput) !== proratesuggestion.days && (
+                    <button type="button" onClick={() => { setProrateDaysInput(String(proratesuggestion.days)); setProratemanuallyEdited(false) }}
+                      className="font-black text-amber-800 hover:bg-amber-200/60 px-1 py-0.5 rounded">
+                      ↻ ใช้ค่า auto
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* แสดงผลลัพธ์ effective base เมื่อ prorate < 30 */}
               {prorateFactor < 1 ? (
                 <div className="mt-2 pt-2 border-t border-amber-200/60 space-y-0.5">
@@ -1898,13 +1975,25 @@ export default function PayrollPage() {
       const res = await fetch(`/api/payroll/register?period_ids=${periodIds.join(",")}`)
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || "โหลดข้อมูลไม่สำเร็จ")
-      setRecords(dedupePayrollRecords(json.records ?? []))
+      // ── enrich แต่ละ record ด้วย _autoProrateDays (เผื่อใช้แสดงใน table) ──
+      const periodMap = new Map<string, { start_date: string; end_date: string }>()
+      for (const p of periods) periodMap.set(p.id, { start_date: p.start_date, end_date: p.end_date })
+      // selected เองก็เป็น period (single mode); _isAllCo มี _periodIds + _periodMap
+      if (selected.start_date && selected.end_date && !selected._isAllCo) {
+        periodMap.set(selected.id, { start_date: selected.start_date, end_date: selected.end_date })
+      }
+      const enriched = (json.records ?? []).map((r: any) => {
+        const p = periodMap.get(r.payroll_period_id)
+        const auto = computeAutoProrateDays(r.employee?.hire_date, p?.start_date, p?.end_date)
+        return { ...r, _autoProrateDays: auto }
+      })
+      setRecords(dedupePayrollRecords(enriched))
     } catch (e: any) {
       console.error("loadRecords:", e)
       setRecords([])
     }
     setLoading(false)
-  }, [selected])
+  }, [selected, periods])
 
   // ── Background recalculate: คำนวณเงินเดือนใหม่เบื้องหลัง ────────
   // ทำงานอัตโนมัติเมื่อเลือกงวด + ทุก 60 วินาที + เมื่อมี attendance เปลี่ยน
@@ -2155,9 +2244,9 @@ export default function PayrollPage() {
       r.employee?.position?.name, r.employee?.department?.name,
       r.base_salary||0, r.allowance_position||0, r.allowance_transport||0, r.allowance_food||0,
       r.ot_amount||0, r.ot_weekday_minutes||0, r.ot_holiday_reg_minutes||0, r.ot_holiday_ot_minutes||0,
-      recomputePayroll(r).effBonus, r.kpi_grade||"", r.kpi_standard_amount||0, r.commission||0, recomputePayroll(r).gross,
+      recomputePayroll(applyAutoProrate(r)).effBonus, r.kpi_grade||"", r.kpi_standard_amount||0, r.commission||0, recomputePayroll(applyAutoProrate(r)).gross,
       r.deduct_absent||0, r.deduct_late||0, r.deduct_loan||0,
-      recomputePayroll(r).sso, recomputePayroll(r).tax, recomputePayroll(r).totalDed, recomputePayroll(r).net,
+      recomputePayroll(applyAutoProrate(r)).sso, recomputePayroll(applyAutoProrate(r)).tax, recomputePayroll(applyAutoProrate(r)).totalDed, recomputePayroll(applyAutoProrate(r)).net,
       r.present_days||0, r.absent_days||0, r.late_count||0, r.leave_paid_days||0, r.leave_unpaid_days||0,
       r.is_manual_override ? "✓" : "",
     ])
@@ -2177,18 +2266,18 @@ export default function PayrollPage() {
     return `${r.employee?.first_name_th} ${r.employee?.last_name_th} ${r.employee?.employee_code} ${r.employee?.nickname||""}`
       .toLowerCase().includes(search.toLowerCase())
   })
-  // ใช้ recomputePayroll → ครอบคลุม prorate ทุกแถวอัตโนมัติ
-  const totalGross = filtered.reduce((s: number, r: any) => s + recomputePayroll(r).gross, 0)
-  const totalNet   = filtered.reduce((s: number, r: any) => s + recomputePayroll(r).net, 0)
+  // ใช้ recomputePayroll → ครอบคลุม prorate ทุกแถวอัตโนมัติ (รวม _autoProrateDays ที่ HR ยังไม่บันทึก)
+  const totalGross = filtered.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).gross, 0)
+  const totalNet   = filtered.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).net, 0)
   const totalOT    = filtered.reduce((s: number, r: any) =>
     s + calcOTAmt(n(r.base_salary),n(r.ot_weekday_minutes),1.5)
       + calcOTAmt(n(r.base_salary),n(r.ot_holiday_reg_minutes),1.0)
       + calcOTAmt(n(r.base_salary),n(r.ot_holiday_ot_minutes),3.0)
   , 0)
-  const totalSSO   = filtered.reduce((s: number, r: any) => s + recomputePayroll(r).sso, 0)
-  const totalTax   = filtered.reduce((s: number, r: any) => s + recomputePayroll(r).tax, 0)
+  const totalSSO   = filtered.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).sso, 0)
+  const totalTax   = filtered.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).tax, 0)
   const totalKPI   = filtered.reduce((s: number, r: any) => {
-    const rc = recomputePayroll(r)
+    const rc = recomputePayroll(applyAutoProrate(r))
     return s + rc.effBonus
   }, 0)
   const overrideCount = records.filter((r: any) => r.is_manual_override).length
@@ -2440,6 +2529,7 @@ export default function PayrollPage() {
       {editing && (
         <EditModal
           record={editing}
+          period={selected}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
@@ -2477,9 +2567,9 @@ export default function PayrollPage() {
                 <div className="grid grid-cols-4 gap-3">
                   {[
                     { l: "พนักงาน", v: records.length + " คน", c: "bg-blue-50 text-blue-700" },
-                    { l: "รวมรายรับ", v: "฿" + thb(sumField(records, r => recomputePayroll(r).gross)), c: "bg-green-50 text-green-700" },
-                    { l: "รวมรายหัก", v: "฿" + thb(sumField(records, r => recomputePayroll(r).totalDed)), c: "bg-red-50 text-red-600" },
-                    { l: "จ่ายสุทธิ", v: "฿" + thb(sumField(records, r => recomputePayroll(r).net)), c: "bg-indigo-50 text-indigo-700" },
+                    { l: "รวมรายรับ", v: "฿" + thb(sumField(records, r => recomputePayroll(applyAutoProrate(r)).gross)), c: "bg-green-50 text-green-700" },
+                    { l: "รวมรายหัก", v: "฿" + thb(sumField(records, r => recomputePayroll(applyAutoProrate(r)).totalDed)), c: "bg-red-50 text-red-600" },
+                    { l: "จ่ายสุทธิ", v: "฿" + thb(sumField(records, r => recomputePayroll(applyAutoProrate(r)).net)), c: "bg-indigo-50 text-indigo-700" },
                   ].map(s => (
                     <div key={s.l} className={`rounded-xl p-3 ${s.c}`}>
                       <p className="text-[10px] font-bold opacity-60">{s.l}</p>
@@ -2511,9 +2601,9 @@ export default function PayrollPage() {
                           <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.base_salary)))}</td>
                           <td className="px-2 py-2 text-right text-amber-700">{thb(sumField(recs, r => n(r.ot_amount)))}</td>
                           <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
-                          <td className="px-2 py-2 text-right font-bold text-green-800">{thb(sumField(recs, r => recomputePayroll(r).gross))}</td>
+                          <td className="px-2 py-2 text-right font-bold text-green-800">{thb(sumField(recs, r => recomputePayroll(applyAutoProrate(r)).gross))}</td>
                           <td className="px-2 py-2 text-right font-bold text-red-600">{thb(sumField(recs, r => n(r.total_deductions)))}</td>
-                          <td className="px-2 py-2 text-right font-black text-indigo-700">{thb(sumField(recs, r => recomputePayroll(r).net))}</td>
+                          <td className="px-2 py-2 text-right font-black text-indigo-700">{thb(sumField(recs, r => recomputePayroll(applyAutoProrate(r)).net))}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2524,9 +2614,9 @@ export default function PayrollPage() {
                         <td className="px-2 py-2 text-right">{thb(sumField(records, r => n(r.base_salary)))}</td>
                         <td className="px-2 py-2 text-right text-amber-700">{thb(sumField(records, r => n(r.ot_amount)))}</td>
                         <td className="px-2 py-2 text-right">{thb(sumField(records, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
-                        <td className="px-2 py-2 text-right text-green-800">{thb(sumField(records, r => recomputePayroll(r).gross))}</td>
+                        <td className="px-2 py-2 text-right text-green-800">{thb(sumField(records, r => recomputePayroll(applyAutoProrate(r)).gross))}</td>
                         <td className="px-2 py-2 text-right text-red-600">{thb(sumField(records, r => n(r.total_deductions)))}</td>
-                        <td className="px-2 py-2 text-right text-indigo-700">{thb(sumField(records, r => recomputePayroll(r).net))}</td>
+                        <td className="px-2 py-2 text-right text-indigo-700">{thb(sumField(records, r => recomputePayroll(applyAutoProrate(r)).net))}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -2567,13 +2657,13 @@ export default function PayrollPage() {
           if (txtExclude.has(r.employee?.id)) return false
           return true
         })
-        const totalNet = txtFiltered.reduce((s: number, r: any) => s + recomputePayroll(r).net, 0)
+        const totalNet = txtFiltered.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).net, 0)
 
         const doExport = () => {
           const lines = txtFiltered.map((r: any) => {
             const emp = r.employee || {}
             const bankAcc = (emp.bank_account || "").replace(/[^0-9]/g, "")
-            const net = String(Math.round(recomputePayroll(r).net))
+            const net = String(Math.round(recomputePayroll(applyAutoProrate(r)).net))
             const name = `${emp.first_name_th || ""} ${emp.last_name_th || ""}`.trim()
             return `${bankAcc}\t${net}\t${emp.employee_code || ""}\t${name}`
           })
@@ -2644,7 +2734,7 @@ export default function PayrollPage() {
                       <span className="text-xs font-bold text-slate-700 flex-1 truncate">{emp.first_name_th} {emp.last_name_th}</span>
                       <span className="text-[10px] text-slate-400">{emp.employee_code}</span>
                       <span className="text-[10px] text-slate-400">{emp.department?.name || ""}</span>
-                      <span className="text-xs font-bold text-blue-700 min-w-[70px] text-right">฿{Math.round(recomputePayroll(r).net).toLocaleString()}</span>
+                      <span className="text-xs font-bold text-blue-700 min-w-[70px] text-right">฿{Math.round(recomputePayroll(applyAutoProrate(r)).net).toLocaleString()}</span>
                     </label>
                   )
                 })}

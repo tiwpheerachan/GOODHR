@@ -1,6 +1,6 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
-import { BRAND_OPTIONS } from "@/lib/utils/brands"
+import { BRAND_OPTIONS } from "@/lib/utils/brands"  // ใช้เป็น fallback ถ้าตาราง brands ว่าง
 
 // PATCH /api/employees/brand
 // Body: {
@@ -33,8 +33,14 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "employee_id required" }, { status: 400 })
   }
 
-  // ── 1) sanitize brands ──
-  const validSet = new Set<string>(BRAND_OPTIONS as readonly string[])
+  // ── 1) sanitize brands — ดึง list จาก DB (รวม inactive เผื่อยังมีพนักงานใช้อยู่) ──
+  const { data: dbBrands } = await supa.from("brands").select("name").order("name")
+  const validSet = new Set<string>(
+    (dbBrands && dbBrands.length > 0
+      ? dbBrands.map(b => b.name)
+      : (BRAND_OPTIONS as readonly string[])
+    )
+  )
   const cleaned = Array.isArray(brands)
     ? brands.filter((b): b is string => typeof b === "string" && validSet.has(b))
     : []

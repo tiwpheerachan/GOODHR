@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
-import { BRAND_OPTIONS, normalizeBrands } from "@/lib/utils/brands"
+import { BRAND_OPTIONS, normalizeBrands } from "@/lib/utils/brands"  // fallback ถ้า brands ว่าง
 
 const ADMIN_ROLES = ["super_admin", "hr_admin"]
 
@@ -177,8 +177,12 @@ export async function GET(req: NextRequest) {
   const totalAllocatedCost = Array.from(brandMap.values()).reduce((s, b) => s + b.total_cost, 0)
 
   // ── Brand list (sorted by total_cost desc) ──
-  // ใส่แบรนด์ที่ไม่มีคนเลยด้วย (count=0) เพื่อให้เห็นชัดในตาราง
-  for (const opt of BRAND_OPTIONS) {
+  // ใส่แบรนด์ที่ไม่มีคนเลยด้วย (count=0) เพื่อให้เห็นชัดในตาราง — อ้างจาก DB
+  const { data: allBrandsDb } = await svc.from("brands").select("name").eq("is_active", true).order("display_order").order("name")
+  const allBrandNames = (allBrandsDb && allBrandsDb.length > 0)
+    ? allBrandsDb.map(b => b.name)
+    : (BRAND_OPTIONS as readonly string[])
+  for (const opt of allBrandNames) {
     if (!brandMap.has(opt)) {
       brandMap.set(opt, { brand: opt, employee_count: 0, total_cost: 0, employees: [] })
     }
@@ -191,7 +195,7 @@ export async function GET(req: NextRequest) {
       avg_cost: b.employee_count > 0 ? Math.round(b.total_cost / b.employee_count) : 0,
       share_pct: totalAllocatedCost > 0 ? Math.round((b.total_cost / totalAllocatedCost) * 10000) / 100 : 0,
       top_earners: b.employees
-        .sort((a, c) => c.cost - a.cost).slice(0, 5)
+        .sort((a, c) => c.cost - a.cost)
         .map(e => ({ ...e, cost: Math.round(e.cost), pct: Math.round(e.pct * 100) / 100 })),
     }))
     .sort((a, b) => b.total_cost - a.total_cost)

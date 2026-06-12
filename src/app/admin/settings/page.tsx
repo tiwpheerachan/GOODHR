@@ -5,9 +5,10 @@ import { createClient } from "@/lib/supabase/client"
 import {
   Save, Plus, Trash2, MapPin, Clock, Calendar,
   Building2, ChevronDown, ChevronRight, Loader2,
-  Edit2, X, Check, Sun
+  Edit2, X, Check, Sun, Tag,
 } from "lucide-react"
 import toast from "react-hot-toast"
+import BrandsSettingsTab from "@/components/admin/BrandsSettingsTab"
 
 // ── shared styles ──────────────────────────────────────────────────────
 const inp = "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all w-full"
@@ -675,11 +676,12 @@ export default function SettingsPage() {
     user?.employee?.company_id ?? (user as any)?.company_id ?? undefined
 
   const TABS = [
-    { label: "ข้อมูลบริษัท", icon: Building2 },
-    { label: "สาขา",         icon: MapPin    },
-    { label: "กะทำงาน",      icon: Clock     },
-    { label: "ประเภทการลา",  icon: Calendar  },
-    { label: "วันหยุดบริษัท",icon: Sun       },
+    { label: "ข้อมูลบริษัท", icon: Building2, global: false },
+    { label: "สาขา",         icon: MapPin,    global: false },
+    { label: "กะทำงาน",      icon: Clock,     global: false },
+    { label: "ประเภทการลา",  icon: Calendar,  global: false },
+    { label: "วันหยุดบริษัท",icon: Sun,       global: false },
+    { label: "แบรนด์",       icon: Tag,       global: true },
   ]
 
   useEffect(() => {
@@ -752,7 +754,7 @@ export default function SettingsPage() {
 
           {/* Tabs */}
           <div className="flex overflow-x-auto border-b border-slate-100">
-            {TABS.map(({ label, icon: Icon }, i) => (
+            {TABS.map(({ label, icon: Icon, global }, i) => (
               <button key={label} onClick={() => setTab(i)}
                 className={`flex items-center gap-2 px-5 py-3.5 text-sm font-bold whitespace-nowrap border-b-2 transition-colors ${
                   tab === i
@@ -760,6 +762,9 @@ export default function SettingsPage() {
                     : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"
                 }`}>
                 <Icon size={13}/>{label}
+                {global && (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">ทั่วโลก</span>
+                )}
               </button>
             ))}
           </div>
@@ -774,6 +779,7 @@ export default function SettingsPage() {
             {tab === 2 && <ShiftsTab      key={selectedCompany.id + "-shifts"}   companyId={selectedCompany.id}/>}
             {tab === 3 && <LeaveTypesTab  key={selectedCompany.id + "-leave"}    companyId={selectedCompany.id}/>}
             {tab === 4 && <HolidaysTab    key={selectedCompany.id + "-holidays"} companyId={selectedCompany.id}/>}
+            {tab === 5 && <BrandsSettingsTab/>}
           </div>
         </div>
       )}

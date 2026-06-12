@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { Loader2, Save, Tag, Check, X, Search, RotateCcw, Percent, Split } from "lucide-react"
 import toast from "react-hot-toast"
-import { BRAND_OPTIONS, normalizeBrands } from "@/lib/utils/brands"
+import { normalizeBrands } from "@/lib/utils/brands"
+import { useBrands } from "@/lib/hooks/useBrands"
 
 // ── Brand mini chip color (สีสุภาพ ไม่จี้ตา) ──
 function brandColor(brand: string): { bg: string; text: string; border: string; activeBg: string; activeText: string } {
@@ -48,6 +49,7 @@ export default function BrandsTab({
   initialAllocations?: Record<string, number> | null
   feishuBrand?: string | null
 }) {
+  const { names: BRAND_NAMES, brands: brandRecords, loading: brandsLoading } = useBrands()
   const [selected, setSelected] = useState<string[]>(normalizeBrands(initialBrands))
   const [original, setOriginal] = useState<string[]>(normalizeBrands(initialBrands))
   const [saving, setSaving] = useState(false)
@@ -117,13 +119,13 @@ export default function BrandsTab({
       .map(s => s.trim()).filter(Boolean)
   })()
 
-  // map Feishu brand variant → official BRAND_OPTIONS
+  // map Feishu brand variant → official BRAND_NAMES
   const matchOfficial = (raw: string): string | null => {
     const u = raw.toLowerCase()
-    for (const opt of BRAND_OPTIONS) {
+    for (const opt of BRAND_NAMES) {
       if (opt.toLowerCase() === u) return opt
     }
-    for (const opt of BRAND_OPTIONS) {
+    for (const opt of BRAND_NAMES) {
       if (u.includes(opt.toLowerCase()) || opt.toLowerCase().includes(u)) return opt
     }
     return null
@@ -181,8 +183,8 @@ export default function BrandsTab({
 
   // filter brands by search
   const filtered = q.trim()
-    ? BRAND_OPTIONS.filter(b => b.toLowerCase().includes(q.toLowerCase()))
-    : BRAND_OPTIONS
+    ? BRAND_NAMES.filter(b => b.toLowerCase().includes(q.toLowerCase()))
+    : BRAND_NAMES
 
   return (
     <div className="space-y-4">
@@ -192,7 +194,7 @@ export default function BrandsTab({
         <Tag size={16} className="text-indigo-500"/>
         <h3 className="font-bold text-slate-800 text-sm">แบรนด์ที่ดูแล</h3>
         <span className="text-[10px] font-black bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full ml-1">
-          เลือก {selected.length}/{BRAND_OPTIONS.length}
+          เลือก {selected.length}/{BRAND_NAMES.length}
         </span>
         <div className="flex-1"/>
         {dirty && (
@@ -364,19 +366,28 @@ export default function BrandsTab({
           {filtered.map(b => {
             const active = selected.includes(b)
             const c = brandColor(b)
+            const info = brandRecords.find(br => br.name === b)
             return (
               <button key={b} onClick={() => toggle(b)}
-                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${
+                className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border text-xs font-bold transition-all ${
                   active
                     ? `${c.activeBg} ${c.activeText} border-transparent shadow-sm`
                     : `bg-white ${c.text} ${c.border} hover:${c.bg}`
                 }`}>
-                <span className={`w-4 h-4 rounded-md flex items-center justify-center flex-shrink-0 ${
-                  active ? "bg-white/30" : `${c.bg} border ${c.border}`
-                }`}>
-                  {active && <Check size={10} strokeWidth={3} className="text-white"/>}
-                </span>
-                <span className="truncate">{b}</span>
+                {/* logo or check swatch */}
+                {info?.logo_url ? (
+                  <div className={`w-6 h-6 rounded-md flex items-center justify-center overflow-hidden shrink-0 bg-white ${active ? "ring-2 ring-white/40" : "border border-slate-100"}`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={info.logo_url} alt="" className="w-full h-full object-contain"/>
+                  </div>
+                ) : (
+                  <span className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 ${
+                    active ? "bg-white/30" : `${c.bg} border ${c.border}`
+                  }`}>
+                    {active && <Check size={10} strokeWidth={3} className="text-white"/>}
+                  </span>
+                )}
+                <span className="truncate flex-1 text-left">{b}</span>
               </button>
             )
           })}
