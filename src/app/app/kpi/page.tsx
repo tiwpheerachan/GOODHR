@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
-import { Target, ChevronLeft, ChevronRight, Loader2, Award, BarChart3, MessageSquare, User } from "lucide-react"
+import { Target, ChevronLeft, ChevronRight, Loader2, Award, BarChart3, MessageSquare, User, ListChecks, Paperclip, FileText, Calendar, Image as ImageIcon } from "lucide-react"
 
 const MONTHS = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
 
@@ -149,8 +149,46 @@ export default function EmployeeKpiPage() {
                 </button>
 
                 {/* Expanded detail */}
-                {isOpen && (
+                {isOpen && (() => {
+                  const totalWeight = items.reduce((s: number, i: any) => s + (Number(i.weight_pct) || 0), 0)
+                  const allAttachments: Array<{ url: string; name: string }> = [
+                    ...(Array.isArray(form.attachments) ? form.attachments : []),
+                    ...(Array.isArray(form.money_reason_attachments) ? form.money_reason_attachments : []),
+                  ]
+                  const submittedAt = form.submitted_at ? new Date(form.submitted_at) : null
+                return (
                   <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+                    {/* ── Summary chips: items count / weight / date / attachments ── */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {!isMoneyOnly && (
+                        <>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 bg-indigo-50 text-indigo-700 rounded-full">
+                            <ListChecks size={10}/> ประเมิน {items.length} ข้อ
+                          </span>
+                          {Math.round(totalWeight) > 0 && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 bg-slate-100 text-slate-600 rounded-full">
+                              น้ำหนักรวม {Math.round(totalWeight)}%
+                            </span>
+                          )}
+                        </>
+                      )}
+                      {isMoneyOnly && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full">
+                          💰 โหมดเงินรางวัล
+                        </span>
+                      )}
+                      {allAttachments.length > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 bg-amber-50 text-amber-700 rounded-full">
+                          <Paperclip size={9}/> หลักฐาน {allAttachments.length} ไฟล์
+                        </span>
+                      )}
+                      {submittedAt && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 bg-slate-100 text-slate-500 rounded-full">
+                          <Calendar size={9}/> ประเมินเมื่อ {submittedAt.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" })}
+                        </span>
+                      )}
+                    </div>
+
                     {/* Money breakdown (Mode B/C or with bonus) */}
                     {totalMoney > 0 && (
                       <div className="bg-emerald-50 rounded-xl p-3 space-y-1.5">
@@ -213,11 +251,41 @@ export default function EmployeeKpiPage() {
                     {form.evaluator_note && (
                       <div className="bg-slate-50 rounded-xl p-3 mt-3">
                         <p className="text-xs font-bold text-slate-500 mb-1">ความเห็นหัวหน้า</p>
-                        <p className="text-sm text-slate-600">{form.evaluator_note}</p>
+                        <p className="text-sm text-slate-600 whitespace-pre-wrap">{form.evaluator_note}</p>
+                      </div>
+                    )}
+
+                    {/* ── Attachments — รูป/หลักฐานจากหัวหน้า ── */}
+                    {allAttachments.length > 0 && (
+                      <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-3 mt-3">
+                        <p className="text-xs font-bold text-amber-700 mb-2 flex items-center gap-1.5">
+                          <Paperclip size={11}/> หลักฐาน/รูปประกอบการประเมิน ({allAttachments.length})
+                        </p>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                          {allAttachments.map((att, idx) => {
+                            const isImage = /\.(jpe?g|png|webp|gif|heic)$/i.test(att.name)
+                            return (
+                              <a key={idx} href={att.url} target="_blank" rel="noreferrer"
+                                className="block bg-white border border-amber-200 rounded-lg overflow-hidden hover:border-amber-400 transition-colors">
+                                {isImage ? (
+                                  <img src={att.url} alt={att.name} className="w-full h-20 object-cover"/>
+                                ) : (
+                                  <div className="flex flex-col items-center justify-center h-20 text-amber-700 hover:bg-amber-50">
+                                    <FileText size={18}/>
+                                    <p className="text-[9px] mt-0.5 px-1 truncate w-full text-center">{att.name}</p>
+                                  </div>
+                                )}
+                                <p className="text-[9px] text-slate-500 px-1.5 py-0.5 truncate border-t border-amber-100">
+                                  {att.name}
+                                </p>
+                              </a>
+                            )
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>
-                )}
+                )})()}
               </div>
             )
           })}

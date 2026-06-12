@@ -95,6 +95,10 @@ export default function KpiFormPage() {
   const moneyFileInputRef = useRef<HTMLInputElement>(null)
   const [bonusAmount, setBonusAmount] = useState<string>("")          // Mode A/C
   const [bonusReason, setBonusReason] = useState<string>("")          // Mode A/C
+  // ── General attachments (ใช้ได้ทุกโหมด) — รูป/หลักฐานประกอบการประเมิน ──
+  const [attachments, setAttachments] = useState<Array<{ url: string; name: string; size?: number }>>([])
+  const [uploadingAttach, setUploadingAttach] = useState(false)
+  const attachFileRef = useRef<HTMLInputElement>(null)
   const mountedRef = useRef(true)
 
   // ── Upload handler for money_only attachments ────────────────────
@@ -132,6 +136,41 @@ export default function KpiFormPage() {
   const removeMoneyAttachment = (idx: number) =>
     setMoneyAttachments(prev => prev.filter((_, i) => i !== idx))
 
+  // ── Upload handler สำหรับ general attachments (ทุกโหมด) ──
+  const handleAttachUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    if (attachments.length + files.length > 10) {
+      toast.error("แนบไฟล์ได้สูงสุด 10 ไฟล์")
+      return
+    }
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].size > 10 * 1024 * 1024) {
+        toast.error(`ไฟล์ ${files[i].name} ใหญ่เกินไป (สูงสุด 10 MB)`)
+        return
+      }
+    }
+    setUploadingAttach(true)
+    try {
+      const fd = new FormData()
+      for (let i = 0; i < files.length; i++) fd.append("files", files[i])
+      const res = await fetch("/api/leave/upload", { method: "POST", body: fd })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error || "อัปโหลดไม่สำเร็จ"); return }
+      const newFiles: Array<{ url: string; name: string; size?: number }> =
+        (json.files ?? [{ url: json.url, name: json.name }])
+          .map((f: any, i: number) => ({ url: f.url, name: f.name, size: files[i]?.size }))
+      setAttachments(prev => [...prev, ...newFiles])
+      toast.success(`อัปโหลด ${newFiles.length} ไฟล์แล้ว`)
+    } catch { toast.error("อัปโหลดไม่สำเร็จ") }
+    finally {
+      setUploadingAttach(false)
+      if (attachFileRef.current) attachFileRef.current.value = ""
+    }
+  }
+  const removeAttachment = (idx: number) =>
+    setAttachments(prev => prev.filter((_, i) => i !== idx))
+
   // Load existing form
   useEffect(() => {
     mountedRef.current = true
@@ -167,6 +206,7 @@ export default function KpiFormPage() {
             if (f.bonus_amount !== null && f.bonus_amount !== undefined) setBonusAmount(String(f.bonus_amount))
             if (f.money_reason) setMoneyReason(f.money_reason)
             if (Array.isArray(f.money_reason_attachments)) setMoneyAttachments(f.money_reason_attachments)
+            if (Array.isArray(f.attachments)) setAttachments(f.attachments)
             if (f.bonus_reason) setBonusReason(f.bonus_reason)
             setEvaluatorNote(f.evaluator_note || "")
 
@@ -294,6 +334,7 @@ export default function KpiFormPage() {
           bonus_reason: isMoneyOnly ? null : (bonusReason || null),
           money_reason: isMoneyOnly ? (moneyReason || null) : null,
           money_reason_attachments: isMoneyOnly ? moneyAttachments : [],
+          attachments,
         }),
       })
       const data = await res.json()
@@ -747,6 +788,60 @@ export default function KpiFormPage() {
           />
         </div>
       )}
+
+      {/* ── หลักฐาน/รูปประกอบ — เห็นได้ทั้งหัวหน้าและพนักงาน (ทุกโหมด) ── */}
+      <div className="card space-y-2">
+        <div className="flex items-center gap-1.5">
+          <Paperclip size={12} className="text-indigo-600"/>
+          <p className="text-sm font-bold text-slate-700">หลักฐาน/รูปประกอบการประเมิน</p>
+          <span className="text-[10px] font-normal text-slate-400 ml-1">(พนักงานจะเห็น · สูงสุด 10 · ≤ 10 MB)</span>
+        </div>
+
+        {attachments.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {attachments.map((att, idx) => {
+              const isImage = /\.(jpe?g|png|webp|gif|heic)$/i.test(att.name)
+              return (
+                <div key={idx} className="relative group bg-white border border-indigo-200 rounded-lg overflow-hidden">
+                  {isImage ? (
+                    <a href={att.url} target="_blank" rel="noreferrer" className="block">
+                      <img src={att.url} alt={att.name} className="w-full h-24 object-cover"/>
+                    </a>
+                  ) : (
+                    <a href={att.url} target="_blank" rel="noreferrer"
+                      className="flex flex-col items-center justify-center h-24 text-indigo-700 hover:bg-indigo-50">
+                      <FileText size={20}/>
+                      <p className="text-[10px] mt-1 px-1 truncate w-full text-center">{att.name}</p>
+                    </a>
+                  )}
+                  {!isSubmitted && (
+                    <button type="button" onClick={() => removeAttachment(idx)}
+                      className="absolute top-1 right-1 p-1 bg-white/90 rounded-full shadow text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <XIcon size={11}/>
+                    </button>
+                  )}
+                  <p className="text-[10px] text-slate-500 px-2 py-1 truncate border-t border-indigo-100 bg-indigo-50/50">
+                    {att.name}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {!isSubmitted && attachments.length < 10 && (
+          <>
+            <input ref={attachFileRef} type="file" multiple
+              accept="image/*,.pdf,.doc,.docx" onChange={handleAttachUpload} className="hidden"/>
+            <button type="button" onClick={() => attachFileRef.current?.click()} disabled={uploadingAttach}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-white border-2 border-dashed border-indigo-300 rounded-xl text-xs font-bold text-indigo-700 hover:bg-indigo-50 hover:border-indigo-400 transition-colors disabled:opacity-60">
+              {uploadingAttach
+                ? <><Loader2 size={13} className="animate-spin"/> กำลังอัปโหลด...</>
+                : <><ImageIcon size={13}/> {attachments.length > 0 ? "เพิ่มรูป/ไฟล์" : "แนบรูปหรือไฟล์หลักฐาน"}</>}
+            </button>
+          </>
+        )}
+      </div>
 
       {/* Grade Reference — ซ่อนใน money_only */}
       {!isMoneyOnly && (

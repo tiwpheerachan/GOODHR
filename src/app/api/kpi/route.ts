@@ -132,7 +132,7 @@ export async function GET(req: NextRequest) {
       .is("effective_to", null)
     const teamIds = Array.from(new Set((subRows ?? []).map((r: any) => r.employee_id).filter(Boolean)))
 
-    const SELECT = "id, employee_id, year, month, total_score, grade, status, evaluator_note, evaluator_id, evaluation_type, incentive_amount, bonus_amount, bonus_reason, money_reason, money_reason_attachments, submitted_at, items:kpi_items(*), evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th), employee:employees!kpi_forms_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, position:positions(name))"
+    const SELECT = "id, employee_id, year, month, total_score, grade, status, evaluator_note, evaluator_id, evaluation_type, incentive_amount, bonus_amount, bonus_reason, money_reason, money_reason_attachments, attachments, submitted_at, items:kpi_items(*), evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th), employee:employees!kpi_forms_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, position:positions(name))"
 
     // ฟอร์มทั้งหมดของพนักงานคนนี้ (ใครเคยประเมินก็ได้)
     let sameQuery: any = null
@@ -322,15 +322,22 @@ export async function POST(req: NextRequest) {
     bonus_amount: rawBonus,
     bonus_reason, money_reason,
     money_reason_attachments: rawMoneyAttachments,
+    attachments: rawAttachments,
   } = body
 
   // Sanitize attachments: array of {url, name}, max 10
-  const moneyAttachments: { url: string; name: string }[] = Array.isArray(rawMoneyAttachments)
-    ? rawMoneyAttachments
+  const sanitizeAttach = (raw: any) => Array.isArray(raw)
+    ? raw
         .filter((a: any) => a && typeof a.url === "string" && typeof a.name === "string")
         .slice(0, 10)
-        .map((a: any) => ({ url: String(a.url), name: String(a.name) }))
+        .map((a: any) => ({
+          url:  String(a.url),
+          name: String(a.name),
+          ...(typeof a.size === "number" ? { size: a.size } : {}),
+        }))
     : []
+  const moneyAttachments = sanitizeAttach(rawMoneyAttachments)
+  const generalAttachments = sanitizeAttach(rawAttachments)
 
   const evaluation_type: EvaluationType = VALID_EVAL_TYPES.includes(rawEvalType)
     ? rawEvalType : "standard"
@@ -426,6 +433,7 @@ export async function POST(req: NextRequest) {
       bonus_reason: bonus_reason ?? null,
       money_reason: money_reason ?? null,
       money_reason_attachments: isMoneyOnly ? moneyAttachments : [],
+      attachments: generalAttachments,
       evaluator_id: effectiveEvaluatorId,
       evaluator_role: evaluatorRole,
       rejection_note: null,
@@ -449,6 +457,7 @@ export async function POST(req: NextRequest) {
       bonus_reason: bonus_reason ?? null,
       money_reason: money_reason ?? null,
       money_reason_attachments: isMoneyOnly ? moneyAttachments : [],
+      attachments: generalAttachments,
       submitted_at: action === "submit" ? new Date().toISOString() : null,
     }).select("id").single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
       .is("effective_to", null)
     const teamIds = Array.from(new Set((subRows ?? []).map((r: any) => r.employee_id).filter(Boolean)))
 
-    const SELECT = "id, employee_id, round, total_score, grade, status, evaluator_note, evaluator_id, submitted_at, items:probation_evaluation_items(*), evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th), employee:employees!probation_evaluations_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, position:positions(name))"
+    const SELECT = "id, employee_id, round, total_score, grade, status, evaluator_note, attachments, evaluator_id, submitted_at, items:probation_evaluation_items(*), evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th), employee:employees!probation_evaluations_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, position:positions(name))"
 
     // ฟอร์มทั้งหมดของพนักงานคนนี้ (ใครเคยประเมินก็ได้)
     let sameQuery: any = null
@@ -289,11 +289,23 @@ export async function POST(req: NextRequest) {
   // ══════════════════════════════════════════════════════════════
   // Save Draft / Submit (Manager)
   // ══════════════════════════════════════════════════════════════
-  const { employee_id, round, items, evaluator_note } = body
+  const { employee_id, round, items, evaluator_note, attachments: rawAttachments } = body
 
   if (!employee_id || !round) {
     return NextResponse.json({ error: "employee_id และ round จำเป็น" }, { status: 400 })
   }
+
+  // Sanitize attachments: array of {url, name, size?}, max 10
+  const attachments: { url: string; name: string; size?: number }[] = Array.isArray(rawAttachments)
+    ? rawAttachments
+        .filter((a: any) => a && typeof a.url === "string" && typeof a.name === "string")
+        .slice(0, 10)
+        .map((a: any) => ({
+          url:  String(a.url),
+          name: String(a.name),
+          ...(typeof a.size === "number" ? { size: a.size } : {}),
+        }))
+    : []
 
   // Validate weight sum
   const totalWeight = (items ?? []).reduce((s: number, i: any) => s + (Number(i.weight_pct) || 0), 0)
@@ -350,6 +362,7 @@ export async function POST(req: NextRequest) {
 
     await svc.from("probation_evaluations").update({
       total_score: totalScore, grade, status: newStatus, evaluator_note,
+      attachments,
       evaluator_id: dbUser.employee_id, evaluator_role: evaluatorRole,
       rejection_note: null,
       due_date: dueDate,
@@ -366,6 +379,7 @@ export async function POST(req: NextRequest) {
       evaluator_role: evaluatorRole,
       round, due_date: dueDate,
       total_score: totalScore, grade, status, evaluator_note,
+      attachments,
       submitted_at: action === "submit" ? new Date().toISOString() : null,
     }).select("id").single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

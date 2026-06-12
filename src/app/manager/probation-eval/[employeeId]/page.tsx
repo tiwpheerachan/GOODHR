@@ -5,7 +5,8 @@ import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import {
   ChevronLeft, Plus, Trash2, Save, Send, Loader2, Shield, AlertCircle,
-  CheckCircle2, MessageSquare, Clock, Sparkles,
+  CheckCircle2, MessageSquare, Clock, Sparkles, Paperclip, Image as ImageIcon,
+  FileText, X as XIcon,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -58,6 +59,9 @@ export default function ProbationEvalFormPage() {
   const [employee, setEmployee] = useState<any>(null)
   const [items, setItems] = useState<EvalRow[]>([...MANDATORY_ITEMS])
   const [evaluatorNote, setEvaluatorNote] = useState("")
+  const [attachments, setAttachments] = useState<Array<{ url: string; name: string; size?: number }>>([])
+  const [uploadingAttach, setUploadingAttach] = useState(false)
+  const attachFileRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [isSubmitted, setIsSubmitted] = useState(false)
@@ -97,6 +101,7 @@ export default function ProbationEvalFormPage() {
               actual_score: it.actual_score, comment: it.comment || "",
             })))
             setEvaluatorNote(fData.form.evaluator_note || "")
+            if (Array.isArray(fData.form.attachments)) setAttachments(fData.form.attachments)
           }
         }
       } catch (e) { console.error("Load error:", e) }
@@ -119,6 +124,43 @@ export default function ProbationEvalFormPage() {
   const updateItem = useCallback((idx: number, field: keyof EvalRow, value: any) => {
     setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item))
   }, [])
+
+  // ── Attachments upload (reuse /api/leave/upload — generic image/file uploader) ──
+  const handleAttachUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    if (attachments.length + files.length > 10) {
+      toast.error("แนบได้สูงสุด 10 ไฟล์")
+      return
+    }
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].size > 10 * 1024 * 1024) {
+        toast.error(`ไฟล์ ${files[i].name} ใหญ่เกินไป (สูงสุด 10 MB)`)
+        return
+      }
+    }
+    setUploadingAttach(true)
+    try {
+      const fd = new FormData()
+      for (let i = 0; i < files.length; i++) fd.append("files", files[i])
+      const res = await fetch("/api/leave/upload", { method: "POST", body: fd })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error || "อัปโหลดไม่สำเร็จ"); return }
+      const newFiles: Array<{ url: string; name: string; size?: number }> =
+        (json.files ?? [{ url: json.url, name: json.name }])
+          .map((f: any, i: number) => ({ url: f.url, name: f.name, size: files[i]?.size }))
+      setAttachments(prev => [...prev, ...newFiles])
+      toast.success(`อัปโหลด ${newFiles.length} ไฟล์แล้ว`)
+    } catch { toast.error("อัปโหลดไม่สำเร็จ") }
+    finally {
+      setUploadingAttach(false)
+      if (attachFileRef.current) attachFileRef.current.value = ""
+    }
+  }
+
+  const removeAttachment = (idx: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== idx))
+  }
 
   const addItem = () => {
     if (items.length >= 7) { toast.error(t("probation.max_items_error")); return }
@@ -147,7 +189,7 @@ export default function ProbationEvalFormPage() {
     try {
       const res = await fetch("/api/probation-evaluation", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_id: employeeId, round, items, evaluator_note: evaluatorNote, action }),
+        body: JSON.stringify({ employee_id: employeeId, round, items, evaluator_note: evaluatorNote, attachments, action }),
       })
       const data = await res.json()
       if (data.error) { toast.error(data.error); return }
@@ -313,6 +355,60 @@ export default function ProbationEvalFormPage() {
         <textarea value={evaluatorNote} onChange={e => setEvaluatorNote(e.target.value)}
           disabled={isSubmitted} placeholder="ความเห็นเพิ่มเติม..."
           className={`${inp} w-full`} rows={3} />
+      </div>
+
+      {/* ── Attachments (ภาพ/หลักฐานประกอบ) — เห็นได้ทั้งหัวหน้าและพนักงาน ── */}
+      <div className="card">
+        <div className="flex items-center gap-1.5 mb-2">
+          <Paperclip size={12} className="text-rose-600" />
+          <p className="text-xs font-bold text-slate-700">หลักฐาน/รูปประกอบการประเมิน</p>
+          <span className="text-[10px] font-normal text-slate-400">(พนักงานจะเห็น · สูงสุด 10 ไฟล์ · ไฟล์ละ ≤ 10 MB)</span>
+        </div>
+
+        {attachments.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
+            {attachments.map((att, idx) => {
+              const isImage = /\.(jpe?g|png|webp|gif|heic)$/i.test(att.name)
+              return (
+                <div key={idx} className="relative group bg-white border border-rose-200 rounded-lg overflow-hidden">
+                  {isImage ? (
+                    <a href={att.url} target="_blank" rel="noreferrer" className="block">
+                      <img src={att.url} alt={att.name} className="w-full h-24 object-cover"/>
+                    </a>
+                  ) : (
+                    <a href={att.url} target="_blank" rel="noreferrer"
+                      className="flex flex-col items-center justify-center h-24 text-rose-700 hover:bg-rose-50">
+                      <FileText size={20}/>
+                      <p className="text-[10px] mt-1 px-1 truncate w-full text-center">{att.name}</p>
+                    </a>
+                  )}
+                  {!isSubmitted && (
+                    <button type="button" onClick={() => removeAttachment(idx)}
+                      className="absolute top-1 right-1 p-1 bg-white/90 rounded-full shadow text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <XIcon size={11}/>
+                    </button>
+                  )}
+                  <p className="text-[10px] text-slate-500 px-2 py-1 truncate border-t border-rose-100 bg-rose-50/50">
+                    {att.name}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {!isSubmitted && attachments.length < 10 && (
+          <>
+            <input ref={attachFileRef} type="file" multiple
+              accept="image/*,.pdf,.doc,.docx" onChange={handleAttachUpload} className="hidden"/>
+            <button type="button" onClick={() => attachFileRef.current?.click()} disabled={uploadingAttach}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-white border-2 border-dashed border-rose-300 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-50 hover:border-rose-400 transition-colors disabled:opacity-60">
+              {uploadingAttach
+                ? <><Loader2 size={13} className="animate-spin"/> กำลังอัปโหลด...</>
+                : <><ImageIcon size={13}/> {attachments.length > 0 ? "เพิ่มรูป/ไฟล์" : "แนบรูปหรือไฟล์หลักฐาน"}</>}
+            </button>
+          </>
+        )}
       </div>
 
       {/* Grade reference */}
