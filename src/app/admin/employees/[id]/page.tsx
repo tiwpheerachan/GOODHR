@@ -6,7 +6,8 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import {
   ArrowLeft, Save, Loader2, Plus, MapPin, Check, X, Building2, Trash2,
   Clock, Calendar, DollarSign, BarChart2, User2, ChevronRight, CalendarClock,
-  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History, Globe, ShieldAlert, Pencil
+  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History, Globe, ShieldAlert, Pencil,
+  Briefcase, Layers, Store, Mail, Phone,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -15,8 +16,10 @@ import { th } from "date-fns/locale"
 import { recomputePayroll } from "@/lib/utils/payroll"
 import AdditionalEvaluatorsSection from "@/components/admin/AdditionalEvaluatorsSection"
 import EvaluationChainPanel from "@/components/admin/EvaluationChainPanel"
+import FeishuLinkTab from "@/components/employees/FeishuLinkTab"
+import BrandsTab from "@/components/employees/BrandsTab"
 
-const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท","โควต้าการลา","สาย/ผู้ประเมิน"]
+const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท","โควต้าการลา","สาย/ผู้ประเมิน","🏷️ แบรนด์ที่ดูแล","🔗 Feishu Link"]
 const inp = "input-field"
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -126,7 +129,7 @@ export default function EmployeeDetailPage() {
   useEffect(() => {
     if (!id) return
     Promise.all([
-      supabase.from("employees").select("*, position:positions(name), department:departments(name), branch:branches(name)").eq("id",id as string).single(),
+      supabase.from("employees").select("*, position:positions(name), department:departments(name), branch:branches(name), feishu:feishu_users!feishu_users_goodhr_employee_id_fkey(brand, name_cn, name_en, nickname)").eq("id",id as string).single(),
       supabase.from("salary_structures").select("*").eq("employee_id",id as string).is("effective_to",null).order("effective_from",{ascending:false}).limit(1).maybeSingle(),
       supabase.from("employee_manager_history").select("*, manager:employees!manager_id(id,first_name_th,last_name_th)").eq("employee_id",id as string).order("effective_from",{ascending:false}),
       supabase.from("kpi_bonus_settings").select("*").eq("employee_id",id as string).eq("is_active",true).maybeSingle(),
@@ -420,52 +423,31 @@ export default function EmployeeDetailPage() {
   const empStatusColor: Record<string,string> = { active:"bg-green-100 text-green-700", probation:"bg-amber-100 text-amber-700", resigned:"bg-slate-100 text-slate-500", terminated:"bg-red-100 text-red-600", on_leave:"bg-blue-100 text-blue-700", suspended:"bg-orange-100 text-orange-700" }
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="space-y-4">
 
-      {/* ── Header ── */}
-      <div className="flex items-center gap-4">
+      {/* ── Top bar: back + actions ── */}
+      <div className="flex items-center gap-3">
         <Link href="/admin/employees" className="p-2 hover:bg-slate-100 rounded-xl"><ArrowLeft size={18}/></Link>
-        <div className="flex items-center gap-3 flex-1">
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-lg shadow-sm ${
-            emp.employment_status === "resigned" ? "bg-gradient-to-br from-slate-400 to-slate-500" : "bg-gradient-to-br from-blue-500 to-indigo-600"
-          }`}>
-            {emp.first_name_th?.[0]}
-          </div>
-          <div>
-            <h2 className="text-xl font-black text-slate-800">{emp.first_name_th} {emp.last_name_th}</h2>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-slate-400 text-xs">{emp.employee_code}</span>
-              <span className="text-slate-300">·</span>
-              <span className="text-slate-500 text-xs">{emp.position?.name}</span>
-              <span className="text-slate-300">·</span>
-              <span className="text-slate-500 text-xs">{emp.department?.name}</span>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ml-1 ${empStatusColor[emp.employment_status] ?? "bg-slate-100 text-slate-500"}`}>
-                {empStatusMap[emp.employment_status] ?? emp.employment_status}
-              </span>
-            </div>
-          </div>
-        </div>
-        {/* ── Resign / Reinstate button ── */}
-        <div className="flex items-center gap-2">
-          {emp.employment_status === "resigned" || emp.employment_status === "terminated" ? (
-            <button onClick={() => { setResignReason(""); setShowReinstateModal(true) }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm">
-              <UserCheck size={14}/>ดึงกลับ
-            </button>
-          ) : (
-            <button onClick={() => { setResignReason(""); setResignDate(format(new Date(),"yyyy-MM-dd")); setShowResignModal(true) }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-all">
-              <UserX size={14}/>แจ้งลาออก
-            </button>
-          )}
-          {/* ── ปุ่มลบ (super_admin/hr_admin เท่านั้น) ── */}
-          {(user?.role === "super_admin" || user?.role === "hr_admin") && !emp.deleted_at && (
-            <button onClick={() => { setDeleteReason(""); setShowDeleteModal(true) }}
-              className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 border border-slate-200 hover:border-red-200 transition-all">
-              <Trash2 size={13}/>ลบ
-            </button>
-          )}
-        </div>
+        <h1 className="text-sm font-bold text-slate-500">รายละเอียดพนักงาน</h1>
+        <div className="flex-1"/>
+        {/* Resign / Reinstate */}
+        {emp.employment_status === "resigned" || emp.employment_status === "terminated" ? (
+          <button onClick={() => { setResignReason(""); setShowReinstateModal(true) }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm">
+            <UserCheck size={14}/>ดึงกลับ
+          </button>
+        ) : (
+          <button onClick={() => { setResignReason(""); setResignDate(format(new Date(),"yyyy-MM-dd")); setShowResignModal(true) }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-all">
+            <UserX size={14}/>แจ้งลาออก
+          </button>
+        )}
+        {(user?.role === "super_admin" || user?.role === "hr_admin") && !emp.deleted_at && (
+          <button onClick={() => { setDeleteReason(""); setShowDeleteModal(true) }}
+            className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 border border-slate-200 hover:border-red-200 transition-all">
+            <Trash2 size={13}/>ลบ
+          </button>
+        )}
       </div>
 
       {/* ── Resigned banner ── */}
@@ -525,19 +507,81 @@ export default function EmployeeDetailPage() {
         </div>
       )}
 
-      {/* ── Tabs ── */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
-        {TABS.map((t,i) => (
-          <button key={t} onClick={() => setTab(i)}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-              tab===i ? "bg-blue-600 text-white shadow-sm shadow-blue-200" : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-50"
-            }`}>
-            {t}
-          </button>
-        ))}
-      </div>
+      {/* ── 2-column layout: sticky sidebar + main content ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-[300px_1fr] gap-4">
 
-      <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+        {/* ── LEFT: Sticky sidebar ── */}
+        <aside className="space-y-3 xl:sticky xl:top-4 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
+          {/* Profile card */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className={`p-5 text-center ${
+              emp.employment_status === "resigned" || emp.employment_status === "terminated"
+                ? "bg-gradient-to-br from-slate-400 to-slate-500"
+                : "bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-600"
+            }`}>
+              <div className="w-20 h-20 mx-auto rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-white font-black text-3xl shadow-lg mb-2 overflow-hidden">
+                {emp.avatar_url
+                  ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>
+                  : emp.first_name_th?.[0]}
+              </div>
+              <h2 className="text-base font-black text-white">{emp.first_name_th} {emp.last_name_th}</h2>
+              <p className="text-[10px] text-white/80 font-mono mt-0.5">{emp.employee_code}</p>
+              <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-2 ${empStatusColor[emp.employment_status] ?? "bg-slate-100 text-slate-500"}`}>
+                {empStatusMap[emp.employment_status] ?? emp.employment_status}
+              </span>
+            </div>
+            <div className="p-3 space-y-1.5 border-t border-slate-100">
+              {emp.position?.name && (
+                <div className="flex items-center gap-2 text-xs">
+                  <Briefcase size={11} className="text-slate-400 flex-shrink-0"/>
+                  <span className="font-bold text-slate-700 truncate">{emp.position.name}</span>
+                </div>
+              )}
+              {emp.department?.name && (
+                <div className="flex items-center gap-2 text-xs">
+                  <Layers size={11} className="text-slate-400 flex-shrink-0"/>
+                  <span className="text-slate-600 truncate">{emp.department.name}</span>
+                </div>
+              )}
+              {(emp as any).branch?.name && (
+                <div className="flex items-center gap-2 text-xs">
+                  <Store size={11} className="text-slate-400 flex-shrink-0"/>
+                  <span className="text-slate-600 truncate">{(emp as any).branch.name}</span>
+                </div>
+              )}
+              {emp.email && (
+                <div className="flex items-center gap-2 text-xs">
+                  <Mail size={11} className="text-slate-400 flex-shrink-0"/>
+                  <span className="text-slate-500 truncate">{emp.email}</span>
+                </div>
+              )}
+              {emp.phone && (
+                <div className="flex items-center gap-2 text-xs">
+                  <Phone size={11} className="text-slate-400 flex-shrink-0"/>
+                  <span className="text-slate-500">{emp.phone}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Tab navigation — vertical on desktop */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-2 space-y-0.5">
+            {TABS.map((t,i) => (
+              <button key={t} onClick={() => setTab(i)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-left transition-all ${
+                  tab===i
+                    ? "bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-sm"
+                    : "text-slate-600 hover:bg-slate-50"
+                }`}>
+                <span className={`w-1 h-4 rounded-full ${tab === i ? "bg-white/80" : "bg-transparent"}`}/>
+                <span className="flex-1 truncate">{t}</span>
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        {/* ── RIGHT: Main content ── */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm min-w-0">
 
         {/* ── Tab 0: สรุปข้อมูล ── */}
         {tab === 0 && <SummaryTab employeeId={id as string} emp={emp} salary={salary} kpiSetting={kpiSetting}/>}
@@ -899,7 +943,19 @@ export default function EmployeeDetailPage() {
           </>
         )}
 
-      </div>
+        {tab === 11 && (
+          <BrandsTab employeeId={id as string}
+            employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`.trim()}
+            initialBrands={(emp as any)?.brand}
+            feishuBrand={(Array.isArray((emp as any)?.feishu) ? (emp as any).feishu[0]?.brand : (emp as any)?.feishu?.brand) ?? null}/>
+        )}
+
+        {tab === 12 && (
+          <FeishuLinkTab employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`.trim()}/>
+        )}
+
+        </div>  {/* end main content */}
+      </div>  {/* end grid 2-column */}
 
       {/* ── ประวัติการลาออก / ดึงกลับ ── */}
       {resignHistory.length > 0 && (

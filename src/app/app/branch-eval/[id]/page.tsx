@@ -496,8 +496,13 @@ export default function BranchEvalDetailPage() {
                           <p className="font-bold text-slate-800 truncate">
                             {e.first_name_th} {e.last_name_th}
                             {e.nickname && <span className="text-slate-400 ml-1">({e.nickname})</span>}
+                            {e._matched_via_feishu && <span className="ml-1 text-[8px] font-black bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded">via Feishu</span>}
                           </p>
-                          <p className="text-[9px] text-slate-400">{e.employee_code} · {e.department?.name || ""}</p>
+                          <p className="text-[9px] text-slate-400 truncate">
+                            {e.employee_code}{e.department?.name ? ` · ${e.department.name}` : ""}
+                            {e.feishu?.name_cn && <span className="text-slate-500 ml-1">· {e.feishu.name_cn}</span>}
+                            {e.feishu?.nickname && e.feishu.nickname !== e.nickname && <span className="text-slate-500 ml-1">({e.feishu.nickname})</span>}
+                          </p>
                         </div>
                       </button>
                     ))
@@ -579,8 +584,13 @@ export default function BranchEvalDetailPage() {
                           <p className="font-bold text-slate-800 truncate">
                             {e.first_name_th} {e.last_name_th}
                             {e.nickname && <span className="text-slate-400 ml-1">({e.nickname})</span>}
+                            {e._matched_via_feishu && <span className="ml-1 text-[8px] font-black bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded">via Feishu</span>}
                           </p>
-                          <p className="text-[9px] text-slate-400">{e.employee_code} · {e.department?.name || ""}</p>
+                          <p className="text-[9px] text-slate-400 truncate">
+                            {e.employee_code}{e.department?.name ? ` · ${e.department.name}` : ""}
+                            {e.feishu?.name_cn && <span className="text-slate-500 ml-1">· {e.feishu.name_cn}</span>}
+                            {e.feishu?.nickname && e.feishu.nickname !== e.nickname && <span className="text-slate-500 ml-1">({e.feishu.nickname})</span>}
+                          </p>
                         </div>
                       </button>
                     ))

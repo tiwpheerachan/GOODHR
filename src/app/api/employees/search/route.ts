@@ -47,8 +47,11 @@ export async function GET(req: NextRequest) {
     if ((bePerms ?? []).length > 0) allCompanies = true
   }
 
+  // ── select รวม feishu_user_id เผื่อ caller อยากแสดงชื่อจีน/ภาษาอื่น ──
   let query = supa.from("employees")
-    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, company_id, department:departments(name), position:positions(name)")
+    .select(`id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, company_id, feishu_user_id,
+      department:departments(name), position:positions(name),
+      feishu:feishu_users!feishu_users_goodhr_employee_id_fkey(name_cn, name_en, nickname, brand, job_title)`)
     .order("first_name_th")
     .limit(limit)
 
@@ -81,5 +84,44 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await query
   if (error) return NextResponse.json({ employees: [], error: error.message }, { status: 500 })
-  return NextResponse.json({ employees: data || [] })
+  let employees = data || []
+
+  // ── ถ้ามี search keyword ค่อยลอง fallback ค้นใน feishu_users ──
+  //    เช่น ค้น "Clara" (Feishu nickname) → resolve เป็น GoodHR employee คนนั้น
+  //    หรือค้น "陈安琪" (ชื่อจีน) → resolve เป็น GoodHR
+  if (search && employees.length < limit) {
+    const k = `%${search.replace(/[%_,()]/g, "")}%`
+    let fquery = supa.from("feishu_users")
+      .select(`feishu_user_id, name, name_cn, name_en, nickname, brand, job_title,
+        employee:employees!feishu_users_goodhr_employee_id_fkey(
+          id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en,
+          nickname, nickname_en, avatar_url, company_id, feishu_user_id,
+          department:departments(name), position:positions(name)
+        )`)
+      .not("goodhr_employee_id", "is", null)
+      .or([
+        `name.ilike.${k}`,
+        `name_cn.ilike.${k}`,
+        `name_en.ilike.${k}`,
+        `nickname.ilike.${k}`,
+        `employee_number.ilike.${k}`,
+      ].join(","))
+      .limit(limit - employees.length)
+    const { data: fData } = await fquery
+    const existingIds = new Set(employees.map((e: any) => e.id))
+    for (const f of (fData ?? [])) {
+      const emp: any = (f as any).employee
+      if (!emp || existingIds.has(emp.id)) continue
+      // company filter
+      if (!allCompanies && userCompanyId && emp.company_id !== userCompanyId) continue
+      employees.push({
+        ...emp,
+        feishu: { name_cn: f.name_cn, name_en: f.name_en, nickname: f.nickname, brand: f.brand, job_title: f.job_title },
+        _matched_via_feishu: true,
+      })
+      existingIds.add(emp.id)
+    }
+  }
+
+  return NextResponse.json({ employees })
 }

@@ -27,6 +27,44 @@ const COMPANY_COLORS = [
 ]
 const inp = "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all"
 
+// ── Brand mini chip color (สีสุภาพ ไม่จี้ตา) ──
+function brandMiniColor(brand: string): string {
+  const u = brand.toUpperCase()
+  if (u.includes("DDPAI")) return "bg-blue-50 text-blue-700"
+  if (u.includes("ANKER")) return "bg-sky-50 text-sky-700"
+  if (u.includes("DREAME")) return "bg-purple-50 text-purple-700"
+  if (u.includes("WANBO")) return "bg-amber-50 text-amber-700"
+  if (u.includes("AKASO")) return "bg-rose-50 text-rose-700"
+  if (u.includes("MOVA")) return "bg-emerald-50 text-emerald-700"
+  if (u.includes("VINKO")) return "bg-teal-50 text-teal-700"
+  if (u.includes("XIAOMI") || u.includes("70MAI")) return "bg-orange-50 text-orange-700"
+  if (u.includes("MOLLY")) return "bg-pink-50 text-pink-700"
+  if (u.includes("LEVOIT")) return "bg-cyan-50 text-cyan-700"
+  if (u.includes("JIMMY") || u.includes("JISULIFE")) return "bg-yellow-50 text-yellow-800"
+  if (u.includes("SOUNDCORE")) return "bg-violet-50 text-violet-700"
+  if (u.includes("UWANT") || u.includes("PERYSMITH")) return "bg-fuchsia-50 text-fuchsia-700"
+  if (u.includes("TOP")) return "bg-lime-50 text-lime-700"
+  if (u.includes("ZEVIA") || u.includes("AMAZFIT") || u.includes("MIBRO")) return "bg-indigo-50 text-indigo-700"
+  return "bg-slate-100 text-slate-600"
+}
+
+// ── คำนวณอายุงาน → "2 ปี 4 เดือน" หรือ "8 เดือน" หรือ "3 วัน" ──
+function calcTenure(hireDate: string | null | undefined): string {
+  if (!hireDate) return ""
+  const start = new Date(hireDate)
+  if (isNaN(start.getTime())) return ""
+  const now = new Date()
+  let y = now.getFullYear() - start.getFullYear()
+  let m = now.getMonth() - start.getMonth()
+  let d = now.getDate() - start.getDate()
+  if (d < 0) { m -= 1; d += 30 }
+  if (m < 0) { y -= 1; m += 12 }
+  if (y > 0) return `${y} ปี${m > 0 ? ` ${m} เดือน` : ""}`
+  if (m > 0) return `${m} เดือน${d > 0 ? ` ${d} วัน` : ""}`
+  if (d > 0) return `${d} วัน`
+  return "วันแรก"
+}
+
 export default function EmployeesPage() {
   const { user } = useAuth()
   const supabase = createClient()
@@ -113,11 +151,13 @@ export default function EmployeesPage() {
         .from("employees")
         .select(
           `id, employee_code, first_name_th, last_name_th, nickname, avatar_url,
-           hire_date, employment_status, employment_type, company_id,
+           hire_date, employment_status, employment_type, company_id, brand,
+           feishu_user_id,
            position:positions(name),
            department:departments(name),
            branch:branches(name),
-           company:companies(id, name_th, code)`,
+           company:companies(id, name_th, code),
+           feishu:feishu_users!feishu_users_goodhr_employee_id_fkey(name_cn, name_en, nickname)`,
           { count: "exact" }
         )
         .order("first_name_th")
@@ -140,12 +180,67 @@ export default function EmployeesPage() {
       if (branch)                q = q.eq("branch_id", branch)
       if (position)              q = q.eq("position_id", position)
       if (empType)               q = q.eq("employment_type", empType)
-      if (debouncedSearch)       q = q.or(`first_name_th.ilike.%${debouncedSearch}%,last_name_th.ilike.%${debouncedSearch}%,employee_code.ilike.%${debouncedSearch}%,nickname.ilike.%${debouncedSearch}%`)
+      if (debouncedSearch) {
+        const k = debouncedSearch.replace(/[%_,()]/g, "")
+        q = q.or([
+          `first_name_th.ilike.%${k}%`,
+          `last_name_th.ilike.%${k}%`,
+          `first_name_en.ilike.%${k}%`,
+          `last_name_en.ilike.%${k}%`,
+          `employee_code.ilike.%${k}%`,
+          `nickname.ilike.%${k}%`,
+          `nickname_en.ilike.%${k}%`,
+        ].join(","))
+      }
 
       const { data, count, error } = await q
       if (error) console.error(error)
-      setEmployees(data ?? [])
-      setTotal(count ?? 0)
+      let list = data ?? []
+      let listCount = count ?? 0
+
+      // ── Fallback: ค้น Feishu users ที่มี mapping → resolve กลับเป็น GoodHR employee ──
+      if (debouncedSearch && list.length < PER) {
+        const k = debouncedSearch.replace(/[%_,()]/g, "")
+        const { data: fData } = await supabase.from("feishu_users")
+          .select(`feishu_user_id,
+            employee:employees!feishu_users_goodhr_employee_id_fkey(
+              id, employee_code, first_name_th, last_name_th, nickname, avatar_url,
+              hire_date, employment_status, employment_type, company_id, brand,
+              feishu_user_id, deleted_at, is_active,
+              position:positions(name), department:departments(name),
+              branch:branches(name), company:companies(id, name_th, code)
+            ),
+            name_cn, name_en, nickname`)
+          .not("goodhr_employee_id", "is", null)
+          .or([
+            `name.ilike.%${k}%`,
+            `name_cn.ilike.%${k}%`,
+            `name_en.ilike.%${k}%`,
+            `nickname.ilike.%${k}%`,
+            `employee_number.ilike.%${k}%`,
+          ].join(","))
+          .limit(PER - list.length)
+
+        const existingIds = new Set(list.map((e: any) => e.id))
+        for (const f of (fData ?? [])) {
+          const emp: any = (f as any).employee
+          if (!emp || existingIds.has(emp.id)) continue
+          if (emp.deleted_at) continue
+          if (!showInactive && status !== "resigned" && status !== "terminated" && !emp.is_active) continue
+          if (activeCompanyId && emp.company_id !== activeCompanyId) continue
+          if (!isSuperAdmin && emp.company_id !== myCompanyId) continue
+          list.push({
+            ...emp,
+            // wrap เป็น array ให้ format ตรงกับ JOIN ปกติ — UI จะ pick item แรก
+            feishu: [{ name_cn: f.name_cn, name_en: f.name_en, nickname: f.nickname }],
+            _matched_via_feishu: true,
+          })
+          existingIds.add(emp.id)
+        }
+      }
+
+      setEmployees(list)
+      setTotal(listCount + (list.length > (count ?? 0) ? list.length - (count ?? 0) : 0))
     } finally {
       setLoading(false)
     }
@@ -274,7 +369,7 @@ export default function EmployeesPage() {
           <div className="relative flex-1 min-w-44">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={search} onChange={e => setSearch(e.target.value)}
-              className={inp + " pl-8 w-full"} placeholder="ค้นหาชื่อ, รหัส, ชื่อเล่น..." />
+              className={inp + " pl-8 w-full"} placeholder="ค้นหาชื่อ (ไทย/อังกฤษ/จีน), รหัส, ชื่อเล่น, Feishu nickname..." />
           </div>
           {isSuperAdmin && (
             <select value={selectedCompany} onChange={e => setF(() => setSelectedCompany(e.target.value))} className={inp}>
@@ -348,7 +443,7 @@ export default function EmployeesPage() {
                 {showCompanyCol && <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">บริษัท</th>}
                 <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">แผนก / ตำแหน่ง</th>
                 <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">สาขา</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">วันเริ่มงาน</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">วันเริ่มงาน <span className="text-[10px] text-indigo-400 font-medium">(อายุงาน)</span></th>
                 <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">สถานะ</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -369,6 +464,8 @@ export default function EmployeesPage() {
               ) : employees.map(emp => {
                 const compIdx = companies.findIndex(c => c.id === emp.company_id)
                 const compColor = COMPANY_COLORS[compIdx >= 0 ? compIdx % COMPANY_COLORS.length : 0]
+                // ── feishu join (Supabase reverse FK คืน array — เอา item แรก) ──
+                const feishu: any = Array.isArray(emp.feishu) ? emp.feishu[0] : emp.feishu
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3">
@@ -379,11 +476,51 @@ export default function EmployeesPage() {
                             : emp.first_name_th?.[0]}
                         </div>
                         <div>
-                          <p className="font-bold text-slate-800 whitespace-nowrap">
+                          <p className="font-bold text-slate-800 whitespace-nowrap flex items-center gap-1.5">
                             {emp.first_name_th} {emp.last_name_th}
-                            {emp.nickname && <span className="text-xs text-slate-400 ml-1.5">({emp.nickname})</span>}
+                            {emp.nickname && <span className="text-xs text-slate-400">({emp.nickname})</span>}
+                            {feishu?.name_cn && (
+                              <span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-md border border-indigo-100" title="ชื่อใน Feishu">
+                                {feishu.name_cn}
+                                {feishu.nickname && feishu.nickname !== emp.nickname && (
+                                  <span className="text-indigo-500 ml-0.5">·{feishu.nickname}</span>
+                                )}
+                              </span>
+                            )}
+                            {emp._matched_via_feishu && (
+                              <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">เจอผ่าน Feishu</span>
+                            )}
                           </p>
-                          <p className="text-xs text-slate-400">{emp.employee_code}</p>
+                          <div className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap" style={{ minHeight: 18 }}>
+                            <span>{emp.employee_code}</span>
+                            {feishu?.name_en && (
+                              <span className="text-slate-500 italic">· {feishu.name_en}</span>
+                            )}
+                            {(() => {
+                              // ── ดึง brand จาก employees.brand (กรอกในหน้าเงินเดือน) ──
+                              //    เป็น text[] — ถ้าไม่มี ใช้ feishu.brand เป็น fallback
+                              let brands: string[] = []
+                              if (Array.isArray(emp.brand)) brands = emp.brand.filter(Boolean)
+                              else if (typeof emp.brand === "string" && emp.brand) brands = [emp.brand]
+                              if (brands.length === 0 && feishu?.brand) {
+                                brands = String(feishu.brand)
+                                  .split(/[,/、&，；;]|\s+(?=[A-Z一-龥])/g)
+                                  .map((s: string) => s.trim()).filter(Boolean)
+                              }
+                              return brands.length > 0 && (
+                                <span className="inline-flex items-center gap-0.5 flex-wrap">
+                                  <span className="text-slate-300">·</span>
+                                  {brands.map((b, i) => (
+                                    <span key={i}
+                                      className={"text-[9px] font-black px-1 py-0 rounded leading-[14px] " + brandMiniColor(b)}
+                                      title={Array.isArray(emp.brand) && emp.brand.includes(b) ? "จากหน้าเงินเดือน" : "จาก Feishu"}>
+                                      {b}
+                                    </span>
+                                  ))}
+                                </span>
+                              )
+                            })()}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -405,7 +542,12 @@ export default function EmployeesPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{(emp.branch as any)?.name || "—"}</td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                      {emp.hire_date ? format(new Date(emp.hire_date), "d MMM yyyy", { locale: th }) : "—"}
+                      {emp.hire_date ? (
+                        <>
+                          <p>{format(new Date(emp.hire_date), "d MMM yyyy", { locale: th })}</p>
+                          <p className="text-[10px] text-indigo-500 font-bold mt-0.5">{calcTenure(emp.hire_date)}</p>
+                        </>
+                      ) : "—"}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center text-[11px] font-bold px-2.5 py-1 rounded-full ${STATUS[emp.employment_status]?.c || "bg-slate-100 text-slate-500"}`}>
