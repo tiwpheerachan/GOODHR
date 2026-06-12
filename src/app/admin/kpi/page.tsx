@@ -12,6 +12,7 @@ import toast from "react-hot-toast"
 import Link from "next/link"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
+import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
 
 const MONTHS = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
 
@@ -334,6 +335,7 @@ export default function AdminKpiPage() {
           <p className="text-sm text-slate-400">ดูและวิเคราะห์ผลประเมินพนักงานทุกคน</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <FeishuSyncButton dataset="kpi" variant="subtle"/>
           {activeFilters > 0 && (
             <button onClick={() => { setSearch(""); setGradeFilter(""); setDeptFilter(""); setEvaluatorFilter(""); setStatusFilter("") }}
               className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl hover:bg-indigo-100 transition-colors">

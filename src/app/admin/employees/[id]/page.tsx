@@ -947,6 +947,7 @@ export default function EmployeeDetailPage() {
           <BrandsTab employeeId={id as string}
             employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`.trim()}
             initialBrands={(emp as any)?.brand}
+            initialAllocations={(emp as any)?.brand_allocations ?? null}
             feishuBrand={(Array.isArray((emp as any)?.feishu) ? (emp as any).feishu[0]?.brand : (emp as any)?.feishu?.brand) ?? null}/>
         )}
 

@@ -9,6 +9,7 @@ import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
 import Link from "next/link"
+import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
 
 const ROUND_LABELS: Record<number, string> = { 1: "รอบ 1 (60 วัน)", 2: "รอบ 2 (90 วัน)", 3: "รอบ 3 (119 วัน)" }
 
@@ -260,12 +261,15 @@ export default function AdminProbationEvalPage() {
           </div>
           <p className="text-sm text-slate-400">ตรวจสอบและอนุมัติผลประเมินทดลองงาน</p>
         </div>
-        <button onClick={exportXlsx} disabled={exporting || filtered.length === 0}
-          title={filtered.length === 0 ? "ไม่มีข้อมูลให้ export" : `Export ${filtered.length} คน เป็น xlsx`}
-          className="inline-flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 shadow-sm transition-all">
-          {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-          {exporting ? `กำลัง Export ${exportProgress}/${filtered.length}` : `Export Excel (${filtered.length})`}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <FeishuSyncButton dataset="probation" variant="subtle"/>
+          <button onClick={exportXlsx} disabled={exporting || filtered.length === 0}
+            title={filtered.length === 0 ? "ไม่มีข้อมูลให้ export" : `Export ${filtered.length} คน เป็น xlsx`}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 shadow-sm transition-all">
+            {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+            {exporting ? `กำลัง Export ${exportProgress}/${filtered.length}` : `Export Excel (${filtered.length})`}
+          </button>
+        </div>
       </div>
 
       {/* Stats */}

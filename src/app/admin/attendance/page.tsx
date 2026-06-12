@@ -14,6 +14,7 @@ import { th } from "date-fns/locale"
 import { statusToTH } from "@/lib/utils/attendance"
 import toast from "react-hot-toast"
 import * as XLSX from "xlsx"
+import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
 
 const PER = 30
 type ViewMode = "department" | "branch" | "company"
@@ -528,7 +529,8 @@ export default function AdminAttendancePage() {
           <h2 className="text-xl font-black text-slate-800">การเข้างาน</h2>
           <p className="text-sm text-slate-400 mt-0.5">วันที่ {format(new Date(),"d MMMM yyyy",{locale:th})}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <FeishuSyncButton dataset="attendance"/>
           {isSuperAdmin && companies.length > 0 && (
             <select value={selCompany} onChange={e=>setSelCompany(e.target.value)}
               className="border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-white outline-none focus:ring-2 focus:ring-blue-500">

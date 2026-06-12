@@ -322,7 +322,7 @@ export default function BranchEvalDetailPage() {
   }
 
   return (
-    <div className="p-4 lg:p-6 max-w-4xl mx-auto space-y-3 pb-32">
+    <div className="p-4 lg:p-6 max-w-4xl mx-auto space-y-3 pb-48 lg:pb-32">
       <Link href="/app/branch-eval" className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-700">
         <ArrowLeft size={14} /> รายการประเมิน
       </Link>
@@ -680,17 +680,59 @@ export default function BranchEvalDetailPage() {
         </div>
       )}
 
+      {/* ── 🚨 Inline submit banner — โผล่เด่นในตัวฟอร์มเมื่อกรอก ≥ 80% ── */}
+      {access.can_edit && ev.status === "draft" && answered >= Math.ceil(realItems.length * 0.8) && (
+        <div className={`rounded-2xl p-4 shadow-lg border-2 ${
+          answered === realItems.length
+            ? "bg-gradient-to-br from-emerald-500 to-teal-600 border-emerald-400 animate-pulse"
+            : "bg-gradient-to-br from-amber-400 to-orange-500 border-amber-300"
+        } text-white`}>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center flex-shrink-0">
+              {answered === realItems.length
+                ? <CheckCircle2 size={24} />
+                : <AlertCircle size={24} />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-bold opacity-90 uppercase tracking-wider">
+                {answered === realItems.length ? "✨ กรอกครบแล้ว!" : "ใกล้เสร็จแล้ว"}
+              </p>
+              <p className="text-sm font-black">
+                {answered === realItems.length
+                  ? "อย่าลืมกดปุ่ม “ส่งฟอร์ม” ด้านล่างเพื่อบันทึก"
+                  : `เหลืออีก ${realItems.length - answered} ข้อ`}
+              </p>
+              <p className="text-[10px] opacity-80 mt-0.5">
+                {answered === realItems.length
+                  ? "ถ้าไม่กดส่ง ฟอร์มจะค้างเป็นร่าง — Dashboard จะไม่นับ"
+                  : "กรอกครบก่อน แล้วถึงจะกดส่งฟอร์มได้"}
+              </p>
+            </div>
+            {answered === realItems.length && (
+              <button onClick={submit}
+                className="px-4 py-3 bg-white text-emerald-700 hover:bg-emerald-50 rounded-xl text-sm font-black inline-flex items-center gap-1.5 shadow-lg flex-shrink-0">
+                <Send size={14} /> ส่งฟอร์ม
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Sticky bottom action bar ── */}
       {access.can_edit && (
-        <div className="fixed bottom-3 left-3 right-3 lg:relative lg:bottom-auto lg:left-auto lg:right-auto bg-white border border-slate-200 rounded-2xl p-3 shadow-xl lg:shadow-sm flex items-center justify-between gap-2 z-30">
+        <div className="fixed bottom-20 left-3 right-3 lg:relative lg:bottom-auto lg:left-auto lg:right-auto bg-white border border-slate-200 rounded-2xl p-3 shadow-xl lg:shadow-sm flex items-center justify-between gap-2 z-50">
           <p className="text-[11px] text-slate-500">
             <b className="text-slate-800">{answered}/{realItems.length}</b> ข้อ · <b className="text-indigo-700">{Number(ev.percentage).toFixed(1)}%</b>
           </p>
           <div className="flex gap-1.5">
             {ev.status === "draft" && (
               <button onClick={submit}
-                className="px-3 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-xs font-black inline-flex items-center gap-1.5 shadow">
-                <Send size={12} /> ส่งฟอร์ม
+                className={`px-4 py-2.5 text-white rounded-xl text-sm font-black inline-flex items-center gap-1.5 shadow ${
+                  answered === realItems.length
+                    ? "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 animate-pulse ring-2 ring-emerald-300"
+                    : "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+                }`}>
+                <Send size={14} /> ส่งฟอร์ม
               </button>
             )}
             {ev.status !== "draft" && (

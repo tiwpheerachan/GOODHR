@@ -7,11 +7,12 @@ import {
   XCircle, AlertCircle, UserPlus, ChevronRight,
   Award, Timer, RefreshCw, FileBarChart2, Bell, X,
   TrendingUp, TrendingDown, Minus, Brain, ArrowRight,
-  ShieldCheck, ShieldAlert, Shield, Target, BarChart3, Building2,
+  ShieldCheck, ShieldAlert, Shield, Target, BarChart3, Building2, Banknote,
 } from "lucide-react"
 import Link from "next/link"
 import { format, subDays, startOfMonth, differenceInDays } from "date-fns"
 import { th } from "date-fns/locale"
+import PayrollAnalyticsTab from "@/components/admin/PayrollAnalyticsTab"
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface DayData    { date:string; present:number; late:number; absent:number; leave:number; total:number }
@@ -315,6 +316,7 @@ export default function AdminDashboard() {
   const today    = format(new Date(),"yyyy-MM-dd")
   const monthStart = format(startOfMonth(new Date()),"yyyy-MM-dd")
 
+  const [activeTab,   setActiveTab]   = useState<"overview" | "payroll">("overview")
   const [loading,     setLoading]     = useState(true)
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const [selectedCo,  setSelectedCo]  = useState("")
@@ -589,6 +591,39 @@ export default function AdminDashboard() {
           </button>
         </div>
       </div>
+
+      {/* ── Tab toggle ─────────────────────────────────────────── */}
+      <div className="flex items-center gap-1 bg-white border border-slate-100 rounded-2xl p-1 w-fit">
+        <button onClick={() => setActiveTab("overview")}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeTab === "overview"
+              ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-sm"
+              : "text-slate-500 hover:bg-slate-50"
+          }`}>
+          <BarChart3 size={13}/> ภาพรวมระบบ
+        </button>
+        <button onClick={() => setActiveTab("payroll")}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeTab === "payroll"
+              ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm"
+              : "text-slate-500 hover:bg-slate-50"
+          }`}>
+          <Banknote size={13}/> วิเคราะห์เงินเดือน
+        </button>
+      </div>
+
+      {/* ─── PAYROLL ANALYTICS TAB ───────────────────────────── */}
+      {activeTab === "payroll" && (
+        <PayrollAnalyticsTab
+          companyId={selectedCo}
+          companies={companies}
+          isSuperAdmin={isSA}
+          onCompanyChange={setSelectedCo}
+        />
+      )}
+
+      {/* ─── OVERVIEW TAB ────────────────────────────────────── */}
+      {activeTab === "overview" && <>
 
       {/* ── ACTION BAR: Report & Export ── (โดดเด่น ด้านบน) ─── */}
       <div className="bg-gradient-to-r from-[#2A505A] to-[#3a6b78] rounded-2xl p-4 flex items-center gap-4 flex-wrap">
@@ -1238,6 +1273,8 @@ export default function AdminDashboard() {
 
       {/* ── Probation full alert banner ─────────────────────────── */}
       <ProbationBanner list={probList}/>
+
+      </>}{/* end overview tab */}
 
     </div>
   )

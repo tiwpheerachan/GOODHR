@@ -7,6 +7,7 @@ import Link from "next/link"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import ImportModal from "./ImportModal"
+import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
 
 const STATUS: Record<string, { l: string; c: string }> = {
   active:     { l: "ปกติ",       c: "bg-green-100 text-green-700"   },
@@ -300,7 +301,8 @@ export default function EmployeesPage() {
           <h2 className="text-2xl font-black text-slate-800">พนักงาน</h2>
           <p className="text-slate-400 text-sm mt-0.5">{total.toLocaleString()} คน</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          <FeishuSyncButton dataset="employee"/>
           <button onClick={exportCSV}
             className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
             <Download size={14} /> Export CSV

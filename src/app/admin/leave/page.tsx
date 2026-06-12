@@ -10,6 +10,7 @@ import { format, startOfMonth, endOfMonth } from "date-fns"
 import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
 import Link from "next/link"
+import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
 
 const inp = "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all"
 
@@ -351,7 +352,8 @@ export default function AdminLeavePage() {
           <h2 className="text-2xl font-black text-slate-800">การลา & ใบลาออก</h2>
           <p className="text-slate-400 text-sm">{mainTab==="leave" ? `${total.toLocaleString()} รายการ` : `${resignReqs.length} รายการ`}</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          {mainTab==="leave" && <FeishuSyncButton dataset="leave"/>}
           {isSA&&companies.length>0&&mainTab==="leave"&&(
             <select value={selCo} onChange={e=>{setSelCo(e.target.value);setPage(0)}} className={inp}>
               <option value="">ทุกบริษัท</option>

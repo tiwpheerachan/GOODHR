@@ -16,6 +16,7 @@ import toast from "react-hot-toast"
 import * as XLSX from "xlsx"
 import { BRAND_OPTIONS, normalizeBrands } from "@/lib/utils/brands"
 import { calcSSO, calcMonthlyTax, recomputePayroll } from "@/lib/utils/payroll"
+import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
 
 // ── helpers ────────────────────────────────────────────────────────────
 // ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น) — ไม่แสดงทศนิยม
@@ -2203,6 +2204,7 @@ export default function PayrollPage() {
           <p className="text-slate-400 text-sm">คำนวณ · ตรวจสอบ · แก้ไข · อนุมัติ</p>
         </div>
         <div className="flex gap-2 items-center flex-wrap">
+          <FeishuSyncButton dataset="payroll"/>
           {/* register view */}
           <Link href="/admin/payroll/register"
             className="flex items-center gap-2 rounded-xl border-2 border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-100 transition-colors">

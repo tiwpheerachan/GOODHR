@@ -3,7 +3,11 @@ import { NextResponse } from "next/server"
 import { BRAND_OPTIONS } from "@/lib/utils/brands"
 
 // PATCH /api/employees/brand
-// Body: { employee_id, brands: string[] }
+// Body: {
+//   employee_id: string
+//   brands:      string[]                  // รายชื่อแบรนด์ที่ดูแล
+//   allocations?: Record<string, number>   // (optional) % ของแต่ละแบรนด์ เช่น { Anker: 60, DDpai: 40 }
+// }
 // อนุญาตเฉพาะ admin (super_admin/hr_admin)
 export async function PATCH(req: Request) {
   const supabase = createClient()
@@ -19,23 +23,47 @@ export async function PATCH(req: Request) {
   }
 
   const body = await req.json()
-  const { employee_id, brands } = body as { employee_id: string; brands: string[] }
+  const { employee_id, brands, allocations } = body as {
+    employee_id: string
+    brands: string[]
+    allocations?: Record<string, number> | null
+  }
 
   if (!employee_id) {
     return NextResponse.json({ error: "employee_id required" }, { status: 400 })
   }
 
-  // ตรวจสอบและกรอง brand ให้อยู่ใน BRAND_OPTIONS เท่านั้น
+  // ── 1) sanitize brands ──
   const validSet = new Set<string>(BRAND_OPTIONS as readonly string[])
   const cleaned = Array.isArray(brands)
     ? brands.filter((b): b is string => typeof b === "string" && validSet.has(b))
     : []
-  // unique
   const uniqueBrands = Array.from(new Set(cleaned))
+
+  // ── 2) sanitize allocations ──
+  //   - keys ต้องอยู่ใน uniqueBrands (อย่ามี allocation สำหรับ brand ที่ไม่ได้เลือก)
+  //   - values ต้องเป็น number 0-100
+  //   - ถ้าไม่ส่ง / ส่ง null / ว่าง → เก็บ NULL (fallback หารเท่ากัน)
+  let cleanedAllocations: Record<string, number> | null = null
+  if (allocations && typeof allocations === "object") {
+    const brandSet = new Set(uniqueBrands)
+    const tmp: Record<string, number> = {}
+    for (const [k, v] of Object.entries(allocations)) {
+      if (!brandSet.has(k)) continue          // skip brand ที่ไม่ได้เลือก
+      const n = Number(v)
+      if (!Number.isFinite(n) || n < 0 || n > 100) continue
+      tmp[k] = Math.round(n * 100) / 100      // เก็บ 2 ทศนิยม
+    }
+    if (Object.keys(tmp).length > 0) cleanedAllocations = tmp
+  }
 
   const { error } = await supa
     .from("employees")
-    .update({ brand: uniqueBrands.length > 0 ? uniqueBrands : null, updated_at: new Date().toISOString() })
+    .update({
+      brand: uniqueBrands.length > 0 ? uniqueBrands : null,
+      brand_allocations: cleanedAllocations,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", employee_id)
 
   if (error) {
@@ -43,5 +71,9 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true, brands: uniqueBrands })
+  return NextResponse.json({
+    success: true,
+    brands: uniqueBrands,
+    allocations: cleanedAllocations,
+  })
 }
