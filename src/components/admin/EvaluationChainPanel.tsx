@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react"
 import {
   Loader2, ArrowUp, ArrowDown, Users, Network, Eye, BarChart2, Shield,
-  ChevronDown, User, Plus,
+  ChevronDown, User, Plus, AlertTriangle,
 } from "lucide-react"
 
 type Person = {
@@ -14,6 +14,16 @@ type Person = {
   avatar_url?: string
   position?: { name: string } | null
   employment_status?: string
+  // ── diagnostic fields (subordinate side) ──
+  is_active?: boolean
+  deleted_at?: string | null
+  kpi_evaluator_id?: string | null
+  hire_date?: string | null
+  probation_end_date?: string | null
+  _kpi_visible?: boolean
+  _kpi_hidden_reason?: string | null
+  _probation_visible?: boolean
+  _probation_hidden_reason?: string | null
 }
 
 type ChainData = {
@@ -37,24 +47,52 @@ const SCOPE_LABEL: Record<string, { label: string; color: string }> = {
   view_only: { label: "ดูเท่านั้น", color: "bg-slate-50 text-slate-600" },
 }
 
-function PersonRow({ p, badge, sub, dim }: { p: Person; badge?: { label: string; color: string }; sub?: string; dim?: boolean }) {
+function PersonRow({ p, badge, sub, dim, showVisibility }: { p: Person; badge?: { label: string; color: string }; sub?: string; dim?: boolean; showVisibility?: boolean }) {
+  const hasIssue = showVisibility && (p._kpi_visible === false || p._probation_visible === false)
   return (
-    <div className={`flex items-center gap-3 px-3 py-2 bg-white rounded-xl border border-slate-100 ${dim ? "opacity-60" : ""}`}>
-      <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0 overflow-hidden">
-        {p.avatar_url
-          ? <img src={p.avatar_url} alt="" className="w-full h-full object-cover" />
-          : <span className="text-indigo-600 text-sm font-bold">{p.first_name_th?.[0] ?? "?"}</span>}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-bold text-slate-800 truncate">{p.first_name_th} {p.last_name_th}</p>
-          {p.nickname && <span className="text-[10px] text-slate-400">({p.nickname})</span>}
+    <div className={`flex flex-col gap-1.5 px-3 py-2 bg-white rounded-xl border ${hasIssue ? "border-amber-200" : "border-slate-100"} ${dim ? "opacity-60" : ""}`}>
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0 overflow-hidden">
+          {p.avatar_url
+            ? <img src={p.avatar_url} alt="" className="w-full h-full object-cover" />
+            : <span className="text-indigo-600 text-sm font-bold">{p.first_name_th?.[0] ?? "?"}</span>}
         </div>
-        <p className="text-[11px] text-slate-400 truncate">{p.employee_code} · {p.position?.name ?? "—"}</p>
-        {sub && <p className="text-[10px] text-indigo-500 font-bold mt-0.5 flex items-center gap-1"><Network size={9}/> {sub}</p>}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-bold text-slate-800 truncate">{p.first_name_th} {p.last_name_th}</p>
+            {p.nickname && <span className="text-[10px] text-slate-400">({p.nickname})</span>}
+            {p.is_active === false && (
+              <span className="text-[9px] font-bold bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full">inactive</span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-400 truncate">{p.employee_code} · {p.position?.name ?? "—"}</p>
+          {sub && <p className="text-[10px] text-indigo-500 font-bold mt-0.5 flex items-center gap-1"><Network size={9}/> {sub}</p>}
+        </div>
+        {badge && (
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${badge.color}`}>{badge.label}</span>
+        )}
       </div>
-      {badge && (
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${badge.color}`}>{badge.label}</span>
+
+      {/* Visibility chips — KPI / Probation */}
+      {showVisibility && (
+        <div className="flex items-center gap-1.5 flex-wrap pl-12">
+          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+            p._kpi_visible === false ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"
+          }`}>
+            {p._kpi_visible === false ? "❌" : "✓"} KPI
+          </span>
+          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+            p._probation_visible === false ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"
+          }`}>
+            {p._probation_visible === false ? "❌" : "✓"} ทดลองงาน
+          </span>
+          {(p._kpi_hidden_reason || p._probation_hidden_reason) && (
+            <span className="text-[10px] text-amber-700 inline-flex items-center gap-1">
+              <AlertTriangle size={9}/>
+              {p._kpi_hidden_reason || p._probation_hidden_reason}
+            </span>
+          )}
+        </div>
       )}
     </div>
   )
@@ -152,7 +190,7 @@ export default function EvaluationChainPanel({ employeeId, employeeName }: { emp
               <span className="text-emerald-600">●</span> ทีมตรง — ลูกน้องของคุณ
             </p>
             {sub.direct.map(p => (
-              <PersonRow key={p.id} p={p} sub={p.position?.name} />
+              <PersonRow key={p.id} p={p} sub={p.position?.name} showVisibility/>
             ))}
           </div>
         )}
@@ -165,7 +203,7 @@ export default function EvaluationChainPanel({ employeeId, employeeName }: { emp
             </p>
             {sub.additional.map(p => {
               const meta = SCOPE_LABEL[p.scope] ?? SCOPE_LABEL.all
-              return <PersonRow key={p.id} p={p} badge={{ label: meta.label, color: meta.color }} />
+              return <PersonRow key={p.id} p={p} badge={{ label: meta.label, color: meta.color }} showVisibility/>
             })}
           </div>
         )}
@@ -186,6 +224,7 @@ export default function EvaluationChainPanel({ employeeId, employeeName }: { emp
                 p={p}
                 sub={p.direct_manager ? `หัวหน้าตรง: ${p.direct_manager.first_name_th} ${p.direct_manager.last_name_th}` : undefined}
                 badge={{ label: "skip-1", color: "bg-indigo-50 text-indigo-700" }}
+                showVisibility
               />
             ))}
           </div>

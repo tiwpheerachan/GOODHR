@@ -55,10 +55,11 @@ export async function GET(req: NextRequest) {
   } catch {}
 
   // ── (B) คนนี้เป็นหัวหน้าใครบ้าง — DOWN the chain ────────────────────────
-  // 1) direct subordinates
+  // 1) direct subordinates — เพิ่ม fields สำหรับ diagnostic
+  const SUB_SELECT = "id, employee_code, first_name_th, last_name_th, nickname, avatar_url, employment_status, hire_date, probation_end_date, is_active, deleted_at, kpi_evaluator_id, position:positions(name)"
   const { data: directSubsRows } = await svc
     .from("employee_manager_history")
-    .select("employee_id, employee:employees!employee_id(id, employee_code, first_name_th, last_name_th, nickname, avatar_url, employment_status, hire_date, position:positions(name))")
+    .select(`employee_id, employee:employees!employee_id(${SUB_SELECT})`)
     .eq("manager_id", empId)
     .is("effective_to", null)
   const directSubs = (directSubsRows ?? []).map((r: any) => r.employee).filter(Boolean)
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
   if (directSubIds.length > 0) {
     const { data: skipRows } = await svc
       .from("employee_manager_history")
-      .select("employee_id, manager_id, employee:employees!employee_id(id, employee_code, first_name_th, last_name_th, nickname, avatar_url, employment_status, position:positions(name))")
+      .select(`employee_id, manager_id, employee:employees!employee_id(${SUB_SELECT})`)
       .in("manager_id", directSubIds)
       .is("effective_to", null)
     const seen = new Set<string>()
@@ -86,6 +87,50 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── Diagnostic: per sub — ทำไม "ไม่ขึ้น" ใน KPI / Probation list ของ caller (empId) ──
+  //   KPI rules (จาก getManageableEmployees + kpi_evaluator_id override):
+  //     - is_active = false           → ❌ hidden everywhere
+  //     - deleted_at != null          → ❌ hidden everywhere
+  //     - kpi_evaluator_id ≠ empId AND ≠ null → ❌ hidden ใน KPI (มีคนแทน)
+  //   Probation rules (เพิ่มเติมใน /api/probation-evaluation):
+  //     - hire_date ว่าง              → ❌ hidden ใน probation
+  //     - daysSinceHire > 150 และ status ≠ "probation" → ❌ hidden (พ้นทดลองงานแล้ว)
+  const today = new Date()
+  const computeDiagnostic = (s: any): any => {
+    const issues: { kpi_hidden?: string; probation_hidden?: string } = {}
+    if (s.is_active === false) {
+      issues.kpi_hidden = "พนักงาน inactive"
+      issues.probation_hidden = "พนักงาน inactive"
+    } else if (s.deleted_at) {
+      issues.kpi_hidden = "พนักงานถูกลบ"
+      issues.probation_hidden = "พนักงานถูกลบ"
+    }
+    // KPI override
+    if (!issues.kpi_hidden && s.kpi_evaluator_id && s.kpi_evaluator_id !== empId) {
+      issues.kpi_hidden = `KPI ถูกมอบให้คนอื่นประเมิน (kpi_evaluator_id ≠ ${empId.slice(0, 8)}…)`
+    }
+    // Probation hire-date filter
+    if (!issues.probation_hidden) {
+      if (!s.hire_date) {
+        issues.probation_hidden = "ไม่มี hire_date"
+      } else {
+        const days = Math.ceil((today.getTime() - new Date(s.hire_date).getTime()) / 86_400_000)
+        const isProbation = s.employment_status === "probation"
+        if (!isProbation && days > 150) {
+          issues.probation_hidden = `พ้นทดลองงานแล้ว (${days} วัน, status=${s.employment_status || "ไม่ระบุ"})`
+        }
+      }
+    }
+    return {
+      _kpi_visible: !issues.kpi_hidden,
+      _kpi_hidden_reason: issues.kpi_hidden ?? null,
+      _probation_visible: !issues.probation_hidden,
+      _probation_hidden_reason: issues.probation_hidden ?? null,
+    }
+  }
+  for (const s of directSubs) Object.assign(s, computeDiagnostic(s))
+  for (const s of skipSubs)   Object.assign(s, computeDiagnostic(s))
+
   // Attach direct_manager info to each skip sub
   const skipSubMgrInfo = new Map<string, any>(directSubs.map((s: any) => [s.id, s]))
   const skipSubsWithMgr = skipSubs.map((s: any) => ({
@@ -97,13 +142,13 @@ export async function GET(req: NextRequest) {
   let additionalSubs: any[] = []
   try {
     const { data: addAsEvaluator } = await svc.from("employee_evaluators")
-      .select("scope, employee:employees!employee_id(id, employee_code, first_name_th, last_name_th, nickname, avatar_url, employment_status, position:positions(name))")
+      .select(`scope, employee:employees!employee_id(${SUB_SELECT})`)
       .eq("evaluator_id", empId)
     additionalSubs = (addAsEvaluator ?? [])
       .filter((r: any) => r.employee)
       .filter((r: any) => !directSubIds.includes(r.employee.id))
       .filter((r: any) => !skipSubs.some((s: any) => s.id === r.employee.id))
-      .map((r: any) => ({ ...r.employee, scope: r.scope }))
+      .map((r: any) => ({ ...r.employee, scope: r.scope, ...computeDiagnostic(r.employee) }))
   } catch {}
 
   // ── (C) Stats counts ────────────────────────────────────────────────────

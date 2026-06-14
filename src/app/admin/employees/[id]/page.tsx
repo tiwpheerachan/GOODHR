@@ -18,6 +18,7 @@ import AdditionalEvaluatorsSection from "@/components/admin/AdditionalEvaluators
 import EvaluationChainPanel from "@/components/admin/EvaluationChainPanel"
 import FeishuLinkTab from "@/components/employees/FeishuLinkTab"
 import BrandsTab from "@/components/employees/BrandsTab"
+import EmployeeShaderBg from "@/components/ui/employee-shader-bg"
 
 const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท","โควต้าการลา","สาย/ผู้ประเมิน","🏷️ แบรนด์ที่ดูแล","🔗 Feishu Link"]
 const inp = "input-field"
@@ -514,22 +515,35 @@ export default function EmployeeDetailPage() {
         <aside className="space-y-3 xl:sticky xl:top-4 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
           {/* Profile card */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className={`p-5 text-center ${
-              emp.employment_status === "resigned" || emp.employment_status === "terminated"
-                ? "bg-gradient-to-br from-slate-400 to-slate-500"
-                : "bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-600"
-            }`}>
-              <div className="w-20 h-20 mx-auto rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-white font-black text-3xl shadow-lg mb-2 overflow-hidden">
-                {emp.avatar_url
-                  ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>
-                  : emp.first_name_th?.[0]}
+            {(emp.employment_status === "resigned" || emp.employment_status === "terminated") ? (
+              <div className="p-5 text-center bg-gradient-to-br from-slate-400 to-slate-500">
+                <div className="w-20 h-20 mx-auto rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-white font-black text-3xl shadow-lg mb-2 overflow-hidden">
+                  {emp.avatar_url
+                    ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>
+                    : emp.first_name_th?.[0]}
+                </div>
+                <h2 className="text-base font-black text-white">{emp.first_name_th} {emp.last_name_th}</h2>
+                <p className="text-[10px] text-white/80 font-mono mt-0.5">{emp.employee_code}</p>
+                <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-2 ${empStatusColor[emp.employment_status] ?? "bg-slate-100 text-slate-500"}`}>
+                  {empStatusMap[emp.employment_status] ?? emp.employment_status}
+                </span>
               </div>
-              <h2 className="text-base font-black text-white">{emp.first_name_th} {emp.last_name_th}</h2>
-              <p className="text-[10px] text-white/80 font-mono mt-0.5">{emp.employee_code}</p>
-              <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-2 ${empStatusColor[emp.employment_status] ?? "bg-slate-100 text-slate-500"}`}>
-                {empStatusMap[emp.employment_status] ?? emp.employment_status}
-              </span>
-            </div>
+            ) : (
+              <EmployeeShaderBg seed={emp.id || emp.employee_code || "default"} speed={0.55}>
+                <div className="p-5 text-center">
+                  <div className="w-20 h-20 mx-auto rounded-2xl bg-white/25 backdrop-blur flex items-center justify-center text-white font-black text-3xl shadow-lg mb-2 overflow-hidden ring-2 ring-white/30">
+                    {emp.avatar_url
+                      ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>
+                      : emp.first_name_th?.[0]}
+                  </div>
+                  <h2 className="text-base font-black text-white drop-shadow-md">{emp.first_name_th} {emp.last_name_th}</h2>
+                  <p className="text-[10px] text-white/90 font-mono mt-0.5 drop-shadow">{emp.employee_code}</p>
+                  <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-2 ${empStatusColor[emp.employment_status] ?? "bg-slate-100 text-slate-500"}`}>
+                    {empStatusMap[emp.employment_status] ?? emp.employment_status}
+                  </span>
+                </div>
+              </EmployeeShaderBg>
+            )}
             <div className="p-3 space-y-1.5 border-t border-slate-100">
               {emp.position?.name && (
                 <div className="flex items-center gap-2 text-xs">
