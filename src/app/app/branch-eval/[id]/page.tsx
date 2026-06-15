@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useMemo, useState, useRef } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import {
@@ -303,14 +303,13 @@ export default function BranchEvalDetailPage() {
 
   // ── Client-side validation: ข้อที่บังคับให้แนบรูปต้องมีรูป ──
   //   (ตรงกับ backend — แสดง toast เร็วกว่าเดิมโดยไม่ต้องรอ server reply)
-  const missingPhotoItems = useMemo(() => {
-    return items
-      .filter((it: any) => !it.is_section && it.requires_photo)
-      .filter((it: any) => {
-        const a = answerById.get(it.id)
-        return !a?.photo_urls || a.photo_urls.length === 0
-      })
-  }, [items, answerById])
+  //   หมายเหตุ: ห้ามใช้ useMemo ตรงนี้ — อยู่หลัง early return ของ data จะผิดกฎ Hooks
+  const missingPhotoItems = items
+    .filter((it: any) => !it.is_section && it.requires_photo)
+    .filter((it: any) => {
+      const a = answerById.get(it.id)
+      return !a?.photo_urls || a.photo_urls.length === 0
+    })
 
   const submit = async () => {
     // ตรวจ require_photo ก่อนยิง API

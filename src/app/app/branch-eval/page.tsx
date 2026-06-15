@@ -349,15 +349,18 @@ export default function BranchEvalLandingPage() {
                         <p className="text-[9px] text-slate-400">{ev.total_score}/{ev.total_weight}</p>
                       </div>
                     )}
-                    {isDraft && (
-                      <button onClick={e => deleteDraft(ev, e)}
-                        title="ลบฉบับร่าง"
-                        className="flex-shrink-0 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
-                        <Trash2 size={13}/>
-                      </button>
-                    )}
+                    {/* ปุ่มลบ draft จะแยกออกมาเป็น absolute ข้างนอก Link (ห้ามใส่ button ใน a — ผิด HTML) */}
+                    {isDraft && <span className="flex-shrink-0 w-8"/>}
                     <ChevronRight size={14} className="text-slate-300 group-hover:text-indigo-600 flex-shrink-0" />
                   </Link>
+                  {/* Delete draft button — absolute เพื่อไม่ให้ button ซ้อนใน <a> */}
+                  {isDraft && (
+                    <button onClick={e => deleteDraft(ev, e)}
+                      title="ลบฉบับร่าง"
+                      className="absolute right-9 top-1/2 -translate-y-1/2 p-1.5 bg-white text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shadow-sm border border-slate-200 z-10">
+                      <Trash2 size={13}/>
+                    </button>
+                  )}
                 </div>
               )
             })}
