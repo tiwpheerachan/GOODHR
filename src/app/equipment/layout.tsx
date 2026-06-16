@@ -6,14 +6,15 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
   LayoutDashboard, Package, ClipboardList, FolderOpen,
-  Menu, X, LogOut, ChevronRight,
+  Menu, X, LogOut, ChevronRight, FileText,
 } from "lucide-react"
 
 const SIDEBAR = [
-  { href: "/equipment/dashboard",  icon: LayoutDashboard, label: "ภาพรวม",      badge: null as string|null },
-  { href: "/equipment/items",      icon: Package,         label: "รายการอุปกรณ์", badge: null as string|null },
-  { href: "/equipment/requests",   icon: ClipboardList,   label: "คำขอยืม",      badge: null as string|null },
-  { href: "/equipment/categories", icon: FolderOpen,      label: "หมวดหมู่",     badge: null as string|null },
+  { href: "/equipment/dashboard",       icon: LayoutDashboard, label: "ภาพรวม",            badge: null as string|null },
+  { href: "/equipment/items",           icon: Package,         label: "รายการอุปกรณ์",      badge: null as string|null },
+  { href: "/equipment/requests",        icon: ClipboardList,   label: "คำขอยืม",           badge: null as string|null },
+  { href: "/equipment/sample-requests", icon: FileText,        label: "Sample Request",   badge: null as string|null },
+  { href: "/equipment/categories",      icon: FolderOpen,      label: "หมวดหมู่",          badge: null as string|null },
 ]
 
 const ROLE_LABEL: Record<string, string> = {

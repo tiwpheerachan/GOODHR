@@ -2,12 +2,13 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
-import { Search, Plus, Download, ChevronRight, ChevronLeft, Filter, Users, Building2, Trash2, FileUp } from "lucide-react"
+import { Search, Plus, Download, ChevronRight, ChevronLeft, Filter, Users, Building2, Trash2, FileUp, Tag, X, Check, Link2 } from "lucide-react"
 import Link from "next/link"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import ImportModal from "./ImportModal"
 import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
+import { useBrands } from "@/lib/hooks/useBrands"
 
 const STATUS: Record<string, { l: string; c: string }> = {
   active:     { l: "ปกติ",       c: "bg-green-100 text-green-700"   },
@@ -91,6 +92,12 @@ export default function EmployeesPage() {
   const [selectedCompany,  setSelectedCompany]  = useState<string>("")
   const [showImport,       setShowImport]       = useState(false)
   const [showAdvanced,     setShowAdvanced]     = useState(false)
+  // ── Smart filters ──
+  const [brandFilter,      setBrandFilter]      = useState<string[]>([])  // multi-select
+  const [showBrandPicker,  setShowBrandPicker]  = useState(false)
+  const [tenureFilter,     setTenureFilter]     = useState<"" | "<1y" | "1-3y" | "3-5y" | "5+y">("")
+  const [feishuFilter,     setFeishuFilter]     = useState<"" | "linked" | "unlinked">("")
+  const { brands: brandsList } = useBrands()
   const PER = 25
 
   const myCompanyId: string | undefined =
@@ -181,6 +188,24 @@ export default function EmployeesPage() {
       if (branch)                q = q.eq("branch_id", branch)
       if (position)              q = q.eq("position_id", position)
       if (empType)               q = q.eq("employment_type", empType)
+      // ── Brand multi-select (OR — overlaps): match พนักงานที่ดูแลแบรนด์ใดอย่างน้อย 1 ──
+      if (brandFilter.length > 0) {
+        q = q.overlaps("brand", brandFilter)
+      }
+      // ── Feishu link filter ──
+      if (feishuFilter === "linked")   q = q.not("feishu_user_id", "is", null)
+      if (feishuFilter === "unlinked") q = q.is("feishu_user_id", null)
+      // ── Tenure (อายุงาน) → แปลงเป็น hire_date range ──
+      if (tenureFilter) {
+        const now = new Date()
+        const yearsAgo = (y: number) => {
+          const d = new Date(now); d.setFullYear(d.getFullYear() - y); return d.toISOString().slice(0, 10)
+        }
+        if (tenureFilter === "<1y")  q = q.gte("hire_date", yearsAgo(1))
+        if (tenureFilter === "1-3y") q = q.gte("hire_date", yearsAgo(3)).lt("hire_date", yearsAgo(1))
+        if (tenureFilter === "3-5y") q = q.gte("hire_date", yearsAgo(5)).lt("hire_date", yearsAgo(3))
+        if (tenureFilter === "5+y")  q = q.lt("hire_date", yearsAgo(5))
+      }
       if (debouncedSearch) {
         const k = debouncedSearch.replace(/[%_,()]/g, "")
         q = q.or([
@@ -245,7 +270,7 @@ export default function EmployeesPage() {
     } finally {
       setLoading(false)
     }
-  }, [isSuperAdmin, myCompanyId, activeCompanyId, debouncedSearch, status, dept, branch, position, empType, page, showInactive])
+  }, [isSuperAdmin, myCompanyId, activeCompanyId, debouncedSearch, status, dept, branch, position, empType, page, showInactive, brandFilter, tenureFilter, feishuFilter])
 
   useEffect(() => { load() }, [load])
   const setF = (fn: () => void) => { fn(); setPage(0) }
@@ -286,10 +311,12 @@ export default function EmployeesPage() {
 
   const activeFilterCount =
     (status ? 1 : 0) + (dept ? 1 : 0) + (branch ? 1 : 0) +
-    (position ? 1 : 0) + (empType ? 1 : 0) + (showInactive ? 1 : 0)
+    (position ? 1 : 0) + (empType ? 1 : 0) + (showInactive ? 1 : 0) +
+    (brandFilter.length > 0 ? 1 : 0) + (tenureFilter ? 1 : 0) + (feishuFilter ? 1 : 0)
 
   const clearFilters = () => setF(() => {
     setStatus(""); setDept(""); setBranch(""); setPosition(""); setEmpType(""); setShowInactive(false)
+    setBrandFilter([]); setTenureFilter(""); setFeishuFilter("")
   })
 
   return (
@@ -395,9 +422,9 @@ export default function EmployeesPage() {
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${showAdvanced ? "bg-indigo-50 border-indigo-200 text-indigo-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
             <Filter size={12} />
             ตัวกรองเพิ่มเติม
-            {(branch ? 1 : 0) + (position ? 1 : 0) + (empType ? 1 : 0) > 0 && (
+            {(branch ? 1 : 0) + (position ? 1 : 0) + (empType ? 1 : 0) + (brandFilter.length > 0 ? 1 : 0) + (tenureFilter ? 1 : 0) + (feishuFilter ? 1 : 0) > 0 && (
               <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-black">
-                {(branch ? 1 : 0) + (position ? 1 : 0) + (empType ? 1 : 0)}
+                {(branch ? 1 : 0) + (position ? 1 : 0) + (empType ? 1 : 0) + (brandFilter.length > 0 ? 1 : 0) + (tenureFilter ? 1 : 0) + (feishuFilter ? 1 : 0)}
               </span>
             )}
           </button>
@@ -414,23 +441,121 @@ export default function EmployeesPage() {
         </div>
 
         {showAdvanced && (
-          <div className="flex flex-wrap gap-3 items-center pt-3 border-t border-slate-100">
-            {branches.length > 0 && (
-              <select value={branch} onChange={e => setF(() => setBranch(e.target.value))} className={inp}>
-                <option value="">ทุกสาขา</option>
-                {branches.map(b => <option key={b.id} value={b.id}>{optLabel(b.name, b.company_id)}</option>)}
+          <div className="space-y-3 pt-3 border-t border-slate-100">
+            {/* Row 1: branch, position, emp_type */}
+            <div className="flex flex-wrap gap-3 items-center">
+              {branches.length > 0 && (
+                <select value={branch} onChange={e => setF(() => setBranch(e.target.value))} className={inp}>
+                  <option value="">ทุกสาขา</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{optLabel(b.name, b.company_id)}</option>)}
+                </select>
+              )}
+              {positions.length > 0 && (
+                <select value={position} onChange={e => setF(() => setPosition(e.target.value))} className={inp}>
+                  <option value="">ทุกตำแหน่ง</option>
+                  {positions.map(p => <option key={p.id} value={p.id}>{optLabel(p.name, p.company_id)}</option>)}
+                </select>
+              )}
+              <select value={empType} onChange={e => setF(() => setEmpType(e.target.value))} className={inp}>
+                <option value="">ทุกประเภทการจ้าง</option>
+                {Object.entries(EMP_TYPE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
-            )}
-            {positions.length > 0 && (
-              <select value={position} onChange={e => setF(() => setPosition(e.target.value))} className={inp}>
-                <option value="">ทุกตำแหน่ง</option>
-                {positions.map(p => <option key={p.id} value={p.id}>{optLabel(p.name, p.company_id)}</option>)}
+              {/* Tenure */}
+              <select value={tenureFilter} onChange={e => setF(() => setTenureFilter(e.target.value as any))} className={inp}>
+                <option value="">ทุกอายุงาน</option>
+                <option value="<1y">น้อยกว่า 1 ปี</option>
+                <option value="1-3y">1–3 ปี</option>
+                <option value="3-5y">3–5 ปี</option>
+                <option value="5+y">5 ปีขึ้นไป</option>
               </select>
-            )}
-            <select value={empType} onChange={e => setF(() => setEmpType(e.target.value))} className={inp}>
-              <option value="">ทุกประเภทการจ้าง</option>
-              {Object.entries(EMP_TYPE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
+              {/* Feishu link */}
+              <select value={feishuFilter} onChange={e => setF(() => setFeishuFilter(e.target.value as any))} className={inp}>
+                <option value="">ทุก Feishu</option>
+                <option value="linked">🔗 มี Feishu</option>
+                <option value="unlinked">⛔ ไม่มี Feishu</option>
+              </select>
+            </div>
+
+            {/* Row 2: brand multi-select */}
+            <div className="relative">
+              <button type="button" onClick={() => setShowBrandPicker(s => !s)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${
+                  brandFilter.length > 0
+                    ? "bg-indigo-50 border-indigo-200 text-indigo-700"
+                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                }`}>
+                <Tag size={12}/>
+                {brandFilter.length === 0
+                  ? "เลือกแบรนด์ที่ดูแล..."
+                  : `แบรนด์ที่เลือก ${brandFilter.length}`}
+                {brandFilter.length > 0 && (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {brandFilter.slice(0, 4).map(b => {
+                      const info = brandsList.find(x => x.name === b)
+                      return (
+                        <span key={b} className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 bg-white border border-indigo-200 rounded">
+                          {info?.logo_url && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={info.logo_url} alt="" className="w-3 h-3 object-contain"/>
+                          )}
+                          {b}
+                          <span onClick={(e) => { e.stopPropagation(); setF(() => setBrandFilter(prev => prev.filter(x => x !== b))) }}
+                            className="hover:text-rose-600 cursor-pointer">×</span>
+                        </span>
+                      )
+                    })}
+                    {brandFilter.length > 4 && (
+                      <span className="text-[10px] text-indigo-600 font-bold">+{brandFilter.length - 4}</span>
+                    )}
+                  </div>
+                )}
+                <ChevronRight size={12} className={`ml-auto transition-transform ${showBrandPicker ? "rotate-90" : ""}`}/>
+              </button>
+
+              {showBrandPicker && (
+                <div className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg p-3 max-h-[320px] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] font-black text-slate-500 uppercase">เลือกได้หลายแบรนด์ ({brandFilter.length} เลือก)</p>
+                    <div className="flex gap-1.5">
+                      {brandFilter.length > 0 && (
+                        <button onClick={() => setF(() => setBrandFilter([]))}
+                          className="text-[10px] font-bold text-rose-500 hover:text-rose-700">ล้าง</button>
+                      )}
+                      <button onClick={() => setShowBrandPicker(false)}
+                        className="text-[10px] font-bold text-slate-500 hover:text-slate-700">ปิด</button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+                    {brandsList.map(b => {
+                      const active = brandFilter.includes(b.name)
+                      return (
+                        <button key={b.id} type="button"
+                          onClick={() => setF(() => setBrandFilter(prev =>
+                            prev.includes(b.name) ? prev.filter(x => x !== b.name) : [...prev, b.name]
+                          ))}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border text-[11px] font-bold transition-all ${
+                            active
+                              ? "bg-indigo-500 text-white border-transparent shadow-sm"
+                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                          }`}>
+                          {/* swatch / logo */}
+                          {b.logo_url
+                            ? <div className="w-5 h-5 rounded bg-white border border-slate-100 flex items-center justify-center overflow-hidden shrink-0">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={b.logo_url} alt="" className="w-full h-full object-contain"/>
+                              </div>
+                            : <span className={`w-4 h-4 rounded ${active ? "bg-white/30" : ""} flex items-center justify-center shrink-0`}
+                                style={!active && b.color_hex ? { backgroundColor: b.color_hex } : undefined}>
+                                {active && <Check size={9} strokeWidth={3} className="text-white"/>}
+                              </span>}
+                          <span className="truncate">{b.name}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

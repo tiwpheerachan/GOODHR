@@ -91,18 +91,49 @@ export default function BrandsTab({
     Math.abs(allocSum - 100)<0.5 ? "ok"   :
     allocSum > 100              ? "over" : "under"
 
+  // หารเท่ากันให้ผลรวม = 100.00 เป๊ะ (ไม่มี float drift)
+  //   ถ้า 18 แบรนด์ → ทุกตัว 5.55, ตัวสุดท้าย 5.65 (รวม 100)
   const distributeEqually = () => {
     if (selected.length === 0) return
-    const pct = Math.round((100 / selected.length) * 100) / 100
+    const n = selected.length
+    const base = Math.floor((100 / n) * 100) / 100  // 5.55 (ไม่ปัดขึ้น)
     const next: Record<string, number> = {}
-    for (let i = 0; i < selected.length; i++) {
-      // ปัดสุดท้ายเก็บ remainder
-      next[selected[i]] = i === selected.length - 1
-        ? Math.round((100 - pct * (selected.length - 1)) * 100) / 100
-        : pct
+    for (let i = 0; i < n - 1; i++) next[selected[i]] = base
+    // ตัวสุดท้ายเก็บ remainder ทั้งหมด — กัน drift
+    next[selected[n - 1]] = Math.round((100 - base * (n - 1)) * 100) / 100
+    setAllocations(next)
+  }
+
+  // เกลี่ยให้รวม = 100 — scale ค่าเดิมตามสัดส่วน (proportional)
+  //   เช่น 31/14/63 → /1.08 → 28.7/13/58.3 (รวม 100)
+  //   ถ้าค่าเดิมว่าง → เรียก distributeEqually แทน
+  const normalizeTo100 = () => {
+    if (selected.length === 0) return
+    const filled = selected.filter(b => (Number(allocations[b]) || 0) > 0)
+    if (filled.length === 0) { distributeEqually(); return }
+    const sum = filled.reduce((s, b) => s + (Number(allocations[b]) || 0), 0)
+    if (sum === 0) { distributeEqually(); return }
+    const next: Record<string, number> = { ...allocations }
+    // scale ค่าที่กรอกแล้วทุกตัว
+    let runningSum = 0
+    for (let i = 0; i < filled.length; i++) {
+      const b = filled[i]
+      if (i === filled.length - 1) {
+        // ตัวสุดท้ายเก็บ remainder กัน drift
+        next[b] = Math.round((100 - runningSum) * 100) / 100
+      } else {
+        const scaled = Math.round((((Number(allocations[b]) || 0) / sum) * 100) * 100) / 100
+        next[b] = scaled
+        runningSum += scaled
+      }
+    }
+    // ลบ key ของ brand ที่ไม่ filled (เผื่อมี 0 ค้าง)
+    for (const b of selected) {
+      if (!filled.includes(b)) delete next[b]
     }
     setAllocations(next)
   }
+
   const clearAllocations = () => setAllocations({})
   const setAlloc = (b: string, v: number) => {
     if (!Number.isFinite(v)) v = 0
@@ -205,20 +236,30 @@ export default function BrandsTab({
         )}
       </div>
 
-      {/* Currently selected (preview) */}
+      {/* Currently selected (preview) — สี subtle ไม่ฉูดฉาด */}
       {selected.length > 0 ? (
-        <div className="bg-gradient-to-br from-indigo-50 via-white to-purple-50 border border-indigo-200 rounded-xl p-3">
-          <p className="text-[10px] font-black text-indigo-600 uppercase mb-2 flex items-center gap-1">
-            <Check size={11}/> แบรนด์ที่เลือก ({selected.length})
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1">
+            <Check size={11} className="text-emerald-600"/> แบรนด์ที่เลือก
+            <span className="text-slate-400 font-normal">· {selected.length} แบรนด์</span>
           </p>
           <div className="flex flex-wrap gap-1.5">
             {selected.map(b => {
-              const c = brandColor(b)
+              const info = brandRecords.find(br => br.name === b)
               return (
                 <span key={b}
-                  className={`inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-lg ${c.activeBg} ${c.activeText} shadow-sm`}>
+                  className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 transition-colors">
+                  {/* color dot or logo */}
+                  {info?.logo_url ? (
+                    <div className="w-4 h-4 rounded bg-white flex items-center justify-center overflow-hidden shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={info.logo_url} alt="" className="w-full h-full object-contain"/>
+                    </div>
+                  ) : (
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: info?.color_hex || "#94a3b8" }}/>
+                  )}
                   {b}
-                  <button onClick={() => toggle(b)} className="hover:bg-white/20 rounded p-0.5">
+                  <button onClick={() => toggle(b)} className="hover:bg-slate-100 rounded p-0.5 text-slate-400 hover:text-rose-600">
                     <X size={9}/>
                   </button>
                 </span>
@@ -233,23 +274,34 @@ export default function BrandsTab({
         </div>
       )}
 
-      {/* ── % Allocation per brand ── */}
+      {/* ── % Allocation per brand — สี subtle ── */}
       {selected.length > 0 && (
-        <div className={`border rounded-xl p-3 space-y-3 transition-colors ${
-          sumStatus === "ok"   ? "bg-emerald-50/60 border-emerald-200" :
-          sumStatus === "over" ? "bg-rose-50/60 border-rose-200" :
-          sumStatus === "under"? "bg-amber-50/60 border-amber-200" :
-                                 "bg-slate-50 border-slate-200"
-        }`}>
+        <div className="border border-slate-200 bg-white rounded-xl p-3 space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Percent size={13} className="text-slate-500"/>
-            <p className="text-[11px] font-black text-slate-700 uppercase tracking-wide">
-              สัดส่วน % ของแต่ละแบรนด์ <span className="text-slate-400 normal-case font-normal">(ใช้คำนวณต้นทุนต่อแบรนด์)</span>
+            <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">
+              สัดส่วน % ของแต่ละแบรนด์ <span className="text-slate-400 normal-case font-normal">(ใช้คำนวณต้นทุน)</span>
             </p>
             <div className="flex-1"/>
+            {/* เกลี่ยให้ครบ 100% — เด่นเมื่อรวมไม่ใช่ 100 */}
+            {sumStatus !== "ok" && Object.keys(allocations).length > 0 && (
+              <button onClick={normalizeTo100}
+                title="ปรับสัดส่วนเดิมตามอัตราส่วน ให้รวม = 100%"
+                className={`flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors ${
+                  sumStatus === "over"
+                    ? "bg-rose-500 hover:bg-rose-600 text-white animate-pulse"
+                    : "bg-amber-500 hover:bg-amber-600 text-white animate-pulse"
+                }`}>
+                ⚡ เกลี่ยให้ครบ 100%
+              </button>
+            )}
             <button onClick={distributeEqually}
               title="หาร 100% เท่ากันทุกแบรนด์ที่เลือก"
-              className="flex items-center gap-1 text-[10px] font-bold px-2 py-1 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg">
+              className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg transition-colors ${
+                Object.keys(allocations).length === 0
+                  ? "bg-indigo-500 hover:bg-indigo-600 text-white shadow-sm"
+                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}>
               <Split size={10}/> หารเท่ากัน
             </button>
             {Object.keys(allocations).length > 0 && (
@@ -260,17 +312,28 @@ export default function BrandsTab({
             )}
           </div>
 
-          {/* per-brand rows */}
-          <div className="space-y-1.5">
+          {/* per-brand rows — บรรทัดสีขาวล้วน ใช้สีแบรนด์เป็น accent ซ้าย */}
+          <div className="space-y-1">
             {selected.map(b => {
-              const c = brandColor(b)
+              const info = brandRecords.find(br => br.name === b)
               const has = b in allocations
               const num = has ? (Number(allocations[b]) || 0) : 0
+              const accent = info?.color_hex || "#94a3b8"
               return (
-                <div key={b} className="flex items-center gap-2">
-                  <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-lg ${c.activeBg} ${c.activeText} min-w-[110px]`}>
-                    {b}
-                  </span>
+                <div key={b} className="flex items-center gap-2 bg-slate-50 rounded-lg pl-2 pr-2 py-1.5 hover:bg-slate-100 transition-colors border-l-2"
+                  style={{ borderLeftColor: accent }}>
+                  {/* logo + name */}
+                  <div className="flex items-center gap-1.5 min-w-[140px]">
+                    {info?.logo_url ? (
+                      <div className="w-5 h-5 rounded bg-white border border-slate-100 flex items-center justify-center overflow-hidden shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={info.logo_url} alt="" className="w-full h-full object-contain"/>
+                      </div>
+                    ) : (
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: accent }}/>
+                    )}
+                    <span className="text-[11px] font-bold text-slate-700 truncate">{b}</span>
+                  </div>
                   <div className="flex-1 flex items-center gap-2">
                     {/* slider */}
                     <input type="range" min="0" max="100" step="1"
@@ -278,7 +341,7 @@ export default function BrandsTab({
                       onChange={e => setAlloc(b, Number(e.target.value))}
                       className="flex-1 accent-indigo-500"/>
                     {/* number input */}
-                    <div className="relative w-20">
+                    <div className="relative w-16">
                       <input type="number" min="0" max="100" step="0.1"
                         value={has ? num : ""}
                         onChange={e => {
@@ -299,8 +362,8 @@ export default function BrandsTab({
             })}
           </div>
 
-          {/* Sum indicator */}
-          <div className="flex items-center justify-between border-t border-slate-200/70 pt-2">
+          {/* Sum indicator — สีพื้นหลังคงที่ ใช้ text color เปลี่ยน */}
+          <div className="flex items-center justify-between border-t border-slate-100 pt-2">
             <p className="text-[10px] font-bold text-slate-500">
               {sumStatus === "ok"    ? "✓ สัดส่วนสมบูรณ์ (รวม 100%)" :
                sumStatus === "over"  ? "⚠ รวมเกิน 100%" :
@@ -309,37 +372,58 @@ export default function BrandsTab({
                                        : "⚠ รวมน้อยกว่า 100% — กรอกให้ครบ"
                                      : ""}
             </p>
-            <p className={`text-sm font-black ${
-              sumStatus === "ok"   ? "text-emerald-700" :
-              sumStatus === "over" ? "text-rose-700" :
-                                     "text-amber-700"
-            }`}>
-              รวม {allocSumRounded}<span className="text-xs">%</span>
-              <span className="text-[10px] text-slate-400 ml-1">/ 100%</span>
-            </p>
+            <div className="flex items-center gap-1.5">
+              <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all ${
+                  sumStatus === "ok"   ? "bg-emerald-500" :
+                  sumStatus === "over" ? "bg-rose-500" :
+                                         "bg-amber-500"
+                }`} style={{ width: `${Math.min(allocSumRounded, 100)}%` }}/>
+              </div>
+              <p className={`text-sm font-black ${
+                sumStatus === "ok"   ? "text-emerald-700" :
+                sumStatus === "over" ? "text-rose-700" :
+                                       "text-amber-700"
+              }`}>
+                {allocSumRounded}<span className="text-xs">%</span>
+                <span className="text-[10px] text-slate-400 ml-1">/ 100</span>
+              </p>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Feishu suggestion */}
+      {/* Feishu suggestion — สีบลูแบบ subtle */}
       {feishuSuggestions.length > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+        <div className="bg-sky-50/60 border border-sky-200 rounded-xl p-3">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] font-black text-blue-700 uppercase flex items-center gap-1">
-              🔗 แนะนำจาก Feishu ({feishuSuggestions.length})
+            <p className="text-[10px] font-bold text-sky-700 uppercase tracking-wide flex items-center gap-1">
+              🔗 แนะนำจาก Feishu
+              <span className="text-sky-500 font-normal">· {feishuSuggestions.length} แบรนด์</span>
             </p>
             <button onClick={adoptFeishu}
-              className="text-[10px] font-black px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded-lg">
+              className="text-[10px] font-bold px-2.5 py-1 bg-white border border-sky-300 text-sky-700 hover:bg-sky-100 rounded-lg">
               + เพิ่มทั้งหมด
             </button>
           </div>
           <div className="flex flex-wrap gap-1">
-            {feishuSuggestions.map(b => (
-              <button key={b} onClick={() => toggle(b)}
-                className="text-[10px] font-bold px-2 py-1 bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 rounded-lg">
-                + {b}
-              </button>
-            ))}
+            {feishuSuggestions.map(b => {
+              const info = brandRecords.find(br => br.name === b)
+              return (
+                <button key={b} onClick={() => toggle(b)}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 bg-white border border-sky-200 text-sky-800 hover:bg-sky-100 rounded-lg">
+                  {info?.logo_url ? (
+                    <div className="w-3.5 h-3.5 rounded bg-white flex items-center justify-center overflow-hidden shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={info.logo_url} alt="" className="w-full h-full object-contain"/>
+                    </div>
+                  ) : (
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: info?.color_hex || "#0ea5e9" }}/>
+                  )}
+                  + {b}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
@@ -359,35 +443,45 @@ export default function BrandsTab({
         )}
       </div>
 
-      {/* All brands — grid */}
+      {/* All brands — grid: เน้น logo + ชื่อ, สีแค่ accent ขีดซ้าย */}
       <div>
-        <p className="text-[10px] font-black text-slate-500 uppercase mb-2">แบรนด์ทั้งหมด ({filtered.length})</p>
+        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">
+          แบรนด์ทั้งหมด <span className="text-slate-400 font-normal">({filtered.length})</span>
+        </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1.5">
           {filtered.map(b => {
             const active = selected.includes(b)
-            const c = brandColor(b)
             const info = brandRecords.find(br => br.name === b)
+            const accent = info?.color_hex || "#94a3b8"
             return (
               <button key={b} onClick={() => toggle(b)}
-                className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border text-xs font-bold transition-all ${
+                className={`relative flex items-center gap-2 px-2.5 py-2 rounded-xl border text-xs font-bold transition-all overflow-hidden ${
                   active
-                    ? `${c.activeBg} ${c.activeText} border-transparent shadow-sm`
-                    : `bg-white ${c.text} ${c.border} hover:${c.bg}`
+                    ? "bg-indigo-50 border-indigo-300 text-indigo-800 ring-1 ring-indigo-200"
+                    : "bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50"
                 }`}>
-                {/* logo or check swatch */}
+                {/* accent ขีดซ้าย (สีแบรนด์) — เบาๆ */}
+                <span className="absolute left-0 top-0 bottom-0 w-1 rounded-l"
+                  style={{ backgroundColor: accent, opacity: active ? 1 : 0.45 }}/>
+
+                {/* logo or color dot */}
                 {info?.logo_url ? (
-                  <div className={`w-6 h-6 rounded-md flex items-center justify-center overflow-hidden shrink-0 bg-white ${active ? "ring-2 ring-white/40" : "border border-slate-100"}`}>
+                  <div className="w-6 h-6 rounded-md bg-white border border-slate-100 flex items-center justify-center overflow-hidden shrink-0 ml-1">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={info.logo_url} alt="" className="w-full h-full object-contain"/>
                   </div>
                 ) : (
-                  <span className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 ${
-                    active ? "bg-white/30" : `${c.bg} border ${c.border}`
-                  }`}>
-                    {active && <Check size={10} strokeWidth={3} className="text-white"/>}
+                  <span className="w-3 h-3 rounded-full shrink-0 ml-1" style={{ backgroundColor: accent }}/>
+                )}
+
+                <span className="truncate flex-1 text-left">{b}</span>
+
+                {/* check badge ถ้า active */}
+                {active && (
+                  <span className="w-4 h-4 rounded-full bg-indigo-500 flex items-center justify-center shrink-0">
+                    <Check size={9} strokeWidth={3} className="text-white"/>
                   </span>
                 )}
-                <span className="truncate flex-1 text-left">{b}</span>
               </button>
             )
           })}
