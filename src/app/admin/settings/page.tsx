@@ -662,6 +662,131 @@ function HolidaysTab({ companyId }: { companyId: string }) {
 }
 
 // ── Main Settings Page ─────────────────────────────────────────────────
+// ── Create Company Modal ────────────────────────────────────────────
+function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (code: string) => void }) {
+  const [form, setForm] = useState({
+    code: "", name_th: "", name_en: "", phone: "", email: "", tax_id: "", address: "",
+  })
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    if (!form.code.trim())    return toast.error("กรุณากรอก Code")
+    if (!form.name_th.trim()) return toast.error("กรุณากรอกชื่อบริษัท (ไทย)")
+    setSaving(true)
+    try {
+      const res = await fetch("/api/companies", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "สร้างไม่สำเร็จ"); return }
+      toast.success(`สร้างบริษัท "${d.company.name_th}" สำเร็จ`)
+      onCreated(d.company.code)
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 px-5 py-3.5 flex items-center gap-3">
+          <Building2 size={18} className="text-white"/>
+          <div className="flex-1">
+            <p className="text-white/80 text-[10px] font-bold uppercase tracking-wider">ตั้งค่าระบบ</p>
+            <h3 className="text-white font-black text-base">เพิ่มบริษัทใหม่</h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-white/20 rounded-lg text-white">
+            <X size={14}/>
+          </button>
+        </div>
+
+        {/* Form */}
+        <div className="p-5 space-y-3">
+          {/* Code + name_th */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Code *</label>
+              <input value={form.code}
+                onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
+                placeholder="เช่น SHD"
+                maxLength={16}
+                className={inp + " font-mono mt-1"}/>
+              <p className="text-[9px] text-slate-400 mt-0.5">A-Z, 0-9, _, -</p>
+            </div>
+            <div className="col-span-2">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">ชื่อบริษัท (ไทย) *</label>
+              <input value={form.name_th}
+                onChange={e => setForm(f => ({ ...f, name_th: e.target.value }))}
+                placeholder="บริษัท ... จำกัด"
+                className={inp + " mt-1"}/>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">ชื่อบริษัท (EN)</label>
+            <input value={form.name_en}
+              onChange={e => setForm(f => ({ ...f, name_en: e.target.value }))}
+              placeholder="Company Name Co., Ltd."
+              className={inp + " mt-1"}/>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">เบอร์โทร</label>
+              <input value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="02-XXX-XXXX"
+                className={inp + " mt-1"}/>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">อีเมล</label>
+              <input value={form.email}
+                onChange={e => setForm(f => ({ ...f, email: e.target.value.toLowerCase() }))}
+                placeholder="contact@company.com"
+                type="email"
+                className={inp + " mt-1"}/>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">เลขนิติบุคคล / ผู้เสียภาษี</label>
+            <input value={form.tax_id}
+              onChange={e => setForm(f => ({ ...f, tax_id: e.target.value }))}
+              placeholder="0105540036XXX"
+              className={inp + " mt-1 font-mono"}/>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">ที่อยู่</label>
+            <textarea value={form.address}
+              onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+              placeholder="ที่อยู่จดทะเบียน"
+              className={inp + " mt-1 h-20 resize-none"}/>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-[11px] text-blue-700">
+            💡 หลังสร้างบริษัทแล้ว ให้ไปที่แท็บ "สาขา / กะทำงาน / ประเภทการลา" เพื่อตั้งค่าเพิ่มเติม
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+          <button onClick={onClose}
+            className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 hover:bg-white">
+            ยกเลิก
+          </button>
+          <button onClick={submit} disabled={saving || !form.code.trim() || !form.name_th.trim()}
+            className="flex items-center gap-1.5 px-5 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl text-sm font-bold disabled:opacity-50">
+            {saving ? <Loader2 size={12} className="animate-spin"/> : <Plus size={12}/>}
+            สร้างบริษัท
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const { user } = useAuth()
   const supabase = createClient()
@@ -671,6 +796,17 @@ export default function SettingsPage() {
   const [selectedCompany,setSelectedCompany]= useState<any>(null)
   const [tab,            setTab]            = useState(0)
   const [loadingCo,      setLoadingCo]      = useState(true)
+  const [showCreateCo,   setShowCreateCo]   = useState(false)
+  const isSuperOnly = user?.role === "super_admin"
+
+  const reloadCompanies = async (autoSelectCode?: string) => {
+    const { data } = await supabase.from("companies").select("*").eq("is_active", true).order("name_th")
+    setCompanies(data ?? [])
+    if (autoSelectCode) {
+      const found = (data ?? []).find((c: any) => c.code === autoSelectCode)
+      if (found) { setSelectedCompany(found); setTab(0) }
+    }
+  }
 
   const myCompanyId: string | undefined =
     user?.employee?.company_id ?? (user as any)?.company_id ?? undefined
@@ -709,13 +845,22 @@ export default function SettingsPage() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-black text-slate-800">ตั้งค่าระบบ</h2>
-        <p className="text-slate-400 text-sm mt-0.5">จัดการข้อมูลบริษัท สาขา กะทำงาน และประเภทการลา</p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800">ตั้งค่าระบบ</h2>
+          <p className="text-slate-400 text-sm mt-0.5">จัดการข้อมูลบริษัท สาขา กะทำงาน และประเภทการลา</p>
+        </div>
+        {/* ปุ่ม "+ เพิ่มบริษัท" — เฉพาะ super_admin */}
+        {isSuperOnly && (
+          <button onClick={() => setShowCreateCo(true)}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white text-sm font-bold rounded-xl shadow-sm transition-colors">
+            <Plus size={14}/> เพิ่มบริษัทใหม่
+          </button>
+        )}
       </div>
 
       {/* Company selector — super_admin เห็นทุกบริษัท */}
-      {companies.length > 1 && (
+      {(companies.length > 1 || isSuperOnly) && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {companies.map((c, i) => (
             <button key={c.id} onClick={() => { setSelectedCompany(c); setTab(0) }}
@@ -735,7 +880,28 @@ export default function SettingsPage() {
               </p>
             </button>
           ))}
+          {/* "+ เพิ่มบริษัท" card */}
+          {isSuperOnly && (
+            <button onClick={() => setShowCreateCo(true)}
+              className="p-4 rounded-2xl border-2 border-dashed border-slate-300 bg-white hover:border-indigo-400 hover:bg-indigo-50/40 transition-all flex flex-col items-center justify-center gap-2 text-slate-400 hover:text-indigo-600 min-h-[110px] group">
+              <div className="w-9 h-9 rounded-xl bg-slate-100 group-hover:bg-indigo-100 flex items-center justify-center transition-colors">
+                <Plus size={18}/>
+              </div>
+              <p className="text-xs font-bold">เพิ่มบริษัทใหม่</p>
+            </button>
+          )}
         </div>
+      )}
+
+      {/* ── Create Company Modal ── */}
+      {showCreateCo && (
+        <CreateCompanyModal
+          onClose={() => setShowCreateCo(false)}
+          onCreated={async (newCode) => {
+            setShowCreateCo(false)
+            await reloadCompanies(newCode)
+          }}
+        />
       )}
 
       {/* Selected company panel */}
