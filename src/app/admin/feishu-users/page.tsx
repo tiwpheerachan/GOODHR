@@ -4,7 +4,7 @@ import {
   Users, Search, Upload, Sparkles, Loader2, X, Check, Link2, Unlink,
   CheckCircle2, AlertCircle, Filter, ChevronLeft, ChevronRight, RefreshCw,
   Building2, Phone, Mail, Hash, ShieldCheck, BadgeCheck, ChevronDown,
-  Tag, User, Calendar, MapPin, Briefcase, Eye, GraduationCap, Globe, Target,
+  Tag, User, Calendar, MapPin, Briefcase, Eye, GraduationCap, Globe, Target, Shield,
 } from "lucide-react"
 
 // ── Region → emoji flag ──
@@ -107,6 +107,7 @@ export default function FeishuUsersPage() {
   const [importing, setImporting] = useState(false)
   const [autoMatching, setAutoMatching] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
   const [editing, setEditing] = useState<FUser | null>(null)
   const [viewing, setViewing] = useState<FUser | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -176,6 +177,7 @@ export default function FeishuUsersPage() {
       const d = await res.json()
       if (!res.ok) { toast.error(d.error || "ซิงค์ล้มเหลว", { id: t, duration: 6000 }); return }
       const am = d.auto_match
+      setLastSyncAt(d.fetched_at || new Date().toISOString())
       toast.success(
         `Sync สำเร็จ · ${d.upserted} บัญชี${d.marked_inactive > 0 ? ` · mark inactive ${d.marked_inactive}` : ""}${am ? ` · auto-match ${am.updated} คน` : ""}`,
         { id: t, duration: 5000 },
@@ -221,7 +223,14 @@ export default function FeishuUsersPage() {
           </div>
           <div>
             <h1 className="text-xl font-black text-slate-800">Feishu Mapping</h1>
-            <p className="text-[11px] text-slate-500">เชื่อมข้อมูลพนักงานจาก Feishu Contacts กับ GoodHR ด้วย Feishu User ID</p>
+            <p className="text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap">
+              เชื่อมข้อมูลพนักงานจาก Feishu Contacts กับ GoodHR ด้วย Feishu User ID
+              {lastSyncAt && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full">
+                  <RefreshCw size={8}/> ซิงค์ {new Date(lastSyncAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -679,17 +688,24 @@ function UserRow({ user, onEdit, onView, onChanged }: { user: FUser; onEdit: () 
         )}
       </td>
 
-      {/* Dept / Title / Brands */}
+      {/* Dept / Title / Manager / Brands */}
       <td className="px-3 py-2.5">
-        {u.job_title && <p className="text-[11px] font-bold text-slate-700 truncate max-w-[200px]">{u.job_title}</p>}
+        {u.job_title && <p className="text-[11px] font-bold text-slate-700 truncate max-w-[220px]">{u.job_title}</p>}
         {u.department_path && (
-          <p className="text-[9px] text-slate-400 truncate max-w-[200px] flex items-center gap-1">
+          <p className="text-[9px] text-slate-400 truncate max-w-[220px] flex items-center gap-1">
             <Building2 size={9} className="flex-shrink-0"/>
             {u.department_path.split("/").slice(-2).join(" / ")}
           </p>
         )}
+        {/* ✅ Direct Manager (resolved leader_name) */}
+        {u.direct_manager_raw && (
+          <p className="text-[9px] text-indigo-600 font-bold truncate max-w-[220px] flex items-center gap-1 mt-0.5">
+            <Shield size={9} className="flex-shrink-0"/>
+            หัวหน้า: {u.direct_manager_raw}
+          </p>
+        )}
         {brands.length > 0 && (
-          <div className="flex flex-wrap gap-0.5 mt-1 max-w-[200px]">
+          <div className="flex flex-wrap gap-0.5 mt-1 max-w-[220px]">
             {brands.slice(0, 3).map((b, i) => (
               <span key={i} className={"text-[8px] font-black px-1.5 py-0.5 rounded " + brandColor(b)}>
                 {b}

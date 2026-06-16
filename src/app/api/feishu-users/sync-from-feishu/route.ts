@@ -152,7 +152,8 @@ export async function POST(req: NextRequest) {
       gender:            typeof a.gender === "number" ? (GENDER_MAP[a.gender] || null) : null,
       city:              trimOrNull(a.city),
       status:            a.account_status === "active" ? "Active" : (a.account_status === "resigned" ? "Inactive" : (trimOrNull(a.account_status) || "Active")),
-      direct_manager_raw: trimOrNull(a.leader_user_id),
+      // ✅ ใช้ leader_name (resolved) ตรงๆ ถ้ามี — fallback ใช้ id
+      direct_manager_raw: trimOrNull(a.leader_name) || trimOrNull(a.leader_user_id),
       // ตอน sync ครั้งต่อๆ มา — overwrite raw_payload เผื่อใช้ภายหลัง
       raw_payload:       includeRaw && a.raw ? a.raw : null,
       // metadata

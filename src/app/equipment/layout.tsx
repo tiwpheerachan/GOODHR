@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import {
   LayoutDashboard, Package, ClipboardList, FolderOpen,
-  Menu, X, LogOut, ChevronRight, FileText,
+  Menu, X, LogOut, ChevronRight, FileText, Database,
 } from "lucide-react"
 
 const SIDEBAR = [
@@ -14,6 +14,7 @@ const SIDEBAR = [
   { href: "/equipment/items",           icon: Package,         label: "รายการอุปกรณ์",      badge: null as string|null },
   { href: "/equipment/requests",        icon: ClipboardList,   label: "คำขอยืม",           badge: null as string|null },
   { href: "/equipment/sample-requests", icon: FileText,        label: "Sample Request",   badge: null as string|null },
+  { href: "/equipment/assets",          icon: Database,        label: "ทรัพย์สิน (Feishu)", badge: null as string|null },
   { href: "/equipment/categories",      icon: FolderOpen,      label: "หมวดหมู่",          badge: null as string|null },
 ]
 
@@ -123,7 +124,7 @@ export default function EquipmentLayout({ children }: { children: React.ReactNod
           <span className="text-sm font-bold text-slate-700">อุปกรณ์</span>
           <Link href="/app/dashboard" className="text-xs text-slate-400">User Mode →</Link>
         </div>
-        <div className="p-4 lg:p-6 max-w-7xl mx-auto">{children}</div>
+        <div className="p-4 lg:p-6">{children}</div>
       </main>
     </div>
   )
