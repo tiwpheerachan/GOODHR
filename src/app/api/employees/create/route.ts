@@ -273,6 +273,74 @@ export async function POST(req: Request) {
       }
     }
 
+    // ── 9.5 Auto-match — ถ้า admin ไม่ได้กรอก Feishu data → ลอง match อัตโนมัติกับ feishu_users ที่มี ──
+    //    จับด้วย email/phone/nickname/first_name_en (กฎเดียวกับ /api/feishu-users/auto-match)
+    let autoMatchedFeishu: { feishu_user_id: string; name: string; method: string; confidence: number } | null = null
+    if (!feishu?.feishu_user_id) {
+      try {
+        const normPhone = (p: string | null | undefined): string => {
+          if (!p) return ""
+          return String(p).replace(/[\s\-()]/g, "").replace(/^\+?66/, "0").replace(/^\+?86/, "")
+        }
+        const empEmail   = email ? String(email).trim().toLowerCase() : ""
+        const empPhone   = normPhone(phone)
+        const empNickEn  = (body.nickname_en || "").trim().toLowerCase()
+        const empNickTh  = (nickname || "").trim().toLowerCase()
+        const empFNameEn = (first_name_en || "").trim().toLowerCase()
+
+        // ดึงเฉพาะ feishu_users ที่ยังไม่ link
+        const { data: candidates } = await supabase.from("feishu_users")
+          .select("feishu_user_id, name, name_en, nickname, email, email_work, email_business, phone")
+          .is("goodhr_employee_id", null)
+
+        let pick: { row: any; method: string; confidence: number } | null = null
+        for (const r of (candidates ?? [])) {
+          // 1) email
+          if (empEmail && (
+            (r.email && r.email.toLowerCase() === empEmail) ||
+            (r.email_work && r.email_work.toLowerCase() === empEmail) ||
+            (r.email_business && r.email_business.toLowerCase() === empEmail)
+          )) { pick = { row: r, method: "email", confidence: 95 }; break }
+          // 2) phone
+          if (empPhone && r.phone) {
+            const rp = normPhone(r.phone)
+            if (rp && rp.length >= 8 && rp === empPhone) { pick = { row: r, method: "phone", confidence: 93 }; break }
+          }
+          // 3) nickname (en > th)
+          if (empNickEn && r.nickname && r.nickname.toLowerCase() === empNickEn) {
+            if (!pick || pick.confidence < 88) pick = { row: r, method: "nickname", confidence: 88 }
+          }
+          if (empNickTh && r.nickname && r.nickname.toLowerCase() === empNickTh) {
+            if (!pick || pick.confidence < 75) pick = { row: r, method: "nickname", confidence: 75 }
+          }
+          // 4) first_name_en ↔ name_en
+          if (empFNameEn && r.name_en && r.name_en.toLowerCase() === empFNameEn) {
+            if (!pick || pick.confidence < 78) pick = { row: r, method: "name_en", confidence: 78 }
+          }
+        }
+
+        if (pick) {
+          const { error } = await supabase.from("feishu_users").update({
+            goodhr_employee_id: emp.id,
+            match_method: pick.method,
+            match_confidence: pick.confidence,
+            matched_at: new Date().toISOString(),
+          }).eq("feishu_user_id", pick.row.feishu_user_id)
+            .eq("manually_verified", false)
+          if (!error) {
+            autoMatchedFeishu = {
+              feishu_user_id: pick.row.feishu_user_id,
+              name: pick.row.name,
+              method: pick.method,
+              confidence: pick.confidence,
+            }
+          }
+        }
+      } catch {
+        // best-effort — ไม่ block การสร้างพนักงาน
+      }
+    }
+
     // Audit log
     const { data: actorUser } = await supabase.from("users").select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", caller.id).single()
     const ae = actorUser?.employee as any
@@ -289,6 +357,7 @@ export async function POST(req: Request) {
       employee_id: emp.id,
       auth_id: authId,
       ...(feishuWarning ? { feishu_warning: feishuWarning } : {}),
+      ...(autoMatchedFeishu ? { feishu_auto_matched: autoMatchedFeishu } : {}),
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })

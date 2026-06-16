@@ -106,6 +106,7 @@ export default function FeishuUsersPage() {
   const [page, setPage] = useState(0)
   const [importing, setImporting] = useState(false)
   const [autoMatching, setAutoMatching] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [editing, setEditing] = useState<FUser | null>(null)
   const [viewing, setViewing] = useState<FUser | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -165,6 +166,26 @@ export default function FeishuUsersPage() {
     } finally { setImporting(false) }
   }
 
+  // ── ซิงค์จาก Feishu API ──
+  const onSyncFromFeishu = async () => {
+    if (!confirm("ดึงบัญชี Feishu ทั้งหมดจาก Feishu Contacts API?\n• ใช้เวลา ~15-30 วินาที\n• Upsert ทุกบัญชีที่ดึงมาได้\n• คนที่หายไปจาก Feishu จะถูก mark inactive\n• Auto-match จะรันต่อท้ายอัตโนมัติ")) return
+    setSyncing(true)
+    const t = toast.loading("กำลังดึงข้อมูลจาก Feishu...")
+    try {
+      const res = await fetch("/api/feishu-users/sync-from-feishu", { method: "POST" })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "ซิงค์ล้มเหลว", { id: t, duration: 6000 }); return }
+      const am = d.auto_match
+      toast.success(
+        `Sync สำเร็จ · ${d.upserted} บัญชี${d.marked_inactive > 0 ? ` · mark inactive ${d.marked_inactive}` : ""}${am ? ` · auto-match ${am.updated} คน` : ""}`,
+        { id: t, duration: 5000 },
+      )
+      await load()
+    } catch (e: any) {
+      toast.error(e?.message || "เครือข่ายมีปัญหา", { id: t })
+    } finally { setSyncing(false) }
+  }
+
   const onAutoMatch = async () => {
     if (!confirm("รัน auto-match ทุก record ที่ยังไม่ได้ยืนยัน? (manually verified จะไม่ถูกแตะ)")) return
     setAutoMatching(true)
@@ -207,6 +228,13 @@ export default function FeishuUsersPage() {
           <button onClick={load} title="Refresh"
             className="p-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-sm">
             <RefreshCw size={14} className={loading ? "animate-spin text-indigo-500" : "text-slate-500"}/>
+          </button>
+          {/* Sync จาก Feishu Contacts API — ปุ่มหลัก */}
+          <button onClick={onSyncFromFeishu} disabled={syncing}
+            title="ดึงสดจาก Feishu Contacts API · upsert ทั้ง 706 บัญชี · auto-match อัตโนมัติ"
+            className="px-3.5 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 disabled:opacity-50 text-white text-xs font-black rounded-xl flex items-center gap-1.5 shadow-sm">
+            {syncing ? <Loader2 size={13} className="animate-spin"/> : <RefreshCw size={13}/>}
+            ซิงค์จาก Feishu
           </button>
           <button onClick={() => fileRef.current?.click()} disabled={importing}
             className="px-3.5 py-2 bg-white hover:bg-amber-50 border border-amber-200 text-amber-700 text-xs font-black rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-50">
