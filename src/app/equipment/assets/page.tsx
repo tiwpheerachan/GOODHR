@@ -8,6 +8,7 @@ import {
 } from "lucide-react"
 import toast from "react-hot-toast"
 import PhotoLightbox from "@/components/PhotoLightbox"
+import FeishuImage, { getFeishuProxyUrl, isFeishuUrl } from "@/components/FeishuImage"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 
@@ -28,6 +29,37 @@ interface Annotation {
   hr_status: string | null; hr_note: string | null
   last_checked_at: string | null; last_checked_by: string | null
   updated_at: string
+}
+
+// ─────────────────────────────────────────────────────
+// Two-way mapping: table_id → dataset (ตามเอกสาร HANDOFF-MASTER)
+// ตารางที่ map ได้ → ใช้ตาราง Supabase ที่ sync 2 ทิศกับ Feishu (5 นาที)
+// ─────────────────────────────────────────────────────
+const TABLE_TO_DATASET: Record<string, "asset_main" | "live" | "tel_user" | "tel"> = {
+  "tblA83HopThyv3uq": "asset_main",  // รายการตรวจสอบสินทรัพย์ (849)
+  "tblWkQimN9NrqSwm": "live",        // tt直播间清单 (554)
+  "tbl9DctKo4mgmZcg": "tel_user",    // Telผู้ใช้รายละเอียด (211)
+  "tbl9ll6zVgy4LSgI": "tel",         // Tel ค่าใช้จ่าย (2087)
+}
+
+const EDITABLE_FIELDS_LABEL: Record<string, Record<string, string>> = {
+  asset_main: {
+    maint_status:  "สถานะการซ่อม",
+    damage_level:  "ระดับความเสียหาย",
+    damage_detail: "รายละเอียดความเสียหาย",
+    is_correct:    "ความถูกต้อง",
+    note:          "หมายเหตุ",
+  },
+  live: {
+    maint_status:  "สถานะการซ่อม",
+    damage_level:  "ระดับความเสียหาย",
+    damage_detail: "รายละเอียดความเสียหาย",
+    is_correct:    "ความถูกต้อง",
+    note:          "หมายเหตุ",
+  },
+  tel_user: {
+    note: "หมายเหตุ",
+  },
 }
 
 // ─────────────────────────────────────────────────────
@@ -116,11 +148,12 @@ function fieldDisplay(value: any, type: number, onOpenPhoto?: (urls: string[], i
         <div className="flex items-center gap-1">
           {imageUrls.length > 0 ? (
             imageUrls.slice(0, 3).map((u: string, i: number) => (
-              <button key={i} onClick={() => onOpenPhoto?.(imageUrls, i)}
-                className="w-8 h-8 rounded overflow-hidden border border-slate-200 hover:border-indigo-400 cursor-zoom-in">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={u} alt="" className="w-full h-full object-cover"/>
-              </button>
+              <FeishuImage key={i} url={u}
+                onClick={() => onOpenPhoto?.(
+                  imageUrls.map((x: string) => isFeishuUrl(x) ? getFeishuProxyUrl(x) : x),
+                  i
+                )}
+                className="w-8 h-8 rounded border border-slate-200 hover:border-indigo-400 cursor-zoom-in"/>
             ))
           ) : (
             value.slice(0, 2).map((f: any, i: number) => (
@@ -650,42 +683,32 @@ function EditDrawer({ record, fields, tableId, tableName, annotation, onClose, o
             </div>
           </div>
 
-          {/* ── Feishu full record (LOCKED read-only) ── */}
-          <div className="bg-white border-2 border-slate-200 rounded-2xl overflow-hidden">
-            {/* คำเตือน "อ่านอย่างเดียว" — ชัดเจน */}
-            <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5">
-              <div className="flex items-start gap-2">
-                <div className="w-8 h-8 rounded-xl bg-slate-200 flex items-center justify-center shrink-0">
-                  <span className="text-base">🔒</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
-                    ข้อมูลจาก Feishu Bitable
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">LOCKED</span>
-                  </h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                    ⚠️ API ของ Feishu Asset เป็น <b>read-only</b> — ไม่สามารถแก้จาก GoodHR ได้
-                    <br/>ต้องการแก้ค่าเหล่านี้ → ไปแก้ที่ <b>ฟอร์ม Feishu Base</b> โดยตรง (sync กลับมาทุก 5 นาที / กดปุ่ม Sync)
-                  </p>
-                </div>
-                <button onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(record.record_id)
-                      toast.success("คัดลอก Record ID แล้ว — paste ใน Feishu Base ค้นหา record นี้ได้")
-                    } catch { toast.error("คัดลอกไม่ได้") }
-                  }}
-                  title="คัดลอก Record ID"
-                  className="shrink-0 text-[10px] font-bold px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg flex items-center gap-1 text-slate-600">
-                  📋 Record ID
-                </button>
-              </div>
+          {/* ── 🔄 Two-way Sync editor (ถ้าตารางนี้ support) ── */}
+          <TwoWaySyncEditor recordId={record.record_id} tableId={tableId} />
+
+          {/* ── Feishu full record (อ่านอย่างเดียว — สำหรับฟิลด์ที่ไม่ได้อยู่ใน whitelist) ── */}
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+            <div className="bg-slate-50 border-b border-slate-100 px-4 py-2 flex items-center gap-2">
+              <Database size={13} className="text-slate-500"/>
+              <h3 className="font-black text-slate-700 text-sm flex-1">ข้อมูลทั้งหมดจาก Feishu</h3>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">อ่านอย่างเดียว</span>
+              <button onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(record.record_id)
+                    toast.success("คัดลอก Record ID แล้ว")
+                  } catch { toast.error("คัดลอกไม่ได้") }
+                }}
+                title="คัดลอก Record ID"
+                className="text-[10px] font-bold px-2 py-1 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg flex items-center gap-1 text-slate-600">
+                📋 ID
+              </button>
             </div>
-            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
               {fields.map(f => {
                 const v = record.fields[f.name]
                 if (v == null) return null
                 return (
-                  <div key={f.name} className="bg-slate-50 rounded-xl px-3 py-2 opacity-90">
+                  <div key={f.name} className="bg-slate-50 rounded-xl px-3 py-2">
                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1">
                       {f.name}
                       <span className="font-normal text-[8px] bg-white text-slate-400 px-1 rounded">
@@ -700,6 +723,160 @@ function EditDrawer({ record, fields, tableId, tableName, annotation, onClose, o
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Two-way sync editor — แก้ได้ + 5 นาทีไปอยู่ใน Feishu
+// ════════════════════════════════════════════════════════════════════
+function TwoWaySyncEditor({ recordId, tableId }: { recordId: string; tableId: string }) {
+  const dataset = TABLE_TO_DATASET[tableId]
+  const [loading, setLoading]   = useState(true)
+  const [record, setRecord]     = useState<any>(null)
+  const [edit, setEdit]         = useState<Record<string, any>>({})
+  const [chk, setChk]           = useState<boolean>(false)
+  const [note, setNote]         = useState<string>("")
+  const [saving, setSaving]     = useState(false)
+
+  // load existing two-way record
+  useEffect(() => {
+    if (!dataset) { setLoading(false); return }
+    setLoading(true)
+    fetch(`/api/asset-twoway?dataset=${dataset}`)
+      .then(r => r.json())
+      .then(d => {
+        const r = (d.records || []).find((x: any) => x.feishu_record_id === recordId)
+        if (r) {
+          setRecord(r)
+          if (dataset === "tel") {
+            setChk(!!r.chk)
+            setNote(r.note || "")
+          } else {
+            setEdit(r.edit || {})
+          }
+        }
+      })
+      .finally(() => setLoading(false))
+  }, [dataset, recordId])
+
+  if (!dataset) {
+    return (
+      <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-3 flex items-start gap-2">
+        <span className="text-base shrink-0">🔒</span>
+        <div className="flex-1 text-[11px] text-amber-800">
+          <p className="font-black">ตารางนี้ไม่รองรับ two-way sync</p>
+          <p className="text-amber-700/80 mt-0.5">
+            แก้ค่าต้องไปที่ฟอร์ม Feishu โดยตรง · ใช้ <b>HR Note (สีเขียวด้านบน)</b> สำหรับบันทึกใน GoodHR แทน
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return <div className="py-4 flex justify-center"><Loader2 size={18} className="animate-spin text-slate-300"/></div>
+  }
+
+  const save = async () => {
+    setSaving(true)
+    const t = toast.loading("กำลังบันทึก → sync ขึ้น Feishu ภายใน 5 นาที...")
+    try {
+      const body: any = { dataset, feishu_record_id: recordId }
+      if (dataset === "tel") {
+        body.chk  = chk
+        body.note = note || null
+      } else {
+        body.edit = edit
+      }
+      const res = await fetch("/api/asset-twoway", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "บันทึกล้มเหลว", { id: t }); return }
+      toast.success("✓ บันทึกแล้ว — sync ขึ้น Feishu ใน ~5 นาที", { id: t, duration: 4000 })
+      setRecord(d.record)
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-2xl p-4 space-y-3 shadow-sm">
+      <div className="flex items-start gap-2 mb-1">
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0">
+          <RefreshCw size={14} className="text-white"/>
+        </div>
+        <div className="flex-1">
+          <h3 className="font-black text-blue-900 text-sm flex items-center gap-2 flex-wrap">
+            ฟิลด์ที่ Sync กับ Feishu
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500 text-white">✏ Two-way · 5 นาที</span>
+          </h3>
+          <p className="text-[11px] text-blue-700/80 mt-0.5">
+            แก้แล้ว <b>เด้งขึ้น Feishu</b> ทุก 5 นาที · dataset: <code className="text-[10px] bg-white px-1 rounded">{dataset}</code>
+          </p>
+        </div>
+        {record?.updated_at && (
+          <span className="text-[9px] font-bold bg-white text-blue-700 px-1.5 py-0.5 rounded-full shrink-0">
+            อัพเดต {format(new Date(record.updated_at), "d MMM yy HH:mm", { locale: th })}
+          </span>
+        )}
+      </div>
+
+      {/* Field editors ตาม dataset */}
+      {dataset === "tel" ? (
+        <>
+          <label className="flex items-center gap-2 bg-white border border-blue-200 rounded-xl px-3 py-2 cursor-pointer">
+            <input type="checkbox" checked={chk} onChange={e => setChk(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-blue-600"/>
+            <span className="text-sm font-bold text-slate-700">👌 ตรวจสอบแล้ว (chk)</span>
+          </label>
+          <div>
+            <label className="text-[10px] font-bold text-blue-700 uppercase tracking-wide">หมายเหตุ (note)</label>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={3}
+              placeholder="หมายเหตุของบิลโทรนี้..."
+              className="w-full mt-1 bg-white border border-blue-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-400 resize-none"/>
+          </div>
+        </>
+      ) : (
+        // asset_main, live, tel_user
+        <div className="space-y-2">
+          {Object.entries(EDITABLE_FIELDS_LABEL[dataset] ?? {}).map(([key, label]) => {
+            // is_correct = checkbox
+            if (key === "is_correct") {
+              return (
+                <label key={key} className="flex items-center gap-2 bg-white border border-blue-200 rounded-xl px-3 py-2 cursor-pointer">
+                  <input type="checkbox" checked={!!edit[key]}
+                    onChange={e => setEdit(prev => ({ ...prev, [key]: e.target.checked }))}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600"/>
+                  <span className="text-sm font-bold text-slate-700">{label}</span>
+                </label>
+              )
+            }
+            // maint_status & damage_level = use shorter input
+            // others = textarea
+            const isTextarea = key === "note" || key === "damage_detail"
+            return (
+              <div key={key}>
+                <label className="text-[10px] font-bold text-blue-700 uppercase tracking-wide">{label}</label>
+                {isTextarea ? (
+                  <textarea value={edit[key] ?? ""} onChange={e => setEdit(prev => ({ ...prev, [key]: e.target.value }))}
+                    rows={2}
+                    className="w-full mt-1 bg-white border border-blue-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-400 resize-none"/>
+                ) : (
+                  <input value={edit[key] ?? ""} onChange={e => setEdit(prev => ({ ...prev, [key]: e.target.value }))}
+                    className="w-full mt-1 bg-white border border-blue-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-400"/>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <button onClick={save} disabled={saving}
+        className="w-full flex items-center justify-center gap-2 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 text-white rounded-xl text-sm font-black shadow-sm">
+        {saving ? <Loader2 size={13} className="animate-spin"/> : <RefreshCw size={13}/>}
+        บันทึก → sync ขึ้น Feishu (~5 นาที)
+      </button>
     </div>
   )
 }

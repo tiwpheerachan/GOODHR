@@ -18,7 +18,7 @@ import AdditionalEvaluatorsSection from "@/components/admin/AdditionalEvaluators
 import EvaluationChainPanel from "@/components/admin/EvaluationChainPanel"
 import FeishuLinkTab from "@/components/employees/FeishuLinkTab"
 import BrandsTab from "@/components/employees/BrandsTab"
-import EmployeeSampleRequestsTab from "@/components/employees/EmployeeSampleRequestsTab"
+import EmployeeBorrowingTab from "@/components/employees/EmployeeBorrowingTab"
 import EmployeeShaderBg from "@/components/ui/employee-shader-bg"
 
 const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท","โควต้าการลา","สาย/ผู้ประเมิน","🏷️ แบรนด์ที่ดูแล","🔗 Feishu Link","📦 ของที่ยืม"]
@@ -971,7 +971,8 @@ export default function EmployeeDetailPage() {
         )}
 
         {tab === 13 && (
-          <EmployeeSampleRequestsTab
+          <EmployeeBorrowingTab
+            employeeId={id as string}
             employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`.trim()}
             employeeNickname={emp?.nickname ?? undefined}
             employeeFirstNameEn={emp?.first_name_en ?? undefined}
