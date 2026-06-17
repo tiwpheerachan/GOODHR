@@ -25,6 +25,7 @@ const SIDEBAR = [
   { href: "/admin/chat",                 icon: MessageCircle,   label: "แชท",            badge: null as string|null },
   { href: "/admin/attendance",           icon: Clock,           label: "การเข้างาน",    badge: null as string|null },
   { href: "/admin/attendance/offsite",   icon: Camera,          label: "นอกสถานที่",    badge: null as string|null },
+  { href: "/admin/attendance/with-photo", icon: ScanLine,       label: "เช็คอินแนบรูป",   badge: null as string|null },
   { href: "/admin/work-log",            icon: Table2,          label: "บันทึกเข้างาน",  badge: null as string|null },
   { href: "/admin/work-record",         icon: Sparkles,        label: "บันทึกการเข้างาน Pro Max", badge: null as string|null },
   { href: "/admin/shifts",              icon: CalendarClock,   label: "จัดกะ",          badge: null as string|null },

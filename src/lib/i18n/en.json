@@ -73,6 +73,7 @@
   "nav": {
     "dashboard": "Overview",
     "team": "Team",
+    "team_attendance": "Attend.",
     "kpi": "KPI",
     "probation": "Probation",
     "shifts": "Shifts",

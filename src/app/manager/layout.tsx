@@ -4,18 +4,19 @@ import Link from "next/link"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { LayoutDashboard, Users, CheckSquare, ChevronLeft, Bell, Target, CalendarClock, CalendarDays, Shield, Globe } from "lucide-react"
+import { LayoutDashboard, Users, CheckSquare, ChevronLeft, Bell, Target, CalendarClock, CalendarDays, Shield, Globe, Camera } from "lucide-react"
 import { LanguageProvider, useLanguage, Lang } from "@/lib/i18n"
 
 // NAV items use i18n keys — resolved inside the component
 const NAV_ITEMS = [
-  { href: "/manager/dashboard",      icon: LayoutDashboard, key: "dashboard"      },
-  { href: "/manager/team",           icon: Users,           key: "team"           },
-  { href: "/manager/kpi",            icon: Target,          key: "kpi"            },
-  { href: "/manager/probation-eval", icon: Shield,          key: "probation"      },
-  { href: "/manager/shifts",         icon: CalendarClock,   key: "shifts"         },
-  { href: "/manager/leave-calendar", icon: CalendarDays,    key: "leave_calendar" },
-  { href: "/manager/approvals",      icon: CheckSquare,     key: "approvals"      },
+  { href: "/manager/dashboard",        icon: LayoutDashboard, key: "dashboard"        },
+  { href: "/manager/team",             icon: Users,           key: "team"             },
+  { href: "/manager/team-attendance",  icon: Camera,          key: "team_attendance"  },
+  { href: "/manager/kpi",              icon: Target,          key: "kpi"              },
+  { href: "/manager/probation-eval",   icon: Shield,          key: "probation"        },
+  { href: "/manager/shifts",           icon: CalendarClock,   key: "shifts"           },
+  { href: "/manager/leave-calendar",   icon: CalendarDays,    key: "leave_calendar"   },
+  { href: "/manager/approvals",        icon: CheckSquare,     key: "approvals"        },
 ]
 // หมายเหตุ: "ขายสินค้า PC" ย้ายไปอยู่บน home (/app/dashboard) สำหรับคนที่มีสิทธิ์
 

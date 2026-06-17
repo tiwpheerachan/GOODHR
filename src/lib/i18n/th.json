@@ -73,6 +73,7 @@
   "nav": {
     "dashboard": "ภาพรวม",
     "team": "ทีม",
+    "team_attendance": "เข้างาน",
     "kpi": "KPI",
     "probation": "ทดลองงาน",
     "shifts": "จัดกะ",

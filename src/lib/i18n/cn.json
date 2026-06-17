@@ -73,6 +73,7 @@
   "nav": {
     "dashboard": "概览",
     "team": "团队",
+    "team_attendance": "考勤",
     "kpi": "KPI",
     "probation": "试用期",
     "shifts": "排班",
