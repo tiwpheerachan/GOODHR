@@ -47,24 +47,57 @@ export async function POST(request: Request) {
   const deptName = emp.department?.name as string | undefined
 
   // ── Branch radius check ──
-  const { data: branches } = await supa.from("employee_branch_access")
-    .select("branch:branches(id, name, latitude, longitude, geo_radius_m)")
+  // ใช้ตาราง employee_allowed_locations (ตรงกับ client) — รองรับทั้งสาขาจริงและพิกัดกำหนดเอง
+  const { data: locRows } = await supa.from("employee_allowed_locations")
+    .select("branch_id, custom_name, custom_lat, custom_lng, custom_radius_m, branch:branches(id, name, latitude, longitude, geo_radius_m)")
     .eq("employee_id", emp.id)
-  const accessibleBranches = (branches ?? []).map((b: any) => b.branch).filter(Boolean) as any[]
 
-  let inRadiusBranch: any = null
-  let minDistance = Infinity
-  for (const br of accessibleBranches) {
-    if (br.latitude == null || br.longitude == null) continue
-    const d = calcGeoDistance(rawLat, rawLng, Number(br.latitude), Number(br.longitude))
-    if (d < minDistance) { minDistance = d; inRadiusBranch = br }
+  type Loc = { id: string; name: string; lat: number; lng: number; radius: number }
+  const locations: Loc[] = []
+  for (const r of (locRows ?? []) as any[]) {
+    if (r.branch_id && r.branch?.latitude && r.branch?.longitude) {
+      locations.push({
+        id: r.branch.id, name: r.branch.name,
+        lat: Number(r.branch.latitude), lng: Number(r.branch.longitude),
+        radius: Number(r.branch.geo_radius_m) || 200,
+      })
+    } else if (!r.branch_id && r.custom_lat && r.custom_lng) {
+      locations.push({
+        id: `custom_${r.custom_lat}_${r.custom_lng}`,
+        name: r.custom_name || "จุดเช็คอิน",
+        lat: Number(r.custom_lat), lng: Number(r.custom_lng),
+        radius: Number(r.custom_radius_m) || 200,
+      })
+    }
   }
 
-  if (!inRadiusBranch || minDistance > (inRadiusBranch.geo_radius_m ?? 100)) {
-    return NextResponse.json({
-      success: false,
-      error: `อยู่นอกรัศมีสาขา (${Math.round(minDistance)} m) — ใช้ปุ่ม "เช็คอินนอกสถานที่" แทน`,
-    })
+  // checkin_anywhere → ข้ามการตรวจรัศมี (allow ทุกที่)
+  const checkinAnywhere = !!emp.checkin_anywhere
+
+  let inRadiusBranch: Loc | null = null
+  let minDistance = Infinity
+  for (const loc of locations) {
+    const d = calcGeoDistance(rawLat, rawLng, loc.lat, loc.lng)
+    if (d < minDistance) { minDistance = d; inRadiusBranch = loc }
+  }
+
+  if (!checkinAnywhere) {
+    if (locations.length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: "ยังไม่ได้รับสิทธิ์เช็คอินสาขา — กรุณาติดต่อ HR",
+      })
+    }
+    if (!inRadiusBranch || minDistance > inRadiusBranch.radius) {
+      return NextResponse.json({
+        success: false,
+        error: `อยู่นอกรัศมีสาขา (ห่าง ${Math.round(minDistance)} m · รัศมี ${inRadiusBranch?.radius ?? 200} m) — ใช้ปุ่ม "เช็คอินนอกสถานที่" แทน`,
+      })
+    }
+  } else if (!inRadiusBranch) {
+    // checkin_anywhere = true แต่ไม่มี location เลย → สร้าง placeholder
+    inRadiusBranch = { id: "anywhere", name: "Anywhere", lat: rawLat, lng: rawLng, radius: 0 }
+    minDistance = 0
   }
 
   // ── ดึง shift ปัจจุบัน ──
@@ -114,6 +147,10 @@ export async function POST(request: Request) {
     const effectiveLate = Math.max(rawLateMin - lateThreshold, 0)
     const isLate = effectiveLate > 0
 
+    // FK guard: branch_id ต้องเป็น UUID จริง (ไม่ใช่ custom_/anywhere)
+    const realBranchId = inRadiusBranch && !inRadiusBranch.id.startsWith("custom_") && inRadiusBranch.id !== "anywhere"
+      ? inRadiusBranch.id : null
+
     const { error } = await supa.from("attendance_records").upsert({
       employee_id: emp.id,
       company_id: emp.company_id,
@@ -122,7 +159,7 @@ export async function POST(request: Request) {
       clock_in_lat: rawLat,
       clock_in_lng: rawLng,
       clock_in_distance_m: Math.round(minDistance),
-      clock_in_branch_id: inRadiusBranch.id,
+      clock_in_branch_id: realBranchId,
       clock_in_valid: true,
       clock_in_photo_url: photoUrl,
       clock_in_address: address || null,
@@ -159,12 +196,15 @@ export async function POST(request: Request) {
   const workMin = calcWorkMinutes(new Date(existing.clock_in), now)
   const earlyOutMin = expectedEnd ? Math.max(0, Math.floor((expectedEnd.getTime() - now.getTime()) / 60000)) : 0
 
+  const realBranchId = inRadiusBranch && !inRadiusBranch.id.startsWith("custom_") && inRadiusBranch.id !== "anywhere"
+    ? inRadiusBranch.id : null
+
   const { error } = await supa.from("attendance_records").update({
     clock_out: now.toISOString(),
     clock_out_lat: rawLat,
     clock_out_lng: rawLng,
     clock_out_distance_m: Math.round(minDistance),
-    clock_out_branch_id: inRadiusBranch.id,
+    clock_out_branch_id: realBranchId,
     clock_out_valid: true,
     clock_out_photo_url: photoUrl,
     clock_out_address: address || null,
