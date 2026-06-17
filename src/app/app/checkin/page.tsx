@@ -741,6 +741,7 @@ export default function CheckInPage() {
   const [checkinAnywhere, setCheckinAnywhere] = useState(false)
   const [showAdj, setShowAdj] = useState(false)
   const [showOffsite, setShowOffsite] = useState<"clock_in" | "clock_out" | null>(null)
+  const [showPhoto, setShowPhoto] = useState<"clock_in" | "clock_out" | null>(null)
   const [burst, setBurst] = useState(false)
   const [burstType, setBurstType] = useState<"in" | "out">("in")
   const [burstTime, setBurstTime] = useState("")
@@ -1080,6 +1081,14 @@ export default function CheckInPage() {
       {MAPS_KEY && <Script src={`https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}&callback=initCheckinMap`} strategy="afterInteractive" onLoad={handleScriptLoad} />}
       {showAdj && todayRecord && <AdjustModal record={todayRecord} onClose={() => setShowAdj(false)} />}
       {showOffsite && <OffsiteModal action={showOffsite} pos={pos} onClose={() => setShowOffsite(null)} onSuccess={refetch} />}
+      {showPhoto && <WithPhotoModal
+        action={showPhoto}
+        pos={pos}
+        empName={`${(user as any)?.employee?.first_name_th ?? ""} ${(user as any)?.employee?.last_name_th ?? ""}`.trim() || ((user as any)?.employee?.employee_code ?? "พนักงาน")}
+        branchName={nearest?.name}
+        onClose={() => setShowPhoto(null)}
+        onSuccess={refetch}
+      />}
       <SuccessOverlay show={burst} type={burstType} time={burstTime} onDone={() => setBurst(false)} />
 
       <style>{`
@@ -1382,6 +1391,30 @@ export default function CheckInPage() {
                 </div>
               </div>
             </div>
+
+            {/* ── 📸 Photo Check-in button (in-radius only) ── */}
+            {inRadius && !hasClockedIn && (
+              <div className="mb-2" style={{ animation: "float-up .5s ease .2s both" }}>
+                <button onClick={() => setShowPhoto("clock_in")}
+                  className="w-full py-3.5 rounded-2xl font-bold text-[12px] text-white flex items-center justify-center gap-2 active:scale-[.97] transition-all shadow-md"
+                  style={{ background: "linear-gradient(135deg, #059669 0%, #047857 50%, #064e3b 100%)" }}>
+                  <Camera size={14} />
+                  <span>เช็คอินแนบรูปภาพ</span>
+                  <span className="text-[9px] font-bold bg-white/20 backdrop-blur px-1.5 py-0.5 rounded-full ml-1">SELFIE</span>
+                </button>
+              </div>
+            )}
+            {inRadius && hasClockedIn && !hasClockedOut && (
+              <div className="mb-2" style={{ animation: "float-up .5s ease .2s both" }}>
+                <button onClick={() => setShowPhoto("clock_out")}
+                  className="w-full py-3.5 rounded-2xl font-bold text-[12px] text-white flex items-center justify-center gap-2 active:scale-[.97] transition-all shadow-md"
+                  style={{ background: "linear-gradient(135deg, #0f766e 0%, #115e59 50%, #134e4a 100%)" }}>
+                  <Camera size={14} />
+                  <span>เช็คเอ้าท์แนบรูปภาพ</span>
+                  <span className="text-[9px] font-bold bg-white/20 backdrop-blur px-1.5 py-0.5 rounded-full ml-1">SELFIE</span>
+                </button>
+              </div>
+            )}
 
             {/* ── Off-site button — space themed ── */}
             {(!hasClockedIn || (hasClockedIn && !hasClockedOut)) && (
@@ -1690,4 +1723,275 @@ export default function CheckInPage() {
       </div>
     </>
   )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Photo Check-in Modal — เช็คอินแนบรูปภาพ "ในรัศมีสาขา" + stamp address/ชื่อ
+   ═══════════════════════════════════════════════════════════════════════════ */
+function WithPhotoModal({ action, pos, empName, branchName, onClose, onSuccess }: {
+  action: "clock_in" | "clock_out"
+  pos: { lat: number; lng: number } | null
+  empName: string
+  branchName?: string
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [address, setAddress] = useState<string>("กำลังหาที่อยู่...")
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const [cameraActive, setCameraActive] = useState(false)
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("user") // default selfie
+
+  // Reverse geocode (Google Maps)
+  useEffect(() => {
+    if (!pos) { setAddress("ไม่ระบุตำแหน่ง"); return }
+    const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    if (!key) { setAddress(`${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`); return }
+    fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${pos.lat},${pos.lng}&language=th&key=${key}`)
+      .then(r => r.json())
+      .then(d => {
+        const addr = d?.results?.[0]?.formatted_address
+        setAddress(addr || `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`)
+      })
+      .catch(() => setAddress(`${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`))
+  }, [pos])
+
+  const startCamera = useCallback(async (facing: "environment" | "user" = facingMode) => {
+    try {
+      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop())
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 960 } },
+        audio: false,
+      })
+      streamRef.current = stream
+      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play() }
+      setCameraActive(true)
+    } catch { toast.error("ไม่สามารถเปิดกล้องได้") }
+  }, [facingMode])
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    setCameraActive(false)
+  }, [])
+
+  const flipCamera = useCallback(() => {
+    const next = facingMode === "environment" ? "user" : "environment"
+    setFacingMode(next); startCamera(next)
+  }, [facingMode, startCamera])
+
+  // ── ถ่ายรูป + stamp (top-right corner) — timestamp + address + name ──
+  const capturePhoto = useCallback(() => {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas) return
+    const w = video.videoWidth, h = video.videoHeight
+    canvas.width = w; canvas.height = h
+    const ctx = canvas.getContext("2d")!
+    ctx.drawImage(video, 0, 0, w, h)
+
+    const now = new Date()
+    const dateStr = now.toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric", timeZone: "Asia/Bangkok" })
+    const timeStr = now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Bangkok" })
+
+    // top-right overlay (เหมือนภาพตัวอย่าง user)
+    const fontBase = Math.max(20, w * 0.032)
+    ctx.textAlign = "right"
+    ctx.textBaseline = "top"
+
+    // text shadow function
+    const shadowText = (text: string, x: number, y: number, fSize: number, color = "#ffffff") => {
+      ctx.font = `bold ${fSize}px system-ui, -apple-system, sans-serif`
+      ctx.fillStyle = "rgba(0,0,0,0.6)"
+      ctx.fillText(text, x + 2, y + 2)
+      ctx.fillStyle = color
+      ctx.fillText(text, x, y)
+    }
+
+    const rightX = w - 20
+    let curY = 24
+    // line 1: date + time
+    shadowText(`${dateStr} ${timeStr}`, rightX, curY, fontBase)
+    curY += fontBase * 1.25
+
+    // address (wrap up to 3 lines)
+    const wrapped = wrapText(ctx, address, w * 0.55, `${fontBase * 0.75}px system-ui, sans-serif`)
+    for (const line of wrapped.slice(0, 3)) {
+      shadowText(line, rightX, curY, fontBase * 0.75, "#e2e8f0")
+      curY += fontBase * 0.95
+    }
+    // employee name (bold accent)
+    curY += 4
+    shadowText(empName, rightX, curY, fontBase * 0.85, "#fde68a")
+    if (branchName) {
+      curY += fontBase * 1.0
+      shadowText(`📍 ${branchName}`, rightX, curY, fontBase * 0.7, "#a7f3d0")
+    }
+
+    canvas.toBlob(blob => {
+      if (blob) {
+        setPhoto(new File([blob], `withphoto_${Date.now()}.jpg`, { type: "image/jpeg" }))
+        setPreview(canvas.toDataURL("image/jpeg", 0.92))
+        stopCamera()
+      }
+    }, "image/jpeg", 0.92)
+  }, [address, empName, branchName, stopCamera])
+
+  const retake = () => { setPhoto(null); setPreview(null); startCamera() }
+
+  const submit = async () => {
+    if (!photo) return toast.error("ถ่ายรูปก่อน")
+    if (!pos) return toast.error("ไม่มี GPS")
+    setSaving(true)
+    const fd = new FormData()
+    fd.append("action", action)
+    fd.append("lat", String(pos.lat))
+    fd.append("lng", String(pos.lng))
+    fd.append("photo", photo)
+    fd.append("address", address)
+    try {
+      const res = await fetch("/api/checkin/with-photo", { method: "POST", body: fd })
+      const data = await res.json()
+      if (data.success) {
+        toast.success(data.message || "เช็คอินสำเร็จ")
+        onSuccess(); onClose()
+      } else {
+        toast.error(data.error || "เกิดข้อผิดพลาด")
+      }
+    } catch {
+      toast.error("เชื่อมต่อไม่สำเร็จ")
+    } finally { setSaving(false) }
+  }
+
+  useEffect(() => { startCamera(); return () => { stopCamera() } }, []) // eslint-disable-line
+
+  const isIn = action === "clock_in"
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+      <style>{`
+        @keyframes wpFadeIn { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes wpPop { from { opacity: 0; transform: scale(.92) translateY(8px) } to { opacity: 1; transform: scale(1) translateY(0) } }
+      `}</style>
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+        style={{ animation: "wpFadeIn .25s ease" }}
+        onClick={() => { stopCamera(); onClose() }} />
+
+      <div className="relative w-full max-w-md bg-white rounded-3xl shadow-[0_30px_80px_-15px_rgba(15,23,42,0.5)] overflow-hidden max-h-[92vh] flex flex-col ring-1 ring-white/10"
+        style={{ animation: "wpPop .35s cubic-bezier(.34,1.56,.64,1)" }}>
+        {/* glowing top bar */}
+        <div className="h-1.5 w-full" style={{ background: "linear-gradient(90deg, #34d399, #10b981, #059669, #10b981, #34d399)", backgroundSize: "200% 100%", animation: "wpShine 3s linear infinite" }} />
+        <style>{`@keyframes wpShine { 0% { background-position: 0% 0 } 100% { background-position: 200% 0 } }`}</style>
+
+        {/* Header */}
+        <div className="px-5 pt-5 pb-3 bg-gradient-to-b from-emerald-50/60 to-transparent">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-md"
+                style={{ background: "linear-gradient(135deg, #10b981 0%, #047857 100%)" }}>
+                <Camera size={20} className="text-white" />
+              </div>
+              <div>
+                <h3 className="font-black text-slate-900 text-base leading-tight">
+                  {isIn ? "เช็คอินแนบรูปภาพ" : "เช็คเอ้าท์แนบรูปภาพ"}
+                </h3>
+                <p className="text-[11px] text-emerald-600 font-bold mt-0.5 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  ในรัศมีสาขา · ไม่ต้องรออนุมัติ
+                </p>
+              </div>
+            </div>
+            <button onClick={() => { stopCamera(); onClose() }}
+              className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-700 active:scale-95 transition-all shadow-sm">
+              <X size={15} />
+            </button>
+          </div>
+
+          {/* address pill */}
+          <div className="bg-white border border-emerald-100 rounded-2xl px-3 py-2 flex items-start gap-2 shadow-sm">
+            <span className="text-emerald-600 mt-0.5 text-base">📍</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-emerald-600 font-black uppercase tracking-wider">ที่อยู่ปัจจุบัน</p>
+              <p className="text-[11px] text-slate-700 leading-snug">{address}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="px-5 pb-5 flex-1 overflow-y-auto">
+          {/* Camera / Preview */}
+          <div className="relative rounded-2xl overflow-hidden bg-slate-900 mb-4 shadow-inner ring-1 ring-slate-200"
+            style={{ aspectRatio: "4/3" }}>
+            <canvas ref={canvasRef} className="hidden" />
+            {preview ? (
+              <img src={preview} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <>
+                <video ref={videoRef} playsInline muted className="w-full h-full object-cover" />
+                {!cameraActive && (
+                  <div className="absolute inset-0 flex items-center justify-center text-white/70 text-xs gap-2">
+                    <Loader2 size={14} className="animate-spin" /> กำลังเปิดกล้อง...
+                  </div>
+                )}
+                {cameraActive && (
+                  <>
+                    {/* corner frame guides */}
+                    <div className="absolute top-3 left-3 w-6 h-6 border-l-2 border-t-2 border-white/70 rounded-tl-md" />
+                    <div className="absolute top-3 right-3 w-6 h-6 border-r-2 border-t-2 border-white/70 rounded-tr-md" />
+                    <div className="absolute bottom-3 left-3 w-6 h-6 border-l-2 border-b-2 border-white/70 rounded-bl-md" />
+                    <div className="absolute bottom-3 right-3 w-6 h-6 border-r-2 border-b-2 border-white/70 rounded-br-md" />
+                    {/* flip button */}
+                    <button onClick={flipCamera}
+                      title="สลับกล้อง"
+                      className="absolute top-3 right-3 w-10 h-10 rounded-full bg-black/45 backdrop-blur text-white flex items-center justify-center hover:bg-black/60 active:scale-95 transition-all">
+                      ⟲
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Actions */}
+          {preview ? (
+            <div className="grid grid-cols-2 gap-2.5">
+              <button onClick={retake}
+                className="py-3 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-[.98] text-slate-700 font-bold text-sm transition-all">
+                ↺ ถ่ายใหม่
+              </button>
+              <button onClick={submit} disabled={saving}
+                className="py-3 rounded-xl text-white font-black text-sm shadow-md active:scale-[.98] transition-all disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+                style={{ background: "linear-gradient(135deg, #10b981 0%, #047857 100%)" }}>
+                {saving ? <><Loader2 size={14} className="animate-spin" /> กำลังส่ง...</> : <>✓ ยืนยัน</>}
+              </button>
+            </div>
+          ) : (
+            <button onClick={capturePhoto} disabled={!cameraActive}
+              className="w-full py-4 rounded-2xl text-white font-black text-sm shadow-lg active:scale-[.98] transition-all disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              style={{ background: "linear-gradient(135deg, #10b981 0%, #047857 100%)", boxShadow: "0 10px 30px -8px rgba(5, 150, 105, 0.5)" }}>
+              <Camera size={18} /> ถ่ายรูป
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, font: string): string[] {
+  ctx.font = font
+  const words = text.split(/\s|,/).filter(Boolean)
+  const lines: string[] = []
+  let cur = ""
+  for (const w of words) {
+    const test = cur ? `${cur} ${w}` : w
+    if (ctx.measureText(test).width > maxWidth && cur) {
+      lines.push(cur); cur = w
+    } else { cur = test }
+  }
+  if (cur) lines.push(cur)
+  return lines
 }
