@@ -1898,6 +1898,14 @@ export default function PayrollPage() {
   const [txtSearch,    setTxtSearch]    = useState("")
   const [txtFilterDept, setTxtFilterDept] = useState("")
 
+  // ── Smart XLSX export ──
+  const [showSmartExport,  setShowSmartExport]  = useState(false)
+  const [smartCompanies,   setSmartCompanies]   = useState<Set<string>>(new Set()) // company codes
+  const [smartDepts,       setSmartDepts]       = useState<Set<string>>(new Set())
+  const [smartBrands,      setSmartBrands]      = useState<Set<string>>(new Set())
+  const [smartExclude,     setSmartExclude]     = useState<Set<string>>(new Set()) // employee ids
+  const [smartSearch,      setSmartSearch]      = useState("")
+
   const myCompanyId: string | undefined =
     user?.employee?.company_id ?? (user as any)?.company_id ?? undefined
   const isAllCo = selectedCo === "all"
@@ -2471,10 +2479,14 @@ export default function PayrollPage() {
                   placeholder="ค้นหาชื่อ, รหัส..."/>
               </div>
               <p className="text-xs text-slate-400 ml-auto">{filtered.length} / {records.length} คน</p>
-              {/* Export Excel */}
-              <button onClick={() => exportXLSX(records, selected)}
+              {/* Export Excel — เปิด smart modal */}
+              <button onClick={() => {
+                  setShowSmartExport(true)
+                  setSmartCompanies(new Set()); setSmartDepts(new Set()); setSmartBrands(new Set())
+                  setSmartExclude(new Set()); setSmartSearch("")
+                }}
                 className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors"
-                title={`Export ทั้งหมด ${records.length} คน`}>
+                title={`Export มีตัวกรอง (บริษัท / แผนก / แบรนด์ / รายคน)`}>
                 <Download size={11}/> Excel
               </button>
               <button onClick={() => { setShowTxtExport(true); setTxtExclude(new Set()); setTxtSearch(""); setTxtFilterDept("") }}
@@ -2748,6 +2760,242 @@ export default function PayrollPage() {
                   className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
                   <Download size={14} /> Export TXT ({txtFiltered.length} คน)
                 </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ═══ Smart XLSX Export Modal ═══ */}
+      {showSmartExport && (() => {
+        // ── เก็บ options ทั้งหมดจาก records ──
+        const coMap = new Map<string, any>()
+        for (const r of records as any[]) {
+          const c = r.employee?.company
+          if (c?.code && !coMap.has(c.code)) coMap.set(c.code, c)
+        }
+        const allCompanies = Array.from(coMap.values())
+        const allDepts = Array.from(new Set(records.map((r: any) => r.employee?.department?.name).filter(Boolean))).sort() as string[]
+        const allBrands = Array.from(new Set(records.flatMap((r: any) => normalizeBrands(r.employee?.brand)).filter(Boolean))).sort() as string[]
+
+        const smartFilter = (r: any) => {
+          const emp = r.employee || {}
+          if (smartCompanies.size > 0 && !smartCompanies.has(emp.company?.code)) return false
+          if (smartDepts.size > 0 && !smartDepts.has(emp.department?.name)) return false
+          if (smartBrands.size > 0) {
+            const empBrands = normalizeBrands(emp.brand)
+            if (!empBrands.some((b: string) => smartBrands.has(b))) return false
+          }
+          if (smartSearch) {
+            const s = smartSearch.toLowerCase()
+            const name = `${emp.first_name_th || ""} ${emp.last_name_th || ""} ${emp.employee_code || ""} ${emp.nickname || ""}`.toLowerCase()
+            if (!name.includes(s)) return false
+          }
+          return true
+        }
+        const matched = records.filter(smartFilter)
+        const finalList = matched.filter((r: any) => !smartExclude.has(r.employee?.id))
+        const totalNetSmart = finalList.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).net, 0)
+        const totalGrossSmart = finalList.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).gross, 0)
+
+        const toggleSet = (val: string, set: Set<string>, setter: (s: Set<string>) => void) => {
+          const next = new Set(set)
+          if (next.has(val)) next.delete(val); else next.add(val)
+          setter(next)
+        }
+
+        const doSmartExport = () => {
+          if (finalList.length === 0) {
+            toast.error("ไม่มีพนักงานที่ตรงเงื่อนไข")
+            return
+          }
+          exportXLSX(finalList, selected)
+          setShowSmartExport(false)
+        }
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowSmartExport(false)}>
+            <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-white font-black text-base flex items-center gap-2">
+                    <Filter size={16} /> Smart Export Excel
+                  </h3>
+                  <p className="text-emerald-100 text-[11px] mt-0.5">
+                    งวด {periodLabel(selected)} · {finalList.length} / {records.length} คน · ฿{Math.round(totalNetSmart).toLocaleString("th-TH")}
+                  </p>
+                </div>
+                <button onClick={() => setShowSmartExport(false)}
+                  className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white">
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Filters area */}
+              <div className="px-5 py-3 border-b border-slate-100 space-y-3 overflow-y-auto">
+                {/* Companies */}
+                {allCompanies.length > 1 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-[11px] font-bold text-slate-500">บริษัท ({smartCompanies.size || "ทั้งหมด"})</p>
+                      {smartCompanies.size > 0 && (
+                        <button onClick={() => setSmartCompanies(new Set())}
+                          className="text-[10px] text-emerald-600 font-bold hover:underline">ล้าง</button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {allCompanies.map((c: any) => {
+                        const on = smartCompanies.has(c.code)
+                        const count = records.filter((r: any) => r.employee?.company?.code === c.code).length
+                        return (
+                          <button key={c.code} onClick={() => toggleSet(c.code, smartCompanies, setSmartCompanies)}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all ${
+                              on ? "bg-emerald-500 border-emerald-500 text-white" : "bg-white border-slate-200 text-slate-600 hover:border-emerald-300"
+                            }`}>
+                            {c.code} <span className="opacity-60">({count})</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Departments */}
+                {allDepts.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-[11px] font-bold text-slate-500">แผนก ({smartDepts.size || "ทั้งหมด"})</p>
+                      {smartDepts.size > 0 && (
+                        <button onClick={() => setSmartDepts(new Set())}
+                          className="text-[10px] text-emerald-600 font-bold hover:underline">ล้าง</button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {allDepts.map((d: string) => {
+                        const on = smartDepts.has(d)
+                        const count = records.filter((r: any) => r.employee?.department?.name === d).length
+                        return (
+                          <button key={d} onClick={() => toggleSet(d, smartDepts, setSmartDepts)}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all ${
+                              on ? "bg-indigo-500 border-indigo-500 text-white" : "bg-white border-slate-200 text-slate-600 hover:border-indigo-300"
+                            }`}>
+                            {d} <span className="opacity-60">({count})</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Brands */}
+                {allBrands.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-[11px] font-bold text-slate-500">แบรนด์ ({smartBrands.size || "ทั้งหมด"})</p>
+                      {smartBrands.size > 0 && (
+                        <button onClick={() => setSmartBrands(new Set())}
+                          className="text-[10px] text-emerald-600 font-bold hover:underline">ล้าง</button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {allBrands.map((b: string) => {
+                        const on = smartBrands.has(b)
+                        const count = records.filter((r: any) => normalizeBrands(r.employee?.brand).includes(b)).length
+                        return (
+                          <button key={b} onClick={() => toggleSet(b, smartBrands, setSmartBrands)}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all ${
+                              on ? "bg-purple-500 border-purple-500 text-white" : "bg-white border-slate-200 text-slate-600 hover:border-purple-300"
+                            }`}>
+                            {b} <span className="opacity-60">({count})</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Search + select all/none */}
+                <div className="flex gap-2 items-center pt-1">
+                  <div className="relative flex-1">
+                    <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input value={smartSearch} onChange={e => setSmartSearch(e.target.value)}
+                      placeholder="ค้นหาชื่อ / รหัส / ชื่อเล่น"
+                      className="w-full pl-7 pr-2 py-1.5 rounded-lg border border-slate-200 text-[11.5px] outline-none focus:border-emerald-400" />
+                  </div>
+                  <button onClick={() => setSmartExclude(new Set())}
+                    className="text-[10px] text-emerald-600 font-bold hover:underline whitespace-nowrap">เลือกทั้งหมด</button>
+                  <span className="text-slate-300 text-[10px]">·</span>
+                  <button onClick={() => setSmartExclude(new Set(matched.map((r: any) => r.employee?.id)))}
+                    className="text-[10px] text-slate-400 font-bold hover:underline whitespace-nowrap">ไม่เลือกเลย</button>
+                </div>
+              </div>
+
+              {/* Employee list */}
+              <div className="flex-1 overflow-y-auto px-2 py-2 bg-slate-50/50">
+                {matched.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 text-xs font-bold">
+                    ไม่พบพนักงานตรงเงื่อนไข
+                  </div>
+                ) : matched.map((r: any) => {
+                  const emp = r.employee || {}
+                  const excluded = smartExclude.has(emp.id)
+                  const brands = normalizeBrands(emp.brand)
+                  return (
+                    <label key={r.id} className={`flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-white ${excluded ? "opacity-40" : ""}`}>
+                      <input type="checkbox" checked={!excluded}
+                        onChange={() => {
+                          setSmartExclude(prev => {
+                            const next = new Set(prev)
+                            if (next.has(emp.id)) next.delete(emp.id)
+                            else next.add(emp.id)
+                            return next
+                          })
+                        }}
+                        className="w-4 h-4 rounded border-slate-300 text-emerald-600" />
+                      <span className="text-[11.5px] font-bold text-slate-700 flex-1 truncate">
+                        {emp.first_name_th} {emp.last_name_th}
+                        {emp.nickname && <span className="text-slate-400 font-normal ml-1">({emp.nickname})</span>}
+                      </span>
+                      <span className="text-[10px] text-slate-400 hidden sm:inline">{emp.employee_code}</span>
+                      <span className="text-[10px] text-slate-400 hidden md:inline max-w-[120px] truncate">{emp.department?.name || ""}</span>
+                      {brands.length > 0 && (
+                        <span className="text-[9px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full font-bold hidden md:inline">
+                          {brands.slice(0, 2).join(", ")}{brands.length > 2 ? "…" : ""}
+                        </span>
+                      )}
+                      <span className="text-[11px] font-bold text-emerald-700 min-w-[72px] text-right">
+                        ฿{Math.round(recomputePayroll(applyAutoProrate(r)).net).toLocaleString()}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+
+              {/* Summary + Footer */}
+              <div className="px-5 py-3 border-t border-slate-100 bg-white">
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div className="bg-emerald-50 rounded-lg p-2">
+                    <p className="text-[9px] font-bold text-emerald-600 uppercase">พนักงาน</p>
+                    <p className="text-sm font-black text-emerald-700">{finalList.length} คน</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-2">
+                    <p className="text-[9px] font-bold text-blue-600 uppercase">รวมรายรับ</p>
+                    <p className="text-sm font-black text-blue-700">฿{Math.round(totalGrossSmart).toLocaleString("th-TH")}</p>
+                  </div>
+                  <div className="bg-indigo-50 rounded-lg p-2">
+                    <p className="text-[9px] font-bold text-indigo-600 uppercase">จ่ายสุทธิ</p>
+                    <p className="text-sm font-black text-indigo-700">฿{Math.round(totalNetSmart).toLocaleString("th-TH")}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setShowSmartExport(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+                  <button onClick={doSmartExport} disabled={finalList.length === 0}
+                    className="flex-[2] py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-sm font-bold hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-1.5 shadow">
+                    <Download size={14} /> Export Excel ({finalList.length} คน)
+                  </button>
+                </div>
               </div>
             </div>
           </div>
