@@ -720,6 +720,32 @@ export default function ApprovalsPage() {
                   {isOpen ? <ChevronUp size={12} className="text-gray-400 shrink-0" /> : <ChevronDown size={12} className="text-gray-400 shrink-0" />}
                 </button>
 
+                {/* Multi-file attachments (รูป / เอกสาร) */}
+                {(item.attachment_urls?.length > 0 ? item.attachment_urls : item.attachment_url ? [item.attachment_url] : []).length > 0 && (
+                  <div className="mt-2 grid grid-cols-3 gap-1.5">
+                    {(item.attachment_urls?.length > 0 ? item.attachment_urls : [item.attachment_url]).map((url: string, idx: number) => {
+                      const name = (item.attachment_names?.[idx]) || (item.attachment_name) || `ไฟล์ ${idx + 1}`
+                      const isImg = /\.(jpg|jpeg|png|gif|webp|heic|heif)$/i.test(name) || /\.(jpg|jpeg|png|gif|webp)/i.test(url)
+                      return (
+                        <a key={idx} href={url} target="_blank" rel="noopener noreferrer"
+                          className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border border-slate-200 group hover:border-violet-300 transition-colors">
+                          {isImg ? (
+                            <img src={url} alt={name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center p-1.5 text-center">
+                              <Paperclip size={16} className="text-violet-500 mb-0.5" />
+                              <span className="text-[9px] font-bold text-violet-700 line-clamp-2 break-all">{name}</span>
+                            </div>
+                          )}
+                          <div className="absolute inset-x-0 bottom-0 bg-black/40 text-white text-[8px] font-bold px-1 py-0.5 text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            เปิดดู
+                          </div>
+                        </a>
+                      )
+                    })}
+                  </div>
+                )}
+
                 {isOpen && (
                   <input placeholder={t("approvals.note_placeholder")} value={notes[item.id] || ""}
                     onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))}

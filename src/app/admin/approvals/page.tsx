@@ -366,15 +366,34 @@ export default function AdminApprovalsPage() {
                       {/* Date */}
                       <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{safeFmt(r.date_label?.split(" → ")[0])}</td>
 
-                      {/* Reason + Attachment */}
-                      <td className="px-3 py-3 text-slate-500 max-w-[150px]">
+                      {/* Reason + Attachment(s) */}
+                      <td className="px-3 py-3 text-slate-500 max-w-[180px]">
                         <span className="truncate block">{r.reason || "-"}</span>
-                        {r.attachment_url && (
-                          <a href={r.attachment_url} target="_blank" rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 mt-1 text-[10px] text-blue-500 hover:text-blue-700 font-semibold">
-                            <Paperclip size={10}/> {r.attachment_name || "ไฟล์แนบ"}
-                          </a>
-                        )}
+                        {(() => {
+                          const urls = (r.attachment_urls?.length > 0 ? r.attachment_urls : r.attachment_url ? [r.attachment_url] : []) as string[]
+                          const names = (r.attachment_names?.length > 0 ? r.attachment_names : r.attachment_name ? [r.attachment_name] : []) as string[]
+                          if (urls.length === 0) return null
+                          if (urls.length === 1) {
+                            return (
+                              <a href={urls[0]} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 mt-1 text-[10px] text-blue-500 hover:text-blue-700 font-semibold">
+                                <Paperclip size={10}/> {names[0] || "ไฟล์แนบ"}
+                              </a>
+                            )
+                          }
+                          return (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {urls.map((u: string, i: number) => (
+                                <a key={i} href={u} target="_blank" rel="noopener noreferrer"
+                                  title={names[i] || `ไฟล์ ${i + 1}`}
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-50 border border-blue-100 rounded-md text-[10px] text-blue-600 hover:bg-blue-100 font-bold">
+                                  <Paperclip size={9}/> {i + 1}
+                                </a>
+                              ))}
+                              <span className="text-[9px] text-slate-400 font-bold self-center ml-0.5">({urls.length} ไฟล์)</span>
+                            </div>
+                          )
+                        })()}
                       </td>
 
                       {/* Status */}

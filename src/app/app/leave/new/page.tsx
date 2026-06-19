@@ -255,6 +255,10 @@ function LeaveNewInner() {
           requested_clock_in:  form.requested_clock_in  ? `${form.work_date}T${form.requested_clock_in}:00+07:00`  : null,
           requested_clock_out: form.requested_clock_out ? `${(form as any).clock_out_date || form.work_date}T${form.requested_clock_out}:00+07:00` : null,
           reason: form.reason, status: "pending",
+          attachment_url: attachments[0]?.url || null,
+          attachment_name: attachments[0]?.name || null,
+          attachment_urls: attachments.length > 0 ? attachments.map(a => a.url) : null,
+          attachment_names: attachments.length > 0 ? attachments.map(a => a.name) : null,
         })
         if (error) throw error
         setSuccess(true)
@@ -895,13 +899,13 @@ function LeaveNewInner() {
                     </div>
                   )}
 
-                  {/* แนบไฟล์ (ไม่บังคับ, หลายไฟล์) — แสดงเฉพาะฟอร์มใบลา */}
-                  {formType === "leave" && (
+                  {/* แนบไฟล์ (ไม่บังคับ, หลายไฟล์) — แสดงในใบลา + แก้เวลา */}
+                  {(formType === "leave" || formType === "adjustment") && (
                     <div>
                       <label className={labelCls}>
                         <span className="flex items-center gap-1.5">
                           <Paperclip size={13} className="text-slate-400" />
-                          แนบเอกสาร <span className="text-slate-400 font-normal text-xs">(ไม่บังคับ · สูงสุด 10 ไฟล์)</span>
+                          แนบรูปภาพ / เอกสาร <span className="text-slate-400 font-normal text-xs">(ไม่บังคับ · สูงสุด 10 ไฟล์)</span>
                         </span>
                       </label>
 
@@ -945,7 +949,11 @@ function LeaveNewInner() {
                           )}
                         </label>
                       )}
-                      <p className="text-[10px] text-slate-400 mt-1.5">เช่น ใบรับรองแพทย์, เอกสารประกอบการลา</p>
+                      <p className="text-[10px] text-slate-400 mt-1.5">
+                        {formType === "leave"
+                          ? "เช่น ใบรับรองแพทย์, เอกสารประกอบการลา"
+                          : "เช่น รูปหน้าจอที่ระบบเช็คอินขัดข้อง, รูปถ่ายระหว่างทำงาน, ใบรับรองนัดหมาย"}
+                      </p>
                     </div>
                   )}
 
