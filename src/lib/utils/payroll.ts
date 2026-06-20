@@ -4,6 +4,44 @@
 // ─────────────────────────────────────────────────────────────
 
 /**
+ * คำนวณ prorate_days อัตโนมัติ จาก hire_date เทียบกับช่วงงวดเงินเดือน
+ * - เริ่มงานก่อนงวด → null (ทำเต็มเดือน)
+ * - เริ่มงานในช่วงงวด → end - hire + 1 (inclusive)
+ * - เริ่มงานหลังงวด → null
+ * - days >= 30 → null (เต็มเดือน)
+ */
+export function computeAutoProrateDays(
+  hireDate?: string | null,
+  periodStart?: string | null,
+  periodEnd?: string | null,
+): number | null {
+  if (!hireDate || !periodStart || !periodEnd) return null
+  const h = new Date(hireDate)
+  const s = new Date(periodStart)
+  const e = new Date(periodEnd)
+  if (isNaN(h.getTime()) || isNaN(s.getTime()) || isNaN(e.getTime())) return null
+  const mid = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const hM = mid(h), sM = mid(s), eM = mid(e)
+  if (hM <= sM) return null
+  if (hM > eM)  return null
+  const days = Math.round((eM - hM) / 86_400_000) + 1
+  if (days < 1 || days >= 30) return null
+  return days
+}
+
+/**
+ * apply auto-prorate ลงใน record (clone)
+ *   ถ้า prorate_days ยัง null แต่มี _autoProrateDays → ใช้ _autoProrateDays แทน
+ *   ใช้ทั้งใน admin/payroll table, EditModal, PayslipModal, /api/payslip/download
+ *   เพื่อให้ตัวเลขสรุปตรงกันทุกที่
+ */
+export function applyAutoProrate(r: any): any {
+  if (r?.prorate_days != null) return r
+  if (r?._autoProrateDays == null) return r
+  return { ...r, prorate_days: r._autoProrateDays }
+}
+
+/**
  * Prorate factor — สำหรับพนักงานเข้า/ออกกลางงวด
  * - null/undefined/0/>=30 → 1.0 (ทำเต็มเดือน)
  * - 1-29 → days / 30
@@ -239,6 +277,7 @@ const GRACE_10_DEPTS = [
   "kam",
   "content", "graphic",
   "บริหาร",
+  "business development", "พัฒนาธุรกิจ", "bd",
 ]
 
 // Companies ที่ทุกแผนก grace = 0

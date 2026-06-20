@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   if (!emp) return NextResponse.json({ error: "Employee not found" }, { status: 404 })
 
   // ── parallel fetch ────────────────────────────────────────────────
-  const [attRes, assignRes, tplRes, profileRes, leaveRes, otRes] = await Promise.all([
+  const [attRes, assignRes, tplRes, profileRes, leaveRes, otRes, adjRes] = await Promise.all([
     svc.from("attendance_records")
       .select("id, work_date, clock_in, clock_out, status, late_minutes, early_out_minutes, ot_minutes, work_minutes, note")
       .eq("employee_id", employee_id).gte("work_date", from).lte("work_date", to)
@@ -64,6 +64,12 @@ export async function GET(req: NextRequest) {
     svc.from("overtime_requests")
       .select("id, work_date, ot_start, ot_end, ot_rate, status, reason, reviewed_by, reviewed_at, review_note")
       .eq("employee_id", employee_id).gte("work_date", from).lte("work_date", to),
+
+    // ── time_adjustment_requests (คำขอแก้เวลา) ──
+    svc.from("time_adjustment_requests")
+      .select("id, work_date, requested_clock_in, requested_clock_out, status, reason, reviewed_by, reviewed_at, review_note, attachment_url, attachment_urls, attachment_names, created_at")
+      .eq("employee_id", employee_id).gte("work_date", from).lte("work_date", to)
+      .order("created_at", { ascending: false }),
   ])
 
   // ── resolve shift template per assignment via lookup ──────────────
@@ -86,5 +92,6 @@ export async function GET(req: NextRequest) {
     default_shift:     defaultShift,
     leaves:            leaveRes.data ?? [],
     overtimes:         otRes.data ?? [],
+    adjustments:       adjRes.data ?? [],
   })
 }

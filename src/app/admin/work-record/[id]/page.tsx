@@ -177,6 +177,12 @@ export default function WorkRecordDetailPage() {
         if (!otByDate.has(o.work_date)) otByDate.set(o.work_date, [])
         otByDate.get(o.work_date)!.push(o)
       }
+      // ── คำขอแก้เวลา per date (ล่าสุดก่อน) ──
+      const adjByDate = new Map<string, any[]>()
+      for (const a of (data.adjustments ?? [])) {
+        if (!adjByDate.has(a.work_date)) adjByDate.set(a.work_date, [])
+        adjByDate.get(a.work_date)!.push(a)
+      }
       // normalize start_date/end_date เป็น "YYYY-MM-DD" (กัน timestamp string)
       const leaves = (data.leaves ?? []).map((lv: any) => ({
         ...lv,
@@ -202,6 +208,7 @@ export default function WorkRecordDetailPage() {
           attendance: att,
           shift_assignment: sh,
           overtimes: ots,
+          adjustments: adjByDate.get(dStr) || [],
           leave: onLeave,
         })
       }
@@ -456,20 +463,44 @@ export default function WorkRecordDetailPage() {
 
                         {/* Clock in/out — กดเปิด modal ได้ทุกวัน (รองรับสร้างใหม่ + แก้ไข) */}
                         <td className="px-3 py-2.5">
-                          <button onClick={openModal({ kind: "attendance", row })}
-                            className="group flex items-center gap-1.5 text-xs"
-                            title={att?.id ? "คลิกเพื่อแก้เวลา" : "คลิกเพื่อเพิ่มเวลาเข้า/ออก"}>
-                            {att?.clock_in || att?.clock_out ? (
-                              <span className="font-mono font-bold text-slate-700">
-                                (IN) {fmtTime(att?.clock_in) || "--:--"} <span className="text-slate-300">{'>'}</span> (OUT) {fmtTime(att?.clock_out) || "--:--"}
-                              </span>
-                            ) : assignType !== "work" ? (
-                              <span className="text-slate-400 italic">+ เพิ่มเวลาทำงาน</span>
-                            ) : (
-                              <span className="text-slate-300">—</span>
-                            )}
-                            <Pencil size={11} className="text-teal-400 opacity-70" />
-                          </button>
+                          <div className="space-y-1">
+                            <button onClick={openModal({ kind: "attendance", row })}
+                              className="group flex items-center gap-1.5 text-xs"
+                              title={att?.id ? "คลิกเพื่อแก้เวลา" : "คลิกเพื่อเพิ่มเวลาเข้า/ออก"}>
+                              {att?.clock_in || att?.clock_out ? (
+                                <span className="font-mono font-bold text-slate-700">
+                                  (IN) {fmtTime(att?.clock_in) || "--:--"} <span className="text-slate-300">{'>'}</span> (OUT) {fmtTime(att?.clock_out) || "--:--"}
+                                </span>
+                              ) : assignType !== "work" ? (
+                                <span className="text-slate-400 italic">+ เพิ่มเวลาทำงาน</span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )}
+                              <Pencil size={11} className="text-teal-400 opacity-70" />
+                            </button>
+                            {/* คำขอแก้เวลา — แสดง chip status ของคำขอล่าสุด */}
+                            {row.adjustments?.length > 0 && row.adjustments.map((a: any) => {
+                              const cin  = a.requested_clock_in  ? fmtTime(a.requested_clock_in)  : "--:--"
+                              const cout = a.requested_clock_out ? fmtTime(a.requested_clock_out) : "--:--"
+                              const stCls = a.status === "approved" ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : a.status === "rejected"           ? "bg-rose-50 text-rose-700 border-rose-200"
+                                :                                    "bg-amber-50 text-amber-700 border-amber-200"
+                              const stLabel = a.status === "approved" ? "✓ อนุมัติ"
+                                : a.status === "rejected"           ? "✗ ปฏิเสธ"
+                                :                                    "⏳ รออนุมัติ"
+                              const fileCount = (a.attachment_urls?.length || (a.attachment_url ? 1 : 0))
+                              return (
+                                <div key={a.id}
+                                  title={a.reason ? `เหตุผล: ${a.reason}` : "คำขอแก้ไขเวลา"}
+                                  className={`inline-flex items-center gap-1 text-[10px] font-bold border rounded px-1.5 py-0.5 ${stCls}`}>
+                                  <span>📝 ขอแก้: {cin} → {cout}</span>
+                                  <span className="opacity-70">·</span>
+                                  <span>{stLabel}</span>
+                                  {fileCount > 0 && <span className="opacity-70">· 📎{fileCount}</span>}
+                                </div>
+                              )
+                            })}
+                          </div>
                         </td>
 
                         {/* Late / Absent / Early */}
@@ -487,15 +518,28 @@ export default function WorkRecordDetailPage() {
                         {/* OT — แต่ละ row คลิกได้, "+ เพิ่ม OT" เปิด modal ในโหมด add */}
                         <td className="px-3 py-2.5">
                           <div className="space-y-1">
-                            {row.overtimes.map((o: any) => (
-                              <button key={o.id} onClick={openModal({ kind: "ot", row, ot: o })}
-                                className="group flex items-center gap-1 text-[10px]">
-                                <span className={`font-bold px-2 py-0.5 rounded ${o.status === "approved" ? "text-indigo-700 bg-indigo-50 hover:bg-indigo-100" : o.status === "pending" ? "text-amber-700 bg-amber-50 hover:bg-amber-100" : "text-slate-500 bg-slate-50"}`}>
-                                  OT (x{o.ot_rate}) {fmtTime(o.ot_start)}-{fmtTime(o.ot_end)}
-                                </span>
-                                <Pencil size={10} className="text-teal-400" />
-                              </button>
-                            ))}
+                            {row.overtimes.map((o: any) => {
+                              const stCls = o.status === "approved" ? "text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+                                : o.status === "rejected"           ? "text-rose-700 bg-rose-50 hover:bg-rose-100"
+                                : o.status === "pending"            ? "text-amber-700 bg-amber-50 hover:bg-amber-100"
+                                :                                   "text-slate-500 bg-slate-50"
+                              const stLabel = o.status === "approved" ? "✓ อนุมัติ"
+                                : o.status === "rejected"           ? "✗ ปฏิเสธ"
+                                : o.status === "pending"            ? "⏳ รออนุมัติ"
+                                :                                   ""
+                              return (
+                                <button key={o.id} onClick={openModal({ kind: "ot", row, ot: o })}
+                                  className="group flex flex-col items-start gap-0.5 text-[10px]">
+                                  <span className={`font-bold px-2 py-0.5 rounded flex items-center gap-1 ${stCls}`}>
+                                    OT (x{o.ot_rate}) {fmtTime(o.ot_start)}-{fmtTime(o.ot_end)}
+                                    <Pencil size={9} className="text-teal-400 opacity-70" />
+                                  </span>
+                                  {stLabel && (
+                                    <span className={`text-[9px] font-bold ${o.status === "approved" ? "text-emerald-600" : o.status === "rejected" ? "text-rose-600" : "text-amber-600"}`}>{stLabel}</span>
+                                  )}
+                                </button>
+                              )
+                            })}
                             {att?.ot_minutes > 0 && row.overtimes.length === 0 && (
                               <span className="inline-block text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
                                 OT = {minToHM(att.ot_minutes)}
@@ -520,13 +564,18 @@ export default function WorkRecordDetailPage() {
                             const dot = lt?.color_hex ? (
                               <span className="w-1.5 h-1.5 rounded-full" style={{ background: lt.color_hex }} />
                             ) : null
+                            const lvLabel = lv.status === "pending" ? "⏳ รออนุมัติ"
+                              : lv.status === "rejected" ? "✗ ปฏิเสธ"
+                              : "✓ อนุมัติ"
                             return (
                               <button onClick={openModal({ kind: "leave", row })}
-                                className={`group inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ${cls}`}
-                                title={lv.status === "pending" ? "รออนุมัติ" : lv.status === "rejected" ? "ถูกปฏิเสธ" : "อนุมัติแล้ว"}>
-                                {dot}
-                                {lt?.name || "ลา"} = {Number(lv.total_days || 0).toFixed(2)}
-                                <Pencil size={9} className="opacity-70" />
+                                className="group flex flex-col items-start gap-0.5">
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ${cls}`}>
+                                  {dot}
+                                  {lt?.name || "ลา"} = {Number(lv.total_days || 0).toFixed(2)}
+                                  <Pencil size={9} className="opacity-70" />
+                                </span>
+                                <span className={`text-[9px] font-bold ${lv.status === "approved" ? "text-violet-600" : lv.status === "rejected" ? "text-rose-600" : "text-amber-600"}`}>{lvLabel}</span>
                               </button>
                             )
                           })() : <span className="text-slate-300 text-xs">—</span>}

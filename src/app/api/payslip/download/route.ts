@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
-import { recomputePayroll } from "@/lib/utils/payroll"
+import { recomputePayroll, computeAutoProrateDays, applyAutoProrate } from "@/lib/utils/payroll"
 
 export async function GET(req: NextRequest) {
   const supabase = createClient()
@@ -19,10 +19,10 @@ export async function GET(req: NextRequest) {
   // Get payroll record
   let query = supa.from("payroll_records")
     .select(`*, employee:employees!payroll_records_employee_id_fkey(
-      id, employee_code, first_name_th, last_name_th, nickname,
+      id, employee_code, first_name_th, last_name_th, nickname, hire_date,
       department:departments(name), position:positions(name),
       company:companies(id, code, name_th)),
-      period:payroll_periods(year, month)`)
+      period:payroll_periods(year, month, start_date, end_date)`)
 
   if (recordId) query = query.eq("id", recordId)
   else query = query.eq("employee_id", employeeId!).eq("payroll_period_id", periodId!)
@@ -51,10 +51,15 @@ export async function GET(req: NextRequest) {
   const earnings: { label: string; amount: number; number?: string }[] = []
   const n = (v: any) => Number(v) || 0
 
+  // ── Apply auto-prorate ก่อน (ถ้า HR ยังไม่ save → ใช้ค่าที่คำนวณจาก hire_date × งวด)
+  //    ตัวเลขในสลิปจะตรงกับ EditModal / ตาราง /admin/payroll
+  const autoDays = computeAutoProrateDays(emp?.hire_date, period?.start_date, period?.end_date)
+  const recordWithAuto = applyAutoProrate({ ...record, _autoProrateDays: autoDays })
+
   // ── Apply prorate factor (สำหรับเข้า/ออกกลางงวด) ──
-  const prorateDays = n(record.prorate_days)
+  const prorateDays = n(recordWithAuto.prorate_days)
   const factor = (prorateDays > 0 && prorateDays < 30) ? prorateDays / 30 : 1
-  const fullBase = n(record.base_salary)
+  const fullBase = n(recordWithAuto.base_salary)
   // ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
   const effectiveBase = Math.round(fullBase * factor)
   const effectiveBonus = Math.round(n(record.bonus) * factor)
@@ -112,7 +117,8 @@ export async function GET(req: NextRequest) {
   if (n(de.suspension)) deductions.push({ label: "พักงาน", amount: n(de.suspension) })
   if (n(record.deduct_loan)) deductions.push({ label: "หักเงินกู้", amount: n(record.deduct_loan) })
   // ── ใช้ helper recompute ── ครอบคลุม prorate + tax + SSO ──
-  const rp = recomputePayroll(record)
+  //    ใช้ recordWithAuto ที่ apply auto-prorate แล้ว → ตรงกับ EditModal
+  const rp = recomputePayroll(recordWithAuto)
   const displayGross = rp.gross
   const displaySSO = rp.sso
   const displayTax = rp.tax

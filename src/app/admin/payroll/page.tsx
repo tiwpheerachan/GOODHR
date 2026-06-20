@@ -1610,7 +1610,10 @@ function PayslipModal({ record, onClose, onEdit, onRefresh }: { record: any; onC
   const emp = record.employee
   const fullBase = Number(record.base_salary) || 0
   // ── ใช้ helper recompute (ครอบคลุม prorate + tax + SSO อัตโนมัติ) ──
-  const rp = recomputePayroll(record)
+  //    apply auto-prorate เหมือนตาราง/EditModal → ตัวเลขในสลิปจะตรงกัน
+  //    (ถ้า HR ยังไม่ save prorate_days, ใช้ _autoProrateDays ที่คำนวณจาก hire_date × งวด)
+  const recordForCalc = applyAutoProrate(record)
+  const rp = recomputePayroll(recordForCalc)
   const prorateDays = rp.prorateDays
   const factor = rp.factor
   const base = rp.effBase
