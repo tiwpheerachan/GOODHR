@@ -51,9 +51,22 @@ export default function AdminKpiPage() {
   const supabase = createClient()
 
   const [year, setYear] = useState(new Date().getFullYear())
-  const [month, setMonth] = useState<number | null>(null)
+  // default = เดือนปัจจุบัน → ให้ section "ยังไม่ได้ประเมิน" ทำงานทันที
+  const [month, setMonth] = useState<number | null>(new Date().getMonth() + 1)
   const [forms, setForms] = useState<any[]>([])
+  const [pendingEmps, setPendingEmps] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+
+  // ── Main tab: ผลประเมิน vs ยังไม่ได้ประเมิน ──
+  const [mainTab, setMainTab] = useState<"evaluated" | "pending">("evaluated")
+
+  // ── Filters เฉพาะ tab "pending" ──
+  const [pStatusFilter, setPStatusFilter] = useState<Set<string>>(new Set()) // not_started/draft/rejected
+  const [pDeptFilter,   setPDeptFilter]   = useState("")
+  const [pPosFilter,    setPPosFilter]    = useState("")
+  const [pMgrFilter,    setPMgrFilter]    = useState("")
+  const [pSearch,       setPSearch]       = useState("")
+  const [pCompanyFilter, setPCompanyFilter] = useState("")
 
   // Filters
   const [search, setSearch] = useState("")
@@ -94,6 +107,7 @@ export default function AdminKpiPage() {
       const res = await fetch(`/api/kpi?${params}`)
       const data = await res.json()
       setForms(data.forms ?? [])
+      setPendingEmps(data.pending_employees ?? [])
     } catch {}
     setLoading(false)
   }, [year, month])
@@ -351,8 +365,34 @@ export default function AdminKpiPage() {
         </div>
       </div>
 
+      {/* ── Main Tabs ── */}
+      <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl w-fit">
+        <button onClick={() => setMainTab("evaluated")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+            mainTab === "evaluated" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+          }`}>
+          <Target size={14} /> ผลประเมิน
+          {forms.length > 0 && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${mainTab === "evaluated" ? "bg-indigo-100 text-indigo-700" : "bg-slate-200 text-slate-500"}`}>
+              {forms.length}
+            </span>
+          )}
+        </button>
+        <button onClick={() => setMainTab("pending")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+            mainTab === "pending" ? "bg-white text-amber-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+          }`}>
+          <AlertCircle size={14} /> ยังไม่ได้ประเมิน
+          {pendingEmps.length > 0 && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${mainTab === "pending" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-600"}`}>
+              {pendingEmps.length}
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* Filters Row */}
-      <div className="flex flex-wrap gap-2">
+      <div className={`flex flex-wrap gap-2 ${mainTab === "pending" ? "hidden" : ""}`}>
         <select value={year} onChange={e => setYear(Number(e.target.value))} className={inp}>
           {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
         </select>
@@ -399,7 +439,8 @@ export default function AdminKpiPage() {
         </div>
       </div>
 
-      {/* Analytics Cards */}
+      {/* Analytics Cards — เฉพาะ tab "evaluated" */}
+      {mainTab === "evaluated" && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Grade Overview */}
         <div className="bg-white rounded-2xl border border-slate-100 p-5">
@@ -481,8 +522,249 @@ export default function AdminKpiPage() {
           )}
         </div>
       </div>
+      )}
 
-      {/* Table */}
+      {/* ═════════ TAB: ยังไม่ได้ประเมิน ═════════ */}
+      {mainTab === "pending" && (() => {
+        // ── หากเลือก "ทุกเดือน" — ไม่ส่ง query (API จะส่ง pending_employees=[]) ──
+        if (!month) {
+          return (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex items-start gap-2.5">
+              <AlertCircle size={16} className="text-indigo-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-bold text-indigo-800">เลือก "เดือน" ก่อน</p>
+                <p className="text-xs text-indigo-700 mt-0.5">
+                  เลือกเดือนจากตัวกรองด้านบน (ในแท็บ "ผลประเมิน") เพื่อดูพนักงานที่ยังไม่ได้รับการประเมิน KPI ในรอบนั้น
+                </p>
+              </div>
+            </div>
+          )
+        }
+
+        // ── filter pendingEmps ตาม filters ที่กำหนด ──
+        const lc = pSearch.toLowerCase().trim()
+        const pFiltered = pendingEmps.filter((p: any) => {
+          if (pStatusFilter.size > 0 && !pStatusFilter.has(p.pending_status)) return false
+          if (pDeptFilter && p.department?.name !== pDeptFilter) return false
+          if (pPosFilter && p.position?.name !== pPosFilter) return false
+          if (pCompanyFilter && p.company_id !== pCompanyFilter) return false
+          if (pMgrFilter) {
+            const mn = p.direct_manager ? `${p.direct_manager.first_name_th} ${p.direct_manager.last_name_th}` : ""
+            if (mn !== pMgrFilter) return false
+          }
+          if (lc) {
+            const hay = `${p.first_name_th ?? ""} ${p.last_name_th ?? ""} ${p.employee_code ?? ""} ${p.nickname ?? ""}`.toLowerCase()
+            if (!hay.includes(lc)) return false
+          }
+          return true
+        })
+
+        const pDepts = Array.from(new Set(pendingEmps.map((p: any) => p.department?.name).filter(Boolean))).sort() as string[]
+        const pPositions = Array.from(new Set(pendingEmps.map((p: any) => p.position?.name).filter(Boolean))).sort() as string[]
+        const pMgrs = Array.from(new Set(pendingEmps.map((p: any) => p.direct_manager ? `${p.direct_manager.first_name_th} ${p.direct_manager.last_name_th}` : null).filter(Boolean))).sort() as string[]
+
+        const ns = pendingEmps.filter((p: any) => p.pending_status === "not_started").length
+        const dr = pendingEmps.filter((p: any) => p.pending_status === "draft").length
+        const rj = pendingEmps.filter((p: any) => p.pending_status === "rejected").length
+
+        const toggleStatus = (s: string) => {
+          const next = new Set(pStatusFilter)
+          if (next.has(s)) next.delete(s); else next.add(s)
+          setPStatusFilter(next)
+        }
+        const pActiveFilters = pStatusFilter.size + (pDeptFilter ? 1 : 0) + (pPosFilter ? 1 : 0) + (pMgrFilter ? 1 : 0) + (pSearch ? 1 : 0) + (pCompanyFilter ? 1 : 0)
+
+        const exportPending = async () => {
+          if (pFiltered.length === 0) { toast.error("ไม่มีข้อมูลให้ export"); return }
+          try {
+            const XLSX = await import("xlsx")
+            const rows = pFiltered.map((p: any, idx: number) => ({
+              "ลำดับ": idx + 1,
+              "รหัสพนักงาน": p.employee_code ?? "",
+              "ชื่อ-นามสกุล": `${p.first_name_th ?? ""} ${p.last_name_th ?? ""}`.trim(),
+              "ชื่อเล่น": p.nickname ?? "",
+              "แผนก": p.department?.name ?? "",
+              "ตำแหน่ง": p.position?.name ?? "",
+              "หัวหน้าตรง": p.direct_manager ? `${p.direct_manager.first_name_th} ${p.direct_manager.last_name_th}${p.direct_manager.nickname ? ` (${p.direct_manager.nickname})` : ""}` : "",
+              "ฐาน KPI (บาท)": Number(p.standard_amount ?? 0),
+              "สถานะ": p.pending_status === "not_started" ? "ยังไม่เริ่ม"
+                : p.pending_status === "draft" ? "ฉบับร่าง"
+                : p.pending_status === "rejected" ? "ถูกส่งคืน" : p.pending_status,
+            }))
+            const ws = XLSX.utils.json_to_sheet(rows)
+            ws["!cols"] = [{ wch: 6 }, { wch: 14 }, { wch: 24 }, { wch: 12 }, { wch: 18 }, { wch: 22 }, { wch: 26 }, { wch: 14 }, { wch: 14 }]
+            const wb = XLSX.utils.book_new()
+            XLSX.utils.book_append_sheet(wb, ws, "ยังไม่ได้ประเมิน")
+            const fname = `kpi_pending_${MONTHS[month]}${year + 543}_${format(new Date(), "yyyyMMdd_HHmm")}.xlsx`
+            XLSX.writeFile(wb, fname)
+            toast.success(`Export สำเร็จ ${rows.length} คน`)
+          } catch (e: any) { toast.error(e.message || "Export ไม่สำเร็จ") }
+        }
+
+        return (
+          <div className="space-y-4">
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-white rounded-2xl border border-slate-100 p-4">
+                <p className="text-xs font-bold text-slate-400">ทั้งหมดที่ค้าง</p>
+                <p className="text-2xl font-black text-slate-800 mt-1">{pendingEmps.length} <span className="text-xs font-bold text-slate-400">คน</span></p>
+              </div>
+              <div className="bg-white rounded-2xl border-2 border-rose-100 p-4">
+                <p className="text-xs font-bold text-rose-600">ยังไม่เริ่ม</p>
+                <p className="text-2xl font-black text-rose-700 mt-1">{ns}</p>
+              </div>
+              <div className="bg-white rounded-2xl border-2 border-slate-200 p-4">
+                <p className="text-xs font-bold text-slate-500">ฉบับร่าง</p>
+                <p className="text-2xl font-black text-slate-700 mt-1">{dr}</p>
+              </div>
+              <div className="bg-white rounded-2xl border-2 border-orange-100 p-4">
+                <p className="text-xs font-bold text-orange-600">ถูกส่งคืน</p>
+                <p className="text-2xl font-black text-orange-700 mt-1">{rj}</p>
+              </div>
+            </div>
+
+            {/* Filters bar */}
+            <div className="bg-white rounded-2xl border border-slate-100 p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                  <Filter size={12} /> ตัวกรอง · รอบ {MONTHS[month]} {year + 543}
+                </p>
+                <div className="flex items-center gap-2">
+                  {pActiveFilters > 0 && (
+                    <button onClick={() => {
+                      setPStatusFilter(new Set()); setPDeptFilter(""); setPPosFilter("")
+                      setPMgrFilter(""); setPSearch(""); setPCompanyFilter("")
+                    }} className="text-[11px] font-bold text-indigo-600 hover:underline">ล้าง ({pActiveFilters})</button>
+                  )}
+                  <button onClick={exportPending} disabled={pFiltered.length === 0}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold hover:bg-emerald-100 disabled:opacity-50">
+                    <Download size={11} /> Export ({pFiltered.length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Status pills (multi-select) */}
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  { k: "not_started", l: "ยังไม่เริ่ม", c: "rose",   n: ns },
+                  { k: "draft",       l: "ฉบับร่าง",   c: "slate",  n: dr },
+                  { k: "rejected",    l: "ถูกส่งคืน",  c: "orange", n: rj },
+                ] as const).map(s => {
+                  const on = pStatusFilter.has(s.k)
+                  const colorOn = s.c === "rose" ? "bg-rose-500 border-rose-500 text-white"
+                    : s.c === "slate" ? "bg-slate-700 border-slate-700 text-white"
+                    : "bg-orange-500 border-orange-500 text-white"
+                  return (
+                    <button key={s.k} onClick={() => toggleStatus(s.k)}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all ${on ? colorOn : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}`}>
+                      {s.l} <span className="opacity-70">({s.n})</span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Dropdowns + search */}
+              <div className="flex flex-wrap gap-2">
+                {companies.length > 1 && (
+                  <select value={pCompanyFilter} onChange={e => setPCompanyFilter(e.target.value)} className={inp}>
+                    <option value="">ทุกบริษัท</option>
+                    {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
+                  </select>
+                )}
+                <select value={pDeptFilter} onChange={e => setPDeptFilter(e.target.value)} className={inp}>
+                  <option value="">ทุกแผนก</option>
+                  {pDepts.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+                <select value={pPosFilter} onChange={e => setPPosFilter(e.target.value)} className={inp}>
+                  <option value="">ทุกตำแหน่ง</option>
+                  {pPositions.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+                <select value={pMgrFilter} onChange={e => setPMgrFilter(e.target.value)} className={inp}>
+                  <option value="">ทุกหัวหน้า</option>
+                  {pMgrs.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input value={pSearch} onChange={e => setPSearch(e.target.value)}
+                    placeholder="ค้นหาชื่อ / รหัส / ชื่อเล่น..."
+                    className={`${inp} pl-9 w-full`} />
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                แสดง <span className="font-bold text-slate-700">{pFiltered.length}</span> จาก <span className="font-bold">{pendingEmps.length}</span> คน
+              </p>
+            </div>
+
+            {/* List */}
+            {loading ? (
+              <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-slate-300" /></div>
+            ) : pFiltered.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center">
+                <CheckCircle2 size={36} className="text-emerald-300 mx-auto mb-3" />
+                <p className="text-sm font-bold text-slate-600">
+                  {pendingEmps.length === 0 ? `ไม่มีคนค้างประเมิน KPI ในรอบ ${MONTHS[month]} ${year + 543}` : "ไม่พบจากตัวกรอง"}
+                </p>
+                {pendingEmps.length === 0 && (
+                  <p className="text-xs text-slate-400 mt-1">หัวหน้าทุกคนได้ประเมินครบและส่งให้ HR แล้ว</p>
+                )}
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden divide-y divide-slate-50">
+                {pFiltered.map((p: any) => {
+                  const stCfg =
+                    p.pending_status === "not_started" ? { label: "ยังไม่เริ่ม",   cls: "bg-rose-50 text-rose-700 border-rose-200",   icon: <XCircle size={11} /> } :
+                    p.pending_status === "draft"       ? { label: "ฉบับร่าง",      cls: "bg-slate-50 text-slate-600 border-slate-200", icon: <FileText size={11} /> } :
+                    p.pending_status === "rejected"    ? { label: "ถูกส่งคืน",     cls: "bg-orange-50 text-orange-700 border-orange-200", icon: <AlertCircle size={11} /> } :
+                                                         { label: p.pending_status, cls: "bg-slate-50 text-slate-500 border-slate-200", icon: <Clock size={11} /> }
+                  return (
+                    <div key={p.id} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50/60 transition-colors">
+                      {p.avatar_url ? (
+                        <img src={p.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 font-black text-sm flex items-center justify-center shrink-0">
+                          {p.first_name_th?.[0] || "?"}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-slate-800 truncate">
+                          {p.first_name_th} {p.last_name_th}
+                          {p.nickname && <span className="text-slate-400 font-normal ml-1">({p.nickname})</span>}
+                          <span className="text-[10px] text-slate-400 font-normal ml-1.5">{p.employee_code}</span>
+                        </p>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {p.position?.name || "—"} · {p.department?.name || "—"}
+                          {p.direct_manager && (
+                            <span className="text-slate-400">
+                              {" · หัวหน้า: "}
+                              <span className="text-indigo-600 font-semibold">
+                                {p.direct_manager.first_name_th} {p.direct_manager.last_name_th}
+                                {p.direct_manager.nickname && ` (${p.direct_manager.nickname})`}
+                              </span>
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      {p.standard_amount > 0 && (
+                        <div className="text-right shrink-0 hidden md:block">
+                          <p className="text-[10px] text-slate-400">ฐาน KPI</p>
+                          <p className="text-xs font-bold text-slate-700">฿{p.standard_amount.toLocaleString()}</p>
+                        </div>
+                      )}
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border ${stCfg.cls}`}>
+                        {stCfg.icon} {stCfg.label}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* ═════════ TAB: ผลประเมิน — Table ═════════ */}
+      {mainTab === "evaluated" && (
+      <>
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-slate-300" /></div>
       ) : filtered.length === 0 ? (
@@ -821,6 +1103,8 @@ export default function AdminKpiPage() {
             )
           })}
         </div>
+      )}
+      </>
       )}
 
       {/* Reject Modal */}

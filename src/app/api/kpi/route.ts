@@ -111,7 +111,81 @@ export async function GET(req: NextRequest) {
       direct_manager: mgrMap.get(f.employee_id) ?? null,
     }))
 
-    return NextResponse.json({ forms: enriched })
+    // ── pending_employees: คนที่ "ควรประเมิน KPI" ในรอบเดือนนี้แต่ยังไม่มีฟอร์ม / มีแต่ draft ──
+    //   จะส่งกลับเฉพาะตอนเลือก month (เพราะวัดต่อเดือน)
+    let pending_employees: any[] = []
+    if (month) {
+      // 1) ดึงพนักงาน active ที่มี kpi_bonus_settings active (= มีฐาน KPI)
+      let evalQ = svc.from("kpi_bonus_settings")
+        .select("employee_id, standard_amount, employee:employees!kpi_bonus_settings_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, employment_status, company_id, department:departments(name), position:positions(name))")
+        .eq("is_active", true)
+        .gt("standard_amount", 0)
+      const { data: settings } = await evalQ
+
+      // กรอง: active employee + บริษัทตรง
+      const eligible = (settings ?? [])
+        .map((s: any) => ({ ...s.employee, _standardAmount: Number(s.standard_amount) }))
+        .filter((e: any) => e && e.id && e.employment_status === "active"
+          && (!filterCompany || e.company_id === filterCompany))
+
+      // 2) ดึงฟอร์มเดือนนี้ของทุกคน — รวมทั้ง draft + submitted + approved
+      const eligibleIds = eligible.map((e: any) => e.id)
+      let evaluatedMap = new Map<string, any>()
+      if (eligibleIds.length > 0) {
+        let formQ = svc.from("kpi_forms")
+          .select("id, employee_id, status, evaluator_id, total_score, grade, submitted_at, evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th, nickname)")
+          .in("employee_id", eligibleIds)
+          .eq("year", year)
+          .eq("month", month)
+        const { data: monthForms } = await formQ
+        for (const f of (monthForms ?? [])) {
+          evaluatedMap.set(f.employee_id, f)
+        }
+      }
+
+      // 3) เติม direct_manager
+      const mgrIds = Array.from(new Set(eligibleIds))
+      let mgr2Map = new Map<string, any>()
+      if (mgrIds.length > 0) {
+        const { data: histRows2 } = await svc.from("employee_manager_history")
+          .select("employee_id, manager_id, manager:employees!manager_id(first_name_th, last_name_th, nickname)")
+          .in("employee_id", mgrIds)
+          .is("effective_to", null)
+        for (const r of (histRows2 ?? [])) {
+          if (r.manager) mgr2Map.set(r.employee_id, r.manager)
+        }
+      }
+
+      // 4) สถานะ: not_started (ไม่มีฟอร์ม) / draft (มีแต่ยังไม่ submit) / submitted (รอ HR) / approved
+      pending_employees = eligible
+        .map((emp: any) => {
+          const form = evaluatedMap.get(emp.id)
+          let pending_status: "not_started" | "draft" | "submitted" | "approved" | "rejected"
+          if (!form) pending_status = "not_started"
+          else if (form.status === "draft") pending_status = "draft"
+          else if (form.status === "submitted") pending_status = "submitted"
+          else if (form.status === "rejected") pending_status = "rejected"
+          else pending_status = "approved"
+          return {
+            id: emp.id,
+            first_name_th: emp.first_name_th,
+            last_name_th: emp.last_name_th,
+            nickname: emp.nickname,
+            employee_code: emp.employee_code,
+            avatar_url: emp.avatar_url,
+            department: emp.department,
+            position: emp.position,
+            standard_amount: emp._standardAmount,
+            direct_manager: mgr2Map.get(emp.id) ?? null,
+            form_id: form?.id ?? null,
+            pending_status,
+          }
+        })
+        // เฉพาะที่ "ยังไม่เสร็จ" — not_started/draft/rejected
+        .filter((e: any) => ["not_started", "draft", "rejected"].includes(e.pending_status))
+    }
+
+    return NextResponse.json({ forms: enriched, pending_employees })
   }
 
   // Manager: ดึง "แม่แบบ" จากการประเมิน KPI ที่ผ่านมา (ของลูกน้องตัวเอง — ข้ามบริษัทได้)
