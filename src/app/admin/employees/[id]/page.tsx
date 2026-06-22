@@ -246,7 +246,21 @@ export default function EmployeeDetailPage() {
     }
 
     // ── บันทึกข้อมูลส่วนตัว (รวมอีเมลใหม่) ──
-    const { error } = await supabase.from("employees").update({ first_name_th:form.first_name_th, last_name_th:form.last_name_th, first_name_en:form.first_name_en, last_name_en:form.last_name_en, phone:form.phone, email:form.email, address:form.address, national_id:form.national_id, bank_account:form.bank_account, bank_name:form.bank_name, nickname:form.nickname }).eq("id",id as string)
+    const { error } = await supabase.from("employees").update({
+      title_th: form.title_th || null,
+      first_name_th: form.first_name_th, last_name_th: form.last_name_th,
+      first_name_en: form.first_name_en, last_name_en: form.last_name_en,
+      phone: form.phone, email: form.email, address: form.address,
+      national_id: form.national_id, bank_account: form.bank_account, bank_name: form.bank_name,
+      nickname: form.nickname,
+      birth_date: form.birth_date || null,
+      gender: form.gender || null,
+      nationality: form.nationality || null,
+      religion: form.religion || null,
+      emergency_contact_name: form.emergency_contact_name || null,
+      emergency_contact_phone: form.emergency_contact_phone || null,
+      emergency_contact_relation: form.emergency_contact_relation || null,
+    }).eq("id",id as string)
     if (error) toast.error("เกิดข้อผิดพลาดในการบันทึก")
     else if (!emailChanged) toast.success("บันทึกสำเร็จ")
 
@@ -604,10 +618,66 @@ export default function EmployeeDetailPage() {
         {/* ── Tab 1: ข้อมูลส่วนตัว ── */}
         {tab === 1 && <>
           <h3 className="font-bold text-slate-800 mb-4">ข้อมูลส่วนตัว</h3>
+
+          {/* คำนำหน้า + เพศ */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">คำนำหน้าชื่อ</label>
+              <select value={form.title_th || ""} onChange={e => set("title_th", e.target.value)} className={inp}>
+                <option value="">— เลือก —</option>
+                <option value="นาย">นาย</option>
+                <option value="นาง">นาง</option>
+                <option value="นางสาว">นางสาว</option>
+                <option value="ดร.">ดร.</option>
+                <option value="อื่นๆ">อื่นๆ</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">เพศ</label>
+              <select value={form.gender || ""} onChange={e => set("gender", e.target.value)} className={inp}>
+                <option value="">ไม่ระบุ</option>
+                <option value="male">ชาย</option>
+                <option value="female">หญิง</option>
+                <option value="other">อื่นๆ</option>
+              </select>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[["first_name_th","ชื่อ (ไทย)"],["last_name_th","นามสกุล (ไทย)"],["first_name_en","ชื่อ (EN)"],["last_name_en","นามสกุล (EN)"],["nickname","ชื่อเล่น"],["phone","เบอร์โทร"],["national_id","บัตรประชาชน"],["bank_account","เลขบัญชี"],["bank_name","ธนาคาร"]].map(([k,l]) => (
               <div key={k}><label className="block text-sm font-medium text-slate-700 mb-1.5">{l}</label><input value={form[k]||""} onChange={e => set(k,e.target.value)} className={inp}/></div>
             ))}
+            {/* วันเกิด + อายุที่คำนวณอัตโนมัติ */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                วันเกิด {form.birth_date && (() => {
+                  const b = new Date(form.birth_date)
+                  const now = new Date()
+                  let age = now.getFullYear() - b.getFullYear()
+                  const m = now.getMonth() - b.getMonth()
+                  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--
+                  return <span className="text-indigo-600 font-bold">· อายุ {age} ปี</span>
+                })()}
+              </label>
+              <input type="date" value={form.birth_date || ""} onChange={e => set("birth_date", e.target.value)} className={inp}/>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">สัญชาติ</label>
+              <input value={form.nationality || ""} onChange={e => set("nationality", e.target.value)} placeholder="ไทย" className={inp}/>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">ศาสนา</label>
+              <select value={form.religion || ""} onChange={e => set("religion", e.target.value)} className={inp}>
+                <option value="">ไม่ระบุ</option>
+                <option value="พุทธ">พุทธ</option>
+                <option value="อิสลาม">อิสลาม</option>
+                <option value="คริสต์">คริสต์</option>
+                <option value="ฮินดู">ฮินดู</option>
+                <option value="ซิกข์">ซิกข์</option>
+                <option value="อื่นๆ">อื่นๆ</option>
+              </select>
+            </div>
+
             {/* อีเมล — แสดงแยกเพื่อบอกว่ากระทบระบบล็อกอิน */}
             <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-xl p-4">
               <label className="block text-sm font-bold text-blue-800 mb-1">อีเมล (ใช้เข้าสู่ระบบ)</label>
@@ -618,6 +688,43 @@ export default function EmployeeDetailPage() {
               )}
             </div>
             <div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1.5">ที่อยู่</label><textarea value={form.address||""} onChange={e => set("address",e.target.value)} className={inp + " h-20 resize-none"}/></div>
+
+            {/* ── ผู้ติดต่อกรณีฉุกเฉิน ── */}
+            <div className="md:col-span-2 bg-rose-50/50 border border-rose-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-rose-600">🚨</span>
+                <h4 className="font-bold text-rose-800 text-sm">ผู้ติดต่อกรณีฉุกเฉิน</h4>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">ชื่อ-นามสกุล</label>
+                  <input value={form.emergency_contact_name || ""} onChange={e => set("emergency_contact_name", e.target.value)} placeholder="ชื่อผู้ติดต่อ" className={inp}/>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">ความสัมพันธ์</label>
+                  <select value={form.emergency_contact_relation || ""} onChange={e => set("emergency_contact_relation", e.target.value)} className={inp}>
+                    <option value="">— เลือก —</option>
+                    <option value="พ่อ">พ่อ</option>
+                    <option value="แม่">แม่</option>
+                    <option value="พี่ชาย">พี่ชาย</option>
+                    <option value="พี่สาว">พี่สาว</option>
+                    <option value="น้องชาย">น้องชาย</option>
+                    <option value="น้องสาว">น้องสาว</option>
+                    <option value="สามี">สามี</option>
+                    <option value="ภรรยา">ภรรยา</option>
+                    <option value="แฟน">แฟน</option>
+                    <option value="ลูก">ลูก</option>
+                    <option value="ญาติ">ญาติ</option>
+                    <option value="เพื่อน">เพื่อน</option>
+                    <option value="อื่นๆ">อื่นๆ</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">เบอร์โทร</label>
+                  <input value={form.emergency_contact_phone || ""} onChange={e => set("emergency_contact_phone", e.target.value)} placeholder="08x-xxx-xxxx" className={inp}/>
+                </div>
+              </div>
+            </div>
           </div>
           <button onClick={saveEmployee} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>
         </>}

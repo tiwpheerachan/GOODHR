@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/lib/hooks/useAuth"
@@ -56,6 +56,16 @@ function generatePassword(): string {
   return pw.split("").sort(() => Math.random() - 0.5).join("")
 }
 
+function calcAge(birthDate: string): number {
+  if (!birthDate) return 0
+  const b = new Date(birthDate)
+  const now = new Date()
+  let age = now.getFullYear() - b.getFullYear()
+  const m = now.getMonth() - b.getMonth()
+  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--
+  return age
+}
+
 export default function NewEmployeePage() {
   const router = useRouter()
   const { user } = useAuth()
@@ -83,8 +93,11 @@ export default function NewEmployeePage() {
 
   const [f, setF] = useState<any>({
     // personal
+    title_th: "",
     first_name_th: "", last_name_th: "", first_name_en: "", last_name_en: "",
     nickname: "", email: "", phone: "", gender: "", birth_date: "",
+    nationality: "ไทย", religion: "",
+    emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: "",
     national_id: "", address: "", bank_account: "", bank_name: "", social_security_no: "",
     // employment
     employee_code: "", hire_date: "", probation_end_date: "",
@@ -145,6 +158,9 @@ export default function NewEmployeePage() {
 
   const defaultCompanyId = user?.employee?.company_id ?? (user as any)?.company_id
 
+  // flag จำว่า auto-tick ICS Mall ครั้งแรกของบริษัทแล้วหรือยัง (กัน re-add หลัง user uncheck)
+  const autoTickedRef = useRef<{ companyId: string; ics: boolean }>({ companyId: "", ics: false })
+
   // โหลดรายชื่อบริษัท + set default
   useEffect(() => {
     supabase.from("companies").select("id,name_th,code").eq("is_active", true).order("name_th")
@@ -179,6 +195,20 @@ export default function NewEmployeePage() {
       }
     })
   }, [selectedCompanyId]) // eslint-disable-line
+
+  // ── Auto-tick ICS Mall ในสิทธิ์เช็คอิน (ครั้งแรกของบริษัทเท่านั้น — uncheck ได้) ──
+  useEffect(() => {
+    if (!branches.length) return
+    if (autoTickedRef.current.companyId === selectedCompanyId && autoTickedRef.current.ics) return
+    const ics = branches.find((b: any) => /ics\s*mall|^ics$/i.test(b.name))
+    if (!ics) return
+    setF((p: any) => {
+      const ids = p.allowed_branch_ids as string[]
+      if (ids.includes(ics.id)) return p
+      return { ...p, allowed_branch_ids: [...ids, ics.id] }
+    })
+    autoTickedRef.current = { companyId: selectedCompanyId, ics: true }
+  }, [branches, selectedCompanyId])
 
   // Close supervisor dropdown on outside click
   useEffect(() => {
@@ -479,17 +509,50 @@ export default function NewEmployeePage() {
           <div className="space-y-5">
             <h3 className="font-black text-slate-800 text-base">ข้อมูลส่วนตัว</h3>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="ชื่อ (ไทย)" required><Input value={f.first_name_th} onChange={(e:any) => set("first_name_th", e.target.value)} placeholder="ชื่อจริง" /></Field>
-              <Field label="นามสกุล (ไทย)" required><Input value={f.last_name_th} onChange={(e:any) => set("last_name_th", e.target.value)} placeholder="นามสกุล" /></Field>
-              <Field label="ชื่อ (EN)" hint="ใช้สร้างอีเมลอัตโนมัติ"><Input value={f.first_name_en} onChange={(e:any) => set("first_name_en", e.target.value)} placeholder="First name" /></Field>
-              <Field label="นามสกุล (EN)" hint="ใช้สร้างอีเมลอัตโนมัติ"><Input value={f.last_name_en} onChange={(e:any) => set("last_name_en", e.target.value)} placeholder="Last name" /></Field>
-              <Field label="ชื่อเล่น"><Input value={f.nickname} onChange={(e:any) => set("nickname", e.target.value)} placeholder="ชื่อเล่น" /></Field>
+              <Field label="คำนำหน้าชื่อ">
+                <Select value={f.title_th} onChange={(e:any) => {
+                  const v = e.target.value
+                  set("title_th", v)
+                  // auto-set เพศตามคำนำหน้า
+                  if (v === "นาย") set("gender", "male")
+                  else if (v === "นาง" || v === "นางสาว") set("gender", "female")
+                }}>
+                  <option value="">— เลือก —</option>
+                  <option value="นาย">นาย</option>
+                  <option value="นาง">นาง</option>
+                  <option value="นางสาว">นางสาว</option>
+                  <option value="ดร.">ดร.</option>
+                  <option value="อื่นๆ">อื่นๆ</option>
+                </Select>
+              </Field>
               <Field label="เพศ">
                 <Select value={f.gender} onChange={(e:any) => set("gender", e.target.value)}>
                   <option value="">ไม่ระบุ</option>
                   <option value="male">ชาย</option>
                   <option value="female">หญิง</option>
                   <option value="other">อื่นๆ</option>
+                </Select>
+              </Field>
+              <Field label="ชื่อ (ไทย)" required><Input value={f.first_name_th} onChange={(e:any) => set("first_name_th", e.target.value)} placeholder="ชื่อจริง" /></Field>
+              <Field label="นามสกุล (ไทย)" required><Input value={f.last_name_th} onChange={(e:any) => set("last_name_th", e.target.value)} placeholder="นามสกุล" /></Field>
+              <Field label="ชื่อ (EN)" hint="ใช้สร้างอีเมลอัตโนมัติ"><Input value={f.first_name_en} onChange={(e:any) => set("first_name_en", e.target.value)} placeholder="First name" /></Field>
+              <Field label="นามสกุล (EN)" hint="ใช้สร้างอีเมลอัตโนมัติ"><Input value={f.last_name_en} onChange={(e:any) => set("last_name_en", e.target.value)} placeholder="Last name" /></Field>
+              <Field label="ชื่อเล่น"><Input value={f.nickname} onChange={(e:any) => set("nickname", e.target.value)} placeholder="ชื่อเล่น" /></Field>
+              <Field label="วันเกิด" hint={f.birth_date ? `อายุ ${calcAge(f.birth_date)} ปี` : undefined}>
+                <Input type="date" value={f.birth_date} onChange={(e:any) => set("birth_date", e.target.value)} />
+              </Field>
+              <Field label="สัญชาติ">
+                <Input value={f.nationality} onChange={(e:any) => set("nationality", e.target.value)} placeholder="ไทย" />
+              </Field>
+              <Field label="ศาสนา">
+                <Select value={f.religion} onChange={(e:any) => set("religion", e.target.value)}>
+                  <option value="">ไม่ระบุ</option>
+                  <option value="พุทธ">พุทธ</option>
+                  <option value="อิสลาม">อิสลาม</option>
+                  <option value="คริสต์">คริสต์</option>
+                  <option value="ฮินดู">ฮินดู</option>
+                  <option value="ซิกข์">ซิกข์</option>
+                  <option value="อื่นๆ">อื่นๆ</option>
                 </Select>
               </Field>
             </div>
@@ -518,11 +581,45 @@ export default function NewEmployeePage() {
 
             <div className="grid grid-cols-2 gap-4">
               <Field label="เบอร์โทร"><Input value={f.phone} onChange={(e:any) => set("phone", e.target.value)} placeholder="08x-xxx-xxxx" /></Field>
-              <Field label="วันเกิด"><Input type="date" value={f.birth_date} onChange={(e:any) => set("birth_date", e.target.value)} /></Field>
               <Field label="เลขบัญชีธนาคาร"><Input value={f.bank_account} onChange={(e:any) => set("bank_account", e.target.value)} placeholder="xxx-x-xxxxx-x" /></Field>
               <Field label="ธนาคาร"><Input value={f.bank_name} onChange={(e:any) => set("bank_name", e.target.value)} placeholder="ชื่อธนาคาร" /></Field>
               <Field label="เลขประกันสังคม"><Input value={f.social_security_no} onChange={(e:any) => set("social_security_no", e.target.value)} /></Field>
             </div>
+
+            {/* ── ผู้ติดต่อกรณีฉุกเฉิน ── */}
+            <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-rose-600 text-sm">🚨</span>
+                <h4 className="text-sm font-bold text-rose-800">ผู้ติดต่อกรณีฉุกเฉิน</h4>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="ชื่อ-นามสกุล">
+                  <Input value={f.emergency_contact_name} onChange={(e:any) => set("emergency_contact_name", e.target.value)} placeholder="ชื่อผู้ติดต่อ" />
+                </Field>
+                <Field label="ความสัมพันธ์">
+                  <Select value={f.emergency_contact_relation} onChange={(e:any) => set("emergency_contact_relation", e.target.value)}>
+                    <option value="">— เลือก —</option>
+                    <option value="พ่อ">พ่อ</option>
+                    <option value="แม่">แม่</option>
+                    <option value="พี่ชาย">พี่ชาย</option>
+                    <option value="พี่สาว">พี่สาว</option>
+                    <option value="น้องชาย">น้องชาย</option>
+                    <option value="น้องสาว">น้องสาว</option>
+                    <option value="สามี">สามี</option>
+                    <option value="ภรรยา">ภรรยา</option>
+                    <option value="แฟน">แฟน</option>
+                    <option value="ลูก">ลูก</option>
+                    <option value="ญาติ">ญาติ</option>
+                    <option value="เพื่อน">เพื่อน</option>
+                    <option value="อื่นๆ">อื่นๆ</option>
+                  </Select>
+                </Field>
+                <Field label="เบอร์โทร">
+                  <Input value={f.emergency_contact_phone} onChange={(e:any) => set("emergency_contact_phone", e.target.value)} placeholder="08x-xxx-xxxx" />
+                </Field>
+              </div>
+            </div>
+
             <Field label="ที่อยู่">
               <textarea value={f.address} onChange={(e:any) => set("address", e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all resize-none h-20" placeholder="ที่อยู่ปัจจุบัน" />
@@ -609,8 +706,18 @@ export default function NewEmployeePage() {
                   )}
                 </div>
               </Field>
-              <Field label="สาขา">
-                <Select value={f.branch_id} onChange={(e:any) => set("branch_id", e.target.value)}>
+              <Field label="สาขา" hint="เลือกแล้วระบบจะติ๊กเพิ่มในสิทธิ์เช็คอินอัตโนมัติ (uncheck ได้)">
+                <Select value={f.branch_id} onChange={(e:any) => {
+                  const newId = e.target.value
+                  // auto-add ลง allowed_branch_ids (ถ้ายังไม่มี)
+                  setF((p: any) => ({
+                    ...p,
+                    branch_id: newId,
+                    allowed_branch_ids: newId && !p.allowed_branch_ids.includes(newId)
+                      ? [...p.allowed_branch_ids, newId]
+                      : p.allowed_branch_ids,
+                  }))
+                }}>
                   <option value="">ไม่ระบุ</option>
                   {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </Select>

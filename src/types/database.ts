@@ -11,10 +11,13 @@ export interface Position { id: string; company_id: string; name: string; code: 
 
 export interface Employee {
   id: string; company_id: string; branch_id?: string; department_id?: string; position_id?: string
-  employee_code: string; first_name_th: string; last_name_th: string
+  employee_code: string; title_th?: string
+  first_name_th: string; last_name_th: string
   first_name_en?: string; last_name_en?: string; nickname?: string; nickname_en?: string
   email?: string; phone?: string; avatar_url?: string; address?: string
   birth_date?: string; national_id?: string; gender?: string
+  nationality?: string; religion?: string
+  emergency_contact_name?: string; emergency_contact_phone?: string; emergency_contact_relation?: string
   employment_status: EmploymentStatus; employment_type: string
   hire_date: string; probation_end_date?: string; resign_date?: string
   bank_account?: string; bank_name?: string; tax_id?: string; social_security_no?: string
