@@ -5,6 +5,7 @@ import { logApproval, logAudit } from "@/lib/auditLog"
 import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
 import { classifyOtFromRecords } from "@/lib/utils/ot-classification"
 import { isPayrollPeriodLocked } from "@/lib/utils/periodLock"
+import { checkApprovalQuota } from "@/lib/utils/leave-quota"
 
 // ── recompute attendance_records.ot_minutes จาก overtime_requests ที่ status=approved ──
 // เรียกใช้หลังจาก OT ถูก approve / reject / cancel เพื่อให้ค่าตรงกับ source of truth
@@ -757,6 +758,19 @@ export async function POST(req: NextRequest) {
     if (request_type === "adjustment") {
       const result = await approveAdjustment(supa, request_id, userData?.employee_id || null, note)
       return NextResponse.json(result, { status: result.success ? 200 : 400 })
+    }
+
+    // ── Server-side enforcement: re-check quota ก่อน approve "ลาพักร้อน" ──
+    //   ป้องกัน race condition: 2 pending requests ผ่าน frontend → HR approve ทั้งคู่ → เกินโควต้า
+    if (request_type === "leave") {
+      const quotaCheck = await checkApprovalQuota(supa, request_id)
+      if (!quotaCheck.allowed) {
+        return NextResponse.json({
+          error: `🚫 อนุมัติไม่ได้ — เกินโควต้าทีม\n${quotaCheck.reason}\n\nกรุณาให้พนักงานปรับวันที่ลา หรือ HR แก้ไขโควต้าก่อน`,
+          quota_blocked: true,
+          worst_date: quotaCheck.worst_date,
+        }, { status: 409 })
+      }
     }
 
     const { error } = await supa.from(table).update({

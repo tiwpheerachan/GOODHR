@@ -12,6 +12,13 @@ function calcMaxLeave(teamSize: number): number {
   return teamSize - Math.ceil(teamSize * QUOTA_THRESHOLD)
 }
 
+// ── ตรวจว่าเป็นลาพักร้อนหรือไม่ (เฉพาะประเภทนี้ที่บังคับ quota 70%) ──
+function isVacationCode(code?: string | null): boolean {
+  if (!code) return false
+  const c = code.toLowerCase().trim()
+  return c === "vacation" || c === "annual"
+}
+
 // ── ตรวจว่าเป็นทีมบัญชีหรือไม่ (case-insensitive match) ──
 // ทีมบัญชี = pool ทุกบริษัทรวมเป็น 1 ทีม (เพราะคนน้อย)
 function isAccountingDept(deptName?: string | null): boolean {
@@ -33,7 +40,30 @@ export async function POST(req: NextRequest) {
   if (!userData) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
   const body = await req.json()
-  const { date, start_date, end_date, manager_id, company_id, department_id } = body
+  const { date, start_date, end_date, manager_id, company_id, department_id, leave_type_id, is_half_day } = body
+  const myUnit = is_half_day ? 0.5 : 1.0   // ครึ่งวัน = 0.5 unit (ของผู้ขอ)
+
+  // ── ตรวจประเภทลา: กฎ 70% บังคับเฉพาะลาพักร้อน (vacation/annual) ──
+  //   ลาประเภทอื่น (ลาป่วย/ลากิจ/...) → ผ่านทุกเคส ไม่ติด quota ทีม
+  //   Default = true (ปลอดภัยกว่า): กัน frontend เก่าไม่ส่ง leave_type_id หรือ id ที่ไม่พบในระบบ → ยังตรวจอยู่
+  let isVacationRequest = true
+  if (leave_type_id) {
+    const { data: lt } = await supa.from("leave_types")
+      .select("code").eq("id", leave_type_id).maybeSingle()
+    // เฉพาะกรณีที่หาเจอแน่นอน → ใช้ค่าตาม code; ถ้าหาไม่เจอ → คง default = true (ตรวจไว้ก่อน)
+    if (lt) isVacationRequest = isVacationCode(lt.code)
+  }
+  if (!isVacationRequest) {
+    return NextResponse.json({
+      team_size: 0, working: 0, on_leave: 0, pending_leave: 0,
+      quota_pct: 100, quota_ok: true, is_blocked: false,
+      is_accounting_pool: false, threshold_pct: QUOTA_THRESHOLD * 100,
+      is_vacation_request: false,
+      team_mode: "non_vacation",
+      no_team_reason: "ลาประเภทนี้ไม่ติดโควต้าทีม (เฉพาะลาพักร้อน 70%)",
+      members: [], per_day: [], worst_day: null,
+    })
+  }
 
   // รองรับ 3 รูปแบบ input:
   // 1. date (single day) — backward compat
@@ -146,21 +176,28 @@ export async function POST(req: NextRequest) {
   // ─────────────────────────────────────────────────
   // 2. ดึง approved + pending leaves ในช่วง start_date–end_date
   // ─────────────────────────────────────────────────
-  const { data: approvedLeaves } = await supa.from("leave_requests")
-    .select("employee_id, start_date, end_date, leave_type:leave_types(name, color_hex)")
+  // ── นับเฉพาะลาพักร้อน (vacation/annual) ใน counter ทีม ──
+  //   ลาป่วย/ลากิจ/อื่นๆ ไม่นับ — เพราะกฎ 70% บังคับเฉพาะลาพักร้อน
+  //   เพิ่ม is_half_day → ลาครึ่งวัน นับเป็น 0.5 unit (ไม่ใช่ 1 คนเต็ม)
+  const LEAVE_SELECT = "employee_id, start_date, end_date, is_half_day, leave_type:leave_types(name, code, color_hex)"
+  const { data: approvedLeavesRaw } = await supa.from("leave_requests")
+    .select(LEAVE_SELECT)
     .in("employee_id", teamEmployeeIds)
     .eq("status", "approved")
     .lte("start_date", endD)
     .gte("end_date", startD)
     .is("deleted_at", null)
 
-  const { data: pendingLeaves } = await supa.from("leave_requests")
-    .select("employee_id, start_date, end_date, leave_type:leave_types(name, color_hex)")
+  const { data: pendingLeavesRaw } = await supa.from("leave_requests")
+    .select(LEAVE_SELECT)
     .in("employee_id", teamEmployeeIds)
     .eq("status", "pending")
     .lte("start_date", endD)
     .gte("end_date", startD)
     .is("deleted_at", null)
+
+  const approvedLeaves = (approvedLeavesRaw ?? []).filter((l: any) => isVacationCode((l.leave_type as any)?.code))
+  const pendingLeaves  = (pendingLeavesRaw  ?? []).filter((l: any) => isVacationCode((l.leave_type as any)?.code))
 
   // ── Build dates list (loop from startD → endD inclusive) ──
   const dateList: string[] = []
@@ -191,36 +228,49 @@ export async function POST(req: NextRequest) {
     blocks_my_request: boolean  // ถ้า user นี้ลาด้วย จะตก threshold ไหม
   }
   const perDay: DayStat[] = dateList.map(d => {
-    // ใครลาในวัน d?
-    const approvedOnDay = (approvedLeaves ?? [])
-      .filter((l: any) => l.start_date <= d && l.end_date >= d)
-      .map((l: any) => l.employee_id)
-    const pendingOnDay = (pendingLeaves ?? [])
-      .filter((l: any) => l.start_date <= d && l.end_date >= d)
-      .map((l: any) => l.employee_id)
+    // ── ใครลาในวัน d? แต่ละคนนับเป็น 0.5 (half-day) หรือ 1.0 (full-day) ──
+    //   ใช้ map: employee_id → max(unit ของวันนี้) — ป้องกัน case นานๆ ลาทับซ้อน
+    const approvedUnitsByEmp = new Map<string, number>()
+    for (const l of (approvedLeaves as any[])) {
+      if (l.start_date <= d && l.end_date >= d) {
+        const u = l.is_half_day ? 0.5 : 1.0
+        approvedUnitsByEmp.set(l.employee_id, Math.max(approvedUnitsByEmp.get(l.employee_id) ?? 0, u))
+      }
+    }
+    const pendingUnitsByEmp = new Map<string, number>()
+    for (const l of (pendingLeaves as any[])) {
+      if (l.start_date <= d && l.end_date >= d) {
+        const u = l.is_half_day ? 0.5 : 1.0
+        pendingUnitsByEmp.set(l.employee_id, Math.max(pendingUnitsByEmp.get(l.employee_id) ?? 0, u))
+      }
+    }
+    // approved ทับ pending — ถ้าซ้ำใช้ approved
+    const combinedUnits = new Map<string, number>(pendingUnitsByEmp)
+    approvedUnitsByEmp.forEach((u, id) => combinedUnits.set(id, u))
 
-    const onLeaveSet = new Set(approvedOnDay)
-    const pendingSet = new Set(pendingOnDay)
-    const onLeaveNow = onLeaveSet.size
-    const pendingNow = pendingSet.size
-    const workingNow = teamSize - onLeaveNow
+    const onLeaveNow = Array.from(approvedUnitsByEmp.values()).reduce((s, u) => s + u, 0)
+    const pendingNow = Array.from(pendingUnitsByEmp.values()).reduce((s, u) => s + u, 0)
+    const totalUnitsOnLeave = Array.from(combinedUnits.values()).reduce((s, u) => s + u, 0)
+    const workingNow = teamSize - totalUnitsOnLeave
     const workingPct = teamSize > 0 ? (workingNow / teamSize) * 100 : 100
 
-    // ถ้า user นี้ลาด้วย (และยังไม่อยู่ในรายการ) → working ลดลง 1
-    const myAlreadyOnLeave = onLeaveSet.has(myEmpId) || pendingSet.has(myEmpId)
-    const afterWorking = myAlreadyOnLeave ? workingNow : workingNow - 1
+    // ── ถ้า user นี้ลาด้วย (myUnit) → working ลดลงตาม unit ──
+    //   ถ้าผู้ขอเคยมี request อยู่แล้ว → ใช้ค่าของเดิม + ส่วนที่เพิ่ม
+    const myExistingUnit = combinedUnits.get(myEmpId) ?? 0
+    const myNewUnit = Math.max(myExistingUnit, myUnit)   // upgrade ครึ่งวัน → เต็มวัน ถ้าจำเป็น
+    const myAdditionalUnit = myNewUnit - myExistingUnit
+    const afterWorking = workingNow - myAdditionalUnit
     const afterPct = teamSize > 0 ? (afterWorking / teamSize) * 100 : 100
-    // ── Block ถ้าจำนวนคนลา (รวม user นี้) เกิน maxLeaveAllowed ──
-    const totalOnLeaveAfter = myAlreadyOnLeave ? onLeaveNow : onLeaveNow + 1
-    const blocks = totalOnLeaveAfter > maxLeaveAllowed
+    const totalUnitsAfter = totalUnitsOnLeave + myAdditionalUnit
+    const blocks = totalUnitsAfter > maxLeaveAllowed
 
     return {
       date: d,
-      on_leave_now: onLeaveNow,
-      pending_now: pendingNow,
-      working_now: workingNow,
+      on_leave_now: Math.round(onLeaveNow * 10) / 10,
+      pending_now: Math.round(pendingNow * 10) / 10,
+      working_now: Math.round(workingNow * 10) / 10,
       working_pct: Math.round(workingPct * 10) / 10,
-      after_my_request_working: afterWorking,
+      after_my_request_working: Math.round(afterWorking * 10) / 10,
       after_my_request_pct: Math.round(afterPct * 10) / 10,
       blocks_my_request: blocks,
     }
@@ -288,6 +338,7 @@ export async function POST(req: NextRequest) {
     is_accounting_pool: isAccountingPool,
     team_mode: teamMode,
     threshold_pct: QUOTA_THRESHOLD * 100,         // 70
+    is_vacation_request: true,                    // ลาพักร้อน — ตรวจ quota
     is_small_team: isSmallTeam,                   // ทีม < 3 → floor allowance
     max_leave_allowed: maxLeaveAllowed,           // จำนวนคนลาได้ (รองรับทีมเล็ก)
     min_working: threshold,                        // จำนวนคนทำงานขั้นต่ำ

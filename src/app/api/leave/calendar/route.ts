@@ -71,12 +71,19 @@ export async function GET(req: NextRequest) {
 
   // Get all leave requests that overlap with this month
   const { data: leaveRequests } = await supa.from("leave_requests")
-    .select("id, employee_id, start_date, end_date, total_days, status, leave_type:leave_types(id, code, name, color_hex)")
+    .select("id, employee_id, start_date, end_date, total_days, status, is_half_day, leave_type:leave_types(id, code, name, color_hex)")
     .in("employee_id", teamEmployeeIds)
     .in("status", ["approved", "pending"])
     .lte("start_date", lastDay)
     .gte("end_date", firstDay)
     .is("deleted_at", null)
+
+  // ── ตรวจว่าเป็นลาพักร้อนหรือไม่ — กฎ 70% บังคับเฉพาะลาพักร้อน ──
+  const isVacationCode = (code?: string | null) => {
+    if (!code) return false
+    const c = code.toLowerCase().trim()
+    return c === "vacation" || c === "annual"
+  }
 
   // Get employee details
   const { data: employees } = await supa.from("employees")
@@ -134,19 +141,26 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const onLeaveIds = new Set(onLeave.map(l => l.employee_id))
-    const pendingIds = new Set(pending.map(l => l.employee_id))
-    const workingCount = teamEmployeeIds.filter(id => !onLeaveIds.has(id) && !pendingIds.has(id)).length
+    // ── คำนวณ quota_pct: เฉพาะคนลา "พักร้อน" เท่านั้นที่นับ — half-day = 0.5 unit ──
+    let vacationUnitsOnLeave = 0
+    for (const lr of (leaveRequests ?? [])) {
+      if (lr.start_date <= dateStr && lr.end_date >= dateStr && lr.status === "approved" &&
+          isVacationCode((lr.leave_type as any)?.code)) {
+        vacationUnitsOnLeave += (lr as any).is_half_day ? 0.5 : 1.0
+      }
+    }
+    const workingCount = teamEmployeeIds.length - vacationUnitsOnLeave
     const quotaPct = teamEmployeeIds.length > 0 ? Math.round((workingCount / teamEmployeeIds.length) * 100) : 100
 
     days[dateStr] = {
       team_size: teamEmployeeIds.length,
-      working: workingCount,
+      working: Math.round(workingCount * 10) / 10,
       on_leave: onLeave,
       pending: pending,
       quota_pct: quotaPct,
-      quota_ok: quotaPct >= 70,  // ปรับ 60 → 70 ให้ตรงกับกฎใหม่
+      quota_ok: quotaPct >= 70,                    // เฉพาะลาพักร้อนเท่านั้นที่นับ
       threshold_pct: 70,
+      vacation_units_on_leave: Math.round(vacationUnitsOnLeave * 10) / 10,
     }
   }
 

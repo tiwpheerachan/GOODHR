@@ -157,6 +157,8 @@ function LeaveNewInner() {
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
 
   // ── Fetch team quota when leave dates change (range) ──
+  //   ส่ง leave_type_id ด้วย — API จะตรวจ quota เฉพาะ "ลาพักร้อน" (vacation/annual) เท่านั้น
+  //   ลาประเภทอื่นไม่ติด quota
   useEffect(() => {
     if (formType !== "leave" || !form.start_date) { setQuota(null); return }
     const fetchQuota = async () => {
@@ -168,6 +170,8 @@ function LeaveNewInner() {
           body: JSON.stringify({
             start_date: form.start_date,
             end_date: form.end_date || form.start_date,
+            leave_type_id: form.leave_type_id || null,
+            is_half_day: !!form.is_half_day,
           }),
         })
         const json = await res.json()
@@ -177,7 +181,7 @@ function LeaveNewInner() {
       finally { setQuotaLoading(false) }
     }
     fetchQuota()
-  }, [formType, form.start_date, form.end_date]) // eslint-disable-line
+  }, [formType, form.start_date, form.end_date, form.leave_type_id, form.is_half_day]) // eslint-disable-line
 
   // ── Resignation state ──
   const [resignStep, setResignStep] = useState(1)
@@ -215,8 +219,8 @@ function LeaveNewInner() {
       setSubmitErr("ไม่พบข้อมูลพนักงาน กรุณาล็อกอินใหม่")
       return
     }
-    // ── Block leave submission ถ้าทีมจะเกินโควต้า 70% ──
-    if (formType === "leave" && quota?.is_blocked) {
+    // ── Block leave submission ถ้าทีมจะเกินโควต้า 70% (เฉพาะลาพักร้อน) ──
+    if (formType === "leave" && quota?.is_blocked && (quota as any)?.is_vacation_request !== false) {
       const worstDate = quota.worst_day?.date
       const worstDateStr = worstDate ? format(new Date(worstDate), "d MMM yyyy", { locale: th }) : ""
       setSubmitErr(
@@ -825,8 +829,8 @@ function LeaveNewInner() {
                       placeholder="ระบุเหตุผล..." className={`${inputCls} h-28 resize-none`} required />
                   </div>
 
-                  {/* Team Quota Info — แสดงเฉพาะฟอร์มใบลา */}
-                  {formType === "leave" && quota && (
+                  {/* Team Quota Info — แสดงเฉพาะฟอร์มใบลา + เฉพาะลาพักร้อน (vacation/annual) */}
+                  {formType === "leave" && quota && (quota as any).is_vacation_request !== false && (
                     <div className={`rounded-2xl px-4 py-3 border-2 ${
                       quota.is_blocked
                         ? "bg-rose-50 border-rose-300"
