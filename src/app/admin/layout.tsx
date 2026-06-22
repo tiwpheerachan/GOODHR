@@ -38,7 +38,7 @@ const SIDEBAR = [
   { href: "/admin/training",            icon: GraduationCap,   label: "ระบบเรียนรู้",   badge: null as string|null },
   { href: "/admin/branch-eval",         icon: Store,           label: "ประเมินสาขา",    badge: null as string|null },
   { href: "/admin/sales",               icon: ScanLine,        label: "ขายสินค้า PC",    badge: null as string|null },
-  { href: "/admin/recruitment",         icon: UserPlus,        label: "รับสมัครงาน",    badge: null as string|null },
+  { href: "https://careers.shd-technology.co.th/admin", icon: UserPlus, label: "รับสมัครงาน", badge: null as string|null, external: true as boolean | undefined },
   { href: "/admin/payroll",              icon: CreditCard,      label: "เงินเดือน",      badge: null as string|null },
   { href: "/admin/payroll-rules",        icon: BookOpen,        label: "สูตรคำนวณ",     badge: null as string|null },
   { href: "/admin/audit-logs",            icon: ScrollText,      label: "บันทึกกิจกรรม",  badge: null as string|null },
@@ -140,20 +140,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               ← กลับ{isManagerRole ? " Manager" : " หน้าหลัก"}
             </Link>
           )}
-          {visibleSidebar.map(({ href, icon: Icon, label }) => {
-            const active = href === "/admin/attendance"
+          {visibleSidebar.map((item) => {
+            const { href, icon: Icon, label } = item
+            const isExternal = (item as any).external === true
+            const active = isExternal ? false
+              : href === "/admin/attendance"
               ? pathname === "/admin/attendance" || pathname === "/admin/attendance/"
               : href === "/admin/shifts"
               ? pathname.startsWith("/admin/shifts")
               : href === "/admin/payroll"
               ? pathname.startsWith("/admin/payroll")
               : pathname.startsWith(href)
-            return (
-              <Link key={href} href={href} onClick={() => setOpen(false)}
-                className={
-                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors " +
-                  (active ? "bg-indigo-50 font-bold text-indigo-700" : "text-slate-600 hover:bg-slate-50")
-                }>
+            const cls = "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors " +
+              (active ? "bg-indigo-50 font-bold text-indigo-700" : "text-slate-600 hover:bg-slate-50")
+            const inner = (
+              <>
                 <Icon size={15} className={active ? "text-indigo-600" : "text-slate-400"}/>
                 {label}
                 {badgeCounts[href] > 0 && !active && (
@@ -161,7 +162,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     {badgeCounts[href]}
                   </span>
                 )}
-                {active && <ChevronRight size={13} className="ml-auto text-indigo-400"/>}
+                {isExternal && <ChevronRight size={13} className="ml-auto -rotate-45 text-slate-400" />}
+                {active && !isExternal && <ChevronRight size={13} className="ml-auto text-indigo-400"/>}
+              </>
+            )
+            // External link → เปิดในแท็บใหม่
+            if (isExternal) {
+              return (
+                <a key={href} href={href} target="_blank" rel="noopener noreferrer"
+                  onClick={() => setOpen(false)} className={cls}>
+                  {inner}
+                </a>
+              )
+            }
+            return (
+              <Link key={href} href={href} onClick={() => setOpen(false)} className={cls}>
+                {inner}
               </Link>
             )
           })}
