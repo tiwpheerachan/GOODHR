@@ -425,26 +425,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ── Salary shortcut ──────────────────────────────── */}
-        <Link href="/app/salary"
-          className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl px-4 py-4 flex items-center gap-3 shadow-lg shadow-emerald-100 active:scale-[0.98] transition-all">
-          <div className="w-11 h-11 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
-            <Banknote size={20} className="text-white" />
-          </div>
-          <div className="flex-1">
-            <p className="text-white font-black text-sm">{t("dashboard.salary_latest")}</p>
-            <p className="text-emerald-100 text-xs mt-0.5">
-              {netSalary != null
-                ? "฿" + netSalary.toLocaleString("th-TH", { minimumFractionDigits: 2 })
-                : t("dashboard.salary_details")}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 bg-white/20 rounded-xl px-2.5 py-1.5">
-            <TrendingUp size={13} className="text-white" />
-            <span className="text-white text-xs font-bold">{t("dashboard.salary_view_more")}</span>
-          </div>
-        </Link>
-
         {/* ── Leave balances ───────────────────────────────── */}
         {balances.length > 0 && (
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">

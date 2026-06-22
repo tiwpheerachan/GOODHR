@@ -404,6 +404,32 @@ export default function SalaryPage() {
 
           ) : (
             <>
+              {/* ── Warning: ยังไม่ใช่เงินเดือนสรุป (ก่อนวันที่ 28 ของเดือนปัจจุบัน) ── */}
+              {(() => {
+                const today = new Date()
+                const isCurrentPayrollMonth = month.getFullYear() === today.getFullYear()
+                  && month.getMonth() === today.getMonth()
+                const beforePayrollClose = today.getDate() < 28
+                if (!isCurrentPayrollMonth || !beforePayrollClose) return null
+                return (
+                  <div className="fade-up rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-3 flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
+                      <AlertCircle size={16} className="text-amber-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-black text-amber-900">⏳ ยังไม่ใช่ยอดเงินเดือนสรุป</p>
+                      <p className="text-[12px] text-amber-700 leading-relaxed mt-0.5">
+                        ตัวเลขที่แสดงเป็นเพียง<b>การคำนวณเบื้องต้น</b> ของรอบ {MONTHS[month.getMonth()]} {month.getFullYear() + 543} —
+                        ยอดสุทธิจริง<b> HR จะสรุปและประกาศวันที่ 28</b> ของเดือนเป็นต้นไป
+                      </p>
+                      <p className="text-[11px] text-amber-600/80 mt-1">
+                        💡 รายการเช็คอิน · OT · ขาด-ลา-สาย อาจมีการปรับแก้จนถึงปลายเดือน
+                      </p>
+                    </div>
+                  </div>
+                )
+              })()}
+
               {/* ── CREDIT CARD ──────────────────────────────────── */}
               <div className="salary-card p-5 fade-up" style={{ minHeight:180 }}>
                 {/* chip + brand */}
