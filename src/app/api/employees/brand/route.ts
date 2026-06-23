@@ -1,6 +1,7 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { BRAND_OPTIONS } from "@/lib/utils/brands"  // ใช้เป็น fallback ถ้าตาราง brands ว่าง
+import { getManageableEmployees } from "@/lib/utils/evaluator-chain"
 
 // PATCH /api/employees/brand
 // Body: {
@@ -8,7 +9,9 @@ import { BRAND_OPTIONS } from "@/lib/utils/brands"  // ใช้เป็น fal
 //   brands:      string[]                  // รายชื่อแบรนด์ที่ดูแล
 //   allocations?: Record<string, number>   // (optional) % ของแต่ละแบรนด์ เช่น { Anker: 60, DDpai: 40 }
 // }
-// อนุญาตเฉพาะ admin (super_admin/hr_admin)
+// อนุญาต:
+//   - admin (super_admin / hr_admin)
+//   - หัวหน้าตรง (manager ที่เป็น direct manager ของพนักงานคนนั้นใน employee_manager_history)
 export async function PATCH(req: Request) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -17,9 +20,9 @@ export async function PATCH(req: Request) {
   const supa = createServiceClient()
 
   const { data: dbUser } = await supa
-    .from("users").select("role").eq("id", user.id).single()
-  if (!dbUser || !["super_admin", "hr_admin"].includes(dbUser.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    .from("users").select("role, employee_id").eq("id", user.id).single()
+  if (!dbUser) {
+    return NextResponse.json({ error: "User not found" }, { status: 403 })
   }
 
   const body = await req.json()
@@ -31,6 +34,18 @@ export async function PATCH(req: Request) {
 
   if (!employee_id) {
     return NextResponse.json({ error: "employee_id required" }, { status: 400 })
+  }
+
+  // ── Permission check: admin หรือ "ในสาย" (direct + skip-1 + additional) ──
+  //   ใช้ helper เดียวกับ KPI/probation → behavior สอดคล้องกัน
+  const isAdmin = ["super_admin", "hr_admin"].includes(dbUser.role)
+  let isInChain = false
+  if (!isAdmin && dbUser.employee_id) {
+    const chain = await getManageableEmployees(supa, dbUser.employee_id, null)
+    isInChain = chain.some((c: any) => c.id === employee_id)
+  }
+  if (!isAdmin && !isInChain) {
+    return NextResponse.json({ error: "Forbidden — เฉพาะหัวหน้าในสายหรือ HR admin เท่านั้น" }, { status: 403 })
   }
 
   // ── 1) sanitize brands — ดึง list จาก DB (รวม inactive เผื่อยังมีพนักงานใช้อยู่) ──
