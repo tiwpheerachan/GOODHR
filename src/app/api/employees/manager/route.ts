@@ -56,6 +56,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `เพิ่มหัวหน้าใหม่ไม่สำเร็จ: ${insertErr.message}` }, { status: 500 })
   }
 
+  // ── Step 3: sync employees.supervisor_id ให้ตรงกับ history ──
+  //   bug เดิม: เปลี่ยนหัวหน้าผ่าน API นี้แล้ว column employees.supervisor_id ค้างเป็นคนเดิม
+  //   → ทำให้รายการคำขออนุมัติยังโชว์ใต้หัวหน้าเก่าในหน้า /admin/approvals/supervisors และ /admin/org
+  const { error: syncErr } = await supa
+    .from("employees")
+    .update({ supervisor_id: manager_id })
+    .eq("id", employee_id)
+  if (syncErr) console.error("Sync supervisor_id error:", syncErr.message)
+
+  // ── Step 4: เปลี่ยนหัวหน้า → เคลียร์ kpi_evaluator_id (consistent กับ /api/org) ──
+  //   ให้หัวหน้าตรงเป็นผู้ประเมิน KPI โดยอัตโนมัติ
+  await supa.from("employees").update({ kpi_evaluator_id: null }).eq("id", employee_id)
+
   // ── ดึงชื่อเพื่อ audit log ──
   const { data: empInfo } = await supa.from("employees").select("first_name_th, last_name_th, company_id").eq("id", employee_id).maybeSingle()
   const { data: mgrInfo } = await supa.from("employees").select("first_name_th, last_name_th").eq("id", manager_id).maybeSingle()
