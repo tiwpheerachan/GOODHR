@@ -545,11 +545,12 @@ export async function POST(req: Request) {
             // ✅ ค่าที่ HR กรอกมือ → เก็บรักษา | ค่า formula (tax,gross,net) → คำนวณใหม่
             // ⚠️ deduct_absent/late/early_out คำนวณจาก attendance ใหม่เสมอ
             //    (กัน HR แก้ attendance แล้วเงินหักไม่อัปเดต)
-            deduct_absent:    result.deductAbsent,
+            //    รวม unpaid leave เข้า deduct_absent ด้วย (label "หักขาดงาน/ลา" ครอบคลุม)
+            deduct_absent:    result.deductAbsent + deductUnpaidLeave,
             deduct_late:      result.deductLate,
             deduct_early_out: result.deductEarlyOut,
             deduct_loan:      loanDeduction,
-            deduct_other:     mIsManual && existPR?.deduct_other != null     ? Number(existPR.deduct_other)     : deductUnpaidLeave + mDeductOther,
+            deduct_other:     mIsManual && existPR?.deduct_other != null     ? Number(existPR.deduct_other)     : mDeductOther,
             deduction_extras: existPR?.deduction_extras || null,
             social_security_base: baseSalary, social_security_rate: 0.05,
             // SSO: structural flag (is_sso_exempt) ชนะ manual ทุกกรณี → ใช้ finalSso เสมอ
@@ -559,10 +560,11 @@ export async function POST(req: Request) {
             // ── ค่า formula → คำนวณใหม่จากค่าที่เก็บด้านบน ──
             ...(() => {
               // รวมค่า deductions จริงที่ใช้ (attendance facts → auto, ค่าอื่น → respect manual)
-              const fDeductAbsent = result.deductAbsent
+              // unpaid leave รวมเข้า deduct_absent
+              const fDeductAbsent = result.deductAbsent + deductUnpaidLeave
               const fDeductLate   = result.deductLate
               const fDeductEarly  = result.deductEarlyOut
-              const fDeductOther  = mIsManual && existPR?.deduct_other != null ? Number(existPR.deduct_other) : deductUnpaidLeave + mDeductOther
+              const fDeductOther  = mIsManual && existPR?.deduct_other != null ? Number(existPR.deduct_other) : mDeductOther
               // SSO: structural flag ชนะ manual override
               const fSso          = !!sal.is_sso_exempt
                 ? 0

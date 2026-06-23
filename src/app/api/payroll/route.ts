@@ -753,11 +753,13 @@ async function calcAndSave(
     // (calculatePayrollSummary ใช้ effectiveBase แล้ว)
     // ✅ ค่าผลคำนวณ → คำนวณใหม่เสมอจาก finalGross/finalTax
     gross_income:           finalGross,
-    deduct_absent:          result.deductAbsent,
+    // ✅ รวม unpaid leave เข้า deduct_absent (label "หักขาดงาน/ลา" ครอบคลุมทั้ง 2)
+    //    ป้องกัน bug เดิม: unpaid leave อยู่ใน deduct_other ที่ถูก lock โดย is_manual_override
+    deduct_absent:          result.deductAbsent + deductUnpaidLeave,
     deduct_late:            result.deductLate,
     deduct_early_out:       result.deductEarlyOut,
     deduct_loan:            loanDeduction,
-    deduct_other:           deductUnpaidLeave + manualDeductOther,
+    deduct_other:           manualDeductOther,
     deduction_extras:       existingDeductExtras,
     social_security_base:   effectiveBase,             // ฐาน SSO ใช้ effective (กรณี prorate)
     social_security_rate:   0.05,
