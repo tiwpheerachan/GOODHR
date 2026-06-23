@@ -294,7 +294,26 @@ export default function ProbationEvalFormPage() {
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-2">
                   <span className="w-7 h-7 rounded-lg bg-rose-100 text-rose-600 text-xs font-black flex items-center justify-center">{idx + 1}</span>
-                  {item.is_mandatory && <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">{t("probation.mandatory_badge")}</span>}
+                  {/* Badge "บังคับ" — คลิกเพื่อยกเลิก (เปลี่ยนเป็นข้อ optional ที่ลบได้) */}
+                  {item.is_mandatory ? (
+                    <button type="button"
+                      disabled={isSubmitted}
+                      onClick={() => updateItem(idx, "is_mandatory", false)}
+                      title="คลิกเพื่อยกเลิก 'บังคับ' (ทำให้ลบ/แก้ข้อนี้ได้)"
+                      className="group flex items-center gap-1 text-[9px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                      {t("probation.mandatory_badge")}
+                      {!isSubmitted && <XIcon size={9} className="opacity-60 group-hover:opacity-100" />}
+                    </button>
+                  ) : (
+                    !isSubmitted && (
+                      <button type="button"
+                        onClick={() => updateItem(idx, "is_mandatory", true)}
+                        title="คลิกเพื่อตั้งเป็น 'บังคับ' (ห้ามลบ)"
+                        className="text-[9px] font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-dashed border-slate-200 hover:border-rose-200 px-1.5 py-0.5 rounded transition-colors">
+                        + บังคับ
+                      </button>
+                    )
+                  )}
                 </div>
                 {!item.is_mandatory && !isSubmitted && (
                   <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600"><Trash2 size={14} /></button>
@@ -302,12 +321,21 @@ export default function ProbationEvalFormPage() {
               </div>
 
               <input value={item.category} onChange={e => updateItem(idx, "category", e.target.value)}
-                disabled={item.is_mandatory || isSubmitted} placeholder="ชื่อหมวดหมู่"
+                disabled={isSubmitted} placeholder="ชื่อหมวดหมู่"
                 className={`${inp} w-full font-bold`} />
 
-              {item.description && (
-                <p className="text-xs text-slate-400 whitespace-pre-line">{item.description}</p>
-              )}
+              {/* รายละเอียด/เกณฑ์ — แก้ได้ (auto-resize ตามจำนวนบรรทัด) */}
+              <div>
+                <p className="text-[10px] text-slate-400 mb-1">รายละเอียด / เกณฑ์ประเมิน</p>
+                <textarea
+                  value={item.description || ""}
+                  onChange={e => updateItem(idx, "description", e.target.value)}
+                  disabled={isSubmitted}
+                  placeholder="ระบุเกณฑ์หรือรายละเอียดที่จะประเมิน (1. ... 2. ... หรือ A) ... B) ...)"
+                  rows={Math.max(3, Math.min(16, (item.description || "").split("\n").length + 1))}
+                  className={`${inp} w-full text-xs leading-relaxed text-slate-700 whitespace-pre-line resize-y`}
+                />
+              </div>
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
