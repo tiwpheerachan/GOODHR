@@ -823,7 +823,7 @@ export default function AdminKpiPage() {
           )}
 
           {/* Table header */}
-          <div className="hidden lg:grid grid-cols-[2fr_1fr_0.7fr_0.7fr_0.5fr_0.7fr_120px_40px] gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500">
+          <div className="hidden lg:grid grid-cols-[2fr_1fr_0.7fr_0.7fr_0.5fr_0.7fr_320px_40px] gap-3 px-4 pr-6 py-3 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500">
             <span>พนักงาน</span>
             <span>แผนก</span>
             <span>เดือน</span>
@@ -842,7 +842,7 @@ export default function AdminKpiPage() {
 
             return (
               <div key={form.id} className="border-b border-slate-50 last:border-0">
-                <div className="w-full lg:grid lg:grid-cols-[2fr_1fr_0.7fr_0.7fr_0.5fr_0.7fr_120px_40px] gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors text-left flex flex-wrap items-center">
+                <div className="w-full lg:grid lg:grid-cols-[2fr_1fr_0.7fr_0.7fr_0.5fr_0.7fr_320px_40px] gap-3 px-4 pr-6 py-3.5 hover:bg-slate-50 transition-colors text-left flex flex-wrap items-center">
                   {/* Employee */}
                   <div className="flex items-center gap-3 min-w-0 w-full lg:w-auto mb-2 lg:mb-0">
                     <div className="w-9 h-9 rounded-xl overflow-hidden bg-indigo-100 flex items-center justify-center shrink-0">
@@ -905,16 +905,28 @@ export default function AdminKpiPage() {
                   </div>
                   {/* Quick action buttons */}
                   <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                    {/* ── ปุ่ม "ดูฟอร์ม" — เปิดดูได้ทุก status (read-only) ── */}
+                    <button onClick={() => loadDetail(form.id)}
+                      title="เปิด/ปิด ดูฟอร์มเต็มที่หัวหน้าประเมิน"
+                      className="text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg border border-slate-200 flex items-center gap-1">
+                      <Eye size={11} /> {isOpen ? "ซ่อน" : "ดูฟอร์ม"}
+                    </button>
+
                     {form.status === "submitted" ? (
                       <>
                         <button onClick={() => handleApprove(form.id)} disabled={actionLoading}
                           className="text-[11px] font-bold bg-emerald-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-emerald-700 disabled:opacity-50">
-                          อนุมัติ
+                          ✓ อนุมัติ
                         </button>
                         <button onClick={() => { setShowRejectModal(form.id); setRejectNote("") }} disabled={actionLoading}
                           className="text-[11px] font-bold text-red-600 bg-red-50 px-2.5 py-1.5 rounded-lg hover:bg-red-100 border border-red-200 disabled:opacity-50">
                           ส่งคืน
                         </button>
+                        <Link href={`/manager/kpi/${form.employee_id}?year=${form.year}&month=${form.month}`}
+                          title="แก้ไขคะแนน/หัวข้อ"
+                          className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 border border-indigo-200 flex items-center gap-1">
+                          <Pencil size={10} /> แก้ไข
+                        </Link>
                       </>
                     ) : (form.status === "approved" || form.status === "rejected" || form.status === "acknowledged") ? (
                       <>
@@ -938,10 +950,17 @@ export default function AdminKpiPage() {
                         </Link>
                       </>
                     ) : (
-                      <span className="text-xs font-bold text-slate-400">ร่าง</span>
+                      <>
+                        <span className="text-xs font-bold text-slate-400">📝 ร่าง</span>
+                        <Link href={`/manager/kpi/${form.employee_id}?year=${form.year}&month=${form.month}`}
+                          title="แก้ไขฉบับร่าง"
+                          className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 border border-indigo-200 flex items-center gap-1">
+                          <Pencil size={10} /> แก้ไข
+                        </Link>
+                      </>
                     )}
                   </div>
-                  <button onClick={() => loadDetail(form.id)} className="shrink-0">
+                  <button onClick={() => loadDetail(form.id)} className="shrink-0" title="กดเพื่อขยาย/ย่อ">
                     {isOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
                   </button>
                 </div>

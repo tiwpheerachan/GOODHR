@@ -125,6 +125,31 @@ export async function GET(req: NextRequest) {
   const displayTotalDeduct = rp.totalDed
   const displayNet = rp.net
 
+  // ── Tax base = ฐานคำนวณภาษี ──
+  //   = รายรับทั้งหมด (effBase + KPI bonus + OT + allowances + extras + other_income)
+  //   − หักก่อนภาษี (late + early_out + absent + suspension + deduct_other)
+  const taxBaseAmount = (() => {
+    const r2 = recordWithAuto
+    const ie2 = r2.income_extras || {}
+    const de2 = r2.deduction_extras || {}
+    const otFromMin = (n(r2.ot_weekday_minutes) * 1.5
+                     + n(r2.ot_holiday_reg_minutes) * 1.0
+                     + n(r2.ot_holiday_ot_minutes) * 3.0) * rate / 60
+    const otTotal = otFromMin > 0 ? otFromMin : n(r2.ot_amount)
+    const income = rp.effBase + rp.effBonus + otTotal
+      + n(r2.allowance_position) + n(ie2.kpi) + n(r2.commission)
+      + n(ie2.incentive) + n(ie2.performance_bonus) + n(ie2.service_fee)
+      + n(r2.allowance_transport) + n(r2.allowance_food) + n(r2.allowance_phone)
+      + n(r2.allowance_housing) + n(r2.allowance_vehicle) + n(r2.allowance_other)
+      + n(ie2.depreciation) + n(ie2.expressway) + n(ie2.fuel)
+      + n(ie2.campaign) + n(ie2.retirement_fund) + n(ie2.per_diem)
+      + n(ie2.diligence_bonus) + n(ie2.referral_bonus)
+      + n(r2.other_income)
+    const deds = n(r2.deduct_late) + n(r2.deduct_early_out) + n(r2.deduct_absent)
+      + n(de2.suspension) + n(r2.deduct_other)
+    return Math.round((income - deds) * 100) / 100
+  })()
+
   if (displaySSO) deductions.push({ label: "ประกันสังคม", amount: displaySSO })
   if (displayTax) deductions.push({ label: "ภาษี", amount: displayTax })
   if (n(record.deduct_other)) deductions.push({ label: "หักลาไม่รับค่าจ้าง/อื่นๆ", amount: n(record.deduct_other) })
@@ -150,6 +175,7 @@ export async function GET(req: NextRequest) {
     totalEarnings: displayGross,
     totalDeductions: displayTotalDeduct,
     netPay: displayNet,
+    taxBase: taxBaseAmount,      // ฐานคำนวณภาษี (สำหรับ HTML/PDF preview)
     ytd: {
       income: displayGross,
       tax: displayTax,

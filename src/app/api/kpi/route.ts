@@ -579,7 +579,10 @@ export async function POST(req: NextRequest) {
   let formId = existing?.id
 
   if (formId) {
-    const newStatus = isAdmin && action === "submit" ? "approved" : status
+    // ── Admin submit → ตั้ง "submitted" รออนุมัติเหมือนหัวหน้าทั่วไป (ไม่ auto-approve อีกต่อไป) ──
+    //   เดิม: admin submit = auto approved → ทำให้ผู้ใช้งงว่า "ทำไมมันอนุมัติเอง"
+    //   ใหม่: admin ต้องกด "อนุมัติ" แยกในหน้า /admin/kpi เพื่อ approve
+    const newStatus = status   // "submitted" ถ้า action=submit, "draft" ถ้า save_draft
 
     await svc.from("kpi_forms").update({
       total_score: totalScore, grade, status: newStatus, evaluator_note,
@@ -591,8 +594,9 @@ export async function POST(req: NextRequest) {
       evaluator_id: effectiveEvaluatorId,
       evaluator_role: evaluatorRole,
       rejection_note: null,
-      approved_by: isAdmin && action === "submit" ? dbUser.employee_id : (newStatus === "submitted" ? null : undefined),
-      approved_at: isAdmin && action === "submit" ? new Date().toISOString() : (newStatus === "submitted" ? null : undefined),
+      // เคลียร์ approval ทุกครั้งที่ save/submit ใหม่ (กัน status ค้างจากครั้งก่อน)
+      approved_by: null,
+      approved_at: null,
       submitted_at: action === "submit" ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     }).eq("id", formId)

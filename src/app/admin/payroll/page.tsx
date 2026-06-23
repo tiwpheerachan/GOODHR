@@ -144,6 +144,32 @@ const REG_COLS: RCol[] = [
   { key:"suspend",     label:"พักงาน",              group:"deduction", get:r=>n((r.deduction_extras||{}).suspension) },
   { key:"ded_other",   label:"เงินหักอื่นๆ",          group:"deduction", get:r=>n(r.deduct_other) },
   { key:"sub_ded",     label:"รวมเป็นเงิน",          group:"deduction", get:r=>n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)+n((r.deduction_extras||{}).suspension)+n(r.deduct_other) },
+  // ── Tax = ฐานคำนวณภาษี = (รายรับทั้งหมด) − (หักก่อนภาษี) ──
+  //   รายรับ: ฐานเดือนนี้ + KPI bonus + รวม OT + ค่าตำแหน่ง + KPI กรอก + commission + incentive +
+  //           perf bonus + ค่าบริการ + เดินทาง + อาหาร + โทรศัพท์ + ที่พัก + ค่าเสื่อมรถยนต์ + เบี้ยอื่น +
+  //           ค่าเสื่อมสภาพ + ค่าทางด่วน + ค่าน้ำมัน + แคมเปญ + retirement + เบี้ยเลี้ยง + เบี้ยขยัน + referral + อื่นๆ
+  //   หัก:     late + early + absent + suspension + เงินหักอื่นๆ
+  { key:"tax_base",    label:"Tax",                  group:"deduction", get:r=>{
+    const rc  = recomputePayroll(applyAutoProrate(r))
+    const ie  = r.income_extras || {}
+    const de  = r.deduction_extras || {}
+    const otFromMin = calcOTAmt(n(r.base_salary), n(r.ot_weekday_minutes),     1.5)
+                    + calcOTAmt(n(r.base_salary), n(r.ot_holiday_reg_minutes), 1.0)
+                    + calcOTAmt(n(r.base_salary), n(r.ot_holiday_ot_minutes),  3.0)
+    const otTotal   = otFromMin > 0 ? otFromMin : n(r.ot_amount)
+    const income = rc.effBase + rc.effBonus + otTotal
+      + n(r.allowance_position) + n(ie.kpi) + n(r.commission)
+      + n(ie.incentive) + n(ie.performance_bonus) + n(ie.service_fee)
+      + n(r.allowance_transport) + n(r.allowance_food) + n(r.allowance_phone)
+      + n(r.allowance_housing) + n(r.allowance_vehicle) + n(r.allowance_other)
+      + n(ie.depreciation) + n(ie.expressway) + n(ie.fuel)
+      + n(ie.campaign) + n(ie.retirement_fund) + n(ie.per_diem)
+      + n(ie.diligence_bonus) + n(ie.referral_bonus)
+      + n(r.other_income)
+    const deducts = n(r.deduct_late) + n(r.deduct_early_out) + n(r.deduct_absent)
+      + n(de.suspension) + n(r.deduct_other)
+    return Math.round((income - deducts) * 100) / 100
+  }},
   { key:"card",        label:"บัตรหาย/ชำรุด",        group:"deduction", get:r=>n((r.deduction_extras||{}).card_lost) },
   { key:"uniform",     label:"ค่าซื้อเสื้อพนักงาน",    group:"deduction", get:r=>n((r.deduction_extras||{}).uniform) },
   { key:"parking",     label:"ค่าบัตรจอดรถ",         group:"deduction", get:r=>n((r.deduction_extras||{}).parking) },
@@ -1631,6 +1657,32 @@ function PayslipModal({ record, onClose, onEdit, onRefresh }: { record: any; onC
   const displayTotalDeduct = rp.totalDed
   const displayNet = rp.net
 
+  // ── Tax base = (รายรับทั้งหมด) − (หักก่อนภาษี) — แสดงในสลิปเป็นข้อมูลอ้างอิง ──
+  const taxBase = (() => {
+    const r = recordForCalc
+    const _n = (v: any) => Number(v) || 0
+    const ie = r.income_extras || {}
+    const de = r.deduction_extras || {}
+    const otFromMin = (fullBase / 30 / 8 / 60) * 60 * (
+      (_n(r.ot_weekday_minutes)     * 1.5) +
+      (_n(r.ot_holiday_reg_minutes) * 1.0) +
+      (_n(r.ot_holiday_ot_minutes)  * 3.0)
+    )
+    const otTotal = otFromMin > 0 ? otFromMin : _n(r.ot_amount)
+    const income = base + effectiveBonus + otTotal
+      + _n(r.allowance_position) + _n(ie.kpi) + _n(r.commission)
+      + _n(ie.incentive) + _n(ie.performance_bonus) + _n(ie.service_fee)
+      + _n(r.allowance_transport) + _n(r.allowance_food) + _n(r.allowance_phone)
+      + _n(r.allowance_housing) + _n(r.allowance_vehicle) + _n(r.allowance_other)
+      + _n(ie.depreciation) + _n(ie.expressway) + _n(ie.fuel)
+      + _n(ie.campaign) + _n(ie.retirement_fund) + _n(ie.per_diem)
+      + _n(ie.diligence_bonus) + _n(ie.referral_bonus)
+      + _n(r.other_income)
+    const deducts = _n(r.deduct_late) + _n(r.deduct_early_out) + _n(r.deduct_absent)
+      + _n(de.suspension) + _n(r.deduct_other)
+    return Math.round((income - deducts) * 100) / 100
+  })()
+
   const Row = ({ l, v, neg }: { l: string; v: number; neg?: boolean }) => (
     <div className="flex items-center justify-between px-4 py-2 border-b border-slate-50 last:border-0">
       <p className="text-sm text-slate-600">{l}</p>
@@ -1808,6 +1860,15 @@ function PayslipModal({ record, onClose, onEdit, onRefresh }: { record: any; onC
               <p className="text-sm font-black">รวมรายหัก</p>
               <p className="text-sm font-black text-red-600">-฿{thb(displayTotalDeduct)}</p>
             </div>
+          </div>
+
+          {/* Tax base (taxable income) — แสดงเป็นข้อมูลอ้างอิง ไม่ใช่ deduction */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">Tax (ฐานคำนวณภาษี)</p>
+              <p className="text-[10px] text-amber-600">รายรับทั้งหมด − หักก่อนภาษี (ไม่รวม SSO/Tax/ค่าหักพิเศษ)</p>
+            </div>
+            <p className="text-base font-black text-amber-900">฿{thb(taxBase)}</p>
           </div>
 
           {/* Net */}
@@ -3015,7 +3076,7 @@ export default function PayrollPage() {
 
 // ── Payslip HTML Builder ──
 function buildPayslipHTML(d: any): string {
-  const { company, employee, period, payDate, earnings, deductions, totalEarnings, totalDeductions, netPay, ytd } = d
+  const { company, employee, period, payDate, earnings, deductions, totalEarnings, totalDeductions, netPay, ytd, taxBase } = d
   const fmt = (v: number) => Math.round(v).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
   const eRows = earnings.map((e: any) => `<tr><td>${e.label}</td><td class="r">${e.number||""}</td><td class="r">${fmt(e.amount)}</td></tr>`).join("")
   const dRows = deductions.map((e: any) => `<tr><td>${e.label}</td><td class="r">${fmt(e.amount)}</td></tr>`).join("")
@@ -3033,7 +3094,7 @@ function buildPayslipHTML(d: any): string {
 <div class="ei"><div>รหัสพนักงาน : <b>${employee.code}</b> &nbsp; ชื่อ : <b>${employee.name}</b></div><div><b>แผนก:</b> ${employee.department}</div><div><b>ตำแหน่ง :</b> ${employee.position}</div></div>
 <div class="tc"><table class="mt"><thead><tr><th colspan="2">รายได้ / Earnings</th><th>จำนวน</th><th>Amount</th></tr></thead><tbody>${eRows}<tr class="tr"><td colspan="3">รวมเงินได้ / Total Earnings</td><td class="r">${fmt(totalEarnings)}</td></tr></tbody></table>
 <div><table class="mt"><thead><tr><th>รายการหัก / Deductions</th><th>Amount</th><th>วันที่จ่าย</th></tr></thead><tbody>${dRows}<tr class="tr"><td>รวมรายการหัก / Total Deduction</td><td class="r">${fmt(totalDeductions)}</td><td>${payDate}</td></tr></tbody></table>
-<div class="nb"><div class="nl">เงินรับสุทธิ / Net To Pay</div>${fmt(netPay)}</div></div></div>
+<div class="nb"><div class="nl">เงินรับสุทธิ / Net To Pay</div>${fmt(netPay)}</div>${taxBase != null ? `<div style="background:#fef3c7;color:#92400e;padding:6px 12px;font-size:10px;border-top:1px solid #fcd34d;display:flex;justify-content:space-between;margin-top:-1px"><span><b>Tax</b> (ฐานคำนวณภาษี = รายรับ − หักก่อนภาษี)</span><span style="font-weight:700">${fmt(taxBase)}</span></div>` : ""}</div></div>
 <table class="yt"><thead><tr><th>เงินได้สะสมต่อปี</th><th>ภาษีสะสมต่อปี</th><th>กองทุนสะสมต่อปี</th><th>ประกันสังคมต่อปี</th><th>ค่าลดหย่อนอื่นๆ</th><th>ลงชื่อพนักงาน</th></tr></thead>
 <tbody><tr><td>${fmt(ytd.income)}</td><td>${fmt(ytd.tax)}</td><td>${fmt(ytd.providentFund)}</td><td>${fmt(ytd.socialSecurity)}</td><td>${fmt(ytd.otherDeductions)}</td><td></td></tr></tbody></table>
 <div class="ft"><div>พิมพ์โดย : ${employee.name}</div><div>${new Date().toLocaleDateString("th-TH")} ${new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}</div></div></div></body></html>`
