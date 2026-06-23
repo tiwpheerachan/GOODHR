@@ -42,13 +42,33 @@ export async function GET(req: NextRequest) {
   }
 
   // Manager: ดึง KPI ลูกน้องตัวเอง + คนที่กำหนดให้ประเมิน
+  //   Admin (hr_admin/super_admin) → เห็นทุกคนในบริษัท + ทุกฟอร์ม (override evaluator)
   if (mode === "manager") {
+    const isAdminRole = ["hr_admin", "super_admin"].includes(dbUser.role)
     const managerId = dbUser.employee_id
-    if (!managerId) return NextResponse.json({ forms: [], members: [] })
 
-    // ดึงรายชื่อพนักงานที่ user คนนี้จัดการได้ (direct + skip-1 + additional)
-    const members = await getManageableEmployees(svc, managerId, "kpi")
-    const memberIds = members.map(m => m.id)
+    let members: any[] = []
+    let memberIds: string[] = []
+
+    if (isAdminRole) {
+      // Admin → ดึงพนักงาน active ทั้งบริษัท
+      let empQ = svc.from("employees")
+        .select("id, employee_code, first_name_th, last_name_th, nickname, avatar_url, employment_status, department:departments(name), position:positions(name)")
+        .eq("is_active", true)
+      if (companyId) empQ = empQ.eq("company_id", companyId)
+      const { data: emps } = await empQ.order("first_name_th")
+      members = (emps ?? []).map((e: any) => ({
+        ...e,
+        department_name: e.department?.name ?? null,
+        position_name: e.position?.name ?? null,
+      }))
+      memberIds = members.map((m: any) => m.id)
+    } else {
+      if (!managerId) return NextResponse.json({ forms: [], members: [] })
+      // ดึงรายชื่อพนักงานที่ user คนนี้จัดการได้ (direct + skip-1 + additional)
+      members = await getManageableEmployees(svc, managerId, "kpi")
+      memberIds = members.map((m: any) => m.id)
+    }
 
     // ดึง KPI forms ของ "พนักงานเหล่านี้" (ไม่ filter โดย evaluator_id —
     // เพราะ skip-level อาจดูฟอร์มที่ direct ประเมินไว้)
@@ -266,7 +286,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const { action } = body
-  // action: "save_draft" | "submit" | "approve" | "reject"
+  // action: "save_draft" | "submit" | "approve" | "reject" | "revert"
 
   const svc = createServiceClient()
 
@@ -384,6 +404,62 @@ export async function POST(req: NextRequest) {
     })
 
     return NextResponse.json({ success: true })
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // HR Revert — ย้อนสถานะจาก approved/rejected/acknowledged → submitted หรือ draft
+  //   ใช้กรณีอนุมัติแล้วต้องแก้ไข
+  // ══════════════════════════════════════════════════════════════
+  if (action === "revert") {
+    if (!["hr_admin", "super_admin"].includes(dbUser.role)) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์ย้อนสถานะ" }, { status: 403 })
+    }
+    const { form_id, target_status: rawTarget, revert_note } = body
+    if (!form_id) return NextResponse.json({ error: "form_id จำเป็น" }, { status: 400 })
+
+    const target_status: "submitted" | "draft" = rawTarget === "draft" ? "draft" : "submitted"
+
+    const { data: form } = await svc.from("kpi_forms").select("*").eq("id", form_id).single()
+    if (!form) return NextResponse.json({ error: "ไม่พบฟอร์ม" }, { status: 404 })
+    if (!["approved", "rejected", "acknowledged"].includes(form.status)) {
+      return NextResponse.json({ error: "ฟอร์มนี้ไม่ได้อยู่ในสถานะที่ย้อนได้ (ต้องเป็น approved/rejected/acknowledged)" }, { status: 400 })
+    }
+
+    await svc.from("kpi_forms").update({
+      status: target_status,
+      approved_by: null,
+      approved_at: null,
+      rejection_note: target_status === "submitted" ? null : form.rejection_note,
+      updated_at: new Date().toISOString(),
+    }).eq("id", form_id)
+
+    // ── Notifications + audit ──
+    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", form.employee_id).single()
+    const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : "พนักงาน"
+
+    if (form.evaluator_id) {
+      await svc.from("notifications").insert({
+        employee_id: form.evaluator_id,
+        type: "kpi_reverted",
+        title: `KPI ของ ${empName} ถูกย้อนสถานะ`,
+        body: `HR ย้อนสถานะ KPI ${MONTH_NAMES[form.month]} ${form.year} ของ ${empName} กลับเป็น "${target_status === "draft" ? "ฉบับร่าง" : "รออนุมัติ"}"${revert_note ? ` — ${revert_note}` : ""}`,
+        ref_table: "kpi_forms", ref_id: form_id, is_read: false,
+      })
+    }
+
+    const { data: actorEmpRev } = dbUser.employee_id
+      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      : { data: null }
+    const actorNameRev = actorEmpRev ? `${actorEmpRev.first_name_th} ${actorEmpRev.last_name_th}` : "Admin"
+
+    logAudit(svc, {
+      actorId: user.id, actorName: actorNameRev, action: "reverted_kpi",
+      entityType: "kpi_form", entityId: form_id,
+      description: `ย้อนสถานะ KPI ${empName} ${MONTH_NAMES[form.month]} ${form.year} จาก "${form.status}" → "${target_status}"${revert_note ? ` (${revert_note})` : ""} โดย ${actorNameRev}`,
+      companyId: form.company_id,
+    })
+
+    return NextResponse.json({ success: true, new_status: target_status })
   }
 
   // ══════════════════════════════════════════════════════════════

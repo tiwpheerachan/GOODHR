@@ -175,7 +175,8 @@ export default function ProbationEvalFormPage() {
   const handleSave = async (action: "save_draft" | "submit") => {
     if (action === "submit") {
       if (!weightValid) { toast.error(t("probation.weight_error")); return }
-      const missing = items.some(i => !i.actual_score || i.actual_score < 1 || i.actual_score > 100)
+      // อนุญาตให้กรอก 0 ได้ (กรณีหัวหน้าให้คะแนนต่ำสุด) — เช็คเฉพาะ null/undefined + เกินช่วง
+      const missing = items.some(i => i.actual_score == null || i.actual_score < 0 || i.actual_score > 100)
       if (missing) { toast.error(t("probation.score_error")); return }
       setShowConfirm(true)
       return
@@ -311,14 +312,24 @@ export default function ProbationEvalFormPage() {
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <p className="text-[10px] text-slate-400 mb-1">น้ำหนัก (%)</p>
-                  <input type="number" min={0} max={100} value={item.weight_pct || ""}
-                    onChange={e => updateItem(idx, "weight_pct", Number(e.target.value))}
+                  <input type="number" min={0} max={100}
+                    value={item.weight_pct == null ? "" : item.weight_pct}
+                    onChange={e => {
+                      if (e.target.value === "") { updateItem(idx, "weight_pct", null as any); return }
+                      const v = Number(e.target.value)
+                      if (Number.isFinite(v)) updateItem(idx, "weight_pct", v)
+                    }}
                     disabled={isSubmitted} className={`${inp} w-full text-center`} />
                 </div>
                 <div>
-                  <p className="text-[10px] text-slate-400 mb-1">คะแนน (1-100)</p>
-                  <input type="number" min={0} max={100} value={item.actual_score || ""}
-                    onChange={e => updateItem(idx, "actual_score", Number(e.target.value))}
+                  <p className="text-[10px] text-slate-400 mb-1">คะแนน (0-100)</p>
+                  <input type="number" min={0} max={100}
+                    value={item.actual_score == null ? "" : item.actual_score}
+                    onChange={e => {
+                      if (e.target.value === "") { updateItem(idx, "actual_score", null as any); return }
+                      const v = Number(e.target.value)
+                      if (Number.isFinite(v)) updateItem(idx, "actual_score", v)
+                    }}
                     disabled={isSubmitted} className={`${inp} w-full text-center`} />
                 </div>
                 <div>

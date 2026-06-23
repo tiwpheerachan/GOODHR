@@ -72,6 +72,8 @@ export default function KpiFormPage() {
   const employeeId = params.employeeId as string
   const year = Number(searchParams.get("year")) || new Date().getFullYear()
   const month = Number(searchParams.get("month")) || (new Date().getMonth() + 1)
+  // Admin override: ปลดล็อกแม้ฟอร์มถูก submit/approved แล้ว
+  const isAdmin = ["hr_admin", "super_admin"].includes((user as any)?.role ?? "")
 
   const [employee, setEmployee] = useState<any>(null)
   const [items, setItems] = useState<KpiRow[]>([...DEFAULT_ITEMS])
@@ -189,7 +191,8 @@ export default function KpiFormPage() {
         if (form) {
           setExistingFormId(form.id)
           // rejected → กลับมาแก้ไขได้, submitted/approved → ล็อค
-          if (form.status === "submitted" || form.status === "approved") {
+          // Admin (hr_admin/super_admin) → ปลดล็อกได้เสมอ (สำหรับแก้ไข + อนุมัติใหม่)
+          if ((form.status === "submitted" || form.status === "approved") && !isAdmin) {
             setIsSubmitted(true)
           }
           if (form.rejection_note && mountedRef.current) {
@@ -306,7 +309,8 @@ export default function KpiFormPage() {
         if (!Number.isFinite(amt) || amt < 0) { toast.error(t("kpi.enter_amount")); return }
       } else {
         if (!weightValid) { toast.error(t("kpi.weight_error")); return }
-        const missing = items.some(i => !i.actual_score || i.actual_score < 1 || i.actual_score > 100)
+        // อนุญาตให้กรอก 0 ได้ (กรณีหัวหน้าให้คะแนนต่ำสุด) — เช็คเฉพาะ null/undefined + เกินช่วง
+        const missing = items.some(i => i.actual_score == null || i.actual_score < 0 || i.actual_score > 100)
         if (missing) { toast.error(t("kpi.score_error")); return }
         const emptyCat = items.some(i => !i.category.trim())
         if (emptyCat) { toast.error(t("kpi.category_error")); return }
@@ -695,8 +699,12 @@ export default function KpiFormPage() {
                   <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">น้ำหนัก</span>
                   <input
                     type="number"
-                    value={item.weight_pct || ""}
-                    onChange={e => updateItem(idx, "weight_pct", Number(e.target.value))}
+                    value={item.weight_pct == null ? "" : item.weight_pct}
+                    onChange={e => {
+                      if (e.target.value === "") { updateItem(idx, "weight_pct", null as any); return }
+                      const v = Number(e.target.value)
+                      if (Number.isFinite(v)) updateItem(idx, "weight_pct", v)
+                    }}
                     disabled={isSubmitted}
                     min={0} max={100}
                     className="w-12 text-center text-sm font-black text-slate-800 bg-transparent outline-none disabled:opacity-60"
@@ -709,9 +717,12 @@ export default function KpiFormPage() {
                   <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">คะแนน</span>
                   <input
                     type="number"
-                    value={item.actual_score || ""}
+                    value={item.actual_score == null ? "" : item.actual_score}
                     onChange={e => {
+                      // ว่าง = null (ยังไม่กรอก), มีค่า = number (รวม 0)
+                      if (e.target.value === "") { updateItem(idx, "actual_score", null as any); return }
                       let v = Number(e.target.value)
+                      if (!Number.isFinite(v)) return
                       if (v > 100) v = 100
                       if (v < 0) v = 0
                       updateItem(idx, "actual_score", v)

@@ -147,6 +147,28 @@ export default function AdminKpiPage() {
     setActionLoading(false)
   }
 
+  // ── Revert (ย้อนสถานะ): approved/rejected → submitted (รออนุมัติ) ──
+  const handleRevert = async (formId: string, targetStatus: "submitted" | "draft" = "submitted") => {
+    const targetLabel = targetStatus === "draft" ? "ฉบับร่าง" : "รออนุมัติ"
+    if (!confirm(`ย้อนสถานะฟอร์มนี้กลับเป็น "${targetLabel}"?\n\nหัวหน้าจะแก้ไขและส่งใหม่ได้`)) return
+    setActionLoading(true)
+    try {
+      const res = await fetch("/api/kpi", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revert", form_id: formId, target_status: targetStatus }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast.success(`ย้อนสถานะเป็น "${targetLabel}" สำเร็จ`)
+        load()
+        setExpanded(null)
+      } else {
+        toast.error(data.error || "เกิดข้อผิดพลาด")
+      }
+    } catch { toast.error("เกิดข้อผิดพลาด") }
+    setActionLoading(false)
+  }
+
   const handleReject = async () => {
     if (!showRejectModal) return
     setActionLoading(true)
@@ -894,14 +916,29 @@ export default function AdminKpiPage() {
                           ส่งคืน
                         </button>
                       </>
+                    ) : (form.status === "approved" || form.status === "rejected" || form.status === "acknowledged") ? (
+                      <>
+                        <span className={`text-xs font-bold ${
+                          form.status === "approved" ? "text-emerald-600" :
+                          form.status === "acknowledged" ? "text-emerald-600" :
+                          "text-red-500"
+                        }`}>
+                          {form.status === "approved" ? "✓ อนุมัติแล้ว" :
+                           form.status === "acknowledged" ? "✓ รับทราบแล้ว" : "✗ ส่งคืน"}
+                        </span>
+                        <button onClick={() => handleRevert(form.id, "submitted")} disabled={actionLoading}
+                          title="ย้อนกลับเป็น 'รออนุมัติ' เพื่อให้หัวหน้าแก้ไขและส่งใหม่"
+                          className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg hover:bg-amber-100 border border-amber-200 disabled:opacity-50 flex items-center gap-1">
+                          ↶ ย้อนสถานะ
+                        </button>
+                        <Link href={`/manager/kpi/${form.employee_id}?year=${form.year}&month=${form.month}`}
+                          title="แก้ไขคะแนน/หัวข้อ — หลังแก้แล้วต้องอนุมัติใหม่"
+                          className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 border border-indigo-200 flex items-center gap-1">
+                          <Pencil size={10} /> แก้ไข
+                        </Link>
+                      </>
                     ) : (
-                      <span className={`text-xs font-bold ${
-                        form.status === "approved" ? "text-emerald-600" :
-                        form.status === "rejected" ? "text-red-500" : "text-slate-400"
-                      }`}>
-                        {form.status === "approved" ? "อนุมัติแล้ว" :
-                         form.status === "rejected" ? "ส่งคืน" : "ร่าง"}
-                      </span>
+                      <span className="text-xs font-bold text-slate-400">ร่าง</span>
                     )}
                   </div>
                   <button onClick={() => loadDetail(form.id)} className="shrink-0">
