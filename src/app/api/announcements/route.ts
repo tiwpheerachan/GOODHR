@@ -32,16 +32,48 @@ export async function GET(req: NextRequest) {
       .order("published_at", { ascending: false }).limit(100)
     anns = data ?? []
   } else {
-    const { data } = await supa.from("announcements").select(selectStr)
-      .or(`company_id.is.null,company_id.eq.${companyId}`)
-      .lte("published_at", new Date().toISOString())
-      .order("is_pinned", { ascending: false })
-      .order("published_at", { ascending: false }).limit(50)
+    // ─── ดึงทั้งสองชุด: ──
+    //   (A) ประกาศ company/dept ตามปกติ
+    //   (B) ประกาศ target_employee_ids ที่ user คนนี้อยู่ใน list (override company)
+    const myEmpId = userData?.employee_id
 
-    anns = (data ?? []).filter((a: any) =>
-      (!a.department_id || a.department_id === deptId) &&
-      (!a.expires_at || new Date(a.expires_at) > new Date())
-    )
+    const [{ data: scoped }, { data: targeted }] = await Promise.all([
+      // (A)
+      supa.from("announcements").select(selectStr)
+        .or(`company_id.is.null,company_id.eq.${companyId}`)
+        .is("target_employee_ids", null)
+        .lte("published_at", new Date().toISOString())
+        .order("is_pinned", { ascending: false })
+        .order("published_at", { ascending: false }).limit(50),
+      // (B)
+      myEmpId
+        ? supa.from("announcements").select(selectStr)
+            .contains("target_employee_ids", [myEmpId])
+            .lte("published_at", new Date().toISOString())
+            .order("is_pinned", { ascending: false })
+            .order("published_at", { ascending: false }).limit(50)
+        : Promise.resolve({ data: [] as any[] }),
+    ])
+
+    const merged = [
+      ...(scoped ?? []).filter((a: any) =>
+        (!a.department_id || a.department_id === deptId) &&
+        (!a.expires_at || new Date(a.expires_at) > new Date())
+      ),
+      ...(targeted ?? []).filter((a: any) =>
+        (!a.expires_at || new Date(a.expires_at) > new Date())
+      ),
+    ]
+
+    // dedupe (เผื่อ overlap) + sort
+    const seen = new Set<string>()
+    anns = merged.filter((a: any) => {
+      if (seen.has(a.id)) return false
+      seen.add(a.id); return true
+    }).sort((a: any, b: any) => {
+      if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1
+      return new Date(b.published_at).getTime() - new Date(a.published_at).getTime()
+    })
   }
 
   if (!anns.length) return NextResponse.json({ announcements: [], unreadCount: 0 })
@@ -146,7 +178,7 @@ export async function POST(req: NextRequest) {
   // ── Admin: create ──
   if (action === "create") {
     if (!isAdmin) return NextResponse.json({ error: "Admin only" }, { status: 403 })
-    const { title, body: content, company_id, department_id, priority, is_pinned, expires_at, image_url, image_urls } = body
+    const { title, body: content, company_id, department_id, priority, is_pinned, expires_at, image_url, image_urls, target_employee_ids } = body
     if (!title) return NextResponse.json({ error: "Title required" }, { status: 400 })
 
     // Support both old image_url and new image_urls
@@ -154,9 +186,17 @@ export async function POST(req: NextRequest) {
       ? image_urls
       : image_url ? [image_url] : []
 
+    // ── target_employee_ids: sanitize ─ ถ้ามี → override company/dept scope ──
+    const targetIds: string[] | null = Array.isArray(target_employee_ids) && target_employee_ids.length > 0
+      ? Array.from(new Set(target_employee_ids.filter((x: any) => typeof x === "string" && x.length > 0)))
+      : null
+
     const { data, error } = await supa.from("announcements").insert({
       title, body: content || null,
-      company_id: company_id || null, department_id: department_id || null,
+      // ถ้าระบุรายบุคคล → ไม่ใช้ company/dept scope (เป็น null)
+      company_id: targetIds ? null : (company_id || null),
+      department_id: targetIds ? null : (department_id || null),
+      target_employee_ids: targetIds,
       priority: priority || "normal", is_pinned: is_pinned || false,
       expires_at: expires_at || null,
       image_url: finalImageUrls[0] || null,
@@ -180,15 +220,21 @@ export async function POST(req: NextRequest) {
   // ── Admin: update ──
   if (action === "update") {
     if (!isAdmin) return NextResponse.json({ error: "Admin only" }, { status: 403 })
-    const { id, title, body: content, company_id, department_id, priority, is_pinned, expires_at, image_url, image_urls } = body
+    const { id, title, body: content, company_id, department_id, priority, is_pinned, expires_at, image_url, image_urls, target_employee_ids } = body
 
     const finalImageUrls: string[] = image_urls && image_urls.length > 0
       ? image_urls
       : image_url ? [image_url] : []
 
+    const targetIds: string[] | null = Array.isArray(target_employee_ids) && target_employee_ids.length > 0
+      ? Array.from(new Set(target_employee_ids.filter((x: any) => typeof x === "string" && x.length > 0)))
+      : null
+
     const { error } = await supa.from("announcements").update({
       title, body: content,
-      company_id: company_id || null, department_id: department_id || null,
+      company_id: targetIds ? null : (company_id || null),
+      department_id: targetIds ? null : (department_id || null),
+      target_employee_ids: targetIds,
       priority: priority || "normal", is_pinned: is_pinned || false,
       expires_at: expires_at || null,
       image_url: finalImageUrls[0] || null,
@@ -252,9 +298,9 @@ export async function POST(req: NextRequest) {
     if (!isAdmin) return NextResponse.json({ error: "Admin only" }, { status: 403 })
     const { announcement_id } = body
 
-    // ดึงประกาศเพื่อเช็คว่า target อะไร (company / department)
+    // ดึงประกาศเพื่อเช็คว่า target อะไร (company / department / รายบุคคล)
     const { data: ann } = await supa.from("announcements")
-      .select("company_id, department_id").eq("id", announcement_id).maybeSingle()
+      .select("company_id, department_id, target_employee_ids").eq("id", announcement_id).maybeSingle()
     if (!ann) return NextResponse.json({ error: "ไม่พบประกาศ" }, { status: 404 })
 
     // ดึงคนที่รับทราบ
@@ -264,12 +310,19 @@ export async function POST(req: NextRequest) {
       .not("acknowledged_at", "is", null)
       .order("acknowledged_at", { ascending: false })
 
-    // ดึง audience ทั้งหมด (active employees ใน scope ของประกาศ)
+    // ดึง audience —
+    //   ถ้ามี target_employee_ids → ใช้ list นั้น (ไม่ใช้ company/dept)
+    //   ถ้าไม่มี → ใช้ company/dept ตามเดิม
     let audQ = supa.from("employees")
       .select("id, first_name_th, last_name_th, nickname, avatar_url, employee_code, department:departments(name)")
       .eq("is_active", true)
-    if (ann.company_id) audQ = audQ.eq("company_id", ann.company_id)
-    if (ann.department_id) audQ = audQ.eq("department_id", ann.department_id)
+    const targetIds = (ann.target_employee_ids ?? []) as string[]
+    if (targetIds.length > 0) {
+      audQ = audQ.in("id", targetIds)
+    } else {
+      if (ann.company_id) audQ = audQ.eq("company_id", ann.company_id)
+      if (ann.department_id) audQ = audQ.eq("department_id", ann.department_id)
+    }
     const { data: audience } = await audQ
 
     const ackedIds = new Set((acked ?? []).map((a: any) => a.employee_id))

@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import {
   Plus, Edit2, Trash2, Pin, Send, X, Loader2, Megaphone, ImagePlus, MessageCircle,
-  Check, Clock as ClockIcon, Users,
+  Check, Clock as ClockIcon, Users, Search, User,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -35,11 +35,24 @@ export default function AdminAnnouncementsPage() {
     title: "", body: "", company_id: "", department_id: "",
     priority: "normal", is_pinned: false, expires_at: "",
     image_urls: [] as string[],
+    target_employee_ids: [] as string[],   // ประกาศเฉพาะรายบุคคล
   })
+
+  // ── employee picker state ──
+  const [allEmployees, setAllEmployees] = useState<any[]>([])
+  const [empSearch, setEmpSearch] = useState("")
+  const [showEmpDropdown, setShowEmpDropdown] = useState(false)
+  const [audienceMode, setAudienceMode] = useState<"scope" | "specific">("scope")
 
   useEffect(() => {
     supabase.from("companies").select("id,code").eq("is_active", true).order("code").then(({ data }) => setCompanies(data ?? []))
     supabase.from("departments").select("id,name").order("name").then(({ data }) => setDepartments(data ?? []))
+    // โหลดพนักงาน active ทั้งหมดสำหรับ picker
+    supabase.from("employees")
+      .select("id, employee_code, first_name_th, last_name_th, nickname, avatar_url, department:departments(name), position:positions(name), company:companies(code)")
+      .eq("is_active", true)
+      .order("first_name_th")
+      .then(({ data }) => setAllEmployees(data ?? []))
   }, [])
 
   const load = useCallback(async () => {
@@ -53,7 +66,8 @@ export default function AdminAnnouncementsPage() {
   useEffect(() => { load() }, [load])
 
   const openNew = () => {
-    setForm({ title: "", body: "", company_id: "", department_id: "", priority: "normal", is_pinned: false, expires_at: "", image_urls: [] })
+    setForm({ title: "", body: "", company_id: "", department_id: "", priority: "normal", is_pinned: false, expires_at: "", image_urls: [], target_employee_ids: [] })
+    setAudienceMode("scope"); setEmpSearch("")
     setEditItem(null); setModal(true)
   }
 
@@ -62,12 +76,16 @@ export default function AdminAnnouncementsPage() {
     const urls: string[] = (a.image_urls && a.image_urls.length > 0)
       ? a.image_urls
       : a.image_url ? [a.image_url] : []
+    const targetIds = Array.isArray(a.target_employee_ids) ? a.target_employee_ids : []
     setForm({
       title: a.title, body: a.body || "", company_id: a.company_id || "",
       department_id: a.department_id || "", priority: a.priority || "normal",
       is_pinned: a.is_pinned || false, expires_at: a.expires_at ? a.expires_at.split("T")[0] : "",
       image_urls: urls,
+      target_employee_ids: targetIds,
     })
+    setAudienceMode(targetIds.length > 0 ? "specific" : "scope")
+    setEmpSearch("")
     setEditItem(a); setModal(true)
   }
 
@@ -106,7 +124,11 @@ export default function AdminAnnouncementsPage() {
     const payload: any = {
       action: editItem ? "update" : "create",
       title: form.title, body: form.body,
-      company_id: form.company_id || null, department_id: form.department_id || null,
+      // ถ้าเลือก "specific" → override company/dept
+      company_id: audienceMode === "specific" ? null : (form.company_id || null),
+      department_id: audienceMode === "specific" ? null : (form.department_id || null),
+      target_employee_ids: audienceMode === "specific" && form.target_employee_ids.length > 0
+        ? form.target_employee_ids : null,
       priority: form.priority, is_pinned: form.is_pinned,
       expires_at: form.expires_at ? form.expires_at + "T23:59:59+07:00" : null,
       image_urls: form.image_urls,
@@ -180,7 +202,14 @@ export default function AdminAnnouncementsPage() {
                     <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${pc.bg} ${pc.color} flex-shrink-0`}>{pc.label}</span>
                     {a.is_pinned && <Pin size={10} className="text-amber-500 flex-shrink-0"/>}
                     {a.company?.code && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 flex-shrink-0">{a.company.code}</span>}
-                    {!a.company_id && !a.department_id && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 flex-shrink-0">ทุกคน</span>}
+                    {Array.isArray(a.target_employee_ids) && a.target_employee_ids.length > 0 && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 flex-shrink-0 inline-flex items-center gap-0.5">
+                        👤 เฉพาะ {a.target_employee_ids.length} คน
+                      </span>
+                    )}
+                    {!a.company_id && !a.department_id && !(Array.isArray(a.target_employee_ids) && a.target_employee_ids.length > 0) && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 flex-shrink-0">ทุกคน</span>
+                    )}
                   </div>
                   {a.body && <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{a.body}</p>}
                   <div className="flex items-center gap-2 mt-1">
@@ -282,23 +311,136 @@ export default function AdminAnnouncementsPage() {
                   onChange={e => { if (e.target.files && e.target.files.length > 0) { uploadImages(e.target.files); e.target.value = "" } }}/>
               </div>
 
+              {/* ═══ ผู้รับ (Audience) ═══ */}
+              <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                <label className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                  <Users size={12} /> ผู้รับประกาศ
+                </label>
+                {/* Mode toggle */}
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => setAudienceMode("scope")}
+                    className={`flex-1 text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-all ${
+                      audienceMode === "scope"
+                        ? "bg-indigo-500 border-indigo-500 text-white"
+                        : "bg-white border-slate-200 text-slate-600"
+                    }`}>
+                    🏢 ตามบริษัท / แผนก
+                  </button>
+                  <button type="button" onClick={() => setAudienceMode("specific")}
+                    className={`flex-1 text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-all ${
+                      audienceMode === "specific"
+                        ? "bg-violet-500 border-violet-500 text-white"
+                        : "bg-white border-slate-200 text-slate-600"
+                    }`}>
+                    👤 เลือกรายบุคคล {form.target_employee_ids.length > 0 && `(${form.target_employee_ids.length})`}
+                  </button>
+                </div>
+
+                {audienceMode === "scope" ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 mb-1 block">บริษัท</label>
+                      <select value={form.company_id} onChange={e => setForm(f => ({ ...f, company_id: e.target.value }))}
+                        className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none bg-white">
+                        <option value="">ทุกบริษัท</option>
+                        {companies.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 mb-1 block">แผนก</label>
+                      <select value={form.department_id} onChange={e => setForm(f => ({ ...f, department_id: e.target.value }))}
+                        className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none bg-white">
+                        <option value="">ทุกแผนก</option>
+                        {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Selected chips */}
+                    {form.target_employee_ids.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 p-2 bg-white border border-slate-200 rounded-lg">
+                        {form.target_employee_ids.map(id => {
+                          const e = allEmployees.find(x => x.id === id)
+                          if (!e) return null
+                          const label = e.nickname || `${e.first_name_th} ${e.last_name_th}`
+                          return (
+                            <span key={id} className="inline-flex items-center gap-1 text-[10px] font-bold bg-violet-50 border border-violet-200 text-violet-700 rounded-full pl-2 pr-1 py-0.5">
+                              {label}
+                              <button type="button" onClick={() => setForm(f => ({ ...f, target_employee_ids: f.target_employee_ids.filter(x => x !== id) }))}
+                                className="w-4 h-4 rounded-full hover:bg-violet-200 flex items-center justify-center">
+                                <X size={9} />
+                              </button>
+                            </span>
+                          )
+                        })}
+                        <button type="button" onClick={() => setForm(f => ({ ...f, target_employee_ids: [] }))}
+                          className="text-[10px] text-rose-500 hover:underline font-bold ml-1">ล้างทั้งหมด</button>
+                      </div>
+                    )}
+
+                    {/* Search dropdown */}
+                    <div className="relative">
+                      <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={empSearch}
+                        onFocus={() => setShowEmpDropdown(true)}
+                        onChange={e => { setEmpSearch(e.target.value); setShowEmpDropdown(true) }}
+                        placeholder="🔍 พิมพ์ชื่อ/รหัส/ชื่อเล่น/แผนก เพื่อค้นหาพนักงาน..."
+                        className="w-full bg-white border border-slate-200 rounded-lg pl-7 pr-2 py-1.5 text-xs outline-none focus:border-violet-400"
+                      />
+                      {showEmpDropdown && (
+                        <>
+                          <div className="fixed inset-0 z-30" onClick={() => setShowEmpDropdown(false)} />
+                          <div className="absolute z-40 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-72 overflow-y-auto">
+                            {(() => {
+                              const q = empSearch.toLowerCase().trim()
+                              const filtered = allEmployees.filter(e => {
+                                if (form.target_employee_ids.includes(e.id)) return false   // ซ่อนคนที่เลือกแล้ว
+                                if (!q) return true
+                                const hay = `${e.first_name_th ?? ""} ${e.last_name_th ?? ""} ${e.nickname ?? ""} ${e.employee_code ?? ""} ${e.department?.name ?? ""} ${e.position?.name ?? ""}`.toLowerCase()
+                                return hay.includes(q)
+                              }).slice(0, 50)
+
+                              if (filtered.length === 0) {
+                                return <p className="text-center py-4 text-xs text-slate-400">{q ? "ไม่พบพนักงาน" : "เลือกครบทุกคนแล้ว"}</p>
+                              }
+                              return filtered.map(e => (
+                                <button key={e.id} type="button"
+                                  onClick={() => {
+                                    setForm(f => ({ ...f, target_employee_ids: [...f.target_employee_ids, e.id] }))
+                                    setEmpSearch("")
+                                  }}
+                                  className="w-full px-3 py-2 hover:bg-violet-50 flex items-center gap-2 text-left border-b border-slate-50 last:border-0">
+                                  {e.avatar_url
+                                    ? <img src={e.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover shrink-0" />
+                                    : <div className="w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center text-violet-600 text-[10px] font-black shrink-0">{e.first_name_th?.[0] || "?"}</div>}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-slate-700 truncate">
+                                      {e.first_name_th} {e.last_name_th}
+                                      {e.nickname && <span className="text-slate-400 font-normal ml-1">({e.nickname})</span>}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 truncate">
+                                      {e.employee_code} · {e.position?.name || "—"} · {e.department?.name || "—"}
+                                      {e.company?.code && ` · ${e.company.code}`}
+                                    </p>
+                                  </div>
+                                  <Plus size={11} className="text-violet-500 shrink-0" />
+                                </button>
+                              ))
+                            })()}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-violet-600 leading-relaxed">
+                      💡 ประกาศจะแสดงให้<b>เฉพาะคนที่เลือก</b> · ข้าม company/แผนก
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">บริษัท</label>
-                  <select value={form.company_id} onChange={e => setForm(f => ({ ...f, company_id: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none">
-                    <option value="">ทุกบริษัท</option>
-                    {companies.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">แผนก</label>
-                  <select value={form.department_id} onChange={e => setForm(f => ({ ...f, department_id: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none">
-                    <option value="">ทุกแผนก</option>
-                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </div>
                 <div>
                   <label className="text-xs font-bold text-slate-500 mb-1 block">ความสำคัญ</label>
                   <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
