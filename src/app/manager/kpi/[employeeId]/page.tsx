@@ -181,7 +181,10 @@ export default function KpiFormPage() {
     const load = async () => {
       try {
         // Load team data to get employee info
-        const res = await fetch(`/api/kpi?mode=manager&year=${year}&month=${month}`)
+        // ส่ง employee_id เพื่อให้ API รู้ว่ากำลังเปิดฟอร์มของคนใด
+        //   ปกติ — backend ตรวจ permission ตาม manager chain เหมือนเดิม
+        //   Admin (hr_admin/super_admin) — backend จะ unlock เห็นได้แม้ไม่ใช่ลูกน้องตรง
+        const res = await fetch(`/api/kpi?mode=manager&year=${year}&month=${month}&employee_id=${employeeId}`)
         const data = await res.json()
         const emp = (data.members ?? []).find((m: any) => m.id === employeeId)
         if (emp && mountedRef.current) setEmployee(emp)

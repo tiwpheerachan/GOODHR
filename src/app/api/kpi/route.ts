@@ -42,27 +42,31 @@ export async function GET(req: NextRequest) {
   }
 
   // Manager: ดึง KPI ลูกน้องตัวเอง + คนที่กำหนดให้ประเมิน
-  //   Admin (hr_admin/super_admin) → เห็นทุกคนในบริษัท + ทุกฟอร์ม (override evaluator)
+  //   ปกติ → เฉพาะลูกน้องตรงของ user (ยึดตาม manager hierarchy)
+  //   Admin override (hr_admin/super_admin) → เปิดได้เฉพาะตอน edit ฟอร์มคนใดคนหนึ่ง
+  //   = ส่ง query `employee_id=...` มาด้วย → unlock เห็นคนนั้นได้แม้ไม่ใช่ลูกน้องตรง
   if (mode === "manager") {
     const isAdminRole = ["hr_admin", "super_admin"].includes(dbUser.role)
     const managerId = dbUser.employee_id
+    const targetEmployeeId = url.get("employee_id")
+    const adminOverride = isAdminRole && !!targetEmployeeId
 
     let members: any[] = []
     let memberIds: string[] = []
 
-    if (isAdminRole) {
-      // Admin → ดึงพนักงาน active ทั้งบริษัท
-      let empQ = svc.from("employees")
+    if (adminOverride) {
+      // Admin เปิดฟอร์มคนใดคนหนึ่ง → ดึงเฉพาะคนนั้น (ปลดล็อก permission)
+      const { data: emp } = await svc.from("employees")
         .select("id, employee_code, first_name_th, last_name_th, nickname, avatar_url, employment_status, department:departments(name), position:positions(name)")
-        .eq("is_active", true)
-      if (companyId) empQ = empQ.eq("company_id", companyId)
-      const { data: emps } = await empQ.order("first_name_th")
-      members = (emps ?? []).map((e: any) => ({
-        ...e,
-        department_name: e.department?.name ?? null,
-        position_name: e.position?.name ?? null,
-      }))
-      memberIds = members.map((m: any) => m.id)
+        .eq("id", targetEmployeeId).maybeSingle()
+      if (emp) {
+        members = [{
+          ...emp,
+          department_name: (emp.department as any)?.name ?? null,
+          position_name: (emp.position as any)?.name ?? null,
+        }]
+        memberIds = [emp.id]
+      }
     } else {
       if (!managerId) return NextResponse.json({ forms: [], members: [] })
       // ดึงรายชื่อพนักงานที่ user คนนี้จัดการได้ (direct + skip-1 + additional)
