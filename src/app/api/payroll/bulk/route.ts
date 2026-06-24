@@ -200,7 +200,7 @@ export async function POST(req: Request) {
   // ── Pre-fetch employees + salary structures (1 query each) ──────
   const { data: empData } = await supa
     .from("employees")
-    .select("id, company_id, hire_date, is_attendance_exempt, department:departments(name), company:companies(code)")
+    .select("id, company_id, hire_date, resign_date, is_attendance_exempt, department:departments(name), company:companies(code)")
     .in("id", employee_ids)
 
   const { data: salData } = await supa
@@ -357,9 +357,14 @@ export async function POST(req: Request) {
           const empShiftMap = shiftByEmp.get(eid)
           const empDayoffs  = profileByEmp.has(eid) ? profileByEmp.get(eid) : undefined
 
+          // ✅ Bug fix: ดู resign_date ด้วย — กันคนลาออกแล้วถูกนับ absent หลัง resign
           const hireDate = (emp.hire_date as string | null) ?? periodStart
+          const resignDate = (emp.resign_date as string | null) ?? null
           const effectiveStart = cmp(hireDate, periodStart) > 0 ? hireDate : periodStart
-          const allWorkDays = workDaysBetween(effectiveStart, periodEnd, holidaySet, empShiftMap, empDayoffs)
+          const effectiveEnd = (resignDate && cmp(resignDate, periodEnd) < 0) ? resignDate : periodEnd
+          const allWorkDays = (resignDate && cmp(resignDate, periodStart) < 0)
+            ? []
+            : workDaysBetween(effectiveStart, effectiveEnd, holidaySet, empShiftMap, empDayoffs)
           const pastWorkDays = allWorkDays.filter(d => cmp(d, todayStr) <= 0)
 
           // Leave calc
@@ -489,6 +494,12 @@ export async function POST(req: Request) {
           const previousYtdTax = prevTaxByEmp.get(eid) || 0
           const deductUnpaidLeave = leaveUnpaidDays > 0 ? Math.round((baseSalary / 30) * leaveUnpaidDays * 100) / 100 : 0
 
+          // หักขาดงาน/ลา: ถ้า HR แก้ไขมือ (manual override) → ใช้ค่าที่ HR กรอกไว้
+          //   ถ้าไม่ได้แก้มือ → คำนวณจาก attendance + unpaid leave ตามปกติ
+          const finalDeductAbsent = (mIsManual && existPR?.deduct_absent != null)
+            ? Number(existPR.deduct_absent)
+            : result.deductAbsent + deductUnpaidLeave
+
           // OT: ถ้า HR เคยกรอกทับ (is_manual_override) ใช้ค่า HR, ไม่งั้นใช้ค่าระบบ
           const finalOtAmount = (existPR && existPR.is_manual_override && existPR.ot_amount != null)
             ? Number(existPR.ot_amount)
@@ -545,10 +556,10 @@ export async function POST(req: Request) {
             commission: mCommission, other_income: mOtherIncome,
             income_extras: existPR?.income_extras || null,
             // ✅ ค่าที่ HR กรอกมือ → เก็บรักษา | ค่า formula (tax,gross,net) → คำนวณใหม่
-            // ⚠️ deduct_absent/late/early_out คำนวณจาก attendance ใหม่เสมอ
+            // ⚠️ deduct_late/early_out คำนวณจาก attendance ใหม่เสมอ
             //    (กัน HR แก้ attendance แล้วเงินหักไม่อัปเดต)
-            //    รวม unpaid leave เข้า deduct_absent ด้วย (label "หักขาดงาน/ลา" ครอบคลุม)
-            deduct_absent:    result.deductAbsent + deductUnpaidLeave,
+            // หักขาดงาน/ลา: respect manual override (HR แก้มือแล้วไม่ถูกเขียนทับ)
+            deduct_absent:    finalDeductAbsent,
             deduct_late:      result.deductLate,
             deduct_early_out: result.deductEarlyOut,
             deduct_loan:      loanDeduction,
@@ -561,9 +572,9 @@ export async function POST(req: Request) {
               : (mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso),
             // ── ค่า formula → คำนวณใหม่จากค่าที่เก็บด้านบน ──
             ...(() => {
-              // รวมค่า deductions จริงที่ใช้ (attendance facts → auto, ค่าอื่น → respect manual)
-              // unpaid leave รวมเข้า deduct_absent
-              const fDeductAbsent = result.deductAbsent + deductUnpaidLeave
+              // รวมค่า deductions จริงที่ใช้ (late/early → auto, ขาดงาน/ลา → respect manual)
+              // unpaid leave รวมเข้า deduct_absent (เฉพาะกรณีไม่ได้แก้มือ)
+              const fDeductAbsent = finalDeductAbsent
               const fDeductLate   = result.deductLate
               const fDeductEarly  = result.deductEarlyOut
               const fDeductOther  = mIsManual && existPR?.deduct_other != null ? Number(existPR.deduct_other) : mDeductOther

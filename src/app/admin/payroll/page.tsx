@@ -1961,6 +1961,8 @@ export default function PayrollPage() {
   const [payslip,      setPayslip]      = useState<any>(null)
   const [editing,      setEditing]      = useState<any>(null)
   const [filterDept,   setFilterDept]   = useState("")
+  const [resignedPool, setResignedPool] = useState<any[]>([])
+  const [addingEmpId,  setAddingEmpId]  = useState<string | null>(null)
   const [viewMode,     setViewMode]     = useState<"compact"|"full">("full")
   const [showTxtExport, setShowTxtExport] = useState(false)
   const [txtExclude,   setTxtExclude]   = useState<Set<string>>(new Set())
@@ -2071,6 +2073,41 @@ export default function PayrollPage() {
     }
     setLoading(false)
   }, [selected, periods])
+
+  // ── ดึงคนที่ลาออกแล้ว แต่ยังไม่มี payroll record ในงวดที่เลือก ──
+  //   ใช้ตอน search ใน /admin/payroll ผู้ใช้พิมพ์ชื่อคนลาออก → จะเจอเป็น "ผลลัพธ์เพิ่มเติม" + ปุ่ม "+ เพิ่มในรอบนี้"
+  useEffect(() => {
+    setResignedPool([])
+    if (!selected?.id || selected._isAllCo) return
+    fetch(`/api/payroll/resigned-pool?period_id=${selected.id}`)
+      .then(r => r.json())
+      .then(d => setResignedPool(d.pool ?? []))
+      .catch(() => {})
+  }, [selected?.id])
+
+  // ── เพิ่มคนที่ลาออกแล้วกลับเข้างวดนี้ → สร้าง payroll record + reload ──
+  const addResignedToPeriod = async (emp: any) => {
+    if (!selected?.id) return
+    setAddingEmpId(emp.id)
+    try {
+      const res = await fetch("/api/payroll", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_id: emp.id, payroll_period_id: selected.id, mode: "calc" }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        toast.error(data.error || "เพิ่มไม่สำเร็จ")
+        return
+      }
+      toast.success(`เพิ่ม ${emp.first_name_th} ${emp.last_name_th} เข้ารอบนี้แล้ว`)
+      await loadRecords()
+      setResignedPool(prev => prev.filter(p => p.id !== emp.id))
+    } catch (e: any) {
+      toast.error(e.message || "เพิ่มไม่สำเร็จ")
+    } finally {
+      setAddingEmpId(null)
+    }
+  }
 
   // ── Background recalculate: คำนวณเงินเดือนใหม่เบื้องหลัง ────────
   // ทำงานอัตโนมัติเมื่อเลือกงวด + ทุก 60 วินาที + เมื่อมี attendance เปลี่ยน
@@ -2337,7 +2374,19 @@ export default function PayrollPage() {
 
   const departments = Array.from(new Set(records.map((r: any) => r.employee?.department?.name).filter(Boolean))).sort() as string[]
 
+  // ── ซ่อนคนที่ลาออกก่อนงวดนี้ ──
+  //   แสดง: คนยังทำงานอยู่ + คนที่ลาออกในงวดนี้ (ยังต้องคำนวณเงินสุดท้าย)
+  //   ซ่อน: คนที่ลาออกไปก่อนงวดเริ่ม
+  const periodStart = selected?.start_date as string | undefined
+  const hiddenResigned = records.filter((r: any) =>
+    r.employee?.resign_date && periodStart && r.employee.resign_date < periodStart
+  ).length
+
   const filtered   = records.filter((r: any) => {
+    // ── ซ่อนคนลาออกก่อนงวดนี้ ──
+    const resign = r.employee?.resign_date
+    if (resign && periodStart && resign < periodStart) return false
+
     if (filterDept && r.employee?.department?.name !== filterDept) return false
     if (!search) return true
     return `${r.employee?.first_name_th} ${r.employee?.last_name_th} ${r.employee?.employee_code} ${r.employee?.nickname||""}`
@@ -2547,7 +2596,15 @@ export default function PayrollPage() {
                   className="bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-700 outline-none focus:border-indigo-400 w-full"
                   placeholder="ค้นหาชื่อ, รหัส..."/>
               </div>
-              <p className="text-xs text-slate-400 ml-auto">{filtered.length} / {records.length} คน</p>
+              <div className="ml-auto flex items-center gap-2">
+                {hiddenResigned > 0 && (
+                  <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg"
+                    title="ซ่อนคนที่ลาออกก่อนงวดเริ่ม — คงไว้เฉพาะคนที่ลาออกในงวดนี้">
+                    🚪 ซ่อนคนลาออกแล้ว {hiddenResigned} คน
+                  </span>
+                )}
+                <p className="text-xs text-slate-400">{filtered.length} / {records.length} คน</p>
+              </div>
               {/* Export Excel — เปิด smart modal */}
               <button onClick={() => {
                   setShowSmartExport(true)
@@ -2583,6 +2640,68 @@ export default function PayrollPage() {
               <CompactTable records={filtered} totalNet={totalNet} onEdit={setEditing} onView={setPayslip}/>
             )}
           </div>
+
+          {/* ═══ Resigned Pool: ผลค้นหาเพิ่มเติม (คนลาออกแล้ว) ═══ */}
+          {search.trim().length >= 2 && (() => {
+            const lc = search.toLowerCase().trim()
+            const matchedPool = resignedPool.filter((e: any) => {
+              const hay = `${e.first_name_th ?? ""} ${e.last_name_th ?? ""} ${e.nickname ?? ""} ${e.employee_code ?? ""}`.toLowerCase()
+              return hay.includes(lc)
+            })
+            if (matchedPool.length === 0) return null
+            return (
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-gradient-to-r from-slate-50 to-amber-50 px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                  <span className="text-amber-600">🚪</span>
+                  <p className="text-xs font-black text-slate-700">
+                    คนที่ลาออกแล้ว (ตรงคำค้น) — ยังไม่อยู่ในรอบนี้
+                  </p>
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                    {matchedPool.length} คน
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-50">
+                  {matchedPool.map((e: any) => {
+                    const adding = addingEmpId === e.id
+                    return (
+                      <div key={e.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50">
+                        {e.avatar_url
+                          ? <img src={e.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover shrink-0 opacity-60" />
+                          : <div className="w-9 h-9 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs font-bold shrink-0">
+                              {e.first_name_th?.[0] || "?"}
+                            </div>}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-sm font-bold text-slate-700 truncate">
+                              {e.first_name_th} {e.last_name_th}
+                              {e.nickname && <span className="text-slate-400 font-normal ml-1">({e.nickname})</span>}
+                            </p>
+                            <span className="text-[10px] text-slate-400 font-normal">{e.employee_code}</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-200">
+                              🔒 ออกแล้ว · {e.resign_date}
+                            </span>
+                            {e.resigned_in_period && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                                ⚠️ ออกในรอบนี้ — ควรเพิ่ม
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 truncate">
+                            {e.position?.name || "—"} · {e.department?.name || "—"} · {e.company?.code || "—"}
+                          </p>
+                        </div>
+                        <button onClick={() => addResignedToPeriod(e)} disabled={adding}
+                          className="text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
+                          {adding ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
+                          {adding ? "กำลังเพิ่ม..." : "เพิ่มในรอบนี้"}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
 

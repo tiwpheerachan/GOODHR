@@ -359,7 +359,7 @@ async function calcAndSave(
       .eq("id", payroll_period_id)
       .single(),
     supa.from("employees")
-      .select("id, company_id, hire_date, is_attendance_exempt, department:departments(name), company:companies(code)")
+      .select("id, company_id, hire_date, resign_date, is_attendance_exempt, department:departments(name), company:companies(code)")
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
@@ -442,11 +442,18 @@ async function calcAndSave(
   const records = Array.from(recordMap.values())
 
   // ── วันทำงานที่คาดหวัง (อิง shift → profile → fallback จ-ศ) ─────
+  //   หน้าต่าง active = [max(hire, periodStart), min(resign, periodEnd)]
+  //   ✅ Bug fix: เดิมไม่ดู resign_date → คนลาออกแล้วยังถูกนับ absent หลัง resign_date
   const hireDate       = (emp.hire_date as string | null) ?? periodStart
+  const resignDate     = (emp.resign_date as string | null) ?? null
   const effectiveStart = cmp(hireDate, periodStart) > 0 ? hireDate : periodStart
+  const effectiveEnd   = (resignDate && cmp(resignDate, periodEnd) < 0) ? resignDate : periodEnd
   const todayStr       = todayTH()
 
-  const allWorkDays = workDaysBetween(effectiveStart, periodEnd, holidaySet, shiftMap, fixedDayoffs)
+  // ถ้า resign ก่อน period start (resign แล้ว ไม่ควรอยู่ในงวดนี้เลย) → ไม่มี workdays
+  const allWorkDays = (resignDate && cmp(resignDate, periodStart) < 0)
+    ? []
+    : workDaysBetween(effectiveStart, effectiveEnd, holidaySet, shiftMap, fixedDayoffs)
   // ✅ รวมวันนี้ด้วย (<=) เพื่อนับสาย/ขาดของวันนี้ real-time
   const pastWorkDays = allWorkDays.filter(d => cmp(d, todayStr) <= 0)
 
@@ -703,6 +710,12 @@ async function calcAndSave(
     ? Number(existingPR.ot_amount)
     : result.otAmount
 
+  // หักขาดงาน/ลา สุดท้าย: ถ้า HR แก้ไขมือ → ใช้ค่าที่ HR กรอกไว้
+  //   ถ้าไม่ได้แก้มือ → คำนวณจาก attendance + unpaid leave ตามปกติ
+  const finalDeductAbsent = (isManual && existingPR?.deduct_absent != null)
+    ? Number(existingPR.deduct_absent)
+    : result.deductAbsent + deductUnpaidLeave
+
   // ✅ คำนวณ gross/tax จริง (รวม manual OT + commission + other_income + extras)
   const incExtras = existingExtras || {}
   const decExtras = existingDeductExtras || {}
@@ -722,7 +735,7 @@ async function calcAndSave(
         return result.tax
       })()
   const finalSso = result.sso
-  const finalTotalDeduct = result.deductAbsent + result.deductLate + result.deductEarlyOut + loanDeduction + finalSso + finalTax + deductUnpaidLeave + manualDeductOther + decExtrasTotal
+  const finalTotalDeduct = finalDeductAbsent + result.deductLate + result.deductEarlyOut + loanDeduction + finalSso + finalTax + manualDeductOther + decExtrasTotal
 
   // ── upsert ────────────────────────────────────────────────────
   const payload: Record<string, unknown> = {
@@ -755,9 +768,9 @@ async function calcAndSave(
     // (calculatePayrollSummary ใช้ effectiveBase แล้ว)
     // ✅ ค่าผลคำนวณ → คำนวณใหม่เสมอจาก finalGross/finalTax
     gross_income:           finalGross,
-    // ✅ รวม unpaid leave เข้า deduct_absent (label "หักขาดงาน/ลา" ครอบคลุมทั้ง 2)
-    //    ป้องกัน bug เดิม: unpaid leave อยู่ใน deduct_other ที่ถูก lock โดย is_manual_override
-    deduct_absent:          result.deductAbsent + deductUnpaidLeave,
+    // ✅ หักขาดงาน/ลา: respect manual override (HR แก้มือแล้วไม่ถูกเขียนทับ)
+    //    ไม่แก้มือ → รวม unpaid leave เข้า deduct_absent (label "หักขาดงาน/ลา" ครอบคลุมทั้ง 2)
+    deduct_absent:          finalDeductAbsent,
     deduct_late:            result.deductLate,
     deduct_early_out:       result.deductEarlyOut,
     deduct_loan:            loanDeduction,
