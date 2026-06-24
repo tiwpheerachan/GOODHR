@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const supa = createServiceClient()
-    const { employee_id, promotion_id } = await req.json()
+    const { employee_id, promotion_id, mark_end_today } = await req.json()
 
     if (!employee_id) return NextResponse.json({ error: "employee_id จำเป็น" }, { status: 400 })
 
@@ -47,6 +47,8 @@ export async function POST(req: Request) {
     // 1. เปลี่ยนสถานะพนักงาน → active
     const empUpdate: any = { employment_status: "active" }
     if (promo?.new_position_id) empUpdate.position_id = promo.new_position_id
+    // ผ่านก่อนกำหนด → บันทึกวันสิ้นสุดทดลองงานจริงเป็นวันนี้
+    if (mark_end_today) empUpdate.probation_end_date = today
 
     await supa.from("employees").update(empUpdate).eq("id", employee_id)
 
@@ -113,7 +115,7 @@ export async function POST(req: Request) {
       employeeId: employee_id,
       employeeName: `${emp.first_name_th} ${emp.last_name_th}`,
       companyId: emp.company_id,
-      changes: { employment_status: { old: "probation", new: "active" } },
+      changes: { employment_status: { old: emp.employment_status, new: "active" } },
     })
 
     return NextResponse.json({

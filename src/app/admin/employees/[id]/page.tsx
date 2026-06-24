@@ -67,6 +67,7 @@ export default function EmployeeDetailPage() {
   // promote (pass probation)
   const [promotion, setPromotion] = useState<any>(null)
   const [promoteLoading, setPromoteLoading] = useState(false)
+  const [showPromoteConfirm, setShowPromoteConfirm] = useState(false)
   // delete modal
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleteReason, setDeleteReason] = useState("")
@@ -402,12 +403,12 @@ export default function EmployeeDetailPage() {
     finally { setResignLoading(false) }
   }
 
-  const handlePromote = async () => {
+  const handlePromote = async (opts?: { markEndToday?: boolean }) => {
     setPromoteLoading(true)
     try {
       const res = await fetch("/api/employees/promote", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_id: id, promotion_id: promotion?.id }),
+        body: JSON.stringify({ employee_id: id, promotion_id: promotion?.id, mark_end_today: !!opts?.markEndToday }),
       })
       const data = await res.json()
       if (!res.ok) { toast.error(data.error || "เกิดข้อผิดพลาด"); return }
@@ -416,6 +417,21 @@ export default function EmployeeDetailPage() {
     } catch { toast.error("เกิดข้อผิดพลาด") }
     finally { setPromoteLoading(false) }
   }
+
+  // จำนวนวันที่เหลือก่อนครบกำหนดทดลองงาน (>0 = ยังไม่ครบ → ผ่านก่อนกำหนด)
+  const _todayISO = format(new Date(), "yyyy-MM-dd")
+  const probationDaysLeft: number | null = emp?.probation_end_date
+    ? Math.round(
+        (new Date(emp.probation_end_date + "T00:00:00").getTime() -
+          new Date(_todayISO + "T00:00:00").getTime()) / 86_400_000,
+      )
+    : null
+  const isEarlyPass = probationDaysLeft != null && probationDaysLeft > 0
+  // แสดงปุ่มผ่านทดลองงานเมื่อ: สถานะ = ทดลองงาน หรือ ยังอยู่ในช่วงทดลองงาน (วันสิ้นสุดยังไม่ถึง)
+  //   ยกเว้นคนที่ลาออก/เลิกจ้างแล้ว
+  const showProbationPass = !!emp &&
+    !["resigned", "terminated"].includes(emp.employment_status) &&
+    (emp.employment_status === "probation" || isEarlyPass)
 
   const handleDelete = async () => {
     setDeleteLoading(true)
@@ -489,7 +505,7 @@ export default function EmployeeDetailPage() {
       )}
 
       {/* ── Probation promotion banner ── */}
-      {emp.employment_status === "probation" && (
+      {showProbationPass && (
         <div className={`rounded-2xl px-5 py-4 flex items-center gap-4 ${
           promotion
             ? "bg-amber-50 border-2 border-amber-300"
@@ -514,11 +530,11 @@ export default function EmployeeDetailPage() {
             )}
           </div>
           <button
-            onClick={handlePromote}
+            onClick={() => setShowPromoteConfirm(true)}
             disabled={promoteLoading}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 transition-all shadow-sm flex-shrink-0">
             {promoteLoading ? <Loader2 size={13} className="animate-spin"/> : <CheckCircle2 size={13}/>}
-            ยืนยันผ่านทดลองงาน
+            {isEarlyPass ? "ยืนยันผ่านทดลองงานก่อนกำหนด" : "ยืนยันผ่านทดลองงาน"}
           </button>
         </div>
       )}
@@ -732,6 +748,43 @@ export default function EmployeeDetailPage() {
         {/* ── Tab 2: การจ้างงาน ── */}
         {tab === 2 && <>
           <h3 className="font-bold text-slate-800 mb-4">ข้อมูลการจ้างงาน</h3>
+
+          {/* ── ทดลองงาน: ยืนยันผ่านก่อนกำหนด ── */}
+          {showProbationPass && (
+            <div className="mb-5 rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/40 p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <CalendarClock size={18} className="text-amber-600"/>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-amber-800 text-sm">อยู่ในช่วงทดลองงาน</p>
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    {emp.probation_end_date
+                      ? <>ครบกำหนด {format(new Date(emp.probation_end_date + "T00:00:00"), "d MMMM yyyy", { locale: th })}
+                          {isEarlyPass && <span className="font-bold"> · เหลืออีก {probationDaysLeft} วัน</span>}
+                          {probationDaysLeft != null && probationDaysLeft <= 0 && <span className="font-bold"> · ครบกำหนดแล้ว</span>}
+                        </>
+                      : "ยังไม่ได้กำหนดวันสิ้นสุดทดลองงาน"}
+                  </p>
+                  {promotion && (
+                    <p className="text-xs text-amber-700 mt-1 bg-amber-100/60 rounded-lg px-2 py-1 inline-block">
+                      มีการตั้งค่าหลังผ่านทดลองงานรออยู่
+                      {promotion.base_salary && ` · เงินเดือนใหม่ ฿${(+promotion.base_salary).toLocaleString()}`}
+                      {promotion.new_position?.name && ` · ตำแหน่ง "${promotion.new_position.name}"`}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPromoteConfirm(true)}
+                disabled={promoteLoading}
+                className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 transition-all shadow-sm">
+                {promoteLoading ? <Loader2 size={15} className="animate-spin"/> : <CheckCircle2 size={15}/>}
+                {isEarlyPass ? "ยืนยันผ่านทดลองงานก่อนกำหนด" : "ยืนยันผ่านทดลองงาน"}
+              </button>
+            </div>
+          )}
 
           {/* บริษัทที่สังกัด */}
           <div className="mb-4 p-3 rounded-xl border-2 border-blue-100 bg-blue-50/50">
@@ -1121,6 +1174,61 @@ export default function EmployeeDetailPage() {
       )}
 
       {/* ═══════════ Resign Modal ═══════════ */}
+      {/* ═══════════ Promote (pass probation) Modal ═══════════ */}
+      {showPromoteConfirm && emp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 mx-4">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-11 h-11 rounded-2xl bg-amber-100 flex items-center justify-center">
+                <CheckCircle2 size={20} className="text-amber-600"/>
+              </div>
+              <div>
+                <h3 className="font-black text-slate-800 text-lg">
+                  {isEarlyPass ? "ยืนยันผ่านทดลองงานก่อนกำหนด" : "ยืนยันผ่านทดลองงาน"}
+                </h3>
+                <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
+              </div>
+            </div>
+
+            {isEarlyPass && (
+              <div className="mb-4 flex items-center gap-2 bg-amber-100/70 border border-amber-200 rounded-xl px-3 py-2">
+                <CalendarClock size={15} className="text-amber-600 flex-shrink-0"/>
+                <p className="text-xs text-amber-800">
+                  ผ่านเร็วกว่ากำหนดเดิม <span className="font-black">{probationDaysLeft} วัน</span>
+                  {emp.probation_end_date && <> (เดิมครบ {format(new Date(emp.probation_end_date + "T00:00:00"), "d MMM yyyy", { locale: th })})</>}
+                </p>
+              </div>
+            )}
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+              <p className="text-xs font-bold text-slate-700 mb-1.5">สิ่งที่จะเกิดขึ้น:</p>
+              <ul className="text-xs text-slate-600 space-y-1 ml-3 list-disc">
+                <li>เปลี่ยนสถานะเป็น &quot;ปกติ&quot; (พ้นทดลองงาน)</li>
+                <li>บันทึกวันสิ้นสุดทดลองงานเป็นวันนี้ ({format(new Date(), "d MMM yyyy", { locale: th })})</li>
+                {promotion?.base_salary && <li>ปรับเงินเดือนใหม่ ฿{(+promotion.base_salary).toLocaleString()}</li>}
+                {promotion?.new_position?.name && <li>เปลี่ยนตำแหน่งเป็น &quot;{promotion.new_position.name}&quot;</li>}
+                {promotion?.kpi_standard_amount != null && <li>ตั้งค่า KPI ฿{(+promotion.kpi_standard_amount).toLocaleString()}</li>}
+                {!promotion && <li className="text-slate-400">ไม่มีการตั้งค่าเงินเดือน/ตำแหน่งใหม่รออยู่ (เปลี่ยนเฉพาะสถานะ)</li>}
+              </ul>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowPromoteConfirm(false)} disabled={promoteLoading}
+                className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-50 transition-all">
+                ยกเลิก
+              </button>
+              <button
+                onClick={async () => { setShowPromoteConfirm(false); await handlePromote({ markEndToday: true }) }}
+                disabled={promoteLoading}
+                className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                {promoteLoading ? <Loader2 size={14} className="animate-spin"/> : <CheckCircle2 size={14}/>}
+                ยืนยันผ่านทดลองงาน
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showResignModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 mx-4">

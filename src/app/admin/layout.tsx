@@ -17,6 +17,7 @@ const SIDEBAR = [
   { href: "/admin/org",                  icon: Network,         label: "โครงสร้าง",      badge: null as string|null },
   { href: "/admin/org-chart",            icon: Network,         label: "ผังองค์กร",      badge: null as string|null },
   { href: "/admin/employees",            icon: Users,           label: "พนักงาน",       badge: null as string|null },
+  { href: "/admin/brands",                icon: Store,           label: "แบรนด์",         badge: null as string|null },
   { href: "/admin/permissions",          icon: ShieldCheck,     label: "บทบาท / สิทธิ์",  badge: null as string|null },
   { href: "/admin/feishu-users",         icon: Link2,           label: "Feishu Mapping", badge: null as string|null },
   { href: "/admin/probation-employees",  icon: Briefcase,       label: "พนักงานทดลองงาน", badge: null as string|null },
