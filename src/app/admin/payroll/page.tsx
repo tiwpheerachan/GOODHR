@@ -149,7 +149,7 @@ const REG_COLS: RCol[] = [
   //           perf bonus + ค่าบริการ + เดินทาง + อาหาร + โทรศัพท์ + ที่พัก + ค่าเสื่อมรถยนต์ + เบี้ยอื่น +
   //           ค่าเสื่อมสภาพ + ค่าทางด่วน + ค่าน้ำมัน + แคมเปญ + retirement + เบี้ยเลี้ยง + เบี้ยขยัน + referral + อื่นๆ
   //   หัก:     late + early + absent + suspension + เงินหักอื่นๆ
-  { key:"tax_base",    label:"Tax",                  group:"deduction", get:r=>{
+  { key:"tax_base",    label:"รายได้คำนวนภาษีรายเดือน", group:"deduction", get:r=>{
     const rc  = recomputePayroll(applyAutoProrate(r))
     const ie  = r.income_extras || {}
     const de  = r.deduction_extras || {}

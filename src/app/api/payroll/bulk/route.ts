@@ -184,7 +184,7 @@ export async function POST(req: Request) {
   // ── Pre-fetch leave requests ทุกคนในงวดนี้ (1 query) ────────────
   const { data: allLeaves } = await supa
     .from("leave_requests")
-    .select("employee_id, start_date, end_date, leave_type:leave_types(is_paid)")
+    .select("employee_id, start_date, end_date, is_half_day, leave_type:leave_types(is_paid)")
     .in("employee_id", employee_ids)
     .eq("status", "approved")
     .lte("start_date", periodEnd)
@@ -375,8 +375,10 @@ export async function POST(req: Request) {
               }
               cur = addDays(cur, 1)
             }
-            if (l.leave_type?.is_paid) leavePaidDays += cnt
-            else leaveUnpaidDays += cnt
+            // ✅ ลาครึ่งวัน → นับเป็น 0.5 วัน (หักครึ่งวัน ไม่ใช่เต็มวัน)
+            const units = l.is_half_day ? cnt * 0.5 : cnt
+            if (l.leave_type?.is_paid) leavePaidDays += units
+            else leaveUnpaidDays += units
           }
 
           // Absent calc

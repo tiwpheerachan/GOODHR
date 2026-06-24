@@ -454,7 +454,7 @@ async function calcAndSave(
   // overlap condition: leave.start_date <= periodEnd AND leave.end_date >= periodStart
   const { data: leaveData } = await supa
     .from("leave_requests")
-    .select("start_date, end_date, leave_type:leave_types(is_paid)")
+    .select("start_date, end_date, is_half_day, leave_type:leave_types(is_paid)")
     .eq("employee_id", employee_id)
     .eq("status", "approved")
     .lte("start_date", periodEnd)
@@ -479,8 +479,10 @@ async function calcAndSave(
       }
       cur = addDays(cur, 1)
     }
-    if (l.leave_type?.is_paid) leavePaidDays   += cnt
-    else                       leaveUnpaidDays  += cnt
+    // ✅ ลาครึ่งวัน → นับเป็น 0.5 วัน (หักครึ่งวัน ไม่ใช่เต็มวัน)
+    const units = l.is_half_day ? cnt * 0.5 : cnt
+    if (l.leave_type?.is_paid) leavePaidDays   += units
+    else                       leaveUnpaidDays  += units
   }
 
   // ── นับวันขาดงาน ──────────────────────────────────────────────
