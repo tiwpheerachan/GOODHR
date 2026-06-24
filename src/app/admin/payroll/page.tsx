@@ -1963,6 +1963,9 @@ export default function PayrollPage() {
   const [filterDept,   setFilterDept]   = useState("")
   const [resignedPool, setResignedPool] = useState<any[]>([])
   const [addingEmpId,  setAddingEmpId]  = useState<string | null>(null)
+  // คนลาออกก่อนงวด → ซ่อนไว้ default; HR กดดู/กู้คืนให้แสดงในรอบนี้
+  const [showHiddenModal,    setShowHiddenModal]    = useState(false)
+  const [restoredResignedIds, setRestoredResignedIds] = useState<Set<string>>(new Set())
   const [viewMode,     setViewMode]     = useState<"compact"|"full">("full")
   const [showTxtExport, setShowTxtExport] = useState(false)
   const [txtExclude,   setTxtExclude]   = useState<Set<string>>(new Set())
@@ -2078,6 +2081,7 @@ export default function PayrollPage() {
   //   ใช้ตอน search ใน /admin/payroll ผู้ใช้พิมพ์ชื่อคนลาออก → จะเจอเป็น "ผลลัพธ์เพิ่มเติม" + ปุ่ม "+ เพิ่มในรอบนี้"
   useEffect(() => {
     setResignedPool([])
+    setRestoredResignedIds(new Set())  // เปลี่ยนงวด → รีเซ็ตการกู้คืน
     if (!selected?.id || selected._isAllCo) return
     fetch(`/api/payroll/resigned-pool?period_id=${selected.id}`)
       .then(r => r.json())
@@ -2378,14 +2382,19 @@ export default function PayrollPage() {
   //   แสดง: คนยังทำงานอยู่ + คนที่ลาออกในงวดนี้ (ยังต้องคำนวณเงินสุดท้าย)
   //   ซ่อน: คนที่ลาออกไปก่อนงวดเริ่ม
   const periodStart = selected?.start_date as string | undefined
-  const hiddenResigned = records.filter((r: any) =>
+  // คนที่ลาออกก่อนงวดเริ่ม (ยังมี payroll record อยู่ แต่ default ซ่อน)
+  const resignedBeforePeriod = records.filter((r: any) =>
     r.employee?.resign_date && periodStart && r.employee.resign_date < periodStart
+  )
+  // ที่ยังซ่อนจริง = ยังไม่ได้กดกู้คืน
+  const hiddenResigned = resignedBeforePeriod.filter(
+    (r: any) => !restoredResignedIds.has(r.employee_id)
   ).length
 
   const filtered   = records.filter((r: any) => {
-    // ── ซ่อนคนลาออกก่อนงวดนี้ ──
+    // ── ซ่อนคนลาออกก่อนงวดนี้ (เว้นที่ HR กดกู้คืนแล้ว) ──
     const resign = r.employee?.resign_date
-    if (resign && periodStart && resign < periodStart) return false
+    if (resign && periodStart && resign < periodStart && !restoredResignedIds.has(r.employee_id)) return false
 
     if (filterDept && r.employee?.department?.name !== filterDept) return false
     if (!search) return true
@@ -2597,11 +2606,13 @@ export default function PayrollPage() {
                   placeholder="ค้นหาชื่อ, รหัส..."/>
               </div>
               <div className="ml-auto flex items-center gap-2">
-                {hiddenResigned > 0 && (
-                  <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg"
-                    title="ซ่อนคนที่ลาออกก่อนงวดเริ่ม — คงไว้เฉพาะคนที่ลาออกในงวดนี้">
+                {(hiddenResigned > 0 || restoredResignedIds.size > 0) && (
+                  <button onClick={() => setShowHiddenModal(true)}
+                    className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
+                    title="คลิกเพื่อดูรายชื่อคนลาออกที่ถูกซ่อน และกู้คืนเข้ารอบนี้">
                     🚪 ซ่อนคนลาออกแล้ว {hiddenResigned} คน
-                  </span>
+                    {restoredResignedIds.size > 0 && <span className="ml-1 text-emerald-600">· กู้คืน {restoredResignedIds.size}</span>}
+                  </button>
                 )}
                 <p className="text-xs text-slate-400">{filtered.length} / {records.length} คน</p>
               </div>
@@ -2702,6 +2713,97 @@ export default function PayrollPage() {
               </div>
             )
           })()}
+        </div>
+      )}
+
+      {/* ═══ Modal: คนลาออกก่อนงวดที่ถูกซ่อน — ดู / กู้คืนเข้ารอบนี้ ═══ */}
+      {showHiddenModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setShowHiddenModal(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-amber-50 to-rose-50 px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+              <span className="text-lg">🚪</span>
+              <div className="flex-1">
+                <p className="text-sm font-black text-slate-700">คนลาออกที่ถูกซ่อนในรอบนี้</p>
+                <p className="text-[11px] text-slate-400">ลาออกก่อนงวดเริ่ม ({periodStart}) — กดกู้คืนเพื่อนำกลับเข้าระบบคิดเงินเดือนรอบนี้</p>
+              </div>
+              <button onClick={() => setShowHiddenModal(false)} className="p-1.5 rounded-lg hover:bg-white/60 text-slate-400">
+                <X size={16}/>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
+              {resignedBeforePeriod.length === 0 ? (
+                <div className="py-12 text-center text-slate-300">
+                  <Users size={32} className="mx-auto mb-2"/>
+                  <p className="text-sm font-semibold">ไม่มีคนลาออกที่ถูกซ่อนในรอบนี้</p>
+                </div>
+              ) : resignedBeforePeriod.map((r: any) => {
+                const restored = restoredResignedIds.has(r.employee_id)
+                const e = r.employee || {}
+                return (
+                  <div key={r.id} className={`flex items-center gap-3 px-5 py-3 ${restored ? "bg-emerald-50/40" : "hover:bg-slate-50"}`}>
+                    {e.avatar_url
+                      ? <img src={e.avatar_url} alt="" className={`w-9 h-9 rounded-full object-cover shrink-0 ${restored ? "" : "opacity-60"}`} />
+                      : <div className="w-9 h-9 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs font-bold shrink-0">
+                          {e.first_name_th?.[0] || "?"}
+                        </div>}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-sm font-bold text-slate-700 truncate">
+                          {e.first_name_th} {e.last_name_th}
+                          {e.nickname && <span className="text-slate-400 font-normal ml-1">({e.nickname})</span>}
+                        </p>
+                        <span className="text-[10px] text-slate-400 font-normal">{e.employee_code}</span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-200">
+                          🔒 ออกแล้ว · {e.resign_date}
+                        </span>
+                        {restored && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-300">
+                            ✓ กู้คืนแล้ว
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400 truncate">
+                        {e.position?.name || "—"} · {e.department?.name || "—"} · {e.company?.code || "—"}
+                        {" · "}รับสุทธิ ฿{thb(recomputePayroll(applyAutoProrate(r)).net)}
+                      </p>
+                    </div>
+                    {restored ? (
+                      <button onClick={() => setRestoredResignedIds(prev => { const s = new Set(prev); s.delete(r.employee_id); return s })}
+                        className="text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
+                        <X size={11}/> ซ่อนอีกครั้ง
+                      </button>
+                    ) : (
+                      <button onClick={() => setRestoredResignedIds(prev => new Set(prev).add(r.employee_id))}
+                        className="text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
+                        <RotateCcw size={11}/> กู้คืนเข้ารอบนี้
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-2">
+              <p className="text-[11px] text-slate-400">
+                ซ่อน {hiddenResigned} · กู้คืน {restoredResignedIds.size} จากทั้งหมด {resignedBeforePeriod.length} คน
+              </p>
+              <div className="flex items-center gap-2">
+                {restoredResignedIds.size > 0 && (
+                  <button onClick={() => setRestoredResignedIds(new Set())}
+                    className="text-[11px] font-bold text-slate-500 hover:text-slate-700 px-3 py-1.5">
+                    ซ่อนทั้งหมดอีกครั้ง
+                  </button>
+                )}
+                <button onClick={() => setRestoredResignedIds(new Set(resignedBeforePeriod.map((r: any) => r.employee_id)))}
+                  className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg">
+                  กู้คืนทั้งหมด
+                </button>
+                <button onClick={() => setShowHiddenModal(false)}
+                  className="text-[11px] font-bold text-white bg-slate-700 hover:bg-slate-800 px-4 py-1.5 rounded-lg">
+                  เสร็จสิ้น
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
