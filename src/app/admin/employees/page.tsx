@@ -361,6 +361,7 @@ export default function EmployeesPage() {
     const empIds = data.map((e: any) => e.id).filter(Boolean)
     const salMap: Record<string, number> = {}
     const kpiMap: Record<string, number> = {}
+    const reasonMap: Record<string, string> = {}
     if (empIds.length > 0) {
       const { data: sals } = await supabase.from("salary_structures")
         .select("employee_id, base_salary")
@@ -371,15 +372,25 @@ export default function EmployeesPage() {
         .select("employee_id, standard_amount")
         .in("employee_id", empIds).eq("is_active", true)
       for (const k of (kpis ?? [])) if (!(k.employee_id in kpiMap)) kpiMap[k.employee_id] = Number(k.standard_amount) || 0
+      // เหตุผลลาออก: เริ่มจาก resignation_history (รายการ resign ล่าสุด)
+      const { data: rh } = await supabase.from("resignation_history")
+        .select("employee_id, reason, created_at")
+        .in("employee_id", empIds).eq("action", "resign").not("reason", "is", null)
+        .order("created_at", { ascending: false })
+      for (const r of (rh ?? [])) if (!(r.employee_id in reasonMap)) reasonMap[r.employee_id] = r.reason
+      // override ด้วย employees.resign_reason (ที่ HR แก้ในแท็บลาออก) — tolerant ถ้ายังไม่ migrate
+      const { data: rr } = await supabase.from("employees").select("id, resign_reason").in("id", empIds)
+      if (rr) for (const r of rr) if (r.resign_reason) reasonMap[r.id] = r.resign_reason
     }
 
-    const hdr  = ["รหัส","บริษัท","ชื่อ","นามสกุล","ชื่อเล่น","เพศ","โทร","อีเมล","วันเริ่มงาน","วันลาออก","อายุงาน","สถานะ","ประเภท","ตำแหน่ง","แผนก","สาขา","แบรนด์","เลขที่บัตรประชาชน","เลขที่บัญชี","ธนาคาร","เงินเดือน","KPI"]
+    const hdr  = ["รหัส","บริษัท","ชื่อ","นามสกุล","ชื่อเล่น","เพศ","โทร","อีเมล","วันเริ่มงาน","วันลาออก","เหตุผลลาออก","อายุงาน","สถานะ","ประเภท","ตำแหน่ง","แผนก","สาขา","แบรนด์","เลขที่บัตรประชาชน","เลขที่บัญชี","ธนาคาร","เงินเดือน","KPI"]
     const cell = (v: any) => { const s = (v == null ? "" : String(v)).replace(/"/g, '""'); return /[",\n]/.test(s) ? `"${s}"` : s }
     const rows = data.map((e: any) => [
       e.employee_code, (e.company as any)?.name_th,
       e.first_name_th, e.last_name_th, e.nickname, e.gender, e.phone, e.email,
       e.hire_date ? format(new Date(e.hire_date), "dd/MM/yyyy") : "",
       e.resign_date ? format(new Date(e.resign_date), "dd/MM/yyyy") : "",
+      reasonMap[e.id] || "",
       calcTenure(e.hire_date),
       STATUS[e.employment_status]?.l, EMP_TYPE[e.employment_type] || e.employment_type,
       (e.position as any)?.name, (e.department as any)?.name, (e.branch as any)?.name,

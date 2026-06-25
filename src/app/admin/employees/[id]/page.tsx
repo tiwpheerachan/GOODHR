@@ -21,7 +21,7 @@ import BrandsTab from "@/components/employees/BrandsTab"
 import EmployeeBorrowingTab from "@/components/employees/EmployeeBorrowingTab"
 import EmployeeShaderBg from "@/components/ui/employee-shader-bg"
 
-const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท","โควต้าการลา","สาย/ผู้ประเมิน","🏷️ แบรนด์ที่ดูแล","🔗 Feishu Link","📦 ของที่ยืม"]
+const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท","โควต้าการลา","สาย/ผู้ประเมิน","🏷️ แบรนด์ที่ดูแล","🔗 Feishu Link","📦 ของที่ยืม","🚪 ลาออก/หลักฐาน"]
 const inp = "input-field"
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -64,6 +64,12 @@ export default function EmployeeDetailPage() {
   const [resignLoading, setResignLoading] = useState(false)
   const [resignHistory, setResignHistory] = useState<any[]>([])
   const [showReinstateModal, setShowReinstateModal] = useState(false)
+  // ── แท็บลาออก: เหตุผล + หลักฐาน ──
+  const [resignReasonEdit,    setResignReasonEdit]    = useState("")
+  const [resignAttach,        setResignAttach]        = useState<Array<{ url: string; name: string; size?: number }>>([])
+  const [resignAttachUploading, setResignAttachUploading] = useState(false)
+  const [resignTabSaving,     setResignTabSaving]     = useState(false)
+  const resignFileRef = useRef<HTMLInputElement>(null)
   // promote (pass probation)
   const [promotion, setPromotion] = useState<any>(null)
   const [promoteLoading, setPromoteLoading] = useState(false)
@@ -142,6 +148,8 @@ export default function EmployeeDetailPage() {
     ]).then(([e, s, h, kpi, resign, promo, comp]) => {
       if (e.data) {
         setEmp(e.data); setForm(e.data)
+        setResignReasonEdit(e.data.resign_reason || "")
+        setResignAttach(Array.isArray(e.data.resign_attachments) ? e.data.resign_attachments : [])
         // ── โหลด kpi_evaluator แยก (column อาจยังไม่มีถ้ายังไม่รัน migration) ──
         if (e.data.kpi_evaluator_id) {
           supabase.from("employees").select("id,first_name_th,last_name_th,employee_code")
@@ -390,6 +398,44 @@ export default function EmployeeDetailPage() {
       window.location.reload()
     } catch { toast.error("เกิดข้อผิดพลาด") }
     finally { setResignLoading(false) }
+  }
+
+  // ── แท็บลาออก: อัปโหลดหลักฐาน / บันทึก ──
+  const uploadResignFiles = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const files = ev.target.files
+    if (!files || files.length === 0) return
+    if (resignAttach.length + files.length > 10) { toast.error("แนบได้สูงสุด 10 ไฟล์"); return }
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].size > 10 * 1024 * 1024) { toast.error(`ไฟล์ ${files[i].name} ใหญ่เกิน 10 MB`); return }
+    }
+    setResignAttachUploading(true)
+    try {
+      const fd = new FormData()
+      for (let i = 0; i < files.length; i++) fd.append("files", files[i])
+      const res = await fetch("/api/leave/upload", { method: "POST", body: fd })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error || "อัปโหลดไม่สำเร็จ"); return }
+      const newFiles = (json.files ?? [{ url: json.url, name: json.name }])
+        .map((f: any, i: number) => ({ url: f.url, name: f.name, size: files[i]?.size }))
+      setResignAttach(prev => [...prev, ...newFiles])
+      toast.success(`อัปโหลด ${newFiles.length} ไฟล์แล้ว`)
+    } catch { toast.error("อัปโหลดไม่สำเร็จ") }
+    finally { setResignAttachUploading(false); if (resignFileRef.current) resignFileRef.current.value = "" }
+  }
+
+  const saveResignInfo = async () => {
+    setResignTabSaving(true)
+    try {
+      const { error } = await supabase.from("employees").update({
+        resign_reason: resignReasonEdit || null,
+        resign_attachments: resignAttach,
+        resign_date: form.resign_date || null,
+      }).eq("id", id as string)
+      if (error) { toast.error(error.message.includes("resign_reason") ? "ยังไม่ได้รัน migration (เพิ่มคอลัมน์ resign_reason)" : error.message); return }
+      toast.success("บันทึกข้อมูลการลาออกแล้ว")
+      setEmp((p: any) => ({ ...p, resign_reason: resignReasonEdit, resign_attachments: resignAttach }))
+    } catch (e: any) { toast.error(e.message || "บันทึกไม่สำเร็จ") }
+    finally { setResignTabSaving(false) }
   }
 
   const handleReinstate = async () => {
@@ -1151,6 +1197,85 @@ export default function EmployeeDetailPage() {
             employeeFirstNameEn={emp?.first_name_en ?? undefined}
           />
         )}
+
+        {/* ── Tab 14: ลาออก / หลักฐาน ── */}
+        {tab === 14 && <>
+          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><UserX size={16} className="text-rose-500"/>ข้อมูลการลาออก + หลักฐาน</h3>
+
+          {/* สถานะ */}
+          <div className={`mb-4 p-3 rounded-xl border ${(emp.employment_status === "resigned" || emp.employment_status === "terminated") ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200"}`}>
+            <p className="text-sm font-bold text-slate-700">
+              สถานะ: {empStatusMap[emp.employment_status] || emp.employment_status}
+            </p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {(emp.employment_status === "resigned" || emp.employment_status === "terminated")
+                ? "บันทึกเหตุผล + แนบหลักฐานการลาออกได้ที่นี่"
+                : "พนักงานยังทำงานอยู่ — บันทึกล่วงหน้าได้ หรือกดปุ่ม \"แจ้งลาออก\" ด้านบนเพื่อเปลี่ยนสถานะ"}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">วันที่ลาออกมีผล</label>
+              <input type="date" value={form.resign_date || ""} onChange={e => set("resign_date", e.target.value)} className={inp}/>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">เหตุผลการลาออก</label>
+            <textarea value={resignReasonEdit} onChange={e => setResignReasonEdit(e.target.value)}
+              className={inp + " h-28 resize-none"} placeholder="เช่น ลาออกเอง, ย้ายงาน, ไม่ผ่านทดลองงาน, สิ้นสุดสัญญา, เลิกจ้าง..."/>
+          </div>
+
+          {/* แนบหลักฐาน */}
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">แนบรูป / หลักฐาน (ใบลาออก ฯลฯ) — สูงสุด 10 ไฟล์</label>
+            <input ref={resignFileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx" onChange={uploadResignFiles} className="hidden"/>
+            <button type="button" onClick={() => resignFileRef.current?.click()} disabled={resignAttachUploading}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-white border-2 border-dashed border-rose-300 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60 transition-colors">
+              {resignAttachUploading ? <><Loader2 size={13} className="animate-spin"/> กำลังอัปโหลด...</> : <><Plus size={13}/> {resignAttach.length > 0 ? "เพิ่มไฟล์" : "แนบรูป/ไฟล์หลักฐาน"}</>}
+            </button>
+            {resignAttach.length > 0 && (
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {resignAttach.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2">
+                    {/\.(png|jpe?g|webp|gif)$/i.test(f.url)
+                      ? <img src={f.url} alt="" className="w-9 h-9 rounded object-cover shrink-0"/>
+                      : <div className="w-9 h-9 rounded bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-500 shrink-0">FILE</div>}
+                    <a href={f.url} target="_blank" rel="noreferrer" className="flex-1 min-w-0 text-xs text-indigo-600 truncate hover:underline">{f.name}</a>
+                    <button type="button" onClick={() => setResignAttach(prev => prev.filter((_, x) => x !== i))}
+                      className="w-6 h-6 rounded-full bg-slate-100 hover:bg-red-100 flex items-center justify-center shrink-0">
+                      <X size={12} className="text-slate-400 hover:text-red-500"/>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button onClick={saveResignInfo} disabled={resignTabSaving} className="btn-primary mt-4 flex items-center gap-2">
+            {resignTabSaving && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึกข้อมูลการลาออก
+          </button>
+
+          {/* ประวัติการลาออก/ดึงกลับ */}
+          {resignHistory.length > 0 && (
+            <div className="mt-6">
+              <p className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2">ประวัติการลาออก / ดึงกลับ</p>
+              <div className="space-y-1.5">
+                {resignHistory.map((h: any) => (
+                  <div key={h.id} className="flex items-center gap-2 text-xs bg-slate-50 rounded-lg px-3 py-2">
+                    <span className={`font-bold px-2 py-0.5 rounded ${h.action === "resign" ? "bg-rose-100 text-rose-600" : "bg-emerald-100 text-emerald-600"}`}>
+                      {h.action === "resign" ? "ลาออก" : "ดึงกลับ"}
+                    </span>
+                    {h.resign_date && <span className="text-slate-500">{format(new Date(h.resign_date + "T00:00:00"), "d MMM yyyy", { locale: th })}</span>}
+                    {h.reason && <span className="text-slate-600 truncate">· {h.reason}</span>}
+                    <span className="text-slate-300 ml-auto whitespace-nowrap">{h.created_at ? format(new Date(h.created_at), "d MMM yy", { locale: th }) : ""}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>}
 
         </div>  {/* end main content */}
       </div>  {/* end grid 2-column */}

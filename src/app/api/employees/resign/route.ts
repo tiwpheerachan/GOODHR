@@ -57,6 +57,11 @@ export async function POST(req: Request) {
 
       if (updErr) return NextResponse.json({ error: updErr.message }, { status: 400 })
 
+      // 1.5 เก็บเหตุผลล่าสุดบน employees ด้วย (เผื่อยังไม่ migrate column → error ก็ข้ามไป ไม่ล้ม flow)
+      if (resign_reason) {
+        await supa.from("employees").update({ resign_reason }).eq("id", employee_id)
+      }
+
       // 2. บันทึกประวัติการลาออก (ลงใน resignation_history)
       // ถ้ามี table resignation_history ให้ insert — ถ้าไม่มีก็ข้ามไป
       await supa.from("resignation_history").insert({
