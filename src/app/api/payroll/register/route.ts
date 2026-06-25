@@ -162,6 +162,7 @@ export async function PATCH(req: Request) {
     "gross_income", "total_deductions", "net_salary",
     "income_extras", "deduction_extras", "note_override", "is_manual_override",
     "prorate_days",  // ✅ จำนวนวันทำงานจริง (สำหรับ prorate)
+    "keep_in_period", // ✅ กู้คืนพนักงานลาออกให้คงอยู่ในงวดนี้ (จ่ายงวดสุดท้าย)
   ]
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() }

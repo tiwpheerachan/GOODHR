@@ -1964,8 +1964,9 @@ export default function PayrollPage() {
   const [resignedPool, setResignedPool] = useState<any[]>([])
   const [addingEmpId,  setAddingEmpId]  = useState<string | null>(null)
   // คนลาออกก่อนงวด → ซ่อนไว้ default; HR กดดู/กู้คืนให้แสดงในรอบนี้
+  //   สถานะกู้คืนเก็บถาวรในคอลัมน์ payroll_records.keep_in_period (ไม่ใช่ client state → ไม่เด้งกลับ)
   const [showHiddenModal,    setShowHiddenModal]    = useState(false)
-  const [restoredResignedIds, setRestoredResignedIds] = useState<Set<string>>(new Set())
+  const [keepSaving,         setKeepSaving]         = useState(false)
   const [viewMode,     setViewMode]     = useState<"compact"|"full">("full")
   const [showTxtExport, setShowTxtExport] = useState(false)
   const [txtExclude,   setTxtExclude]   = useState<Set<string>>(new Set())
@@ -2081,13 +2082,33 @@ export default function PayrollPage() {
   //   ใช้ตอน search ใน /admin/payroll ผู้ใช้พิมพ์ชื่อคนลาออก → จะเจอเป็น "ผลลัพธ์เพิ่มเติม" + ปุ่ม "+ เพิ่มในรอบนี้"
   useEffect(() => {
     setResignedPool([])
-    setRestoredResignedIds(new Set())  // เปลี่ยนงวด → รีเซ็ตการกู้คืน
     if (!selected?.id || selected._isAllCo) return
     fetch(`/api/payroll/resigned-pool?period_id=${selected.id}`)
       .then(r => r.json())
       .then(d => setResignedPool(d.pool ?? []))
       .catch(() => {})
   }, [selected?.id])
+
+  // ── กู้คืน/ซ่อน พนักงานลาออก แบบถาวร (บันทึก keep_in_period ลง DB) ──
+  const setKeepInPeriod = useCallback(async (recs: any[], keep: boolean) => {
+    if (recs.length === 0) return
+    const ids = new Set(recs.map(r => r.id))
+    // optimistic update
+    setRecords(prev => prev.map(x => ids.has(x.id) ? { ...x, keep_in_period: keep } : x))
+    setKeepSaving(true)
+    try {
+      await Promise.all(recs.map(r =>
+        fetch("/api/payroll/register", {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: r.id, keep_in_period: keep }),
+        }).then(res => { if (!res.ok) throw new Error() })
+      ))
+      toast.success(keep ? `กู้คืน ${recs.length} คน เข้ารอบนี้แล้ว` : `ซ่อน ${recs.length} คนแล้ว`)
+    } catch {
+      toast.error("บันทึกไม่สำเร็จ")
+      setRecords(prev => prev.map(x => ids.has(x.id) ? { ...x, keep_in_period: !keep } : x))
+    } finally { setKeepSaving(false) }
+  }, [])
 
   // ── เพิ่มคนที่ลาออกแล้วกลับเข้างวดนี้ → สร้าง payroll record + reload ──
   const addResignedToPeriod = async (emp: any) => {
@@ -2386,15 +2407,14 @@ export default function PayrollPage() {
   const resignedBeforePeriod = records.filter((r: any) =>
     r.employee?.resign_date && periodStart && r.employee.resign_date < periodStart
   )
-  // ที่ยังซ่อนจริง = ยังไม่ได้กดกู้คืน
-  const hiddenResigned = resignedBeforePeriod.filter(
-    (r: any) => !restoredResignedIds.has(r.employee_id)
-  ).length
+  // ที่ยังซ่อนจริง = ยังไม่ได้กดกู้คืน (keep_in_period)
+  const hiddenResigned = resignedBeforePeriod.filter((r: any) => !r.keep_in_period).length
+  const restoredCount  = resignedBeforePeriod.filter((r: any) => !!r.keep_in_period).length
 
   const filtered   = records.filter((r: any) => {
-    // ── ซ่อนคนลาออกก่อนงวดนี้ (เว้นที่ HR กดกู้คืนแล้ว) ──
+    // ── ซ่อนคนลาออกก่อนงวดนี้ (เว้นที่ HR กดกู้คืนแล้ว = keep_in_period) ──
     const resign = r.employee?.resign_date
-    if (resign && periodStart && resign < periodStart && !restoredResignedIds.has(r.employee_id)) return false
+    if (resign && periodStart && resign < periodStart && !r.keep_in_period) return false
 
     if (filterDept && r.employee?.department?.name !== filterDept) return false
     if (!search) return true
@@ -2606,12 +2626,12 @@ export default function PayrollPage() {
                   placeholder="ค้นหาชื่อ, รหัส..."/>
               </div>
               <div className="ml-auto flex items-center gap-2">
-                {(hiddenResigned > 0 || restoredResignedIds.size > 0) && (
+                {(hiddenResigned > 0 || restoredCount > 0) && (
                   <button onClick={() => setShowHiddenModal(true)}
                     className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
                     title="คลิกเพื่อดูรายชื่อคนลาออกที่ถูกซ่อน และกู้คืนเข้ารอบนี้">
                     🚪 ซ่อนคนลาออกแล้ว {hiddenResigned} คน
-                    {restoredResignedIds.size > 0 && <span className="ml-1 text-emerald-600">· กู้คืน {restoredResignedIds.size}</span>}
+                    {restoredCount > 0 && <span className="ml-1 text-emerald-600">· กู้คืน {restoredCount}</span>}
                   </button>
                 )}
                 <p className="text-xs text-slate-400">{filtered.length} / {records.length} คน</p>
@@ -2737,7 +2757,7 @@ export default function PayrollPage() {
                   <p className="text-sm font-semibold">ไม่มีคนลาออกที่ถูกซ่อนในรอบนี้</p>
                 </div>
               ) : resignedBeforePeriod.map((r: any) => {
-                const restored = restoredResignedIds.has(r.employee_id)
+                const restored = !!r.keep_in_period
                 const e = r.employee || {}
                 return (
                   <div key={r.id} className={`flex items-center gap-3 px-5 py-3 ${restored ? "bg-emerald-50/40" : "hover:bg-slate-50"}`}>
@@ -2768,13 +2788,13 @@ export default function PayrollPage() {
                       </p>
                     </div>
                     {restored ? (
-                      <button onClick={() => setRestoredResignedIds(prev => { const s = new Set(prev); s.delete(r.employee_id); return s })}
-                        className="text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
+                      <button onClick={() => setKeepInPeriod([r], false)} disabled={keepSaving}
+                        className="text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
                         <X size={11}/> ซ่อนอีกครั้ง
                       </button>
                     ) : (
-                      <button onClick={() => setRestoredResignedIds(prev => new Set(prev).add(r.employee_id))}
-                        className="text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
+                      <button onClick={() => setKeepInPeriod([r], true)} disabled={keepSaving}
+                        className="text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
                         <RotateCcw size={11}/> กู้คืนเข้ารอบนี้
                       </button>
                     )}
@@ -2784,17 +2804,17 @@ export default function PayrollPage() {
             </div>
             <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-2">
               <p className="text-[11px] text-slate-400">
-                ซ่อน {hiddenResigned} · กู้คืน {restoredResignedIds.size} จากทั้งหมด {resignedBeforePeriod.length} คน
+                ซ่อน {hiddenResigned} · กู้คืน {restoredCount} จากทั้งหมด {resignedBeforePeriod.length} คน
               </p>
               <div className="flex items-center gap-2">
-                {restoredResignedIds.size > 0 && (
-                  <button onClick={() => setRestoredResignedIds(new Set())}
-                    className="text-[11px] font-bold text-slate-500 hover:text-slate-700 px-3 py-1.5">
+                {restoredCount > 0 && (
+                  <button onClick={() => setKeepInPeriod(resignedBeforePeriod.filter((r: any) => r.keep_in_period), false)} disabled={keepSaving}
+                    className="text-[11px] font-bold text-slate-500 hover:text-slate-700 disabled:opacity-50 px-3 py-1.5">
                     ซ่อนทั้งหมดอีกครั้ง
                   </button>
                 )}
-                <button onClick={() => setRestoredResignedIds(new Set(resignedBeforePeriod.map((r: any) => r.employee_id)))}
-                  className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg">
+                <button onClick={() => setKeepInPeriod(resignedBeforePeriod.filter((r: any) => !r.keep_in_period), true)} disabled={keepSaving}
+                  className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-50 px-3 py-1.5 rounded-lg">
                   กู้คืนทั้งหมด
                 </button>
                 <button onClick={() => setShowHiddenModal(false)}
