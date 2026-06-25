@@ -289,7 +289,8 @@ export async function POST(req: NextRequest) {
   // ══════════════════════════════════════════════════════════════
   // Save Draft / Submit (Manager)
   // ══════════════════════════════════════════════════════════════
-  const { employee_id, round, items, evaluator_note, attachments: rawAttachments } = body
+  const { employee_id, round, items, evaluator_note, attachments: rawAttachments, is_passed } = body
+  const passVal: boolean | null = typeof is_passed === "boolean" ? is_passed : null
 
   if (!employee_id || !round) {
     return NextResponse.json({ error: "employee_id และ round จำเป็น" }, { status: 400 })
@@ -318,6 +319,10 @@ export async function POST(req: NextRequest) {
       if (!item.actual_score || item.actual_score < 1 || item.actual_score > 100) {
         return NextResponse.json({ error: "กรุณากรอกคะแนน (1-100) ทุกข้อ" }, { status: 400 })
       }
+    }
+    // ── บังคับติ๊กผลการประเมิน ผ่าน/ไม่ผ่าน ก่อนส่ง ──
+    if (passVal === null) {
+      return NextResponse.json({ error: "กรุณาเลือกผลการประเมิน (ผ่าน / ไม่ผ่าน) ก่อนส่ง" }, { status: 400 })
     }
   }
 
@@ -362,6 +367,7 @@ export async function POST(req: NextRequest) {
 
     await svc.from("probation_evaluations").update({
       total_score: totalScore, grade, status: newStatus, evaluator_note,
+      is_passed: passVal,
       attachments,
       evaluator_id: dbUser.employee_id, evaluator_role: evaluatorRole,
       rejection_note: null,
@@ -379,6 +385,7 @@ export async function POST(req: NextRequest) {
       evaluator_role: evaluatorRole,
       round, due_date: dueDate,
       total_score: totalScore, grade, status, evaluator_note,
+      is_passed: passVal,
       attachments,
       submitted_at: action === "submit" ? new Date().toISOString() : null,
     }).select("id").single()

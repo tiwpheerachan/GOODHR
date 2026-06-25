@@ -350,6 +350,14 @@ export default function AdminProbationEvalPage() {
                   <span className="text-xs text-slate-500 hidden sm:block">{ROUND_LABELS[form.round]}</span>
                   <span className="text-sm font-bold text-slate-800">{form.total_score?.toFixed(1)}%</span>
                   <span className={`w-7 h-7 rounded-lg text-xs font-black flex items-center justify-center ${gc.bg} ${gc.text}`}>{form.grade}</span>
+                  {/* ผ่าน / ไม่ผ่าน ที่หัวหน้าติ๊ก */}
+                  {form.is_passed === true ? (
+                    <span className="text-[11px] font-black px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 whitespace-nowrap">✓ ผ่าน</span>
+                  ) : form.is_passed === false ? (
+                    <span className="text-[11px] font-black px-2 py-1 rounded-lg bg-rose-100 text-rose-700 whitespace-nowrap">✕ ไม่ผ่าน</span>
+                  ) : (
+                    <span className="text-[11px] font-bold px-2 py-1 rounded-lg bg-slate-100 text-slate-400 whitespace-nowrap">—</span>
+                  )}
                   <span className={`text-xs font-bold ${
                     form.status === "approved" ? "text-emerald-600" :
                     form.status === "submitted" ? "text-amber-600" :

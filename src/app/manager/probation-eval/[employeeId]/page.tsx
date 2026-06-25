@@ -69,6 +69,7 @@ export default function ProbationEvalFormPage() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [submitResult, setSubmitResult] = useState<{ grade: string; score: number } | null>(null)
+  const [isPassed, setIsPassed] = useState<boolean | null>(null) // ผ่าน / ไม่ผ่าน (บังคับก่อนส่ง)
   const [rejectionNote, setRejectionNote] = useState("")
   const [expandedComment, setExpandedComment] = useState<number | null>(null)
   const [showCopyPicker, setShowCopyPicker] = useState(false)
@@ -101,6 +102,7 @@ export default function ProbationEvalFormPage() {
               actual_score: it.actual_score, comment: it.comment || "",
             })))
             setEvaluatorNote(fData.form.evaluator_note || "")
+            if (typeof fData.form.is_passed === "boolean") setIsPassed(fData.form.is_passed)
             if (Array.isArray(fData.form.attachments)) setAttachments(fData.form.attachments)
           }
         }
@@ -178,6 +180,8 @@ export default function ProbationEvalFormPage() {
       // อนุญาตให้กรอก 0 ได้ (กรณีหัวหน้าให้คะแนนต่ำสุด) — เช็คเฉพาะ null/undefined + เกินช่วง
       const missing = items.some(i => i.actual_score == null || i.actual_score < 0 || i.actual_score > 100)
       if (missing) { toast.error(t("probation.score_error")); return }
+      // บังคับเลือกผลการประเมิน ผ่าน/ไม่ผ่าน ก่อนส่ง
+      if (isPassed === null) { toast.error("กรุณาเลือกผลการประเมิน: ผ่าน หรือ ไม่ผ่าน"); return }
       setShowConfirm(true)
       return
     }
@@ -190,7 +194,7 @@ export default function ProbationEvalFormPage() {
     try {
       const res = await fetch("/api/probation-evaluation", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_id: employeeId, round, items, evaluator_note: evaluatorNote, attachments, action }),
+        body: JSON.stringify({ employee_id: employeeId, round, items, evaluator_note: evaluatorNote, attachments, action, is_passed: isPassed }),
       })
       const data = await res.json()
       if (data.error) { toast.error(data.error); return }
@@ -450,6 +454,38 @@ export default function ProbationEvalFormPage() {
         )}
       </div>
 
+      {/* ผลการประเมิน: ผ่าน / ไม่ผ่าน (บังคับ) */}
+      {!isSubmitted && (
+        <div className="card">
+          <p className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1">
+            ผลการประเมินทดลองงาน <span className="text-rose-500">*</span>
+          </p>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button type="button" onClick={() => setIsPassed(true)}
+              className={`flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-sm border-2 transition-all active:scale-[0.97] ${
+                isPassed === true
+                  ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-200"
+                  : "bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+              }`}>
+              <CheckCircle2 size={16} /> ผ่าน
+            </button>
+            <button type="button" onClick={() => setIsPassed(false)}
+              className={`flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-sm border-2 transition-all active:scale-[0.97] ${
+                isPassed === false
+                  ? "bg-rose-600 text-white border-rose-600 shadow-lg shadow-rose-200"
+                  : "bg-white text-rose-700 border-rose-200 hover:bg-rose-50"
+              }`}>
+              <XIcon size={16} /> ไม่ผ่าน
+            </button>
+          </div>
+          {isPassed === null && (
+            <p className="text-[11px] text-rose-500 mt-2 flex items-center gap-1">
+              <AlertCircle size={11} /> ต้องเลือกผ่าน/ไม่ผ่าน ก่อนกดส่ง
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Grade reference */}
       <div className="card">
         <p className="text-xs font-bold text-slate-500 mb-2">เกณฑ์เกรด</p>
@@ -476,7 +512,7 @@ export default function ProbationEvalFormPage() {
               className="flex-1 py-3 rounded-2xl bg-slate-100 text-slate-700 font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-200 active:scale-[0.97] transition-all disabled:opacity-50">
               <Save size={15} /> {t("probation.save_draft")}
             </button>
-            <button onClick={() => handleSave("submit")} disabled={saving || !weightValid}
+            <button onClick={() => handleSave("submit")} disabled={saving || !weightValid || isPassed === null}
               className="flex-[1.5] py-3 rounded-2xl bg-rose-600 text-white font-bold text-sm flex items-center justify-center gap-2 hover:bg-rose-700 active:scale-[0.97] transition-all shadow-lg shadow-rose-200 disabled:opacity-50">
               <Send size={15} /> {saving ? t("common.sending") : t("probation.submit")}
             </button>
