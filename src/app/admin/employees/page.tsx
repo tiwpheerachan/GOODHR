@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
-import { Search, Plus, Download, ChevronRight, ChevronLeft, Filter, Users, Building2, Trash2, FileUp, Tag, X, Check, Link2 } from "lucide-react"
+import { Search, Plus, Download, ChevronRight, ChevronLeft, Filter, Users, Building2, Trash2, FileUp, Tag, X, Check, Link2, Clock } from "lucide-react"
 import Link from "next/link"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -67,6 +67,24 @@ function calcTenure(hireDate: string | null | undefined): string {
   return "วันแรก"
 }
 
+// ── ช่วงวันที่ของเดือน "YYYY-MM" → { start, end } ──
+function monthRange(ym: string): { start: string; end: string } {
+  const [y, m] = ym.split("-").map(Number)
+  const last = new Date(y, m, 0).getDate()
+  return { start: `${ym}-01`, end: `${ym}-${String(last).padStart(2, "0")}` }
+}
+function currentMonthStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+}
+// ── ช่วงรอบเงินเดือนของเดือน "YYYY-MM" → 22 เดือนก่อน ถึง 21 เดือนนี้ ──
+function payrollRange(ym: string): { start: string; end: string } {
+  const [y, m] = ym.split("-").map(Number)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  return { start: fmt(new Date(y, m - 2, 22)), end: fmt(new Date(y, m - 1, 21)) }
+}
+
 export default function EmployeesPage() {
   const { user } = useAuth()
   const supabase = createClient()
@@ -97,6 +115,11 @@ export default function EmployeesPage() {
   const [showBrandPicker,  setShowBrandPicker]  = useState(false)
   const [tenureFilter,     setTenureFilter]     = useState<"" | "<1y" | "1-3y" | "3-5y" | "5+y">("")
   const [feishuFilter,     setFeishuFilter]     = useState<"" | "linked" | "unlinked">("")
+  // ── แท็บ: ทั้งหมด / ทดลองงาน / ลาออกแล้ว ──
+  const [tab,              setTab]              = useState<"all" | "probation" | "resigned">("all")
+  // โหมดช่วงเวลา: ทั้งหมด / รอบเดือน (1–สิ้นเดือน) / รอบเงินเดือน (22–21)
+  const [rangeMode,        setRangeMode]        = useState<"all" | "month" | "payroll">("all")
+  const [monthFilter,      setMonthFilter]      = useState<string>(currentMonthStr())
   const { brands: brandsList } = useBrands()
   const PER = 25
 
@@ -159,7 +182,7 @@ export default function EmployeesPage() {
         .from("employees")
         .select(
           `id, employee_code, first_name_th, last_name_th, nickname, avatar_url,
-           hire_date, employment_status, employment_type, company_id, brand,
+           hire_date, resign_date, employment_status, employment_type, company_id, brand,
            feishu_user_id,
            position:positions(name),
            department:departments(name),
@@ -174,8 +197,8 @@ export default function EmployeesPage() {
       // ไม่แสดงพนักงานที่ถูกลบในรายการหลัก (ดูได้ที่ /admin/employees/deleted)
       q = q.is("deleted_at", null)
 
-      // ถ้าเลือกดูลาออก/เลิกจ้าง ให้แสดง is_active=false ด้วย
-      if (status === "resigned" || status === "terminated" || showInactive) {
+      // ถ้าเลือกดูลาออก/เลิกจ้าง หรือแท็บ "ลาออกแล้ว" → แสดง is_active=false ด้วย
+      if (status === "resigned" || status === "terminated" || showInactive || tab === "resigned") {
         // ไม่ filter is_active เพื่อให้เห็นคนที่ลาออกแล้ว
       } else {
         q = q.eq("is_active", true)
@@ -206,6 +229,18 @@ export default function EmployeesPage() {
         if (tenureFilter === "3-5y") q = q.gte("hire_date", yearsAgo(5)).lt("hire_date", yearsAgo(3))
         if (tenureFilter === "5+y")  q = q.lt("hire_date", yearsAgo(5))
       }
+      // ── แท็บ ทดลองงาน / ลาออกแล้ว + โหมดช่วง (ทั้งหมด/รอบเดือน/รอบเงินเดือน) ──
+      const dr = (rangeMode === "month" && monthFilter) ? monthRange(monthFilter)
+               : (rangeMode === "payroll" && monthFilter) ? payrollRange(monthFilter)
+               : null
+      if (tab === "probation") {
+        q = q.eq("employment_status", "probation")
+        if (dr) q = q.gte("hire_date", dr.start).lte("hire_date", dr.end)
+      }
+      if (tab === "resigned") {
+        if (dr) q = q.gte("resign_date", dr.start).lte("resign_date", dr.end)
+        else    q = q.not("resign_date", "is", null)
+      }
       if (debouncedSearch) {
         const k = debouncedSearch.replace(/[%_,()]/g, "")
         q = q.or([
@@ -231,7 +266,7 @@ export default function EmployeesPage() {
           .select(`feishu_user_id,
             employee:employees!feishu_users_goodhr_employee_id_fkey(
               id, employee_code, first_name_th, last_name_th, nickname, avatar_url,
-              hire_date, employment_status, employment_type, company_id, brand,
+              hire_date, resign_date, employment_status, employment_type, company_id, brand,
               feishu_user_id, deleted_at, is_active,
               position:positions(name), department:departments(name),
               branch:branches(name), company:companies(id, name_th, code)
@@ -270,35 +305,98 @@ export default function EmployeesPage() {
     } finally {
       setLoading(false)
     }
-  }, [isSuperAdmin, myCompanyId, activeCompanyId, debouncedSearch, status, dept, branch, position, empType, page, showInactive, brandFilter, tenureFilter, feishuFilter])
+  }, [isSuperAdmin, myCompanyId, activeCompanyId, debouncedSearch, status, dept, branch, position, empType, page, showInactive, brandFilter, tenureFilter, feishuFilter, tab, rangeMode, monthFilter])
 
   useEffect(() => { load() }, [load])
   const setF = (fn: () => void) => { fn(); setPage(0) }
 
   // ── export CSV ────────────────────────────────────────────────────
   const exportCSV = async () => {
-    let q = supabase.from("employees")
-      .select(`employee_code, first_name_th, last_name_th, nickname, gender, phone, email,
-               hire_date, employment_status, employment_type,
+    let q: any = supabase.from("employees")
+      .select(`id, employee_code, first_name_th, last_name_th, nickname, gender, phone, email,
+               national_id, bank_account, bank_name,
+               hire_date, resign_date, employment_status, employment_type, brand,
                position:positions(name), department:departments(name),
-               branch:branches(name), company:companies(name_th)`)
-      .eq("is_active", true).order("first_name_th")
-    if (activeCompanyId)     q = q.eq("company_id", activeCompanyId) as any
-    else if (!isSuperAdmin)  q = q.eq("company_id", myCompanyId!) as any
+               branch:branches(name), company:companies(name_th, code)`)
+      .is("deleted_at", null).order("first_name_th")
+    const includeInactive = status === "resigned" || status === "terminated" || showInactive || tab === "resigned"
+    if (!includeInactive)    q = q.eq("is_active", true)
+    if (activeCompanyId)     q = q.eq("company_id", activeCompanyId)
+    else if (!isSuperAdmin)  q = q.eq("company_id", myCompanyId!)
+    if (status)   q = q.eq("employment_status", status)
+    if (dept)     q = q.eq("department_id", dept)
+    if (branch)   q = q.eq("branch_id", branch)
+    if (position) q = q.eq("position_id", position)
+    if (empType)  q = q.eq("employment_type", empType)
+    if (brandFilter.length > 0)      q = q.overlaps("brand", brandFilter)
+    if (feishuFilter === "linked")   q = q.not("feishu_user_id", "is", null)
+    if (feishuFilter === "unlinked") q = q.is("feishu_user_id", null)
+    if (tenureFilter) {
+      const now = new Date()
+      const yearsAgo = (y: number) => { const d = new Date(now); d.setFullYear(d.getFullYear() - y); return d.toISOString().slice(0, 10) }
+      if (tenureFilter === "<1y")  q = q.gte("hire_date", yearsAgo(1))
+      if (tenureFilter === "1-3y") q = q.gte("hire_date", yearsAgo(3)).lt("hire_date", yearsAgo(1))
+      if (tenureFilter === "3-5y") q = q.gte("hire_date", yearsAgo(5)).lt("hire_date", yearsAgo(3))
+      if (tenureFilter === "5+y")  q = q.lt("hire_date", yearsAgo(5))
+    }
+    const dr = (rangeMode === "month" && monthFilter) ? monthRange(monthFilter)
+             : (rangeMode === "payroll" && monthFilter) ? payrollRange(monthFilter)
+             : null
+    if (tab === "probation") {
+      q = q.eq("employment_status", "probation")
+      if (dr) q = q.gte("hire_date", dr.start).lte("hire_date", dr.end)
+    }
+    if (tab === "resigned") {
+      if (dr) q = q.gte("resign_date", dr.start).lte("resign_date", dr.end)
+      else    q = q.not("resign_date", "is", null)
+    }
+    if (debouncedSearch) {
+      const k = debouncedSearch.replace(/[%_,()]/g, "")
+      q = q.or([`first_name_th.ilike.%${k}%`,`last_name_th.ilike.%${k}%`,`employee_code.ilike.%${k}%`,`nickname.ilike.%${k}%`].join(","))
+    }
     const { data } = await q
     if (!data) return
-    const hdr  = ["รหัส","บริษัท","ชื่อ","นามสกุล","ชื่อเล่น","เพศ","โทร","อีเมล","วันเริ่มงาน","สถานะ","ประเภท","ตำแหน่ง","แผนก","สาขา"]
+
+    // ── ดึงเงินเดือน (salary ล่าสุดที่เปิดอยู่) + KPI มาตรฐาน ต่อพนักงาน ──
+    const empIds = data.map((e: any) => e.id).filter(Boolean)
+    const salMap: Record<string, number> = {}
+    const kpiMap: Record<string, number> = {}
+    if (empIds.length > 0) {
+      const { data: sals } = await supabase.from("salary_structures")
+        .select("employee_id, base_salary")
+        .in("employee_id", empIds).is("effective_to", null)
+        .order("effective_from", { ascending: false }).order("created_at", { ascending: false })
+      for (const s of (sals ?? [])) if (!(s.employee_id in salMap)) salMap[s.employee_id] = Number(s.base_salary) || 0
+      const { data: kpis } = await supabase.from("kpi_bonus_settings")
+        .select("employee_id, standard_amount")
+        .in("employee_id", empIds).eq("is_active", true)
+      for (const k of (kpis ?? [])) if (!(k.employee_id in kpiMap)) kpiMap[k.employee_id] = Number(k.standard_amount) || 0
+    }
+
+    const hdr  = ["รหัส","บริษัท","ชื่อ","นามสกุล","ชื่อเล่น","เพศ","โทร","อีเมล","วันเริ่มงาน","วันลาออก","อายุงาน","สถานะ","ประเภท","ตำแหน่ง","แผนก","สาขา","แบรนด์","เลขที่บัตรประชาชน","เลขที่บัญชี","ธนาคาร","เงินเดือน","KPI"]
+    const cell = (v: any) => { const s = (v == null ? "" : String(v)).replace(/"/g, '""'); return /[",\n]/.test(s) ? `"${s}"` : s }
     const rows = data.map((e: any) => [
       e.employee_code, (e.company as any)?.name_th,
       e.first_name_th, e.last_name_th, e.nickname, e.gender, e.phone, e.email,
       e.hire_date ? format(new Date(e.hire_date), "dd/MM/yyyy") : "",
+      e.resign_date ? format(new Date(e.resign_date), "dd/MM/yyyy") : "",
+      calcTenure(e.hire_date),
       STATUS[e.employment_status]?.l, EMP_TYPE[e.employment_type] || e.employment_type,
       (e.position as any)?.name, (e.department as any)?.name, (e.branch as any)?.name,
+      Array.isArray(e.brand) ? e.brand.join(" / ") : "",
+      // ⚠️ เลขบัตร/บัญชี เก็บเป็นข้อความ (กัน Excel ตัดเลข 0 หน้า/แปลงเป็น exponential)
+      e.national_id ? `="${e.national_id}"` : "",
+      e.bank_account ? `="${e.bank_account}"` : "",
+      e.bank_name || "",
+      salMap[e.id] != null ? salMap[e.id] : "",
+      kpiMap[e.id] != null ? kpiMap[e.id] : "",
     ])
-    const csv  = [hdr, ...rows].map(r => r?.join(",")).join("\n")
+    const csv  = [hdr, ...rows].map(r => r.map(cell).join(",")).join("\n")
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" })
     const url  = URL.createObjectURL(blob)
-    const a    = document.createElement("a"); a.href = url; a.download = "employees.csv"; a.click()
+    const rangeTag = rangeMode === "payroll" ? `รอบเงินเดือน_${monthFilter}` : rangeMode === "month" ? `รอบเดือน_${monthFilter}` : "ทั้งหมด"
+    const tag  = tab === "probation" ? `ทดลองงาน_${rangeTag}` : tab === "resigned" ? `ลาออก_${rangeTag}` : "ทั้งหมด"
+    const a    = document.createElement("a"); a.href = url; a.download = `employees_${tag}.csv`; a.click()
     URL.revokeObjectURL(url)
   }
 
@@ -357,6 +455,47 @@ export default function EmployeesPage() {
             </Link>
           )}
         </div>
+      </div>
+
+      {/* ── Tabs: ทั้งหมด / ทดลองงาน / ลาออกแล้ว ── */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+          {([
+            { k: "all",       label: "ทั้งหมด",     Icon: Users },
+            { k: "probation", label: "ทดลองงาน",   Icon: Clock },
+            { k: "resigned",  label: "ลาออกแล้ว",  Icon: X     },
+          ] as const).map(t => (
+            <button key={t.k} onClick={() => setF(() => { setTab(t.k); setRangeMode(t.k === "resigned" ? "month" : "all") })}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${tab === t.k ? "bg-indigo-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}>
+              <t.Icon size={13} /> {t.label}
+            </button>
+          ))}
+        </div>
+        {tab !== "all" && (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* โหมดช่วงเวลา */}
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1">
+              {([
+                { k: "all",     label: "ทั้งหมด" },
+                { k: "month",   label: "รอบเดือน" },
+                { k: "payroll", label: "รอบเงินเดือน" },
+              ] as const).map(m => (
+                <button key={m.k} onClick={() => setF(() => setRangeMode(m.k))}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${rangeMode === m.k ? "bg-indigo-100 text-indigo-700" : "text-slate-500 hover:bg-slate-50"}`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            {rangeMode !== "all" && (
+              <input type="month" value={monthFilter} onChange={e => setF(() => setMonthFilter(e.target.value))}
+                className={inp + " py-1.5"} />
+            )}
+            {rangeMode === "payroll" && monthFilter && (
+              <span className="text-[11px] text-slate-400">({payrollRange(monthFilter).start} → {payrollRange(monthFilter).end})</span>
+            )}
+            <span className="text-[11px] text-slate-400">· {total.toLocaleString()} คน</span>
+          </div>
+        )}
       </div>
 
       {/* Company Cards — super_admin only */}
@@ -675,6 +814,9 @@ export default function EmployeesPage() {
                           <p className="text-[10px] text-indigo-500 font-bold mt-0.5">{calcTenure(emp.hire_date)}</p>
                         </>
                       ) : "—"}
+                      {emp.resign_date && (
+                        <p className="text-[10px] text-rose-500 font-bold mt-0.5">ออก {format(new Date(emp.resign_date), "d MMM yyyy", { locale: th })}</p>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center text-[11px] font-bold px-2.5 py-1 rounded-full ${STATUS[emp.employment_status]?.c || "bg-slate-100 text-slate-500"}`}>
