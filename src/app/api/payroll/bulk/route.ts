@@ -209,6 +209,7 @@ export async function POST(req: Request) {
     .in("employee_id", employee_ids)
     .is("effective_to", null)
     .order("effective_from", { ascending: false })
+    .order("created_at", { ascending: false })
 
   // เอาแค่ record ล่าสุดต่อคน
   const salByEmp = new Map<string, any>()

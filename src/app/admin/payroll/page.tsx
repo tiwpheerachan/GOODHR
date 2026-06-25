@@ -1064,6 +1064,7 @@ function EditModal({
       .eq("employee_id", record.employee_id)
       .is("effective_to", null)
       .order("effective_from", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()
       .then(({ data }) => {
@@ -1663,11 +1664,10 @@ function PayslipModal({ record, onClose, onEdit, onRefresh }: { record: any; onC
     const _n = (v: any) => Number(v) || 0
     const ie = r.income_extras || {}
     const de = r.deduction_extras || {}
-    const otFromMin = (fullBase / 30 / 8 / 60) * 60 * (
-      (_n(r.ot_weekday_minutes)     * 1.5) +
-      (_n(r.ot_holiday_reg_minutes) * 1.0) +
-      (_n(r.ot_holiday_ot_minutes)  * 3.0)
-    )
+    // ใช้ calcOTAmt ให้ตรงกับคอลัมน์ tax_base ในตาราง (เดิม inline มี * 60 เกิน → OT บวม 60 เท่า)
+    const otFromMin = calcOTAmt(fullBase, _n(r.ot_weekday_minutes),     1.5)
+                    + calcOTAmt(fullBase, _n(r.ot_holiday_reg_minutes), 1.0)
+                    + calcOTAmt(fullBase, _n(r.ot_holiday_ot_minutes),  3.0)
     const otTotal = otFromMin > 0 ? otFromMin : _n(r.ot_amount)
     const income = base + effectiveBonus + otTotal
       + _n(r.allowance_position) + _n(ie.kpi) + _n(r.commission)

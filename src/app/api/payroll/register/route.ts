@@ -93,7 +93,45 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ records: Array.from(byCode.values()) })
+  const records = Array.from(byCode.values())
+
+  // ── แนบ structural flags (is_sso_exempt / is_tax_3pct) จาก salary structure ล่าสุดที่ "เปิดอยู่" ──
+  //    ใช้ใน recomputePayroll ฝั่ง client เพื่อให้คน prorate + exempt ไม่ถูกคำนวณ SSO/ภาษีผิด
+  //    (ตารางเดิม recompute SSO ใหม่ตอน prorate → ไม่รู้ว่า exempt → เด้งหัก SSO)
+  const empIds = Array.from(new Set(records.map(r => r.employee_id).filter(Boolean)))
+  if (empIds.length > 0) {
+    const flagByEmp = new Map<string, { is_sso_exempt: boolean; is_tax_3pct: boolean }>()
+    for (let i = 0; i < empIds.length; i += 300) {
+      const chunk = empIds.slice(i, i + 300)
+      let from = 0
+      while (true) {
+        const { data } = await supa
+          .from("salary_structures")
+          .select("employee_id, is_sso_exempt, is_tax_3pct")
+          .in("employee_id", chunk)
+          .is("effective_to", null)
+          .order("effective_from", { ascending: false })
+          .order("created_at", { ascending: false })
+          .range(from, from + 999)
+        if (!data || data.length === 0) break
+        for (const s of data) {
+          // ตัวแรกต่อ employee = ตัวล่าสุด (เพราะ order desc)
+          if (!flagByEmp.has(s.employee_id)) {
+            flagByEmp.set(s.employee_id, { is_sso_exempt: !!s.is_sso_exempt, is_tax_3pct: !!s.is_tax_3pct })
+          }
+        }
+        if (data.length < 1000) break
+        from += 1000
+      }
+    }
+    for (const r of records) {
+      const f = flagByEmp.get(r.employee_id)
+      r.is_sso_exempt = f?.is_sso_exempt ?? false
+      r.is_tax_3pct = f?.is_tax_3pct ?? false
+    }
+  }
+
+  return NextResponse.json({ records })
 }
 
 /**

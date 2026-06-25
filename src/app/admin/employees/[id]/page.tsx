@@ -133,7 +133,7 @@ export default function EmployeeDetailPage() {
     if (!id) return
     Promise.all([
       supabase.from("employees").select("*, position:positions(name), department:departments(name), branch:branches(name), feishu:feishu_users!feishu_users_goodhr_employee_id_fkey(brand, name_cn, name_en, nickname)").eq("id",id as string).single(),
-      supabase.from("salary_structures").select("*").eq("employee_id",id as string).is("effective_to",null).order("effective_from",{ascending:false}).limit(1).maybeSingle(),
+      supabase.from("salary_structures").select("*").eq("employee_id",id as string).is("effective_to",null).order("effective_from",{ascending:false}).order("created_at",{ascending:false}).limit(1).maybeSingle(),
       supabase.from("employee_manager_history").select("*, manager:employees!manager_id(id,first_name_th,last_name_th)").eq("employee_id",id as string).order("effective_from",{ascending:false}),
       supabase.from("kpi_bonus_settings").select("*").eq("employee_id",id as string).eq("is_active",true).maybeSingle(),
       supabase.from("resignation_history").select("*").eq("employee_id",id as string).order("created_at",{ascending:false}),
@@ -310,7 +310,13 @@ export default function EmployeeDetailPage() {
   const saveSalary = async () => {
     if (!sf.base_salary) return toast.error("กรุณากรอกเงินเดือน")
     setLoading(true)
-    if (salary?.id) await supabase.from("salary_structures").update({ effective_to:sf.effective_from }).eq("id",salary.id)
+    // ปิด salary ที่ยังเปิดอยู่ "ทุกตัว" ของพนักงานคนนี้ ก่อน insert ตัวใหม่
+    //   กัน duplicate open structures (effective_to=null) ที่ทำให้ payroll เลือก structure ผิด
+    //   → flag is_sso_exempt / is_tax_3pct ไม่ถูกใช้สำหรับบางคน
+    await supabase.from("salary_structures")
+      .update({ effective_to: sf.effective_from || format(new Date(),"yyyy-MM-dd") })
+      .eq("employee_id", id as string)
+      .is("effective_to", null)
     const { error } = await supabase.from("salary_structures").insert({
       employee_id:id,
       base_salary:+sf.base_salary,

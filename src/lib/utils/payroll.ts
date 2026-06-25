@@ -100,10 +100,19 @@ export function recomputePayroll(record: any) {
   const gross = Math.round(effBase + effBonus + allowances
     + N(record?.ot_amount) + N(record?.commission) + N(record?.other_income) + ieTotal)
 
+  // ── structural flags (จาก salary_structures) — ชนะการ recompute เสมอ ──
+  //    is_sso_exempt → SSO = 0 | is_tax_3pct → ภาษี = 3% ของ gross
+  const ssoExempt = !!record?.is_sso_exempt
+  const tax3pct   = !!record?.is_tax_3pct
+
   // ถ้า prorate → recompute SSO + tax เพื่อให้สะท้อนงวดจริง
   // ถ้าไม่ prorate → ใช้ค่าที่บันทึกไว้ (เคารพ manual ของ HR)
-  const sso = Math.round(isProrated ? calcSSO(effBase) : N(record?.social_security_amount))
-  const tax = Math.round(isProrated ? calcMonthlyTax(gross, sso) : N(record?.monthly_tax_withheld))
+  const sso = ssoExempt
+    ? 0
+    : Math.round(isProrated ? calcSSO(effBase) : N(record?.social_security_amount))
+  const tax = tax3pct
+    ? Math.round(gross * 0.03)
+    : Math.round(isProrated ? calcMonthlyTax(gross, sso) : N(record?.monthly_tax_withheld))
 
   const baseDeducts = N(record?.deduct_absent) + N(record?.deduct_late)
     + N(record?.deduct_early_out) + N(record?.deduct_loan) + N(record?.deduct_other)
