@@ -50,21 +50,16 @@ export async function GET(req: NextRequest) {
 
   const empMap = new Map((emps ?? []).map((e: any) => [e.id, e]))
 
-  // ── 5) หา top-level managers (ไม่มีหัวหน้า + มีลูกน้อง) ──
+  // ── 5) หา root nodes — พนักงานที่ "ไม่มีหัวหน้าอยู่ในชุดที่กรอง" ──
+  //    (ไม่มีหัวหน้าเลย หรือ หัวหน้าอยู่คนละบริษัท/ถูกกรองออก) จึงเป็น root ของผังนี้
+  //    เดิม: root ต้องเป็น "หัวหน้า" (มีลูกน้อง) เท่านั้น → คนที่ไม่มีลูกน้องและหัวหน้าอยู่คนละบริษัท
+  //          เลยหายทั้งหมดตอนกรองบริษัท (เช่น HASHTAG ที่หัวหน้าอยู่ SHD)
   const tops: string[] = []
   const empIds = Array.from(empMap.keys()) as string[]
   for (const id of empIds) {
-    const isManager = reportsMap.has(id)
-    const hasMgr = directMgrMap.has(id)
-    if (isManager && (!hasMgr || (filterCompany && !empMap.has(directMgrMap.get(id)!)))) {
-      tops.push(id)
-    }
-  }
-
-  if (tops.length === 0) {
-    for (const id of empIds) {
-      if (reportsMap.has(id) && !directMgrMap.has(id)) tops.push(id)
-    }
+    const mgrId = directMgrMap.get(id)
+    const mgrInSet = !!mgrId && empMap.has(mgrId)
+    if (!mgrInSet) tops.push(id)
   }
 
   // ── 6) สร้าง tree (recursive) ──

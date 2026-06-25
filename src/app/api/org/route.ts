@@ -130,14 +130,27 @@ export async function PATCH(req: NextRequest) {
     const { employee_id, updates } = body
     if (!employee_id) return NextResponse.json({ error: "Missing employee_id" }, { status: 400 })
 
-    const allowed = ["department_id", "position_id", "branch_id", "nickname", "email", "phone", "supervisor_id", "employment_status"]
+    const allowed = ["department_id", "position_id", "branch_id", "nickname", "email", "phone", "supervisor_id", "employment_status", "company_id"]
     const payload: Record<string, any> = {}
     for (const [k, v] of Object.entries(updates || {})) {
       if (allowed.includes(k)) payload[k] = v
     }
 
+    // ── เปลี่ยนบริษัท → ล้างแผนก/ตำแหน่ง/สาขา (เป็นของบริษัทเดิม) ถ้าไม่ได้ส่งค่ามาใหม่ ──
+    //    กันค้างทำให้ผังองค์กร/กรองบริษัทเพี้ยน
+    if (payload.company_id !== undefined) {
+      if (updates.department_id === undefined) payload.department_id = null
+      if (updates.position_id === undefined)   payload.position_id = null
+      if (updates.branch_id === undefined)     payload.branch_id = null
+    }
+
     const { error } = await supa.from("employees").update(payload).eq("id", employee_id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // ── เปลี่ยนบริษัท → sync users.company_id ด้วย (ใช้ใน auth context) ──
+    if (payload.company_id) {
+      await supa.from("users").update({ company_id: payload.company_id }).eq("employee_id", employee_id)
+    }
 
     // If supervisor changed, update employee_manager_history too
     if (payload.supervisor_id !== undefined) {

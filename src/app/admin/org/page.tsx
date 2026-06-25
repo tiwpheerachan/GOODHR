@@ -173,7 +173,10 @@ export default function OrgMapPage() {
     return { dept, members, groups, unassigned, color }
   }).filter(d => d.members.length > 0)
 
-  const noDepMembers = employees.filter(e => !e.department_id)
+  // รวมคนที่ไม่มีแผนก + คนที่ department_id ไม่ตรงกับแผนกของบริษัทที่กรองอยู่
+  //   (เช่น ย้ายบริษัทแล้วแต่แผนกยังเป็นของบริษัทเดิม) → โผล่ใต้ "ไม่ระบุแผนก" แทนที่จะหายไปเลย
+  const deptIdSet = new Set(departments.map(d => d.id))
+  const noDepMembers = employees.filter(e => !e.department_id || !deptIdSet.has(e.department_id))
 
   // Search filter
   const matchSearch = (e: Emp) => {
@@ -297,6 +300,17 @@ export default function OrgMapPage() {
     try {
       const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { position_id: newPosId || null } })
       if (r.success) { toast.success("เปลี่ยนตำแหน่งแล้ว"); load() } else toast.error(r.error)
+    } catch { toast.error("ดำเนินการไม่สำเร็จ") } finally { setSaving(false) }
+  }
+
+  const changeCompany = async (empId: string, newCompanyId: string) => {
+    if (!newCompanyId) return
+    if (!confirm("เปลี่ยนบริษัทที่สังกัด?\nระบบจะล้างแผนก/ตำแหน่ง/สาขาเดิม (เป็นของบริษัทเดิม) ให้เลือกใหม่ของบริษัทนั้น")) return
+    setSaving(true)
+    try {
+      const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { company_id: newCompanyId } })
+      if (r.success) { toast.success("ย้ายบริษัทแล้ว — กรุณาเลือกแผนก/ตำแหน่งใหม่"); setSelected(null); load() }
+      else toast.error(r.error)
     } catch { toast.error("ดำเนินการไม่สำเร็จ") } finally { setSaving(false) }
   }
 
@@ -568,6 +582,25 @@ export default function OrgMapPage() {
               ))}
             </select>
           </div>
+
+          {/* ── 1.2 บริษัทที่สังกัด (เปลี่ยนได้ — เฉพาะ super admin) ── */}
+          {companies.length > 0 && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Building2 size={10}/> บริษัทที่สังกัด
+              </p>
+              <select
+                value={e.company_id || ""}
+                onChange={ev => changeCompany(e.id, ev.target.value)}
+                disabled={saving}
+                className="w-full bg-indigo-50 border border-indigo-200 rounded-lg px-2.5 py-2 text-xs font-bold text-indigo-800 outline-none focus:border-indigo-400"
+              >
+                <option value="">— เลือกบริษัท —</option>
+                {companies.map((c: any) => <option key={c.id} value={c.id}>{c.code ? `[${c.code}] ` : ""}{c.name_th}</option>)}
+              </select>
+              <p className="text-[9px] text-slate-400 mt-1">เปลี่ยนบริษัทจะล้างแผนก/ตำแหน่ง/สาขา ให้เลือกใหม่ของบริษัทนั้น</p>
+            </div>
+          )}
 
           {/* ── 1.5 แผนก + ตำแหน่ง (เปลี่ยนได้) ── */}
           <div className="grid grid-cols-2 gap-2">

@@ -795,11 +795,18 @@ export default function EmployeeDetailPage() {
           {/* บริษัทที่สังกัด */}
           <div className="mb-4 p-3 rounded-xl border-2 border-blue-100 bg-blue-50/50">
             <label className="block text-sm font-bold text-blue-800 mb-1.5 flex items-center gap-1.5"><Building2 size={14}/> บริษัทที่สังกัด</label>
-            <select value={form.company_id||""} onChange={e => set("company_id",e.target.value)} className={inp}>
+            <select value={form.company_id||""} onChange={e => {
+              const newCid = e.target.value
+              setForm((f: any) => f.company_id === newCid ? f : ({
+                ...f, company_id: newCid,
+                // เปลี่ยนบริษัท → ล้างแผนก/ตำแหน่ง/สาขา (เพราะเป็นของบริษัทเดิม ไม่งั้นค้างทำให้ผังองค์กรเพี้ยน)
+                department_id: null, position_id: null, branch_id: null,
+              }))
+            }} className={inp}>
               <option value="">— เลือกบริษัท —</option>
               {companies.map((c: any) => <option key={c.id} value={c.id}>{c.code ? `[${c.code}] ` : ""}{c.name_th}</option>)}
             </select>
-            <p className="text-[11px] text-blue-500 mt-1">เปลี่ยนบริษัทจะอัปเดตแผนก/ตำแหน่ง/สาขาให้เลือกใหม่</p>
+            <p className="text-[11px] text-blue-500 mt-1">เปลี่ยนบริษัทจะล้างแผนก/ตำแหน่ง/สาขา ให้เลือกใหม่ของบริษัทนั้น (พิมพ์เพิ่มได้ถ้ายังไม่มี)</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
