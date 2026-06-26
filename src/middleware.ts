@@ -67,7 +67,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/reset-password") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
-    pathname === "/favicon.ico"
+    pathname === "/favicon.ico" ||
+    // ไฟล์ static ใน /public (รูป/วิดีโอ) — ไม่ต้องตรวจ auth ไม่งั้นโลโก้หน้า login โดน redirect
+    /\.(mp4|mov|webm|ogg|png|jpe?g|gif|svg|webp|ico|woff2?|ttf)$/i.test(pathname)
   ) {
     return NextResponse.next({ request })
   }

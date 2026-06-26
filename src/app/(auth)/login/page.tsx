@@ -76,11 +76,9 @@ export default function LoginPage() {
         >
           <div className="flex flex-col items-center mb-8">
             <img
-              src="https://shd-technology.co.th/images/logo.png"
-              alt="SHD Logo"
-              width={160}
-              height={80}
-              style={{ objectFit: "contain", maxHeight: "80px" }}
+              src="/goodhr-logo.png"
+              alt="GoodHR"
+              style={{ width: 160, height: 90, objectFit: "contain" }}
             />
           </div>
 

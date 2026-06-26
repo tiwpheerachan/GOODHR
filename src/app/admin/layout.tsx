@@ -122,10 +122,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="border-b border-slate-100 p-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
-              <img src="https://shd-technology.co.th/images/logo.png" alt="SHD FOR YOU" className="h-full w-full object-contain p-1"/>
+              <video autoPlay loop muted playsInline aria-label="GoodHR" className="h-full w-full object-cover">
+                <source src="/goodhr-logo.mp4" type="video/mp4"/>
+                <source src="/goodhr-logo.mov" type="video/quicktime"/>
+              </video>
             </div>
             <div>
-              <p className="text-sm font-black text-slate-800">SHD FOR YOU</p>
+              <p className="text-sm font-black text-slate-800">GoodHR</p>
               <p className="max-w-36 truncate text-xs text-slate-400">
                 {emp?.company?.name_th?.replace("บริษัท ", "").replace(" จำกัด", "") || "Admin Panel"}
               </p>
