@@ -29,6 +29,8 @@ interface PayrollInfo {
   ot_amount?: number; deduct_late?: number; deduct_absent?: number
   social_security_amount?: number; monthly_tax_withheld?: number
   total_deductions?: number; bonus?: number; commission?: number
+  // OT แยกตามเรท (นาที) — weekday=1.5x, holiday_reg=1.0x, holiday_ot=3.0x
+  ot_hours?: number; ot_weekday_minutes?: number; ot_holiday_reg_minutes?: number; ot_holiday_ot_minutes?: number
 }
 interface EmpRow {
   id: string
@@ -42,7 +44,7 @@ interface EmpRow {
   base_salary?: number
   payroll?: PayrollInfo
   days: Record<string, DayCell>          // key = "YYYY-MM-DD"
-  stats: { present: number; late: number; absent: number; leave: number; halfLeave: number; otMin: number; lateMin: number }
+  stats: { present: number; late: number; absent: number; leave: number; halfLeave: number; otMin: number; lateMin: number; ot10: number; ot15: number; ot30: number }
 }
 interface LeaveDay {
   employee_id: string
@@ -231,6 +233,8 @@ export default function WorkLogPage() {
       const empRows: EmpRow[] = employees.map((emp: any) => {
         const days: Record<string, DayCell> = {}
         let present = 0, late = 0, absent = 0, leave = 0, halfLeave = 0, otMin = 0, lateMin = 0
+        // OT แยกตามวัน (fallback จาก attendance ถ้ายังไม่คำนวณเงินเดือน): เสาร์-อาทิตย์ → 3.0x, วันทำงาน → 1.5x (นาที)
+        let aOt15 = 0, aOt30 = 0
 
         for (const date of allDates) {
           const att = attLookup[emp.id]?.[date]
@@ -253,6 +257,10 @@ export default function WorkLogPage() {
             if (att.half_day_leave) halfLeave++
             if (effectiveStatus !== "leave" && att.half_day_leave !== "morning") lateMin += att.late_minutes
             otMin += att.ot_minutes
+            if (att.ot_minutes > 0) {
+              const dow = new Date(date + "T00:00:00").getDay()
+              if (dow === 0 || dow === 6) aOt30 += att.ot_minutes; else aOt15 += att.ot_minutes
+            }
           } else if (lv && lv.status === "approved") {
             // No attendance record but has approved leave
             days[date] = {
@@ -267,6 +275,13 @@ export default function WorkLogPage() {
           // If no record at all → empty cell (could be day off, holiday, or no data yet)
         }
 
+        // OT แยกเรท: ใช้ payroll ถ้าคำนวณแล้ว (แม่นยำ) ไม่งั้น fallback จาก attendance ตามวัน
+        const pr = payrollMap[emp.id]
+        const prOtTotal = pr ? ((pr.ot_weekday_minutes || 0) + (pr.ot_holiday_reg_minutes || 0) + (pr.ot_holiday_ot_minutes || 0)) : 0
+        const ot10 = prOtTotal > 0 ? (pr!.ot_holiday_reg_minutes || 0) : 0
+        const ot15 = prOtTotal > 0 ? (pr!.ot_weekday_minutes || 0)     : aOt15
+        const ot30 = prOtTotal > 0 ? (pr!.ot_holiday_ot_minutes || 0)  : aOt30
+
         return {
           id: emp.id,
           employee_code: emp.employee_code || "",
@@ -279,7 +294,7 @@ export default function WorkLogPage() {
           base_salary: salaryMap[emp.id] || 0,
           payroll: payrollMap[emp.id] || null,
           days,
-          stats: { present, late, absent, leave, halfLeave, otMin, lateMin },
+          stats: { present, late, absent, leave, halfLeave, otMin, lateMin, ot10, ot15, ot30 },
         }
       })
 
@@ -360,7 +375,7 @@ export default function WorkLogPage() {
       const headers = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น", "แผนก", ...allDates.map(d => {
         const dd = new Date(d + "T00:00:00")
         return `${dd.getDate()}/${dd.getMonth() + 1}`
-      }), "มาทำงาน", "สาย", "ขาด", "ลา", "ลาครึ่งวัน", "สายรวม(นาที)", "OT(นาที)", "เงินเดือนฐาน", "รายได้รวม", "หักรวม", "เงินสุทธิ"]
+      }), "มาทำงาน", "สาย", "ขาด", "ลา", "ลาครึ่งวัน", "สายรวม(นาที)", "OT(นาที)", "OT รวม(ชม.)", "OT 1.0x(ชม.)", "OT 1.5x(ชม.)", "OT 3.0x(ชม.)", "OT(฿)", "เงินเดือนฐาน", "รายได้รวม", "หักรวม", "เงินสุทธิ"]
 
       // Data rows
       const dataRows = filteredRows.map(r => {
@@ -376,11 +391,14 @@ export default function WorkLogPage() {
           if (c.ot_minutes > 0) lbl += ` OT${c.ot_minutes}`
           return lbl
         })
+        const hr = (min?: number) => (min && min > 0 ? Math.round((min / 60) * 10) / 10 : "")
+        const { ot10, ot15, ot30 } = r.stats
         return [
           r.employee_code, `${r.first_name_th} ${r.last_name_th}`, r.nickname || "",
           r.department, ...dayCols,
           r.stats.present, r.stats.late, r.stats.absent, r.stats.leave, r.stats.halfLeave,
           r.stats.lateMin, r.stats.otMin,
+          hr(ot10 + ot15 + ot30), hr(ot10), hr(ot15), hr(ot30), r.payroll?.ot_amount || "",
           r.payroll?.base_salary || r.base_salary || "",
           r.payroll?.gross_income || "",
           r.payroll?.total_deductions || "",
@@ -638,20 +656,24 @@ export default function WorkLogPage() {
                 <th className="bg-violet-50 px-1 py-1 text-center font-bold text-violet-700 border border-slate-200 min-w-[36px]" rowSpan={2} title="ลา">ลา</th>
                 <th className="bg-amber-50 px-1 py-1 text-center font-bold text-amber-700 border border-slate-200 min-w-[44px]" rowSpan={2} title="สายรวม (นาที)">สาย<br/><span className="text-[8px] font-normal">นาที</span></th>
                 <th className="bg-indigo-50 px-1 py-1 text-center font-bold text-indigo-700 border border-slate-200 min-w-[44px]" rowSpan={2} title="OT (นาที)">OT<br/><span className="text-[8px] font-normal">นาที</span></th>
+                <th className="bg-indigo-50 px-1 py-1 text-center font-bold text-indigo-700 border border-slate-200 min-w-[46px]" rowSpan={2} title="OT รวม (ชั่วโมง) — จากงวดเงินเดือน">OT รวม<br/><span className="text-[8px] font-normal">ชม.</span></th>
+                <th className="bg-sky-50 px-1 py-1 text-center font-bold text-sky-700 border border-slate-200 min-w-[44px]" rowSpan={2} title="OT 1.0x วันหยุด (ชั่วโมง)">OT 1x<br/><span className="text-[8px] font-normal">ชม.</span></th>
+                <th className="bg-blue-50 px-1 py-1 text-center font-bold text-blue-700 border border-slate-200 min-w-[44px]" rowSpan={2} title="OT 1.5x วันทำงาน (ชั่วโมง)">OT 1.5x<br/><span className="text-[8px] font-normal">ชม.</span></th>
+                <th className="bg-violet-50 px-1 py-1 text-center font-bold text-violet-700 border border-slate-200 min-w-[44px]" rowSpan={2} title="OT 3.0x วันหยุด (ชั่วโมง)">OT 3x<br/><span className="text-[8px] font-normal">ชม.</span></th>
                 <th className="bg-blue-50 px-1 py-1 text-center font-bold text-blue-700 border border-slate-200 min-w-[70px]" rowSpan={2} title="เงินสุทธิ">สุทธิ</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={allDates.length + 10} className="text-center py-20">
+                  <td colSpan={allDates.length + 14} className="text-center py-20">
                     <Loader2 className="w-8 h-8 animate-spin text-slate-400 mx-auto mb-2" />
                     <div className="text-sm text-slate-500">กำลังโหลด...</div>
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={allDates.length + 10} className="text-center py-20 text-slate-400">
+                  <td colSpan={allDates.length + 14} className="text-center py-20 text-slate-400">
                     {rows.length === 0 ? "ไม่มีข้อมูล" : "ไม่พบพนักงานที่ค้นหา"}
                   </td>
                 </tr>
@@ -671,6 +693,16 @@ export default function WorkLogPage() {
                   <td className="text-center font-bold text-violet-700 border border-slate-100 text-[11px]">{emp.stats.leave || ""}</td>
                   <td className="text-center font-bold text-amber-600 border border-slate-100 text-[11px]">{emp.stats.lateMin || ""}</td>
                   <td className="text-center font-bold text-indigo-700 border border-slate-100 text-[11px]">{emp.stats.otMin || ""}</td>
+                  {(() => {
+                    const hr = (min?: number) => (min && min > 0 ? (Math.round((min / 60) * 10) / 10) : "")
+                    const { ot10, ot15, ot30 } = emp.stats
+                    return (<>
+                      <td className="text-center font-bold text-indigo-700 border border-slate-100 text-[11px]">{hr(ot10 + ot15 + ot30)}</td>
+                      <td className="text-center text-sky-700 border border-slate-100 text-[11px]">{hr(ot10)}</td>
+                      <td className="text-center text-blue-700 border border-slate-100 text-[11px]">{hr(ot15)}</td>
+                      <td className="text-center text-violet-700 border border-slate-100 text-[11px]">{hr(ot30)}</td>
+                    </>)
+                  })()}
                   <td className="border border-slate-100 text-[11px] relative">
                     {emp.payroll ? (
                       <button onClick={() => setPayrollDetail(payrollDetail === emp.id ? null : emp.id)}

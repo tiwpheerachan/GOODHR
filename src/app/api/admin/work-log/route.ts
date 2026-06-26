@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
   for (let i = 0; i < empIds.length; i += BATCH) {
     const batch = empIds.slice(i, i + BATCH)
     const { data: pr } = await supa.from("payroll_records")
-      .select("employee_id, base_salary, gross_income, net_salary, ot_amount, deduct_late, deduct_absent, social_security_amount, monthly_tax_withheld, total_deductions")
+      .select("employee_id, base_salary, gross_income, net_salary, ot_amount, ot_hours, ot_weekday_minutes, ot_holiday_reg_minutes, ot_holiday_ot_minutes, deduct_late, deduct_absent, social_security_amount, monthly_tax_withheld, total_deductions")
       .in("employee_id", batch).eq("year", payrollYear).eq("month", payrollMonth)
       .limit(1000)
     for (const r of (pr ?? [])) payrollMap[r.employee_id] = r
