@@ -2376,9 +2376,17 @@ export default function PayrollPage() {
     setPeriods(ps => ps.map(p => p.id === selected.id ? updated : p))
   }
 
+  // ── คนลาออกก่อนงวด + ยังไม่ได้กดกู้คืน = ซ่อน (ไม่รวมในตาราง/CSV/TXT/Excel) ──
+  //   ใช้ predicate เดียวกันทุกที่ เพื่อให้ export ตรงกับสิ่งที่เห็นบนหน้าจอ
+  const periodStart = selected?.start_date as string | undefined
+  const isHiddenResigned = (r: any) => {
+    const resign = r.employee?.resign_date
+    return !!(resign && periodStart && resign < periodStart && !r.keep_in_period)
+  }
+
   const exportCSV = () => {
     const hdr = ["รหัส","ชื่อ","นามสกุล","ตำแหน่ง","แผนก","เงินเดือนฐาน","เบี้ยตำแหน่ง","ค่าเดินทาง","ค่าอาหาร","OT฿","OT1.5x(น.)","OT1.0x(น.)","OT3.0x(น.)","KPI Bonus","เกรด KPI","ฐาน KPI","คอมมิชชั่น","รวมรายรับ","หักขาด","หักสาย","หักกู้","SSO","ภาษี","หักรวม","สุทธิ","วันมา","วันขาด","สาย","ลาจ่าย","ลาไม่จ่าย","แก้ไขโดยHR"]
-    const rows = records.map((r: any) => [
+    const rows = records.filter((r: any) => !isHiddenResigned(r)).map((r: any) => [
       r.employee?.employee_code, r.employee?.first_name_th, r.employee?.last_name_th,
       r.employee?.position?.name, r.employee?.department?.name,
       r.base_salary||0, r.allowance_position||0, r.allowance_transport||0, r.allowance_food||0,
@@ -2401,8 +2409,7 @@ export default function PayrollPage() {
 
   // ── ซ่อนคนที่ลาออกก่อนงวดนี้ ──
   //   แสดง: คนยังทำงานอยู่ + คนที่ลาออกในงวดนี้ (ยังต้องคำนวณเงินสุดท้าย)
-  //   ซ่อน: คนที่ลาออกไปก่อนงวดเริ่ม
-  const periodStart = selected?.start_date as string | undefined
+  //   ซ่อน: คนที่ลาออกไปก่อนงวดเริ่ม (periodStart/isHiddenResigned ประกาศไว้ด้านบนแล้ว)
   // คนที่ลาออกก่อนงวดเริ่ม (ยังมี payroll record อยู่ แต่ default ซ่อน)
   const resignedBeforePeriod = records.filter((r: any) =>
     r.employee?.resign_date && periodStart && r.employee.resign_date < periodStart
@@ -2413,8 +2420,7 @@ export default function PayrollPage() {
 
   const filtered   = records.filter((r: any) => {
     // ── ซ่อนคนลาออกก่อนงวดนี้ (เว้นที่ HR กดกู้คืนแล้ว = keep_in_period) ──
-    const resign = r.employee?.resign_date
-    if (resign && periodStart && resign < periodStart && !r.keep_in_period) return false
+    if (isHiddenResigned(r)) return false
 
     if (filterDept && r.employee?.department?.name !== filterDept) return false
     if (!search) return true
@@ -2970,6 +2976,7 @@ export default function PayrollPage() {
       {showTxtExport && (() => {
         const departments = Array.from(new Set(records.map((r: any) => r.employee?.department?.name).filter(Boolean))).sort() as string[]
         const txtFiltered = records.filter((r: any) => {
+          if (isHiddenResigned(r)) return false
           if (txtFilterDept && r.employee?.department?.name !== txtFilterDept) return false
           if (txtSearch) {
             const s = txtSearch.toLowerCase()
@@ -3103,7 +3110,7 @@ export default function PayrollPage() {
           }
           return true
         }
-        const matched = records.filter(smartFilter)
+        const matched = records.filter((r: any) => !isHiddenResigned(r)).filter(smartFilter)
         const finalList = matched.filter((r: any) => !smartExclude.has(r.employee?.id))
         const totalNetSmart = finalList.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).net, 0)
         const totalGrossSmart = finalList.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).gross, 0)
