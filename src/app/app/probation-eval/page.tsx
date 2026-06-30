@@ -2,8 +2,7 @@
 import { useEffect, useState } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { Shield, Loader2, ChevronDown, ChevronUp, MessageSquare, CheckCircle2, ListChecks, Paperclip, FileText, Calendar } from "lucide-react"
-
-const ROUND_LABELS: Record<number, string> = { 1: "รอบที่ 1 (60 วัน)", 2: "รอบที่ 2 (90 วัน)", 3: "รอบที่ 3 (119 วัน)" }
+import { ROUND_LABELS } from "@/lib/constants/probation"
 
 const GRADE_CONF: Record<string, { bg: string; color: string }> = {
   A: { bg: "bg-emerald-50", color: "text-emerald-600" },

@@ -126,7 +126,7 @@ export interface KpiTemplate {
 
 // ── Probation Evaluation ────────────────────────────────────────────────────
 export type ProbationEvalStatus = "draft" | "submitted" | "approved" | "rejected"
-export type ProbationRound = 1 | 2 | 3
+export type ProbationRound = 0 | 1 | 2 | 3 // 0 = ทดลองงาน 30 วันแรก
 
 export interface ProbationEvaluation {
   id: string; company_id: string; employee_id: string; evaluator_id: string

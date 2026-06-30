@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { logAudit } from "@/lib/auditLog"
 import { getManageableEmployees, canEvaluate } from "@/lib/utils/evaluator-chain"
+import { ROUND_DAYS, ROUND_LABELS } from "@/lib/constants/probation"
 
 function calcGrade(score: number): string {
   if (score >= 91) return "A"
@@ -9,9 +10,6 @@ function calcGrade(score: number): string {
   if (score >= 71) return "C"
   return "D"
 }
-
-const ROUND_DAYS: Record<number, number> = { 1: 60, 2: 90, 3: 119 }
-const ROUND_LABELS: Record<number, string> = { 1: "รอบที่ 1 (60 วัน)", 2: "รอบที่ 2 (90 วัน)", 3: "รอบที่ 3 (119 วัน)" }
 
 function addDaysToDate(dateStr: string, days: number): string {
   const d = new Date(dateStr)
@@ -292,7 +290,7 @@ export async function POST(req: NextRequest) {
   const { employee_id, round, items, evaluator_note, attachments: rawAttachments, is_passed } = body
   const passVal: boolean | null = typeof is_passed === "boolean" ? is_passed : null
 
-  if (!employee_id || !round) {
+  if (!employee_id || round === undefined || round === null) {
     return NextResponse.json({ error: "employee_id และ round จำเป็น" }, { status: 400 })
   }
 

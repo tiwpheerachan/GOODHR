@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { LayoutDashboard, Users, CheckSquare, ChevronLeft, Bell, Target, CalendarClock, CalendarDays, Shield, Globe, Camera } from "lucide-react"
 import { LanguageProvider, useLanguage, Lang } from "@/lib/i18n"
+import { PROBATION_ROUNDS, ROUND_DAYS } from "@/lib/constants/probation"
 
 // NAV items use i18n keys — resolved inside the component
 const NAV_ITEMS = [
@@ -92,13 +93,12 @@ function ManagerLayoutInner({ children }: { children: React.ReactNode }) {
       try {
         const pRes = await fetch("/api/probation-evaluation?mode=manager")
         const pData = await pRes.json()
-        const ROUND_DAYS: Record<number, number> = { 1: 60, 2: 90, 3: 119 }
         const today = new Date().toISOString().split("T")[0]
         let pCount = 0
         for (const m of (pData.members ?? [])) {
           const daysFromHire = Math.ceil((new Date(today).getTime() - new Date(m.hire_date).getTime()) / 86400000)
           const empForms = (pData.forms ?? []).filter((f: any) => f.employee_id === m.id)
-          for (const round of [1, 2, 3]) {
+          for (const round of PROBATION_ROUNDS) {
             const form = empForms.find((f: any) => f.round === round)
             const dueDays = ROUND_DAYS[round]
             if (daysFromHire >= dueDays - 14 && !form) pCount++

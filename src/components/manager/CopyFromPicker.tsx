@@ -3,8 +3,7 @@ import { useEffect, useState, useMemo } from "react"
 import { X, Loader2, ChevronDown, ChevronRight, Search, Sparkles, Check, AlertTriangle } from "lucide-react"
 import toast from "react-hot-toast"
 import { useLanguage } from "@/lib/i18n"
-
-const ROUND_DAYS: Record<number, number> = { 1: 60, 2: 90, 3: 119 }
+import { ROUND_DAYS } from "@/lib/constants/probation"
 const TH_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
 const GRADE_COLOR: Record<string, string> = {

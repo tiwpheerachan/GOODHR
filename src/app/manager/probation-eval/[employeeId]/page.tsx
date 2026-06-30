@@ -11,8 +11,7 @@ import {
 import Link from "next/link"
 import toast from "react-hot-toast"
 import CopyFromPicker, { CopyFromItem } from "@/components/manager/CopyFromPicker"
-
-const ROUND_LABELS: Record<number, string> = { 1: "รอบที่ 1 (60 วัน)", 2: "รอบที่ 2 (90 วัน)", 3: "รอบที่ 3 (119 วัน)" }
+import { ROUND_LABELS } from "@/lib/constants/probation"
 
 function calcGrade(score: number) {
   if (score >= 91) return "A"
@@ -54,7 +53,8 @@ export default function ProbationEvalFormPage() {
   const router = useRouter()
 
   const employeeId = params.employeeId as string
-  const round = Number(searchParams.get("round")) || 1
+  const roundParam = searchParams.get("round")
+  const round = roundParam != null && roundParam !== "" ? Number(roundParam) : 1 // รองรับ round 0 (30 วัน)
 
   const [employee, setEmployee] = useState<any>(null)
   const [items, setItems] = useState<EvalRow[]>([...MANDATORY_ITEMS])

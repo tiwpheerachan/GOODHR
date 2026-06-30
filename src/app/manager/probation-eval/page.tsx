@@ -4,9 +4,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import Link from "next/link"
 import { Shield, Loader2, ChevronRight, CheckCircle2, Clock, AlertCircle, FilePlus2, FilePen, ChevronDown, Network } from "lucide-react"
-
-const ROUND_LABELS: Record<number, string> = { 1: "60 วัน", 2: "90 วัน", 3: "119 วัน" }
-const ROUND_DAYS: Record<number, number> = { 1: 60, 2: 90, 3: 119 }
+import { PROBATION_ROUNDS, ROUND_DAYS, ROUND_SHORT } from "@/lib/constants/probation"
 
 const GRADE_STYLE: Record<string, string> = {
   A: "bg-emerald-100 text-emerald-700",
@@ -113,8 +111,8 @@ export default function ManagerProbationEvalPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                {[1, 2, 3].map(round => {
+              <div className="grid grid-cols-4 gap-2">
+                {PROBATION_ROUNDS.map(round => {
                   const form = empForms.find(f => f.round === round)
                   const rs = getRoundStatus(form)
                   const Icon = rs.icon
@@ -130,7 +128,7 @@ export default function ManagerProbationEvalPage() {
                         isEarly ? "bg-slate-50 ring-1 ring-slate-200 hover:shadow-md active:scale-[0.97]" :
                         `${rs.bg} hover:shadow-md active:scale-[0.97]`
                       }`}>
-                      <p className="text-[10px] font-bold text-slate-500 mb-1">{t(`probation.round_${round === 1 ? "60" : round === 2 ? "90" : "119"}`)}</p>
+                      <p className="text-[10px] font-bold text-slate-500 mb-1">{ROUND_SHORT[round]}</p>
                       <div className="flex items-center justify-center gap-1">
                         <Icon size={12} className={rs.color} />
                         <span className={`text-[11px] font-bold ${rs.color}`}>{rs.label}</span>

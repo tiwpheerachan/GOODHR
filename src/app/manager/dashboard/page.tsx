@@ -10,6 +10,7 @@ import Link from "next/link"
 import { Clock, ChevronRight, CalendarDays, TrendingUp, AlertCircle, Banknote, ArrowRight, CheckCircle2, XCircle, FileText, Zap, Building2, Users, Shield, AlertTriangle } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
+import { PROBATION_ROUNDS, ROUND_DAYS } from "@/lib/constants/probation"
 
 export default function DashboardPage() {
   const { user } = useAuth()
@@ -35,7 +36,6 @@ export default function DashboardPage() {
     fetch("/api/probation-evaluation?mode=manager")
       .then(r => r.json())
       .then(data => {
-        const ROUND_DAYS: Record<number, number> = { 1: 60, 2: 90, 3: 119 }
         const today = new Date().toISOString().split("T")[0]
         const alerts: any[] = []
         for (const m of (data.members ?? [])) {
@@ -45,7 +45,7 @@ export default function DashboardPage() {
           // หา round ที่ใกล้ที่สุดที่ต้องทำ
           let nextRound: number | null = null
           let nextStatus: "overdue" | "due_soon" | "upcoming" | null = null
-          for (const round of [1, 2, 3]) {
+          for (const round of PROBATION_ROUNDS) {
             const form = empForms.find((f: any) => f.round === round)
             if (form && (form.status === "approved" || form.status === "submitted")) continue // รอบนี้ทำแล้ว
             const dueDays = ROUND_DAYS[round]
@@ -70,8 +70,8 @@ export default function DashboardPage() {
             daysFromHire,
             nextRound,
             nextStatus,
-            nextDueDays: nextRound ? ROUND_DAYS[nextRound] : null,
-            daysLeft: nextRound ? ROUND_DAYS[nextRound] - daysFromHire : null,
+            nextDueDays: nextRound != null ? ROUND_DAYS[nextRound] : null,
+            daysLeft: nextRound != null ? ROUND_DAYS[nextRound] - daysFromHire : null,
             forms: empForms,
           })
         }
@@ -114,7 +114,7 @@ export default function DashboardPage() {
   const todayDate  = format(new Date(), "yyyy-MM-dd")
 
   const ROUND_LABELS = [
-    "", t("dashboard.probation_round_1"), t("dashboard.probation_round_2"), t("dashboard.probation_round_3")
+    t("dashboard.probation_round_0"), t("dashboard.probation_round_1"), t("dashboard.probation_round_2"), t("dashboard.probation_round_3")
   ]
 
   return (
@@ -268,6 +268,7 @@ export default function DashboardPage() {
                 const daysRemain = Math.max(0, TOTAL_DAYS - a.daysFromHire)
                 const barClass = pct >= 100 ? "pk-fill-danger" : pct >= 75 ? "pk-fill-warn" : "pk-fill"
                 const ROUNDS = [
+                  { round: 0, day: 30 },
                   { round: 1, day: 60 },
                   { round: 2, day: 90 },
                   { round: 3, day: 119 },
@@ -275,7 +276,7 @@ export default function DashboardPage() {
 
                 return (
                   <Link key={`${a.employee.id}-${idx}`}
-                    href={`/manager/probation-eval/${a.employee.id}${a.nextRound ? `?round=${a.nextRound}` : ""}`}
+                    href={`/manager/probation-eval/${a.employee.id}${a.nextRound != null ? `?round=${a.nextRound}` : ""}`}
                     className="block rounded-xl p-3.5 active:scale-[0.98] transition-all hover:brightness-110"
                     style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
 
@@ -330,7 +331,7 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Row 3: Round status cards */}
-                    <div className="grid grid-cols-3 gap-1.5 mt-2">
+                    <div className="grid grid-cols-4 gap-1.5 mt-2">
                       {ROUNDS.map(r => {
                         const form = (a.forms ?? []).find((f: any) => f.round === r.round)
                         const done = form && (form.status === "approved" || form.status === "submitted")

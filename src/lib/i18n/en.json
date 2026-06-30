@@ -105,6 +105,7 @@
     "probation_alert": "Probation",
     "probation_members": "{count} members",
     "probation_view_all": "View all →",
+    "probation_round_0": "30 days",
     "probation_round_1": "Round 1",
     "probation_round_2": "Round 2",
     "probation_round_3": "Round 3",
@@ -390,7 +391,8 @@
   },
   "probation": {
     "title": "Probation Evaluation",
-    "subtitle": "3-round evaluation (60/90/119 days)",
+    "subtitle": "4-round evaluation (30/60/90/119 days)",
+    "round_30": "30 days",
     "round_60": "60 days",
     "round_90": "90 days",
     "round_119": "119 days",

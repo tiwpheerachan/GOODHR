@@ -10,8 +10,7 @@ import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
 import Link from "next/link"
 import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
-
-const ROUND_LABELS: Record<number, string> = { 1: "รอบ 1 (60 วัน)", 2: "รอบ 2 (90 วัน)", 3: "รอบ 3 (119 วัน)" }
+import { PROBATION_ROUNDS, ROUND_LABELS } from "@/lib/constants/probation"
 
 const GRADE_CONF: Record<string, { bg: string; text: string }> = {
   A: { bg: "bg-emerald-50", text: "text-emerald-700" },
@@ -194,7 +193,7 @@ export default function AdminProbationEvalPage() {
 
       // ── Sheet 3: สถิติรวม ────────────────────────────────────────
       const gradeCount: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 }
-      const roundCount: Record<number, number> = { 1: 0, 2: 0, 3: 0 }
+      const roundCount: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0 }
       const deptAvg: Record<string, { sum: number; count: number }> = {}
       for (const f of filtered) {
         if (gradeCount[f.grade] !== undefined) gradeCount[f.grade]++
@@ -220,7 +219,7 @@ export default function AdminProbationEvalPage() {
       for (const g of ["A", "B", "C", "D"] as const) statRows.push({ "หัวข้อ": `เกรด ${g}`, "ค่า": gradeCount[g] })
       statRows.push({ "หัวข้อ": "", "ค่า": "" })
       statRows.push({ "หัวข้อ": "── นับตามรอบ ──", "ค่า": "" })
-      for (const r of [1, 2, 3] as const) statRows.push({ "หัวข้อ": ROUND_LABELS[r], "ค่า": roundCount[r] })
+      for (const r of PROBATION_ROUNDS) statRows.push({ "หัวข้อ": ROUND_LABELS[r], "ค่า": roundCount[r] })
       statRows.push({ "หัวข้อ": "", "ค่า": "" })
       statRows.push({ "หัวข้อ": "── นับตามสถานะ ──", "ค่า": "" })
       statRows.push({ "หัวข้อ": "อนุมัติแล้ว", "ค่า": approvedCount })
@@ -298,7 +297,7 @@ export default function AdminProbationEvalPage() {
       <div className="flex flex-wrap gap-2">
         <select value={roundFilter} onChange={e => setRoundFilter(e.target.value)} className={inp}>
           <option value="">ทุกรอบ</option>
-          {[1, 2, 3].map(r => <option key={r} value={r}>{ROUND_LABELS[r]}</option>)}
+          {PROBATION_ROUNDS.map(r => <option key={r} value={r}>{ROUND_LABELS[r]}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={inp}>
           <option value="">ทุกสถานะ</option>
