@@ -7,7 +7,7 @@ import {
   ArrowLeft, Save, Loader2, Plus, MapPin, Check, X, Building2, Trash2,
   Clock, Calendar, DollarSign, BarChart2, User2, ChevronRight, CalendarClock,
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History, Globe, ShieldAlert, Pencil,
-  Briefcase, Layers, Store, Mail, Phone,
+  Briefcase, Layers, Store, Mail, Phone, Shield,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -55,6 +55,9 @@ export default function EmployeeDetailPage() {
   // KPI evaluator
   const [kpiEvalSearch, setKpiEvalSearch] = useState<string | null>(null)
   const [showKpiEvalDropdown, setShowKpiEvalDropdown] = useState(false)
+  // Probation evaluator
+  const [probEvalSearch, setProbEvalSearch] = useState<string | null>(null)
+  const [showProbEvalDropdown, setShowProbEvalDropdown] = useState(false)
   // resign modal
   const [kpiSetting, setKpiSetting] = useState<any>(null)
   const [kpiAmount,  setKpiAmount]  = useState<string>("")
@@ -156,6 +159,14 @@ export default function EmployeeDetailPage() {
             .eq("id", e.data.kpi_evaluator_id).single()
             .then(({ data: ev }) => {
               if (ev) setKpiEvalSearch(`${ev.first_name_th} ${ev.last_name_th} (${ev.employee_code})`)
+            })
+        }
+        // ── โหลด probation_evaluator แยก (column อาจยังไม่มีถ้ายังไม่รัน migration) ──
+        if (e.data.probation_evaluator_id) {
+          supabase.from("employees").select("id,first_name_th,last_name_th,employee_code")
+            .eq("id", e.data.probation_evaluator_id).single()
+            .then(({ data: ev }) => {
+              if (ev) setProbEvalSearch(`${ev.first_name_th} ${ev.last_name_th} (${ev.employee_code})`)
             })
         }
       }
@@ -303,6 +314,7 @@ export default function EmployeeDetailPage() {
     }
     // เพิ่ม kpi_evaluator_id เฉพาะเมื่อมี field อยู่ (หลังรัน migration แล้ว)
     if ("kpi_evaluator_id" in form) updateData.kpi_evaluator_id = form.kpi_evaluator_id || null
+    if ("probation_evaluator_id" in form) updateData.probation_evaluator_id = form.probation_evaluator_id || null
     const { error } = await supabase.from("employees").update(updateData).eq("id", id as string)
     if (error) toast.error("เกิดข้อผิดพลาด"); else {
       toast.success("บันทึกสำเร็จ")
@@ -978,6 +990,81 @@ export default function EmployeeDetailPage() {
               <p className="text-xs text-violet-600 font-medium mt-2 flex items-center gap-1"><CheckCircle2 size={11}/>กำหนดผู้ประเมิน KPI แล้ว — จะใช้แทนหัวหน้า</p>
             )}
           </div>
+
+          {/* ── ผู้ประเมินทดลองงาน ── */}
+          {(() => {
+            const currentMgr = mgrHistory.find((h: any) => !h.effective_to)?.manager
+            return (
+          <div className="mt-6 p-4 rounded-2xl border-2 border-rose-100 bg-rose-50/50">
+            <h4 className="font-bold text-slate-800 text-sm mb-1 flex items-center gap-2"><Shield size={14} className="text-rose-500"/>ผู้ประเมินทดลองงาน</h4>
+            <p className="text-xs text-slate-400 mb-3">เว้นว่าง = ใช้หัวหน้าปัจจุบันเป็นผู้ประเมินตามปกติ</p>
+            <div className="relative">
+              <input
+                type="text"
+                value={probEvalSearch ?? ""}
+                onChange={e => { setProbEvalSearch(e.target.value); setShowProbEvalDropdown(true); loadAllEmps() }}
+                onFocus={() => { setShowProbEvalDropdown(true); loadAllEmps() }}
+                placeholder="ค้นหาชื่อ หรือ รหัสพนักงาน... (เว้นว่าง = หัวหน้า)"
+                className={inp}
+              />
+              {form.probation_evaluator_id && (
+                <button type="button" onClick={() => { set("probation_evaluator_id", null); setProbEvalSearch("") }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-100 hover:bg-red-100 flex items-center justify-center transition-colors">
+                  <X size={12} className="text-slate-400 hover:text-red-500" />
+                </button>
+              )}
+              {showProbEvalDropdown && (() => {
+                const raw = (probEvalSearch || "").toLowerCase().trim()
+                const terms = raw ? raw.split(/\s+/).filter(Boolean) : []
+                const matches = allEmps.filter(e => {
+                  if (terms.length === 0) return true
+                  const hay = [
+                    e.first_name_th, e.last_name_th,
+                    e.first_name_en, e.last_name_en,
+                    e.nickname, e.nickname_en,
+                    e.employee_code,
+                  ].filter(Boolean).join(" ").toLowerCase()
+                  return terms.every(t => hay.includes(t))
+                })
+                return (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowProbEvalDropdown(false)} />
+                    <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-[240px] overflow-y-auto">
+                      {matches.slice(0, 50).map(e => (
+                        <button key={e.id} type="button"
+                          onClick={() => { set("probation_evaluator_id", e.id); setProbEvalSearch(`${e.first_name_th} ${e.last_name_th} (${e.employee_code})`); setShowProbEvalDropdown(false) }}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-rose-50 flex items-center gap-2 transition-colors">
+                          <span className="font-bold text-slate-800">{e.first_name_th} {e.last_name_th}</span>
+                          {e.nickname && <span className="text-xs text-rose-600">({e.nickname})</span>}
+                          <span className="text-xs text-slate-400">{e.employee_code}</span>
+                        </button>
+                      ))}
+                      {matches.length === 0 && (
+                        <p className="px-3 py-4 text-sm text-slate-400 text-center">ไม่พบพนักงาน</p>
+                      )}
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+            {/* ── ผู้ประเมินปัจจุบัน (designated หรือหัวหน้าตรง) ── */}
+            <div className="mt-3 flex items-center gap-2 text-xs">
+              <span className="text-slate-400">ผู้ประเมินทดลองงานปัจจุบัน:</span>
+              {form.probation_evaluator_id ? (
+                <span className="font-bold text-rose-600 flex items-center gap-1">
+                  <UserCheck size={12}/> {probEvalSearch || "—"} <span className="font-normal text-slate-400">(กำหนดเอง)</span>
+                </span>
+              ) : currentMgr ? (
+                <span className="font-bold text-slate-700 flex items-center gap-1">
+                  <UserCheck size={12} className="text-slate-400"/> {currentMgr.first_name_th} {currentMgr.last_name_th} <span className="font-normal text-slate-400">(หัวหน้าตรง)</span>
+                </span>
+              ) : (
+                <span className="text-amber-600 font-medium">ยังไม่มีหัวหน้า — กรุณากำหนดหัวหน้าหรือผู้ประเมิน</span>
+              )}
+            </div>
+          </div>
+            )
+          })()}
 
           {/* ── ผู้ประเมินเพิ่มเติม (multi) ── */}
           <AdditionalEvaluatorsSection employeeId={id as string} allEmps={allEmps} loadAllEmps={loadAllEmps} />
