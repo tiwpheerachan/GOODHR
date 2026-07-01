@@ -122,10 +122,12 @@ export default function VideoPlayer({
       const rate = Math.min(v.playbackRate || 1, 1)
       watchTimeRef.current += wallDelta * rate
     }
-    lastTimeRef.current = t
 
-    // checkpoint trigger — cross-threshold detection + ใช้ ref กัน stale closure
+    // checkpoint trigger — cross-threshold detection
+    // ⚠ ต้องจับ prevTime "ก่อน" อัปเดต lastTimeRef ไม่งั้น prevTime === t เสมอ
+    //   ทำให้เงื่อนไข triggered เป็น false ตลอด (เหลือแค่ inWindow ที่พลาดได้ถ้า tick กระโดด)
     const prevTime = lastTimeRef.current
+    lastTimeRef.current = t
     if (!activeRef.current) {
       for (const cp of checkpoints) {
         const triggered = prevTime < cp.trigger_at_sec && t >= cp.trigger_at_sec
@@ -230,10 +232,15 @@ export default function VideoPlayer({
       }`}
       style={isFullscreen ? { height: "100dvh" } as any : undefined}
       onCopy={e => e.preventDefault()}>
+      {/* ⭐ playsInline — กัน iOS Safari บังคับเล่นแบบ native fullscreen
+          (ถ้าไม่มี → overlay ควิซ/ลายน้ำ/กันกรอข้าม ถูก bypass บนมือถือ คลิปเล่นจนจบ)
+          legacy attrs (webkit-/x5-) ใส่ผ่าน spread กัน iOS<10 / Android WebView / WeChat */}
       <video
         ref={videoRef}
         src={src}
         className={isFullscreen ? "absolute inset-0 w-full h-full object-contain" : "w-full"}
+        playsInline
+        {...{ "webkit-playsinline": "true", "x5-playsinline": "true" }}
         controlsList="nodownload noremoteplayback"
         disablePictureInPicture
         onTimeUpdate={handleTimeUpdate}
