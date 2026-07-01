@@ -45,9 +45,11 @@ export default function CheckpointOverlay({
   }
 
   return (
-    <div className="absolute inset-0 bg-black/80 backdrop-blur flex items-center justify-center p-6 z-20">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
-        <div className="flex items-center gap-2">
+    // Modal เต็มจอ (fixed) — ไม่ผูกกับกรอบวิดีโอ 16:9 เพื่อไม่ให้โจทย์/ปุ่มโดนตัดบนมือถือ
+    // การ์ดเลื่อนได้ (max-h + overflow) กันเนื้อหายาวล้นจอ
+    <div className="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center p-4 z-[120] overscroll-contain">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-black px-2 py-1 bg-purple-100 text-purple-700 rounded-full">🎯 Checkpoint Quiz</span>
           {checkpoint.blocks_progress && <span className="text-[10px] text-rose-500">* ต้องตอบถูกถึงจะดูต่อได้</span>}
         </div>

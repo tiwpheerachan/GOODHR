@@ -435,34 +435,46 @@ export async function POST(req: NextRequest) {
 
     // ── ส่งอีเมลแจ้งเตือนไปยังผู้รับที่ตั้งค่าไว้ (fire-and-forget, ไม่บล็อก response) ──
     try {
-      const { data: recipients } = await svc
+      const { data: recipients, error: recErr } = await svc
         .from("probation_email_recipients")
         .select("email")
         .eq("company_id", emp.company_id)
         .eq("is_active", true)
+      if (recErr) {
+        // ตารางยังไม่ถูกสร้าง (ยังไม่ได้รัน migration) หรือ query ล้มเหลว
+        console.error("[probation-eval] อ่านรายชื่อผู้รับอีเมลไม่ได้ (รัน add_probation_email_recipients.sql หรือยัง?):", recErr.message)
+      }
       const toList = Array.from(
         new Set((recipients ?? []).map((r: any) => String(r.email).trim().toLowerCase()).filter(Boolean)),
       )
+      console.log(`[probation-eval] ผู้รับอีเมลที่เปิดใช้งาน: ${toList.length} คน (company ${emp.company_id})`)
       if (toList.length > 0) {
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || ""
-        const mail = probationEvalSubmittedEmail({
-          employeeName: empName,
-          evaluatorName: evalName,
-          roundLabel: ROUND_LABELS[round] ?? `รอบ ${round}`,
-          grade,
-          score: totalScore,
-          isPassed: passVal,
-          reviewUrl: appUrl ? `${appUrl}/admin/probation-eval` : undefined,
-        })
-        await getResend().emails.send({
-          from: "GOODHR <noreply@shd-technology.co.th>",
-          to: toList,
-          subject: mail.subject,
-          html: mail.html,
-        })
+        if (!process.env.RESEND_API_KEY) {
+          console.error("[probation-eval] ไม่ได้ตั้งค่า RESEND_API_KEY — ส่งอีเมลไม่ได้")
+        } else {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || ""
+          const mail = probationEvalSubmittedEmail({
+            employeeName: empName,
+            evaluatorName: evalName,
+            roundLabel: ROUND_LABELS[round] ?? `รอบ ${round}`,
+            grade,
+            score: totalScore,
+            isPassed: passVal,
+            reviewUrl: appUrl ? `${appUrl}/admin/probation-eval` : undefined,
+          })
+          // Resend SDK คืน { data, error } — ไม่ throw เวลา API error → ต้องเช็ค error เอง
+          const { data: sent, error: sendErr } = await getResend().emails.send({
+            from: "GOODHR <noreply@shd-technology.co.th>",
+            to: toList,
+            subject: mail.subject,
+            html: mail.html,
+          })
+          if (sendErr) console.error("[probation-eval] Resend ส่งอีเมลไม่สำเร็จ:", sendErr)
+          else console.log(`[probation-eval] ส่งอีเมลแล้ว id=${(sent as any)?.id} → ${toList.join(", ")}`)
+        }
       }
     } catch (e) {
-      console.error("[probation-eval] ส่งอีเมลแจ้งเตือนไม่สำเร็จ:", e)
+      console.error("[probation-eval] ส่งอีเมลแจ้งเตือนไม่สำเร็จ (exception):", e)
     }
   }
 
