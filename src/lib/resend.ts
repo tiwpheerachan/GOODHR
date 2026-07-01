@@ -159,6 +159,66 @@ export function applicationReceivedEmail(opts: {
   }
 }
 
+// ── ประเมินทดลองงาน — แจ้งเตือนเมื่อหัวหน้ากดส่ง ──────────────
+export function probationEvalSubmittedEmail(opts: {
+  employeeName: string
+  evaluatorName: string
+  roundLabel: string
+  grade: string
+  score: number
+  isPassed?: boolean | null
+  reviewUrl?: string
+}) {
+  const passBadge = opts.isPassed === true
+    ? `<span style="display:inline-block;background:#dcfce7;color:#15803d;font-weight:700;font-size:13px;padding:4px 12px;border-radius:999px;">✓ ผ่าน</span>`
+    : opts.isPassed === false
+    ? `<span style="display:inline-block;background:#ffe4e6;color:#be123c;font-weight:700;font-size:13px;padding:4px 12px;border-radius:999px;">✕ ไม่ผ่าน</span>`
+    : ""
+  return {
+    subject: `[GOODHR] ประเมินทดลองงาน — ${opts.employeeName} (${opts.roundLabel}) รอตรวจสอบ`,
+    html: `
+<!DOCTYPE html>
+<html lang="th">
+<head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f8fafc;">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.06);">
+    <div style="background:linear-gradient(135deg,#e11d48,#f43f5e);padding:32px 24px;text-align:center;">
+      <h1 style="margin:0;color:#fff;font-size:22px;font-weight:800;">GOODHR</h1>
+      <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px;">แจ้งเตือนประเมินทดลองงาน</p>
+    </div>
+    <div style="padding:32px 24px;">
+      <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 16px;">
+        <strong>${opts.evaluatorName}</strong> ได้ส่งผลประเมินทดลองงานของพนักงานเข้ามาแล้ว
+      </p>
+      <div style="background:#fff1f2;border:1px solid #fecdd3;border-radius:12px;padding:18px;margin:12px 0 20px;">
+        <p style="color:#475569;font-size:11px;margin:0 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">พนักงาน</p>
+        <p style="color:#1e293b;font-size:17px;font-weight:800;margin:0 0 14px;">${opts.employeeName}</p>
+        <table style="width:100%;border-collapse:collapse;">
+          <tr>
+            <td style="color:#64748b;font-size:13px;padding:3px 0;">รอบการประเมิน</td>
+            <td style="color:#1e293b;font-size:13px;font-weight:700;text-align:right;">${opts.roundLabel}</td>
+          </tr>
+          <tr>
+            <td style="color:#64748b;font-size:13px;padding:3px 0;">คะแนนรวม</td>
+            <td style="color:#1e293b;font-size:13px;font-weight:700;text-align:right;">${opts.score.toFixed(1)}% (เกรด ${opts.grade})</td>
+          </tr>
+        </table>
+        ${passBadge ? `<div style="margin-top:12px;">${passBadge}</div>` : ""}
+      </div>
+      ${opts.reviewUrl ? `<div style="text-align:center;margin:24px 0 8px;">
+        <a href="${opts.reviewUrl}" style="display:inline-block;background:linear-gradient(135deg,#e11d48,#f43f5e);color:#fff;text-decoration:none;padding:13px 34px;border-radius:12px;font-size:14px;font-weight:700;">ตรวจสอบ / อนุมัติ</a>
+      </div>` : ""}
+      <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:20px 0 0;">อีเมลนี้ส่งอัตโนมัติจากระบบ GOODHR — กรุณาอย่าตอบกลับ</p>
+    </div>
+    <div style="background:#f8fafc;padding:16px 24px;text-align:center;border-top:1px solid #e2e8f0;">
+      <p style="color:#94a3b8;font-size:11px;margin:0;">© ${new Date().getFullYear()} SHD Technology Co., Ltd. — GOODHR</p>
+    </div>
+  </div>
+</body>
+</html>`,
+  }
+}
+
 export function adminResetNotifyEmail(employeeName: string, newPassword: string) {
   return {
     subject: "GOODHR — รหัสผ่านถูกรีเซ็ตโดย HR",

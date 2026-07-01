@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { logAudit } from "@/lib/auditLog"
 import { getManageableEmployees, canEvaluate } from "@/lib/utils/evaluator-chain"
 import { ROUND_DAYS, ROUND_LABELS } from "@/lib/constants/probation"
+import { getResend, probationEvalSubmittedEmail } from "@/lib/resend"
 
 function calcGrade(score: number): string {
   if (score >= 91) return "A"
@@ -430,6 +431,38 @@ export async function POST(req: NextRequest) {
           ref_table: "probation_evaluations", ref_id: formId, is_read: false,
         })
       }
+    }
+
+    // ── ส่งอีเมลแจ้งเตือนไปยังผู้รับที่ตั้งค่าไว้ (fire-and-forget, ไม่บล็อก response) ──
+    try {
+      const { data: recipients } = await svc
+        .from("probation_email_recipients")
+        .select("email")
+        .eq("company_id", emp.company_id)
+        .eq("is_active", true)
+      const toList = Array.from(
+        new Set((recipients ?? []).map((r: any) => String(r.email).trim().toLowerCase()).filter(Boolean)),
+      )
+      if (toList.length > 0) {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || ""
+        const mail = probationEvalSubmittedEmail({
+          employeeName: empName,
+          evaluatorName: evalName,
+          roundLabel: ROUND_LABELS[round] ?? `รอบ ${round}`,
+          grade,
+          score: totalScore,
+          isPassed: passVal,
+          reviewUrl: appUrl ? `${appUrl}/admin/probation-eval` : undefined,
+        })
+        await getResend().emails.send({
+          from: "GOODHR <noreply@shd-technology.co.th>",
+          to: toList,
+          subject: mail.subject,
+          html: mail.html,
+        })
+      }
+    } catch (e) {
+      console.error("[probation-eval] ส่งอีเมลแจ้งเตือนไม่สำเร็จ:", e)
     }
   }
 

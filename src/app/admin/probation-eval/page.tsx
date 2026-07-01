@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import {
   Shield, Search, ChevronDown, ChevronUp, Loader2,
   Award, MessageSquare, Eye, CheckCircle2, XCircle, Clock, Pencil, Download,
+  Mail, Plus, Trash2, X, Power,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -38,6 +39,97 @@ export default function AdminProbationEvalPage() {
   const [showRejectModal, setShowRejectModal] = useState<string | null>(null)
   const [rejectNote, setRejectNote] = useState("")
   const [actionLoading, setActionLoading] = useState(false)
+
+  // ── อีเมลผู้รับแจ้งเตือน ──
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [recipients, setRecipients] = useState<any[]>([])
+  const [recipientsLoading, setRecipientsLoading] = useState(false)
+  const [newEmail, setNewEmail] = useState("")
+  const [newLabel, setNewLabel] = useState("")
+  const [emailSaving, setEmailSaving] = useState(false)
+  // ค้นหาพนักงานในระบบ → ดึงอีเมลอัตโนมัติ
+  const [empQuery, setEmpQuery] = useState("")
+  const [empResults, setEmpResults] = useState<any[]>([])
+  const [empSearching, setEmpSearching] = useState(false)
+  const [showEmpDropdown, setShowEmpDropdown] = useState(false)
+
+  useEffect(() => {
+    if (!showEmailModal) return
+    const q = empQuery.trim()
+    if (!q) { setEmpResults([]); return }
+    let cancelled = false
+    setEmpSearching(true)
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/employees/search?q=${encodeURIComponent(q)}&limit=20`)
+        const data = await res.json()
+        if (!cancelled) setEmpResults(data.employees ?? [])
+      } catch { if (!cancelled) setEmpResults([]) }
+      finally { if (!cancelled) setEmpSearching(false) }
+    }, 300)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [empQuery, showEmailModal])
+
+  const pickEmployee = (emp: any) => {
+    if (!emp.email) { toast.error("พนักงานคนนี้ยังไม่มีอีเมลในระบบ — กรอกอีเมลเองได้"); return }
+    setNewEmail(emp.email)
+    setNewLabel(`${emp.first_name_th ?? ""} ${emp.last_name_th ?? ""}`.trim())
+    setEmpQuery(""); setEmpResults([]); setShowEmpDropdown(false)
+  }
+
+  const loadRecipients = useCallback(async () => {
+    setRecipientsLoading(true)
+    try {
+      const res = await fetch("/api/probation-evaluation/recipients")
+      const data = await res.json()
+      if (res.ok) setRecipients(data.recipients ?? [])
+      else toast.error(data.error || "โหลดรายชื่อไม่สำเร็จ")
+    } catch { toast.error("โหลดรายชื่อไม่สำเร็จ") }
+    setRecipientsLoading(false)
+  }, [])
+
+  const addRecipient = async () => {
+    const email = newEmail.trim().toLowerCase()
+    if (!email) { toast.error("กรุณากรอกอีเมล"); return }
+    setEmailSaving(true)
+    try {
+      const res = await fetch("/api/probation-evaluation/recipients", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, label: newLabel.trim() || null }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "เพิ่มไม่สำเร็จ")
+      toast.success("เพิ่มอีเมลผู้รับแล้ว")
+      setNewEmail(""); setNewLabel("")
+      loadRecipients()
+    } catch (e: any) { toast.error(e.message) }
+    setEmailSaving(false)
+  }
+
+  const toggleRecipient = async (r: any) => {
+    try {
+      const res = await fetch("/api/probation-evaluation/recipients", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: r.id, is_active: !r.is_active }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "แก้ไขไม่สำเร็จ")
+      loadRecipients()
+    } catch (e: any) { toast.error(e.message) }
+  }
+
+  const removeRecipient = async (id: string) => {
+    if (!confirm("ลบอีเมลผู้รับนี้?")) return
+    try {
+      const res = await fetch(`/api/probation-evaluation/recipients?id=${id}`, { method: "DELETE" })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "ลบไม่สำเร็จ")
+      toast.success("ลบแล้ว")
+      loadRecipients()
+    } catch (e: any) { toast.error(e.message) }
+  }
+
+  const openEmailModal = () => { setShowEmailModal(true); loadRecipients() }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -261,6 +353,11 @@ export default function AdminProbationEvalPage() {
           <p className="text-sm text-slate-400">ตรวจสอบและอนุมัติผลประเมินทดลองงาน</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={openEmailModal}
+            title="ตั้งค่าอีเมลรับแจ้งเตือนเมื่อหัวหน้าส่งประเมิน"
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-bold shadow-sm transition-all">
+            <Mail size={13} /> อีเมลแจ้งเตือน
+          </button>
           <FeishuSyncButton dataset="probation" variant="subtle"/>
           <button onClick={exportXlsx} disabled={exporting || filtered.length === 0}
             title={filtered.length === 0 ? "ไม่มีข้อมูลให้ export" : `Export ${filtered.length} คน เป็น xlsx`}
@@ -453,6 +550,124 @@ export default function AdminProbationEvalPage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Email Recipients Modal */}
+      {showEmailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowEmailModal(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center">
+                <Mail size={15} className="text-rose-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-black text-slate-800">อีเมลรับแจ้งเตือนประเมินทดลองงาน</h3>
+                <p className="text-xs text-slate-400">เมื่อหัวหน้ากดส่งประเมิน ระบบจะส่งอีเมลไปยังทุกอีเมลที่เปิดใช้งาน</p>
+              </div>
+              <button onClick={() => setShowEmailModal(false)} className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center">
+                <X size={16} className="text-slate-400" />
+              </button>
+            </div>
+
+            {/* add form */}
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/60 space-y-2">
+              {/* ค้นหาพนักงานในระบบ → ดึงอีเมลอัตโนมัติ */}
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input value={empQuery}
+                  onChange={e => { setEmpQuery(e.target.value); setShowEmpDropdown(true) }}
+                  onFocus={() => setShowEmpDropdown(true)}
+                  placeholder="ค้นหาพนักงานในระบบ (ชื่อ / รหัส) เพื่อดึงอีเมลอัตโนมัติ..."
+                  className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm outline-none focus:border-rose-400" />
+                {showEmpDropdown && empQuery.trim() && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowEmpDropdown(false)} />
+                    <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-[220px] overflow-y-auto">
+                      {empSearching ? (
+                        <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-slate-300" /></div>
+                      ) : empResults.length === 0 ? (
+                        <p className="px-3 py-4 text-sm text-slate-400 text-center">ไม่พบพนักงาน</p>
+                      ) : (
+                        empResults.map((emp: any) => (
+                          <button key={emp.id} type="button" onClick={() => pickEmployee(emp)}
+                            className="w-full text-left px-3 py-2 hover:bg-rose-50 flex items-center gap-2 transition-colors">
+                            <div className="w-7 h-7 rounded-lg bg-rose-100 flex items-center justify-center shrink-0 overflow-hidden">
+                              {emp.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" /> : <span className="text-rose-600 text-xs font-bold">{emp.first_name_th?.[0] ?? "?"}</span>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-slate-800 truncate">
+                                {emp.first_name_th} {emp.last_name_th}
+                                {emp.nickname && <span className="text-xs text-rose-500 ml-1">({emp.nickname})</span>}
+                              </p>
+                              <p className="text-[11px] text-slate-400 truncate">
+                                {emp.email ? emp.email : <span className="text-amber-500">ไม่มีอีเมลในระบบ</span>} · {emp.employee_code}
+                              </p>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-px bg-slate-200" />
+                <span className="text-[11px] text-slate-400">หรือกรอกอีเมลภายนอกเอง</span>
+                <div className="flex-1 h-px bg-slate-200" />
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input value={newEmail} onChange={e => setNewEmail(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") addRecipient() }}
+                  type="email" placeholder="อีเมลผู้รับ (เช่น hr@company.com)"
+                  className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-rose-400" />
+                <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") addRecipient() }}
+                  placeholder="ชื่อ/หมายเหตุ (ไม่บังคับ)"
+                  className="sm:w-40 bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-rose-400" />
+                <button onClick={addRecipient} disabled={emailSaving}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-rose-600 text-white rounded-xl text-sm font-bold hover:bg-rose-700 disabled:opacity-50">
+                  {emailSaving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} เพิ่ม
+                </button>
+              </div>
+            </div>
+
+            {/* list */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {recipientsLoading ? (
+                <div className="flex justify-center py-8"><Loader2 size={20} className="animate-spin text-slate-300" /></div>
+              ) : recipients.length === 0 ? (
+                <div className="text-center py-8">
+                  <Mail size={28} className="text-slate-200 mx-auto mb-2" />
+                  <p className="text-sm text-slate-400">ยังไม่มีอีเมลผู้รับ — เพิ่มด้านบน</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {recipients.map((r: any) => (
+                    <div key={r.id} className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 ${r.is_active ? "border-slate-100 bg-white" : "border-slate-100 bg-slate-50 opacity-60"}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-slate-800 truncate">{r.email}</p>
+                        {r.label && <p className="text-[11px] text-slate-400 truncate">{r.label}</p>}
+                      </div>
+                      {!r.is_active && <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">ปิดอยู่</span>}
+                      <button onClick={() => toggleRecipient(r)}
+                        title={r.is_active ? "ปิดใช้งาน" : "เปิดใช้งาน"}
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center ${r.is_active ? "text-emerald-600 hover:bg-emerald-50" : "text-slate-400 hover:bg-slate-100"}`}>
+                        <Power size={14} />
+                      </button>
+                      <button onClick={() => removeRecipient(r.id)} title="ลบ"
+                        className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center text-slate-400 hover:text-red-500">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

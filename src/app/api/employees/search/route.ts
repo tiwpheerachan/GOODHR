@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
 
   // ── select รวม feishu_user_id เผื่อ caller อยากแสดงชื่อจีน/ภาษาอื่น ──
   let query = supa.from("employees")
-    .select(`id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, company_id, feishu_user_id,
+    .select(`id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, email, avatar_url, company_id, feishu_user_id,
       department:departments(name), position:positions(name),
       feishu:feishu_users!feishu_users_goodhr_employee_id_fkey(name_cn, name_en, nickname, brand, job_title)`)
     .order("first_name_th")
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
       .select(`feishu_user_id, name, name_cn, name_en, nickname, brand, job_title,
         employee:employees!feishu_users_goodhr_employee_id_fkey(
           id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en,
-          nickname, nickname_en, avatar_url, company_id, feishu_user_id,
+          nickname, nickname_en, email, avatar_url, company_id, feishu_user_id,
           department:departments(name), position:positions(name)
         )`)
       .not("goodhr_employee_id", "is", null)
