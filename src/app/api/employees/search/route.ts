@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
   // ── select รวม feishu_user_id เผื่อ caller อยากแสดงชื่อจีน/ภาษาอื่น ──
   let query = supa.from("employees")
     .select(`id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, email, avatar_url, company_id, feishu_user_id,
-      department:departments(name), position:positions(name),
+      department:departments(name), position:positions(name), company:companies(name_th, code),
       feishu:feishu_users!feishu_users_goodhr_employee_id_fkey(name_cn, name_en, nickname, brand, job_title)`)
     .order("first_name_th")
     .limit(limit)
@@ -67,19 +67,25 @@ export async function GET(req: NextRequest) {
   }
 
   if (search) {
-    // ค้นแบบหลายฟิลด์
-    const k = `%${search.replace(/[%_,()]/g, "")}%`
-    query = query.or(
-      [
-        `first_name_th.ilike.${k}`,
-        `last_name_th.ilike.${k}`,
-        `first_name_en.ilike.${k}`,
-        `last_name_en.ilike.${k}`,
-        `nickname.ilike.${k}`,
-        `nickname_en.ilike.${k}`,
-        `employee_code.ilike.${k}`,
-      ].join(","),
-    )
+    // ค้นแบบหลาย term: แยกด้วยช่องว่าง แล้ว AND กัน (ทุก term ต้องเจอ แต่คนละฟิลด์ได้)
+    //   เช่น "สมชาย ใจดี" → term1 match first_name_th, term2 match last_name_th
+    //   (multiple .or() ใน supabase-js จะถูก AND เข้าด้วยกัน)
+    const terms = search.replace(/[%_,()]/g, " ").split(/\s+/).filter(Boolean)
+    for (const term of terms) {
+      const k = `%${term}%`
+      query = query.or(
+        [
+          `first_name_th.ilike.${k}`,
+          `last_name_th.ilike.${k}`,
+          `first_name_en.ilike.${k}`,
+          `last_name_en.ilike.${k}`,
+          `nickname.ilike.${k}`,
+          `nickname_en.ilike.${k}`,
+          `email.ilike.${k}`,
+          `employee_code.ilike.${k}`,
+        ].join(","),
+      )
+    }
   }
 
   const { data, error } = await query
@@ -96,7 +102,7 @@ export async function GET(req: NextRequest) {
         employee:employees!feishu_users_goodhr_employee_id_fkey(
           id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en,
           nickname, nickname_en, email, avatar_url, company_id, feishu_user_id,
-          department:departments(name), position:positions(name)
+          department:departments(name), position:positions(name), company:companies(name_th, code)
         )`)
       .not("goodhr_employee_id", "is", null)
       .or([

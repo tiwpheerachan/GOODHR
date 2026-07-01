@@ -61,7 +61,7 @@ export default function AdminProbationEvalPage() {
     setEmpSearching(true)
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/employees/search?q=${encodeURIComponent(q)}&limit=20`)
+        const res = await fetch(`/api/employees/search?q=${encodeURIComponent(q)}&limit=50&all_companies=1`)
         const data = await res.json()
         if (!cancelled) setEmpResults(data.employees ?? [])
       } catch { if (!cancelled) setEmpResults([]) }
@@ -603,6 +603,7 @@ export default function AdminProbationEvalPage() {
                               </p>
                               <p className="text-[11px] text-slate-400 truncate">
                                 {emp.email ? emp.email : <span className="text-amber-500">ไม่มีอีเมลในระบบ</span>} · {emp.employee_code}
+                                {emp.company?.name_th && <span className="text-indigo-400"> · {emp.company.name_th}</span>}
                               </p>
                             </div>
                           </button>
