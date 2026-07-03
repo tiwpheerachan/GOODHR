@@ -96,31 +96,35 @@ export function recomputePayroll(record: any) {
     + N(record?.allowance_housing) + N(record?.allowance_vehicle)
     + N(record?.allowance_other)
 
-  // ปัดเศษทุกตัวให้เป็นบาท
+  // ปัดเศษทุกตัวให้เป็นบาท (รวมค่าจ้าง Phase 1 ที่จ่ายเป็น "ค่าอื่นๆ")
   const gross = Math.round(effBase + effBonus + allowances
-    + N(record?.ot_amount) + N(record?.commission) + N(record?.other_income) + ieTotal)
+    + N(record?.ot_amount) + N(record?.commission) + N(record?.other_income) + N(record?.phase1_wage) + ieTotal)
 
   // ── structural flags (จาก salary_structures) — ชนะการ recompute เสมอ ──
   //    is_sso_exempt → SSO = 0 | is_tax_3pct → ภาษี = 3% ของ gross
   const ssoExempt = !!record?.is_sso_exempt
   const tax3pct   = !!record?.is_tax_3pct
+  // เดือน 2 เฟส (มี Phase 1) — server คำนวณ SSO/ภาษี/PF ถูกต้องแล้ว ห้าม recompute ทับ
+  const isTwoPhase = N(record?.phase1_wage) > 0
 
-  // ถ้า prorate → recompute SSO + tax เพื่อให้สะท้อนงวดจริง
-  // ถ้าไม่ prorate → ใช้ค่าที่บันทึกไว้ (เคารพ manual ของ HR)
+  // ถ้า prorate (และไม่ใช่ 2 เฟส) → recompute SSO + tax เพื่อสะท้อนงวดจริง
+  // ถ้าไม่ prorate / เป็น 2 เฟส → ใช้ค่าที่บันทึกไว้ (เคารพ server/manual)
+  const recompute = isProrated && !isTwoPhase
   const sso = ssoExempt
     ? 0
-    : Math.round(isProrated ? calcSSO(effBase) : N(record?.social_security_amount))
+    : Math.round(recompute ? calcSSO(effBase) : N(record?.social_security_amount))
   const tax = tax3pct
     ? Math.round(gross * 0.03)
-    : Math.round(isProrated ? calcMonthlyTax(gross, sso) : N(record?.monthly_tax_withheld))
+    : Math.round(recompute ? calcMonthlyTax(gross, sso) : N(record?.monthly_tax_withheld))
+  const pf = Math.round(N(record?.provident_fund))  // กองทุน — ใช้ค่าที่ server คำนวณ/เก็บไว้
 
   const baseDeducts = N(record?.deduct_absent) + N(record?.deduct_late)
     + N(record?.deduct_early_out) + N(record?.deduct_loan) + N(record?.deduct_other)
 
-  const totalDed = Math.round(baseDeducts + sso + tax + deTotal)
+  const totalDed = Math.round(baseDeducts + sso + pf + tax + deTotal)
   const net = Math.max(Math.round(gross - totalDed), 0)
 
-  return { effBase, effBonus, gross, sso, tax, totalDed, net, isProrated, factor, prorateDays: pd }
+  return { effBase, effBonus, gross, sso, pf, tax, totalDed, net, isProrated, factor, prorateDays: pd }
 }
 
 /** อัตราค่าจ้างต่อนาที = เงินเดือน / 30 / 8 / 60 */
@@ -188,6 +192,35 @@ export function calcSSO(base: number, rate = SSO_RATE): number {
   // ปัดเศษเป็นบาท
   const amount = Math.round(capped * rate)
   return Math.min(amount, SSO_MAX_AMOUNT)
+}
+
+// ─────────────────────────────────────────────────────────────
+// กองทุนสำรองเลี้ยงชีพ (Provident Fund / PF)
+// ─────────────────────────────────────────────────────────────
+/** PF = % ของฐานเงินเดือน (ต่อคน) — 0 ถ้าไม่ตั้ง */
+export function calcPF(base: number, pct?: number | null): number {
+  const p = Number(pct) || 0
+  if (base <= 0 || p <= 0) return 0
+  return Math.round(base * (p / 100))
+}
+
+// ─────────────────────────────────────────────────────────────
+// จ้างงาน 2 เฟส (PC / Pre-Employee)
+// ─────────────────────────────────────────────────────────────
+/**
+ * วันเริ่ม Phase 2 = วันถัดจากสิ้นสุด Pre-Employment แล้วเลื่อนวันหยุด
+ *   จ.–ศ. → วันนั้น | เสาร์ → จันทร์ถัดไป (+2) | อาทิตย์ → จันทร์ถัดไป (+1)
+ * คืนค่า YYYY-MM-DD
+ */
+export function computePhase2Start(preEmploymentTo?: string | null): string | null {
+  if (!preEmploymentTo) return null
+  const d = new Date(preEmploymentTo)
+  if (isNaN(d.getTime())) return null
+  d.setDate(d.getDate() + 1)                    // วันถัดจากสิ้นสุด Phase 1
+  const dow = d.getDay()                        // 0=อาทิตย์, 6=เสาร์
+  if (dow === 6) d.setDate(d.getDate() + 2)     // เสาร์ → จันทร์
+  else if (dow === 0) d.setDate(d.getDate() + 1) // อาทิตย์ → จันทร์
+  return d.toISOString().split("T")[0]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -383,6 +416,8 @@ export function calculatePayrollSummary(args: {
   isSsoExempt?: boolean
   /** หักภาษี ณ ที่จ่าย 3% แทนขั้นบันได */
   isTax3pct?: boolean
+  /** กองทุนสำรองเลี้ยงชีพ % (0/undefined = ไม่หัก) */
+  providentFundPct?: number | null
 }) {
   const {
     baseSalary,
@@ -399,6 +434,7 @@ export function calculatePayrollSummary(args: {
     otRateHoliday,
     isSsoExempt  = false,
     isTax3pct    = false,
+    providentFundPct,
   } = args
 
   // ── รายได้ ──────────────────────────────────────────────────
@@ -419,6 +455,9 @@ export function calculatePayrollSummary(args: {
 
   // ── ประกันสังคม ─────────────────────────────────────────────
   const sso = isSsoExempt ? 0 : calcSSO(baseSalary)
+
+  // ── กองทุนสำรองเลี้ยงชีพ (PF) ────────────────────────────────
+  const pf = calcPF(baseSalary, providentFundPct)
 
   // ── ภาษีหัก ณ ที่จ่าย ─────────────────────────────────────────
   let tax: number
@@ -442,13 +481,14 @@ export function calculatePayrollSummary(args: {
   const deductAbsent   = calcAbsentDeduction(baseSalary, absentDays)
   const deductLate     = calcLateDeduction(baseSalary, lateMinutes)
   const deductEarlyOut = calcLateDeduction(baseSalary, earlyOutMinutes)
-  const totalDeduct    = sso + tax + deductAbsent + deductLate + deductEarlyOut + loanDeduction
+  const totalDeduct    = sso + pf + tax + deductAbsent + deductLate + deductEarlyOut + loanDeduction
 
   return {
     // gross เป็น sum ของ args ที่ outer caller จะ pass มา → ปัดเป็นบาท
     gross: Math.round(gross),
     otAmount,
     sso,
+    pf,
     tax,
     taxMethod,
     deductAbsent,
@@ -456,5 +496,35 @@ export function calculatePayrollSummary(args: {
     deductEarlyOut,
     totalDeduct: Math.round(totalDeduct),
     net: Math.max(Math.round(gross - totalDeduct), 0),
+  }
+}
+
+/**
+ * เดือนแรกแบบ 2 เฟส: Phase 1 (Pre-Employee) + Phase 2 (Employee)
+ *   - รับ args ของ calculatePayrollSummary สำหรับ "Phase 2" (baseSalary = ฐาน prorate ตาม phase2_start,
+ *     allowances = เบี้ยเลี้ยงปกติ **ไม่รวม** ค่าจ้าง Phase 1) + providentFundPct
+ *   - Phase 1: phase1Wage (= อัตรา/วัน × วันทำงานจริง) จ่ายเป็น "ค่าอื่นๆ", หักภาษี 3% เท่านั้น (ไม่มี SSO/PF)
+ * รวมผล: gross/tax เพิ่มก้อน Phase 1, ส่วน SSO/PF มาจาก Phase 2 เท่านั้น
+ */
+export function calcTwoPhaseMonth(
+  args: Parameters<typeof calculatePayrollSummary>[0] & { phase1Wage: number; phase1WorkDays?: number },
+) {
+  const { phase1Wage, phase1WorkDays = 0, ...phase2Args } = args
+  const p2 = calculatePayrollSummary(phase2Args)      // Phase 2 = คำนวณปกติ (SSO + PF + ภาษีขั้นบันได)
+  const phase1WageR = Math.max(0, Math.round(phase1Wage))
+  const phase1Tax   = Math.round(phase1WageR * 0.03)  // ภาษี ณ ที่จ่าย 3% ของค่าจ้าง Phase 1 (แยกจากขั้นบันได)
+
+  const gross       = p2.gross + phase1WageR          // phase1 อยู่ใน other_income → รวมใน gross
+  const tax         = p2.tax + phase1Tax
+  const totalDeduct = p2.totalDeduct + phase1Tax
+  const net         = Math.max(Math.round(gross - totalDeduct), 0)
+
+  return {
+    ...p2,
+    gross, tax, totalDeduct, net,
+    // ก้อน Phase 1 (เพื่อบันทึก/แสดงแยก)
+    phase1Wage: phase1WageR, phase1Tax, phase1WorkDays,
+    // ก้อน Phase 2 (ค่าเดิมก่อนรวม Phase 1)
+    phase2Gross: p2.gross, phase2Tax: p2.tax,
   }
 }

@@ -1,6 +1,7 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { logEmployeeChange } from "@/lib/auditLog"
+import { computePhase2Start } from "@/lib/utils/payroll"
 
 export async function POST(req: Request) {
   try {
@@ -40,6 +41,9 @@ export async function POST(req: Request) {
       // checkin settings
       checkin_anywhere, is_attendance_exempt,
       allowed_branch_ids,
+      // จ้างงาน 2 เฟส (PC / Pre-Employee) + กองทุน PF
+      pre_employment_enabled, pre_employment_from, pre_employment_to, pre_employment_daily_rate,
+      provident_fund_pct,
       // Feishu data (optional — กรอกในขั้นตอนที่ 4 ของ form หรือเว้นไว้กรอกย้อนหลังในแท็บ Feishu Link)
       feishu,
     } = body
@@ -106,6 +110,12 @@ export async function POST(req: Request) {
       checkin_anywhere: !!checkin_anywhere,
       is_attendance_exempt: !!is_attendance_exempt,
       can_self_schedule: !!can_self_schedule,
+      // จ้างงาน 2 เฟส
+      pre_employment_enabled: !!pre_employment_enabled,
+      pre_employment_from: pre_employment_enabled ? (pre_employment_from || null) : null,
+      pre_employment_to: pre_employment_enabled ? (pre_employment_to || null) : null,
+      pre_employment_daily_rate: pre_employment_enabled ? (+(pre_employment_daily_rate || 500)) : null,
+      phase2_start_date: pre_employment_enabled ? computePhase2Start(pre_employment_to) : null,
     }).select().single()
     if (empErr) {
       await supabase.auth.admin.deleteUser(authId)
@@ -152,6 +162,7 @@ export async function POST(req: Request) {
         ot_rate_normal: ot_rate_normal ? +ot_rate_normal : 1.5,
         ot_rate_holiday: ot_rate_holiday ? +ot_rate_holiday : 3.0,
         tax_withholding_pct: tax_withholding_pct != null && tax_withholding_pct !== "" ? +tax_withholding_pct : null,
+        provident_fund_pct: +(provident_fund_pct || 0),
         effective_from: hire_date,
       })
     }

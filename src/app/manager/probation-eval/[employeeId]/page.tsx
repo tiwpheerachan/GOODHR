@@ -54,7 +54,7 @@ export default function ProbationEvalFormPage() {
 
   const employeeId = params.employeeId as string
   const roundParam = searchParams.get("round")
-  const round = roundParam != null && roundParam !== "" ? Number(roundParam) : 1 // รองรับ round 0 (30 วัน)
+  const round = roundParam != null && roundParam !== "" ? Number(roundParam) : 1 // รอบ 1 = 45 วัน, 2 = 90 วัน
 
   const [employee, setEmployee] = useState<any>(null)
   const [items, setItems] = useState<EvalRow[]>([...MANDATORY_ITEMS])

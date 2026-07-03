@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { logAudit } from "@/lib/auditLog"
 import { getManageableEmployees, canEvaluate } from "@/lib/utils/evaluator-chain"
-import { ROUND_DAYS, ROUND_LABELS } from "@/lib/constants/probation"
+import { ROUND_DAYS, ROUND_LABELS, PROBATION_ROUNDS, effectiveEmploymentStart } from "@/lib/constants/probation"
 import { getResend, probationEvalSubmittedEmail } from "@/lib/resend"
 
 function calcGrade(score: number): string {
@@ -53,8 +53,10 @@ export async function GET(req: NextRequest) {
     // เอาเฉพาะพนักงานที่ยังอยู่ในช่วงทดลองงาน
     const today = new Date()
     const members = allManageable.filter((m: any) => {
-      if (!m.hire_date) return false
-      const daysSinceHire = Math.ceil((today.getTime() - new Date(m.hire_date).getTime()) / 86400000)
+      // นับทดลองงานจาก phase2_start (พนักงาน 2 เฟส) หรือ hire_date
+      const startStr = effectiveEmploymentStart(m)
+      if (!startStr) return false
+      const daysSinceHire = Math.ceil((today.getTime() - new Date(startStr).getTime()) / 86400000)
       if (m.employment_status === "probation") return true
       if (m.probation_end_date) return daysSinceHire <= 150
       return daysSinceHire <= 150
@@ -148,6 +150,60 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({ same_employee, team })
+  }
+
+  // Admin: "ยังไม่ได้ประเมิน" — พนักงานที่ถึง/เลยกำหนดรอบ 45 หรือ 90 แต่ยังไม่ถูกประเมิน
+  if (mode === "pending") {
+    if (!["hr_admin", "super_admin"].includes(dbUser.role)) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
+    }
+    let eq = svc.from("employees")
+      .select("id, first_name_th, last_name_th, nickname, employee_code, avatar_url, hire_date, phase2_start_date, company_id, position:positions(name), department:departments(name)")
+      .eq("employment_status", "probation")
+      .eq("is_active", true)
+      .is("deleted_at", null)
+    if (dbUser.role !== "super_admin") eq = eq.eq("company_id", companyId)
+    const { data: emps } = await eq
+    const empIds = (emps ?? []).map((e: any) => e.id)
+    if (empIds.length === 0) return NextResponse.json({ items: [] })
+
+    // รอบที่ประเมินแล้ว (submitted/approved)
+    const { data: evals } = await svc.from("probation_evaluations")
+      .select("employee_id, round, status")
+      .in("employee_id", empIds)
+      .in("status", ["submitted", "approved"])
+    const done = new Set<string>((evals ?? []).map((ev: any) => `${ev.employee_id}:${ev.round}`))
+
+    // หัวหน้าตรงของแต่ละคน
+    const { data: mgrRows } = await svc.from("employee_manager_history")
+      .select("employee_id, manager:employees!manager_id(first_name_th, last_name_th, nickname)")
+      .in("employee_id", empIds)
+      .is("effective_to", null)
+    const mgrByEmp = new Map<string, any>()
+    for (const r of (mgrRows ?? [])) if (!mgrByEmp.has(r.employee_id)) mgrByEmp.set(r.employee_id, r.manager)
+
+    const today = new Date()
+    const items: any[] = []
+    for (const e of (emps ?? [])) {
+      const start = e.phase2_start_date || e.hire_date
+      if (!start) continue
+      const daysFromStart = Math.ceil((today.getTime() - new Date(start).getTime()) / 86400000)
+      for (const round of PROBATION_ROUNDS) {
+        if (done.has(`${e.id}:${round}`)) continue          // ประเมินแล้ว
+        const dueDays = ROUND_DAYS[round]
+        if (daysFromStart < dueDays - 14) continue           // ยังไม่ถึงช่วงเปิดประเมิน (เปิด 14 วันก่อนกำหนด)
+        items.push({
+          employee: e,
+          round,
+          due_date: addDaysToDate(start, dueDays),
+          days_from_start: daysFromStart,
+          days_overdue: daysFromStart - dueDays,             // >0 = เลยกำหนด, <=0 = ถึง/ใกล้กำหนด
+          direct_manager: mgrByEmp.get(e.id) ?? null,
+        })
+      }
+    }
+    items.sort((a, b) => b.days_overdue - a.days_overdue)     // เลยกำหนดมากสุดก่อน
+    return NextResponse.json({ items })
   }
 
   // Admin: ดูทั้งบริษัท (super_admin เห็นทุกบริษัท)
@@ -337,10 +393,11 @@ export async function POST(req: NextRequest) {
   const grade = calcGrade(totalScore)
   const status = action === "submit" ? "submitted" : "draft"
 
-  // Get hire_date for due_date calculation
-  const { data: emp } = await svc.from("employees").select("hire_date, company_id").eq("id", employee_id).single()
+  // Get start date for due_date calculation
+  //   พนักงาน 2 เฟส (PC): นับทดลองงานจาก phase2_start_date (วันเป็นพนักงานจริง) แทน hire_date
+  const { data: emp } = await svc.from("employees").select("hire_date, phase2_start_date, company_id").eq("id", employee_id).single()
   if (!emp) return NextResponse.json({ error: "ไม่พบพนักงาน" }, { status: 404 })
-  const dueDate = addDaysToDate(emp.hire_date, ROUND_DAYS[round] || 119)
+  const dueDate = addDaysToDate(effectiveEmploymentStart(emp) || emp.hire_date, ROUND_DAYS[round] || 119)
 
   // ตรวจสิทธิ์ + คำนวณ role
   const isAdmin = ["hr_admin", "super_admin"].includes(dbUser.role)

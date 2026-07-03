@@ -76,6 +76,7 @@ export default function CourseBuilderMobilePage() {
     if (!delModuleId) return
     await fetch(`/api/training/modules?id=${delModuleId}`, { method: "DELETE" }); await load()
   }
+  const modTitleFocusRef = useRef<string>("")  // ค่าชื่อบทเรียนตอนเริ่มแก้ (ใช้เทียบตอน blur)
   const updateModule = async (mid: string, updates: any) => {
     await fetch("/api/training/modules", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: mid, ...updates }) })
     await load()
@@ -175,8 +176,13 @@ export default function CourseBuilderMobilePage() {
               <div className="flex items-center gap-3">
                 <span className="w-8 h-8 bg-sky-100 text-sky-700 rounded-lg flex items-center justify-center font-black text-sm flex-shrink-0">{i + 1}</span>
                 <input value={m.title}
-                  onBlur={e => e.target.value !== m.title && updateModule(m.id, { title: e.target.value })}
+                  onFocus={e => { modTitleFocusRef.current = e.target.value }}
                   onChange={e => setModules(ms => ms.map(x => x.id === m.id ? { ...x, title: e.target.value } : x))}
+                  onBlur={e => {
+                    const v = e.target.value.trim()
+                    if (!v) { setModules(ms => ms.map(x => x.id === m.id ? { ...x, title: modTitleFocusRef.current } : x)); return } // ห้ามว่าง
+                    if (v !== modTitleFocusRef.current) updateModule(m.id, { title: v })
+                  }}
                   className="flex-1 font-bold text-slate-800 bg-transparent border-b border-transparent focus:border-sky-400 outline-none" />
                 <button onClick={() => delModule(m.id)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded"><Trash2 size={14} /></button>
               </div>

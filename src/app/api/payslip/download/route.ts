@@ -104,6 +104,7 @@ export async function GET(req: NextRequest) {
   if (n(ie.diligence_bonus)) earnings.push({ label: "เบี้ยขยัน", amount: n(ie.diligence_bonus) })
   if (n(ie.referral_bonus)) earnings.push({ label: "เพื่อนแนะนำเพื่อน", amount: n(ie.referral_bonus) })
   if (n(record.other_income)) earnings.push({ label: "รายได้อื่นๆ", amount: n(record.other_income) })
+  if (n(record.phase1_wage)) earnings.push({ label: `ค่าจ้างทดลองงาน (Pre-Employee${n(record.phase1_work_days) ? ` ${n(record.phase1_work_days)} วัน` : ""})`, amount: n(record.phase1_wage) })
 
   const deductions: { label: string; amount: number }[] = []
   if (n(record.deduct_absent)) deductions.push({ label: "หักขาดงาน", amount: n(record.deduct_absent) })
@@ -151,6 +152,7 @@ export async function GET(req: NextRequest) {
   })()
 
   if (displaySSO) deductions.push({ label: "ประกันสังคม", amount: displaySSO })
+  if (rp.pf) deductions.push({ label: "กองทุนสำรองเลี้ยงชีพ", amount: rp.pf })
   if (displayTax) deductions.push({ label: "ภาษี", amount: displayTax })
   if (n(record.deduct_other)) deductions.push({ label: "หักลาไม่รับค่าจ้าง/อื่นๆ", amount: n(record.deduct_other) })
 
@@ -179,9 +181,9 @@ export async function GET(req: NextRequest) {
     ytd: {
       income: displayGross,
       tax: displayTax,
-      providentFund: 0,
+      providentFund: rp.pf,
       socialSecurity: displaySSO,
-      otherDeductions: displayTotalDeduct - displaySSO - displayTax,
+      otherDeductions: displayTotalDeduct - displaySSO - displayTax - rp.pf,
     },
   }
 

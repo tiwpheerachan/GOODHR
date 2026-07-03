@@ -1,6 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
-import { calculatePayrollSummary, getLateThreshold, type OTBreakdown } from "@/lib/utils/payroll"
+import { calculatePayrollSummary, getLateThreshold, calcPF, computeAutoProrateDays, type OTBreakdown } from "@/lib/utils/payroll"
 import { classifyOtFromRecords } from "@/lib/utils/ot-classification"
 import { logPayroll } from "@/lib/auditLog"
 
@@ -200,12 +200,12 @@ export async function POST(req: Request) {
   // ── Pre-fetch employees + salary structures (1 query each) ──────
   const { data: empData } = await supa
     .from("employees")
-    .select("id, company_id, hire_date, resign_date, is_attendance_exempt, department:departments(name), company:companies(code)")
+    .select("id, company_id, hire_date, resign_date, is_attendance_exempt, pre_employment_enabled, pre_employment_from, pre_employment_to, pre_employment_daily_rate, phase2_start_date, department:departments(name), company:companies(code)")
     .in("id", employee_ids)
 
   const { data: salData } = await supa
     .from("salary_structures")
-    .select("employee_id, base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, effective_from")
+    .select("employee_id, base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, provident_fund_pct, effective_from")
     .in("employee_id", employee_ids)
     .is("effective_to", null)
     .order("effective_from", { ascending: false })
@@ -361,12 +361,26 @@ export async function POST(req: Request) {
           // ✅ Bug fix: ดู resign_date ด้วย — กันคนลาออกแล้วถูกนับ absent หลัง resign
           const hireDate = (emp.hire_date as string | null) ?? periodStart
           const resignDate = (emp.resign_date as string | null) ?? null
-          const effectiveStart = cmp(hireDate, periodStart) > 0 ? hireDate : periodStart
+          // ── จ้างงาน 2 เฟส: attendance ของ "พนักงานจริง" เริ่มที่ phase2_start ──
+          const twoPhase = !!emp.pre_employment_enabled && !!emp.phase2_start_date
+          const empStart = twoPhase ? (emp.phase2_start_date as string) : hireDate
+          const effectiveStart = cmp(empStart, periodStart) > 0 ? empStart : periodStart
           const effectiveEnd = (resignDate && cmp(resignDate, periodEnd) < 0) ? resignDate : periodEnd
           const allWorkDays = (resignDate && cmp(resignDate, periodStart) < 0)
             ? []
             : workDaysBetween(effectiveStart, effectiveEnd, holidaySet, empShiftMap, empDayoffs)
           const pastWorkDays = allWorkDays.filter(d => cmp(d, todayStr) <= 0)
+
+          // ── Phase 1 (Pre-Employee): ค่าจ้าง/วัน × วันทำงานจริงในช่วง pre-employment ที่ทับงวดนี้ ──
+          let phase1WorkDays = 0
+          if (twoPhase && emp.pre_employment_from && emp.pre_employment_to) {
+            const p1Start = cmp(emp.pre_employment_from, periodStart) > 0 ? (emp.pre_employment_from as string) : periodStart
+            const p1End   = cmp(emp.pre_employment_to, periodEnd)   < 0 ? (emp.pre_employment_to as string)   : periodEnd
+            if (cmp(p1Start, p1End) <= 0) {
+              phase1WorkDays = workDaysBetween(p1Start, p1End, holidaySet, empShiftMap, empDayoffs)
+                .filter(d => cmp(d, todayStr) <= 0).length
+            }
+          }
 
           // Leave calc
           const leaveDaySet = new Set<string>()
@@ -449,6 +463,14 @@ export async function POST(req: Request) {
           }
 
           const baseSalary = Number(sal.base_salary) || 0
+          // Phase 2 auto-prorate (เดือนแรกของ 2 เฟส): prorate ฐานเงินเดือนตาม phase2_start
+          const autoPhase2Prorate = twoPhase ? computeAutoProrateDays(emp.phase2_start_date, periodStart, periodEnd) : null
+          const p2Factor = (autoPhase2Prorate != null && autoPhase2Prorate > 0 && autoPhase2Prorate < 30) ? autoPhase2Prorate / 30 : 1
+          const effectiveBase = Math.round(baseSalary * p2Factor)   // ฐาน Phase 2 (พนักงานจริง)
+          // Phase 1: ค่าจ้าง/วัน × วันทำงานจริง → จ่ายเป็น "ค่าอื่นๆ", ภาษี 3% เท่านั้น
+          const phase1DailyRate = Number(emp.pre_employment_daily_rate) || 500
+          const phase1Wage = twoPhase ? Math.round(phase1DailyRate * phase1WorkDays) : 0
+          const phase1Tax  = Math.round(phase1Wage * 0.03)
           const allAllowances = (Number(sal.allowance_position) || 0) + (Number(sal.allowance_food) || 0) +
             (Number(sal.allowance_phone) || 0) + (Number(sal.allowance_housing) || 0) +
             (Number(sal.allowance_vehicle) || 0)
@@ -480,7 +502,7 @@ export async function POST(req: Request) {
           const mBonus = useManualKpi ? (Number(existPR?.bonus) || 0) : kpiBonus.amount
 
           const result = calculatePayrollSummary({
-            baseSalary, allowances: allAllowances,
+            baseSalary: effectiveBase, allowances: allAllowances,
             otBreakdown, bonus: Number(mBonus),
             absentDays:      isExempt ? 0 : absentDays,
             lateMinutes:     isExempt ? 0 : totalLateMin,
@@ -490,7 +512,11 @@ export async function POST(req: Request) {
             otRateHoliday:   sal.ot_rate_holiday != null ? Number(sal.ot_rate_holiday) : null,
             isSsoExempt:     !!sal.is_sso_exempt,
             isTax3pct:       !!sal.is_tax_3pct,
+            providentFundPct: sal.provident_fund_pct,
           })
+          // กองทุน PF (หักจากฐาน Phase 2) + ภาษี Phase 1 (3%)
+          const finalPF = calcPF(effectiveBase, sal.provident_fund_pct)
+          const phase1TaxAdd = (mIsManual && existPR?.monthly_tax_withheld != null) ? 0 : phase1Tax
 
           const previousYtdTax = prevTaxByEmp.get(eid) || 0
           const deductUnpaidLeave = leaveUnpaidDays > 0 ? Math.round((baseSalary / 30) * leaveUnpaidDays * 100) / 100 : 0
@@ -519,18 +545,21 @@ export async function POST(req: Request) {
           const fAllowHouse = mIsManual ? Number(existPR?.allowance_housing)   : Number(sal.allowance_housing)   || 0
           const fAllowVeh   = mIsManual ? Number(existPR?.allowance_vehicle)   : Number(sal.allowance_vehicle)   || 0
           const fAllowOther = mIsManual ? Number(existPR?.allowance_other)     : 0
-          const finalGross = baseSalary + fAllowPos + fAllowTrans + fAllowFood + fAllowPhone + fAllowHouse + fAllowVeh + fAllowOther
+          //   ใช้ effectiveBase (prorate Phase 2) + phase1Wage (จ่ายเป็น "ค่าอื่นๆ")
+          const finalGross = effectiveBase + fAllowPos + fAllowTrans + fAllowFood + fAllowPhone + fAllowHouse + fAllowVeh + fAllowOther
             + finalOtAmount + Number(mBonus) + mCommission + mOtherIncome + incExtrasTotal
+            + phase1Wage
+          const phase2Gross = finalGross - phase1Wage   // ฐานคิดภาษี Phase 2 (ไม่รวมค่าจ้าง Phase 1)
           // ✅ Tax: structural flag (is_tax_3pct) ชนะ manual override เสมอ
-          //    ถ้าไม่ใช่ flag → ค่อยเช็ค manual / fixed % / auto
-          const finalTax = !!sal.is_tax_3pct
-            ? Math.round(finalGross * 0.03)
+          //    ถ้าไม่ใช่ flag → ค่อยเช็ค manual / fixed % / auto (คิดจาก phase2Gross)
+          const finalTax = (!!sal.is_tax_3pct
+            ? Math.round(phase2Gross * 0.03)
             : (mIsManual && existPR?.monthly_tax_withheld != null)
               ? Number(existPR.monthly_tax_withheld)
               : (() => {
-                  if (taxPct != null && taxPct >= 0) return Math.round(finalGross * (taxPct / 100))
+                  if (taxPct != null && taxPct >= 0) return Math.round(phase2Gross * (taxPct / 100))
                   return result.tax
-                })()
+                })()) + phase1TaxAdd   // + ภาษี ณ ที่จ่าย 3% ของ Phase 1
           // ✅ SSO: structural flag (is_sso_exempt) ชนะ manual override เสมอ
           const finalSso = !!sal.is_sso_exempt ? 0 : result.sso
 
@@ -566,11 +595,16 @@ export async function POST(req: Request) {
             deduct_loan:      loanDeduction,
             deduct_other:     mIsManual && existPR?.deduct_other != null     ? Number(existPR.deduct_other)     : mDeductOther,
             deduction_extras: existPR?.deduction_extras || null,
-            social_security_base: baseSalary, social_security_rate: 0.05,
+            ...(twoPhase ? { prorate_days: autoPhase2Prorate } : {}),
+            social_security_base: effectiveBase, social_security_rate: 0.05,
             // SSO: structural flag (is_sso_exempt) ชนะ manual ทุกกรณี → ใช้ finalSso เสมอ
             social_security_amount: !!sal.is_sso_exempt
               ? 0
               : (mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso),
+            provident_fund:   finalPF,       // ✅ กองทุนสำรองเลี้ยงชีพ
+            phase1_wage:      phase1Wage,    // ── Phase 1 (Pre-Employee) ──
+            phase1_tax:       phase1Tax,
+            phase1_work_days: phase1WorkDays,
             // ── ค่า formula → คำนวณใหม่จากค่าที่เก็บด้านบน ──
             ...(() => {
               // รวมค่า deductions จริงที่ใช้ (late/early → auto, ขาดงาน/ลา → respect manual)
@@ -583,9 +617,9 @@ export async function POST(req: Request) {
               const fSso          = !!sal.is_sso_exempt
                 ? 0
                 : (mIsManual && existPR?.social_security_amount != null ? Number(existPR.social_security_amount) : finalSso)
-              // tax คำนวณจาก finalGross เสมอ (3% / fixed% / auto)
+              // tax = ภาษี Phase 2 + ภาษี 3% ของ Phase 1 (รวมใน finalTax แล้ว)
               const fTax          = finalTax
-              const fTotalDeduct  = fDeductAbsent + fDeductLate + fDeductEarly + loanDeduction + fDeductOther + fSso + fTax + decExtrasTotal
+              const fTotalDeduct  = fDeductAbsent + fDeductLate + fDeductEarly + loanDeduction + fDeductOther + fSso + finalPF + fTax + decExtrasTotal
               return {
                 gross_income:         finalGross,
                 taxable_income:       finalGross - fSso,

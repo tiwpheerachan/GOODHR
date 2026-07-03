@@ -219,6 +219,48 @@ export function probationEvalSubmittedEmail(opts: {
   }
 }
 
+// ── ประเมินทดลองงาน — เตือนล่วงหน้า 3 วันก่อนครบ 90 วัน ──────────
+export function probationReminderEmail(opts: {
+  employeeName: string
+  dueDate: string        // วันครบ 90 วัน (YYYY-MM-DD)
+  reviewUrl?: string
+}) {
+  return {
+    subject: `[GOODHR] อีก 3 วันถึงกำหนดประเมินทดลองงาน 90 วัน — ${opts.employeeName}`,
+    html: `
+<!DOCTYPE html>
+<html lang="th">
+<head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f8fafc;">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.06);">
+    <div style="background:linear-gradient(135deg,#d97706,#f59e0b);padding:32px 24px;text-align:center;">
+      <h1 style="margin:0;color:#fff;font-size:22px;font-weight:800;">GOODHR</h1>
+      <p style="margin:6px 0 0;color:rgba(255,255,255,0.9);font-size:13px;">เตือนกำหนดประเมินทดลองงาน</p>
+    </div>
+    <div style="padding:32px 24px;">
+      <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 16px;">
+        อีก <strong>3 วัน</strong> จะต้องเริ่มการประเมินทดลองงาน <strong>90 วัน</strong> ของพนักงานคนนี้แล้ว
+        <br/><span style="color:#b45309;font-weight:700;">อย่าลืมตรวจสอบเรื่องการผ่านงานด้วย</span>
+      </p>
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:18px;margin:12px 0 20px;">
+        <p style="color:#475569;font-size:11px;margin:0 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">พนักงาน</p>
+        <p style="color:#1e293b;font-size:17px;font-weight:800;margin:0 0 12px;">${opts.employeeName}</p>
+        <p style="color:#64748b;font-size:13px;margin:0;">ครบกำหนด 90 วัน: <strong style="color:#b45309;">${opts.dueDate}</strong></p>
+      </div>
+      ${opts.reviewUrl ? `<div style="text-align:center;margin:24px 0 8px;">
+        <a href="${opts.reviewUrl}" style="display:inline-block;background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;text-decoration:none;padding:13px 34px;border-radius:12px;font-size:14px;font-weight:700;">ไปหน้าประเมินทดลองงาน</a>
+      </div>` : ""}
+      <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:20px 0 0;">อีเมลนี้ส่งอัตโนมัติจากระบบ GOODHR — กรุณาอย่าตอบกลับ</p>
+    </div>
+    <div style="background:#f8fafc;padding:16px 24px;text-align:center;border-top:1px solid #e2e8f0;">
+      <p style="color:#94a3b8;font-size:11px;margin:0;">© ${new Date().getFullYear()} SHD Technology Co., Ltd. — GOODHR</p>
+    </div>
+  </div>
+</body>
+</html>`,
+  }
+}
+
 export function adminResetNotifyEmail(employeeName: string, newPassword: string) {
   return {
     subject: "GOODHR — รหัสผ่านถูกรีเซ็ตโดย HR",

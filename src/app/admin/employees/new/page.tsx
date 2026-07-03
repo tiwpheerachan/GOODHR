@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
+import { computePhase2Start } from "@/lib/utils/payroll"
 
 const STEPS = [
   { icon: User,      label: "ข้อมูลส่วนตัว" },
@@ -103,10 +104,12 @@ export default function NewEmployeePage() {
     employee_code: "", hire_date: "", probation_end_date: "",
     employment_type: "full_time", employment_status: "probation", role: "employee",
     department_id: "", position_id: "", branch_id: "", supervisor_id: "",
+    // จ้างงาน 2 เฟส (PC / Pre-Employee)
+    pre_employment_enabled: false, pre_employment_from: "", pre_employment_to: "", pre_employment_daily_rate: "500",
     // salary (ช่วงทดลองงาน)
     base_salary: "", allowance_position: "0", allowance_transport: "0",
     allowance_food: "0", allowance_phone: "0", allowance_housing: "0", allowance_vehicle: "0",
-    ot_rate_normal: "1.5", ot_rate_holiday: "3.0", tax_withholding_pct: "",
+    ot_rate_normal: "1.5", ot_rate_holiday: "3.0", tax_withholding_pct: "", provident_fund_pct: "0",
     kpi_standard_amount: "0",
     // post-probation promotion
     post_base_salary: "", post_allowance_position: "", post_allowance_transport: "",
@@ -219,11 +222,11 @@ export default function NewEmployeePage() {
     }
   }, [showSupervisorDropdown])
 
-  // Auto-calculate probation end (119 days = ~4 months from hire)
+  // Auto-calculate probation end (90 days = รอบประเมินสุดท้าย)
   const autoCalcProbation = useCallback(() => {
     if (f.hire_date && !f.probation_end_date) {
       const d = new Date(f.hire_date)
-      d.setDate(d.getDate() + 119)
+      d.setDate(d.getDate() + 90)
       set("probation_end_date", d.toISOString().split("T")[0])
     }
   }, [f.hire_date]) // eslint-disable-line
@@ -739,9 +742,43 @@ export default function NewEmployeePage() {
               <Field label="วันเริ่มงาน" required>
                 <Input type="date" value={f.hire_date} onChange={(e:any) => { set("hire_date", e.target.value) }} onBlur={autoCalcProbation} />
               </Field>
-              <Field label="สิ้นสุดทดลองงาน" hint="คำนวณอัตโนมัติ 120 วัน (แก้ไขได้)">
+              <Field label="สิ้นสุดทดลองงาน" hint="คำนวณอัตโนมัติ 90 วัน (แก้ไขได้)">
                 <Input type="date" value={f.probation_end_date} onChange={(e:any) => set("probation_end_date", e.target.value)} />
               </Field>
+            </div>
+
+            {/* ── จ้างงาน 2 เฟส (Pre-Employee) ──────────────────── */}
+            <div className="border-2 border-amber-200 bg-amber-50/50 rounded-2xl p-5 space-y-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={!!f.pre_employment_enabled}
+                  onChange={e => {
+                    const on = e.target.checked
+                    // default: from = วันเริ่มงาน, to = +6 วัน (7 วันปฏิทินแรก)
+                    const from = f.pre_employment_from || f.hire_date || ""
+                    let to = f.pre_employment_to
+                    if (on && from && !to) { const d = new Date(from); d.setDate(d.getDate() + 6); to = d.toISOString().split("T")[0] }
+                    setF((p:any) => ({ ...p, pre_employment_enabled: on, pre_employment_from: from, pre_employment_to: to }))
+                  }} className="w-4 h-4 accent-amber-500" />
+                <span className="font-bold text-amber-800 text-sm">มีการทดลองงานก่อน 7 วัน (Pre-Employee)</span>
+              </label>
+              <p className="text-xs text-amber-700/70">Phase 1 จ่ายค่าจ้าง/วัน (ลงช่อง "ค่าอื่นๆ") หักภาษี 3% — ไม่หักประกันสังคม/กองทุน · Phase 2 เป็นพนักงานจริง เริ่มนับทดลองงาน</p>
+              {f.pre_employment_enabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <Field label="เริ่ม Phase 1">
+                    <Input type="date" value={f.pre_employment_from} onChange={(e:any) => set("pre_employment_from", e.target.value)} />
+                  </Field>
+                  <Field label="สิ้นสุด Phase 1">
+                    <Input type="date" value={f.pre_employment_to} onChange={(e:any) => set("pre_employment_to", e.target.value)} />
+                  </Field>
+                  <Field label="ค่าจ้าง/วัน (บาท)">
+                    <Input type="number" value={f.pre_employment_daily_rate} onChange={(e:any) => set("pre_employment_daily_rate", e.target.value)} />
+                  </Field>
+                  <div className="sm:col-span-3 text-xs font-bold text-amber-800 bg-amber-100/60 rounded-lg px-3 py-2">
+                    วันเริ่มงานจริง (Phase 2) = <span className="text-rose-600">{computePhase2Start(f.pre_employment_to) || "—"}</span>
+                    <span className="font-normal text-amber-700/70"> (เลื่อนเสาร์/อาทิตย์เป็นจันทร์ถัดไปอัตโนมัติ · ใช้เป็นวันเริ่มนับทดลองงาน)</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ── หัวหน้า / ผู้อนุมัติ ──────────────────────────── */}
@@ -1072,6 +1109,18 @@ export default function NewEmployeePage() {
                     <button type="button" onClick={() => set("tax_withholding_pct", "")}
                       className="text-xs text-slate-400 hover:text-red-500 transition-colors">ล้าง</button>
                   )}
+                </div>
+              </div>
+
+              {/* กองทุนสำรองเลี้ยงชีพ (PF) */}
+              <div className="border border-rose-100 bg-rose-50/60 rounded-xl p-4">
+                <p className="text-xs font-bold text-rose-700 mb-1">กองทุนสำรองเลี้ยงชีพ (PF)</p>
+                <p className="text-[11px] text-slate-400 mb-3">% ของเงินเดือนฐาน · 0 = ไม่หัก (Phase 1 ไม่หัก PF)</p>
+                <div className="relative max-w-[220px]">
+                  <Input type="number" step="0.5" min="0" max="15"
+                    value={f.provident_fund_pct} onChange={(e:any) => set("provident_fund_pct", e.target.value)}
+                    placeholder="0" className="pr-8"/>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">%</span>
                 </div>
               </div>
             </div>

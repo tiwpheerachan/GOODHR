@@ -6,7 +6,7 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { LayoutDashboard, Users, CheckSquare, ChevronLeft, Bell, Target, CalendarClock, CalendarDays, Shield, Globe, Camera } from "lucide-react"
 import { LanguageProvider, useLanguage, Lang } from "@/lib/i18n"
-import { PROBATION_ROUNDS, ROUND_DAYS } from "@/lib/constants/probation"
+import { PROBATION_ROUNDS, ROUND_DAYS, effectiveEmploymentStart } from "@/lib/constants/probation"
 
 // NAV items use i18n keys — resolved inside the component
 const NAV_ITEMS = [
@@ -96,7 +96,7 @@ function ManagerLayoutInner({ children }: { children: React.ReactNode }) {
         const today = new Date().toISOString().split("T")[0]
         let pCount = 0
         for (const m of (pData.members ?? [])) {
-          const daysFromHire = Math.ceil((new Date(today).getTime() - new Date(m.hire_date).getTime()) / 86400000)
+          const daysFromHire = Math.ceil((new Date(today).getTime() - new Date(effectiveEmploymentStart(m) || m.hire_date).getTime()) / 86400000)
           const empForms = (pData.forms ?? []).filter((f: any) => f.employee_id === m.id)
           for (const round of PROBATION_ROUNDS) {
             const form = empForms.find((f: any) => f.round === round)

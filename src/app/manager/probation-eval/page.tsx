@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import Link from "next/link"
 import { Shield, Loader2, ChevronRight, CheckCircle2, Clock, AlertCircle, FilePlus2, FilePen, ChevronDown, Network } from "lucide-react"
-import { PROBATION_ROUNDS, ROUND_DAYS, ROUND_SHORT } from "@/lib/constants/probation"
+import { PROBATION_ROUNDS, ROUND_DAYS, ROUND_SHORT, effectiveEmploymentStart } from "@/lib/constants/probation"
 
 const GRADE_STYLE: Record<string, string> = {
   A: "bg-emerald-100 text-emerald-700",
@@ -85,7 +85,7 @@ export default function ManagerProbationEvalPage() {
 
         const renderMember = (m: any) => {
           const empForms = getFormsForEmployee(m.id)
-          const daysFromHire = daysBetween(m.hire_date, today)
+          const daysFromHire = daysBetween(effectiveEmploymentStart(m) || m.hire_date, today)
           const canEdit = m.relation !== "view_only"
 
           return (
@@ -111,7 +111,7 @@ export default function ManagerProbationEvalPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {PROBATION_ROUNDS.map(round => {
                   const form = empForms.find(f => f.round === round)
                   const rs = getRoundStatus(form)

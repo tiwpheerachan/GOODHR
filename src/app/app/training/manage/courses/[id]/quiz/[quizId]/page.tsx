@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, Plus, Trash2, Loader2, X, Check } from "lucide-react"
@@ -13,11 +13,13 @@ export default function QuizBuilderMobilePage() {
   const [quiz, setQuiz] = useState<any>(null)
   const [questions, setQuestions] = useState<any[]>([])
   const [showAdd, setShowAdd] = useState(false)
+  const savedTitleRef = useRef<string>("")  // ชื่อที่บันทึกไว้ล่าสุด (ใช้เทียบตอน blur)
 
   const load = async () => {
     const r = await fetch(`/api/training/quizzes?id=${quizId}`)
     const d = await r.json()
     setQuiz(d.quiz); setQuestions(d.quiz?.questions ?? [])
+    savedTitleRef.current = d.quiz?.title ?? ""
   }
   useEffect(() => { load() }, [quizId])
 
@@ -39,8 +41,13 @@ export default function QuizBuilderMobilePage() {
       </Link>
 
       <div className="bg-gradient-to-br from-amber-500 to-orange-500 rounded-3xl p-4 text-white">
-        <input value={quiz.title} onBlur={e => e.target.value !== quiz.title && saveQuiz({ title: e.target.value })}
+        <input value={quiz.title}
           onChange={e => setQuiz({ ...quiz, title: e.target.value })}
+          onBlur={e => {
+            const v = e.target.value.trim()
+            if (!v) { setQuiz({ ...quiz, title: savedTitleRef.current }); return }  // ห้ามชื่อว่าง — คืนค่าเดิม
+            if (v !== savedTitleRef.current) { savedTitleRef.current = v; saveQuiz({ title: v }) }
+          }}
           className="text-xl font-black bg-transparent border-b border-white/30 outline-none w-full" />
         <div className="grid grid-cols-2 gap-2 mt-3">
           <SetF label="เวลา (วินาที)"><input type="number" defaultValue={quiz.time_limit_sec || ""} onBlur={e => saveQuiz({ time_limit_sec: Number(e.target.value) || null })} className="w-full bg-white/20 rounded px-2 py-1 text-sm outline-none" placeholder="ไม่จำกัด" /></SetF>

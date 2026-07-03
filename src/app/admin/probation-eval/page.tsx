@@ -4,14 +4,14 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import {
   Shield, Search, ChevronDown, ChevronUp, Loader2,
   Award, MessageSquare, Eye, CheckCircle2, XCircle, Clock, Pencil, Download,
-  Mail, Plus, Trash2, X, Power,
+  Mail, Plus, Trash2, X, Power, AlertCircle,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
 import Link from "next/link"
 import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
-import { PROBATION_ROUNDS, ROUND_LABELS } from "@/lib/constants/probation"
+import { PROBATION_ROUNDS, ROUND_LABELS, ROUND_SHORT } from "@/lib/constants/probation"
 
 const GRADE_CONF: Record<string, { bg: string; text: string }> = {
   A: { bg: "bg-emerald-50", text: "text-emerald-700" },
@@ -39,6 +39,45 @@ export default function AdminProbationEvalPage() {
   const [showRejectModal, setShowRejectModal] = useState<string | null>(null)
   const [rejectNote, setRejectNote] = useState("")
   const [actionLoading, setActionLoading] = useState(false)
+
+  // ── แท็บ: รายการประเมิน (review) | ยังไม่ได้ประเมิน (pending) ──
+  const [view, setView] = useState<"review" | "pending">("review")
+  const [pending, setPending] = useState<any[]>([])
+  const [pendingLoading, setPendingLoading] = useState(false)
+  const loadPending = useCallback(async () => {
+    setPendingLoading(true)
+    try {
+      const res = await fetch("/api/probation-evaluation?mode=pending")
+      const data = await res.json()
+      setPending(data.items ?? [])
+    } catch {}
+    setPendingLoading(false)
+  }, [])
+  useEffect(() => { if (view === "pending" && user) loadPending() }, [view, user, loadPending])
+
+  // ── ฟิลเตอร์แท็บ "ยังไม่ได้ประเมิน" ──
+  const [pSearch, setPSearch] = useState("")
+  const [pRound, setPRound] = useState("")       // "" | "1" | "2"
+  const [pTiming, setPTiming] = useState("")     // "" | "overdue" | "due"
+  const [pOverdue, setPOverdue] = useState("")   // "" | "le30" | "31_90" | "gt90"
+  const [pDept, setPDept] = useState("")
+  const pendingDepts = Array.from(new Set(pending.map((it: any) => it.employee?.department?.name).filter(Boolean))).sort()
+  const filteredPending = pending.filter((it: any) => {
+    const e = it.employee
+    if (pRound && String(it.round) !== pRound) return false
+    if (pTiming === "overdue" && it.days_overdue <= 0) return false
+    if (pTiming === "due" && it.days_overdue > 0) return false
+    if (pOverdue === "le30" && !(it.days_overdue > 0 && it.days_overdue <= 30)) return false
+    if (pOverdue === "31_90" && !(it.days_overdue > 30 && it.days_overdue <= 90)) return false
+    if (pOverdue === "gt90" && !(it.days_overdue > 90)) return false
+    if (pDept && e?.department?.name !== pDept) return false
+    if (pSearch.trim()) {
+      const s = pSearch.toLowerCase()
+      const hay = `${e?.first_name_th ?? ""} ${e?.last_name_th ?? ""} ${e?.nickname ?? ""} ${e?.employee_code ?? ""} ${it.direct_manager?.first_name_th ?? ""} ${it.direct_manager?.last_name_th ?? ""}`.toLowerCase()
+      if (!hay.includes(s)) return false
+    }
+    return true
+  })
 
   // ── อีเมลผู้รับแจ้งเตือน ──
   const [showEmailModal, setShowEmailModal] = useState(false)
@@ -285,7 +324,7 @@ export default function AdminProbationEvalPage() {
 
       // ── Sheet 3: สถิติรวม ────────────────────────────────────────
       const gradeCount: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 }
-      const roundCount: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0 }
+      const roundCount: Record<number, number> = { 1: 0, 2: 0 }
       const deptAvg: Record<string, { sum: number; count: number }> = {}
       for (const f of filtered) {
         if (gradeCount[f.grade] !== undefined) gradeCount[f.grade]++
@@ -367,6 +406,100 @@ export default function AdminProbationEvalPage() {
           </button>
         </div>
       </div>
+
+      {/* Tabs */}
+      <div className="inline-flex bg-slate-100 rounded-xl p-1">
+        <button onClick={() => setView("review")}
+          className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${view === "review" ? "bg-white shadow-sm text-rose-600" : "text-slate-500 hover:text-slate-700"}`}>
+          รายการประเมิน
+        </button>
+        <button onClick={() => setView("pending")}
+          className={`px-4 py-2 text-sm font-bold rounded-lg transition-all flex items-center gap-1.5 ${view === "pending" ? "bg-white shadow-sm text-amber-600" : "text-slate-500 hover:text-slate-700"}`}>
+          ยังไม่ได้ประเมิน
+          {pending.length > 0 && <span className="text-[10px] font-black bg-amber-500 text-white px-1.5 py-0.5 rounded-full">{pending.length}</span>}
+        </button>
+      </div>
+
+      {view === "pending" ? (
+        <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+            <AlertCircle size={16} className="text-amber-500" />
+            <p className="text-sm font-bold text-slate-700">พนักงานที่ถึง/เลยกำหนดประเมิน แต่ยังไม่ถูกประเมิน (รอบ 45 / 90 วัน)</p>
+            <span className="ml-auto text-xs font-bold text-slate-400">{filteredPending.length} / {pending.length} รายการ</span>
+          </div>
+          {/* Smart Filters */}
+          <div className="px-4 py-3 border-b border-slate-50 bg-slate-50/50 flex flex-wrap gap-2">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input value={pSearch} onChange={e => setPSearch(e.target.value)} placeholder="ค้นหาชื่อ / รหัส / หัวหน้า..."
+                className={`${inp} pl-9 w-full`} />
+            </div>
+            <select value={pRound} onChange={e => setPRound(e.target.value)} className={inp}>
+              <option value="">ทุกรอบ</option>
+              {PROBATION_ROUNDS.map(r => <option key={r} value={r}>{ROUND_SHORT[r]}</option>)}
+            </select>
+            <select value={pTiming} onChange={e => setPTiming(e.target.value)} className={inp}>
+              <option value="">ทุกสถานะ</option>
+              <option value="overdue">เลยกำหนดแล้ว</option>
+              <option value="due">ยังไม่เลย (ถึงกำหนด)</option>
+            </select>
+            <select value={pOverdue} onChange={e => setPOverdue(e.target.value)} className={inp}>
+              <option value="">ช่วงเลยกำหนด: ทั้งหมด</option>
+              <option value="le30">เลย ≤ 30 วัน</option>
+              <option value="31_90">เลย 31–90 วัน</option>
+              <option value="gt90">เลย &gt; 90 วัน (ค้างนาน)</option>
+            </select>
+            <select value={pDept} onChange={e => setPDept(e.target.value)} className={inp}>
+              <option value="">ทุกแผนก</option>
+              {pendingDepts.map((d: any) => <option key={d} value={d}>{d}</option>)}
+            </select>
+            {(pSearch || pRound || pTiming || pOverdue || pDept) && (
+              <button onClick={() => { setPSearch(""); setPRound(""); setPTiming(""); setPOverdue(""); setPDept("") }}
+                className="text-xs font-bold text-slate-400 hover:text-rose-500 px-2">ล้างตัวกรอง</button>
+            )}
+          </div>
+          {pendingLoading ? (
+            <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-slate-300" /></div>
+          ) : filteredPending.length === 0 ? (
+            <div className="text-center py-12">
+              <CheckCircle2 size={32} className="text-emerald-200 mx-auto mb-3" />
+              <p className="text-slate-400 text-sm">{pending.length === 0 ? "ไม่มีพนักงานค้างประเมิน 🎉" : "ไม่พบรายการตามตัวกรอง"}</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {filteredPending.map((it: any, idx: number) => {
+                const emp = it.employee
+                const overdue = it.days_overdue > 0
+                return (
+                  <div key={`${emp.id}-${it.round}`} className="px-4 py-3 flex items-center gap-3 hover:bg-slate-50">
+                    <div className="w-9 h-9 rounded-xl overflow-hidden bg-rose-100 flex items-center justify-center shrink-0">
+                      {emp.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" /> : <span className="text-rose-600 text-sm font-bold">{emp.first_name_th?.[0]}</span>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-800 truncate">{emp.first_name_th} {emp.last_name_th}{emp.nickname && <span className="text-slate-400 font-normal"> ({emp.nickname})</span>}</p>
+                      <p className="text-xs text-slate-400 truncate">
+                        {emp.employee_code} · {emp.position?.name ?? "—"}
+                        {it.direct_manager && <span> · หัวหน้า: {it.direct_manager.first_name_th} {it.direct_manager.last_name_th}</span>}
+                      </p>
+                    </div>
+                    <span className="text-xs font-bold px-2 py-1 rounded-lg bg-slate-100 text-slate-600 whitespace-nowrap">{ROUND_SHORT[it.round] ?? `รอบ ${it.round}`}</span>
+                    <div className="text-right shrink-0 w-[110px]">
+                      <p className="text-[11px] text-slate-400">ครบกำหนด {format(new Date(it.due_date + "T00:00:00"), "d MMM", { locale: th })}</p>
+                      <p className={`text-xs font-black ${overdue ? "text-rose-600" : "text-amber-600"}`}>
+                        {overdue ? `เลยกำหนด ${it.days_overdue} วัน` : it.days_overdue === 0 ? "ถึงกำหนดวันนี้" : `อีก ${-it.days_overdue} วัน`}
+                      </p>
+                    </div>
+                    <Link href={`/manager/probation-eval/${emp.id}?round=${it.round}`}
+                      className="text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-lg whitespace-nowrap">
+                      ประเมิน
+                    </Link>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ) : (<>
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -552,6 +685,7 @@ export default function AdminProbationEvalPage() {
           })}
         </div>
       )}
+      </>)}
 
       {/* Email Recipients Modal */}
       {showEmailModal && (

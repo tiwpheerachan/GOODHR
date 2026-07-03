@@ -155,7 +155,7 @@ export async function getManageableEmployees(
   // Fetch employee details
   const { data: emps } = await svc
     .from("employees")
-    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, hire_date, employment_status, probation_end_date, company_id, position:positions(name), department:departments(name)")
+    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, hire_date, phase2_start_date, employment_status, probation_end_date, company_id, position:positions(name), department:departments(name)")
     .in("id", allIds)
     .eq("is_active", true)
     .is("deleted_at", null)

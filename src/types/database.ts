@@ -20,6 +20,11 @@ export interface Employee {
   emergency_contact_name?: string; emergency_contact_phone?: string; emergency_contact_relation?: string
   employment_status: EmploymentStatus; employment_type: string
   hire_date: string; probation_end_date?: string; resign_date?: string
+  // ── จ้างงาน 2 เฟส (PC / Pre-Employee) ──
+  pre_employment_enabled?: boolean
+  pre_employment_from?: string; pre_employment_to?: string
+  pre_employment_daily_rate?: number   // ค่าจ้าง Phase 1 ต่อวัน (default 500)
+  phase2_start_date?: string           // วันเริ่มงานจริง (Phase 2) = anchor การนับทดลองงาน
   bank_account?: string; bank_name?: string; tax_id?: string; social_security_no?: string
   is_active: boolean; created_at: string; updated_at: string
   deleted_at?: string; deleted_by?: string
@@ -72,6 +77,7 @@ export interface SalaryStructure {
   tax_withholding_pct?: number | null  // NULL = auto (ขั้นบันได), 0-35 = fixed %
   is_sso_exempt?: boolean              // true = ไม่หักประกันสังคม
   is_tax_3pct?: boolean                // true = หักภาษี ณ ที่จ่าย 3% แทนขั้นบันได
+  provident_fund_pct?: number          // กองทุนสำรองเลี้ยงชีพ % (0 = ไม่หัก)
   effective_from: string; effective_to?: string; change_reason?: string
 }
 
@@ -126,7 +132,7 @@ export interface KpiTemplate {
 
 // ── Probation Evaluation ────────────────────────────────────────────────────
 export type ProbationEvalStatus = "draft" | "submitted" | "approved" | "rejected"
-export type ProbationRound = 0 | 1 | 2 | 3 // 0 = ทดลองงาน 30 วันแรก
+export type ProbationRound = 1 | 2 // 1 = 45 วัน, 2 = 90 วัน
 
 export interface ProbationEvaluation {
   id: string; company_id: string; employee_id: string; evaluator_id: string

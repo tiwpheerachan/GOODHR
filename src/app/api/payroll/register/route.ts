@@ -158,6 +158,7 @@ export async function PATCH(req: Request) {
     "bonus", "kpi_grade", "kpi_standard_amount", "commission", "other_income",
     "deduct_absent", "deduct_late", "deduct_early_out", "deduct_loan", "deduct_other",
     "social_security_amount", "monthly_tax_withheld",
+    "provident_fund", "phase1_wage", "phase1_tax", "phase1_work_days",  // ✅ กองทุน PF + Phase 1
     "absent_days", "late_count", "present_days", "leave_paid_days", "leave_unpaid_days",
     "gross_income", "total_deductions", "net_salary",
     "income_extras", "deduction_extras", "note_override", "is_manual_override",

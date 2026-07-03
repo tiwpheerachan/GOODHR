@@ -16,6 +16,8 @@ import { th } from "date-fns/locale"
 import { recomputePayroll } from "@/lib/utils/payroll"
 import AdditionalEvaluatorsSection from "@/components/admin/AdditionalEvaluatorsSection"
 import EvaluationChainPanel from "@/components/admin/EvaluationChainPanel"
+import { computePhase2Start } from "@/lib/utils/payroll"
+import { systemEffectivePassedDate, probationEvalDeadline, nextPayrollCycleEnd } from "@/lib/utils/payrollCycle"
 import FeishuLinkTab from "@/components/employees/FeishuLinkTab"
 import BrandsTab from "@/components/employees/BrandsTab"
 import EmployeeBorrowingTab from "@/components/employees/EmployeeBorrowingTab"
@@ -315,6 +317,16 @@ export default function EmployeeDetailPage() {
     // เพิ่ม kpi_evaluator_id เฉพาะเมื่อมี field อยู่ (หลังรัน migration แล้ว)
     if ("kpi_evaluator_id" in form) updateData.kpi_evaluator_id = form.kpi_evaluator_id || null
     if ("probation_evaluator_id" in form) updateData.probation_evaluator_id = form.probation_evaluator_id || null
+    // จ้างงาน 2 เฟส — เขียนเมื่อมี field (migration-safe) + คำนวณ phase2_start_date สดจากวันสิ้นสุด Phase 1
+    if ("pre_employment_enabled" in form) {
+      const on = !!form.pre_employment_enabled
+      updateData.pre_employment_enabled = on
+      updateData.pre_employment_from = on ? (form.pre_employment_from || null) : null
+      updateData.pre_employment_to = on ? (form.pre_employment_to || null) : null
+      updateData.pre_employment_daily_rate = on ? (Number(form.pre_employment_daily_rate) || 500) : null
+      // อัตโนมัติเป็นค่าเริ่มต้น แต่ถ้า admin กรอก/แก้เอง → ใช้ค่าที่กรอก
+      updateData.phase2_start_date = on ? (form.phase2_start_date || computePhase2Start(form.pre_employment_to)) : null
+    }
     const { error } = await supabase.from("employees").update(updateData).eq("id", id as string)
     if (error) toast.error("เกิดข้อผิดพลาด"); else {
       toast.success("บันทึกสำเร็จ")
@@ -352,6 +364,7 @@ export default function EmployeeDetailPage() {
       tax_withholding_pct: sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? +sf.tax_withholding_pct : null,
       is_sso_exempt: !!sf.is_sso_exempt,
       is_tax_3pct: !!sf.is_tax_3pct,
+      provident_fund_pct: +(sf.provident_fund_pct || 0),
       effective_from:sf.effective_from||format(new Date(),"yyyy-MM-dd"),
       change_reason:sf.change_reason,
       created_by:user?.employee_id,
@@ -919,6 +932,90 @@ export default function EmployeeDetailPage() {
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สิ้นสุดทดลองงาน</label><input type="date" value={form.probation_end_date||""} onChange={e => set("probation_end_date",e.target.value)} className={inp}/></div>
           </div>
 
+          {/* ── จ้างงาน 2 เฟส (Pre-Employee) ── */}
+          <div className="mt-6 p-4 rounded-2xl border-2 border-amber-100 bg-amber-50/50">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={!!form.pre_employment_enabled}
+                onChange={e => {
+                  const on = e.target.checked
+                  const from = form.pre_employment_from || form.hire_date || ""
+                  let to = form.pre_employment_to
+                  if (on && from && !to) { const d = new Date(from); d.setDate(d.getDate() + 6); to = d.toISOString().split("T")[0] }
+                  setForm((p:any) => ({ ...p, pre_employment_enabled: on, pre_employment_from: from, pre_employment_to: to, phase2_start_date: on ? (p.phase2_start_date || computePhase2Start(to)) : p.phase2_start_date }))
+                }} className="w-4 h-4 accent-amber-500" />
+              <span className="font-bold text-amber-800 text-sm flex items-center gap-1.5"><Briefcase size={14}/>จ้างงาน 2 เฟส — มีทดลองงานก่อน 7 วัน (Pre-Employee)</span>
+            </label>
+            {form.pre_employment_enabled && (
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div><label className="block text-xs font-medium text-amber-700 mb-1">วันเริ่มงานเฟส 1 (Pre-Employee)</label>
+                    <input type="date" value={form.pre_employment_from||""} onChange={e => set("pre_employment_from", e.target.value)} className={inp}/></div>
+                  <div><label className="block text-xs font-medium text-slate-600 mb-1">วันสิ้นสุดเฟส 1</label>
+                    <input type="date" value={form.pre_employment_to||""}
+                      onChange={e => { const to = e.target.value; setForm((p:any) => ({ ...p, pre_employment_to: to, phase2_start_date: computePhase2Start(to) || p.phase2_start_date })) }}
+                      className={inp}/></div>
+                  <div><label className="block text-xs font-medium text-emerald-700 mb-1">วันเริ่มงานเฟส 2 (พนักงานจริง)</label>
+                    <input type="date" value={form.phase2_start_date||""} onChange={e => set("phase2_start_date", e.target.value)} className={inp}/>
+                    <p className="text-[10px] text-slate-400 mt-1">เว้นว่าง = คำนวณอัตโนมัติจากวันสิ้นสุดเฟส 1 · เงินเดือนอิงวันนี้</p></div>
+                  <div><label className="block text-xs font-medium text-slate-600 mb-1">ค่าจ้าง/วัน เฟส 1 (บาท)</label>
+                    <input type="number" value={form.pre_employment_daily_rate ?? 500} onChange={e => set("pre_employment_daily_rate", e.target.value)} className={inp}/></div>
+                </div>
+                {/* Phase 1 / Phase 2 สรุปเกณฑ์ */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-white border border-amber-200 p-3">
+                    <p className="text-xs font-black text-amber-700 mb-1">Phase 1 · Pre-Employee</p>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      {form.pre_employment_from || "—"} → {form.pre_employment_to || "—"}<br/>
+                      ค่าจ้าง {form.pre_employment_daily_rate ?? 500} ฿/วัน (ลงช่อง "ค่าอื่นๆ")<br/>
+                      หักภาษี 3% · <span className="text-rose-500 font-bold">ไม่หัก</span> ประกันสังคม/กองทุน
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-white border border-emerald-200 p-3">
+                    <p className="text-xs font-black text-emerald-700 mb-1">Phase 2 · Employee (พนักงานจริง)</p>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      เริ่ม <span className="text-emerald-600 font-black">{form.phase2_start_date || computePhase2Start(form.pre_employment_to) || "—"}</span>{!form.phase2_start_date && " (อัตโนมัติ · เลื่อน ส./อา. → จันทร์)"}<br/>
+                      ค่าจ้าง + ประกันสังคม + กองทุน (PF) · ภาษีปกติ<br/>
+                      <span className="font-bold">เริ่มนับทดลองงานจากวันนี้</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Termination Notice — วันผ่านทดลองงาน + กฎ 1 รอบจ่าย (แสดงผลอย่างเดียว) ── */}
+          {form.probation_end_date && (() => {
+            const fmtTH = (s: string) => s ? format(new Date(s + "T00:00:00"), "d MMM yyyy", { locale: th }) : "—"
+            const today = format(new Date(), "yyyy-MM-dd")
+            const sysEff = systemEffectivePassedDate(form.probation_end_date)
+            const deadline = probationEvalDeadline(form.probation_end_date)
+            const termEff = nextPayrollCycleEnd(today)
+            return (
+              <div className="mt-6 p-4 rounded-2xl border-2 border-slate-200 bg-slate-50/70">
+                <h4 className="font-bold text-slate-800 text-sm mb-1 flex items-center gap-2"><CalendarClock size={14} className="text-slate-500"/>วันผ่านทดลองงาน &amp; การบอกเลิกจ้าง (1 รอบจ่าย)</h4>
+                <p className="text-[11px] text-slate-400 mb-3">แสดงข้อมูลคำนวณตามกฎ — ไม่ใช่การดำเนินการจริง</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                  <div className="bg-white rounded-xl border border-slate-100 px-3 py-2">
+                    <p className="text-[11px] text-slate-400">วันผ่านทดลองงาน (Probation Passed)</p>
+                    <p className="font-bold text-slate-800">{fmtTH(form.probation_end_date)}</p>
+                  </div>
+                  <div className="bg-white rounded-xl border border-slate-100 px-3 py-2">
+                    <p className="text-[11px] text-slate-400">System Effective Passed Date</p>
+                    <p className="font-bold text-indigo-700">{fmtTH(sysEff)}</p>
+                  </div>
+                  <div className="bg-white rounded-xl border border-amber-200 px-3 py-2">
+                    <p className="text-[11px] text-amber-600">ประเมินทดลองงานต้องเสร็จภายใน</p>
+                    <p className="font-bold text-amber-700">{fmtTH(deadline)}</p>
+                  </div>
+                  <div className="bg-white rounded-xl border border-rose-200 px-3 py-2">
+                    <p className="text-[11px] text-rose-500">หากแจ้งเลิกจ้างวันนี้ ({fmtTH(today)}) → มีผล</p>
+                    <p className="font-bold text-rose-700">{fmtTH(termEff)} <span className="font-normal text-[11px] text-slate-400">(สิ้นรอบจ่ายถัดไป)</span></p>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
           {/* ── ยกเว้นเช็คอิน ── */}
           <div className="mt-6">
             <label className="flex items-center gap-3 cursor-pointer select-none">
@@ -1145,6 +1242,19 @@ export default function EmployeeDetailPage() {
                 </div>
                 {sf.is_tax_3pct && <span className="ml-auto text-xs font-black text-amber-600 bg-amber-50 px-2 py-1 rounded-lg">หัก 3%</span>}
               </label>
+
+              {/* กองทุนสำรองเลี้ยงชีพ (PF) */}
+              <div className="pt-1">
+                <label className="block text-sm font-bold text-slate-700 mb-1">กองทุนสำรองเลี้ยงชีพ (PF)</label>
+                <p className="text-[11px] text-slate-400 mb-2">% ของเงินเดือนฐาน · 0 = ไม่หัก (Phase 1 Pre-Employee ไม่หัก PF)</p>
+                <div className="relative max-w-[180px]">
+                  <input type="number" step="0.5" min="0" max="15"
+                    value={sf.provident_fund_pct ?? ""}
+                    onChange={e => setSf((f: any) => ({ ...f, provident_fund_pct: e.target.value }))}
+                    placeholder="0" className={`${inp} pr-8`}/>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">%</span>
+                </div>
+              </div>
             </div>
           </div>
 

@@ -1,6 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
-import { calculatePayrollSummary, type OTBreakdown } from "@/lib/utils/payroll"
+import { calculatePayrollSummary, calcPF, computeAutoProrateDays, type OTBreakdown } from "@/lib/utils/payroll"
 import { classifyOtFromRecords } from "@/lib/utils/ot-classification"
 import { logPayroll } from "@/lib/auditLog"
 
@@ -360,11 +360,11 @@ async function calcAndSave(
       .eq("id", payroll_period_id)
       .single(),
     supa.from("employees")
-      .select("id, company_id, hire_date, resign_date, is_attendance_exempt, department:departments(name), company:companies(code)")
+      .select("id, company_id, hire_date, resign_date, is_attendance_exempt, pre_employment_enabled, pre_employment_from, pre_employment_to, pre_employment_daily_rate, phase2_start_date, department:departments(name), company:companies(code)")
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
-      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, effective_from, effective_to")
+      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, provident_fund_pct, effective_from, effective_to")
       .eq("employee_id", employee_id)
       .is("effective_to", null)
       .order("effective_from", { ascending: false })
@@ -448,7 +448,11 @@ async function calcAndSave(
   //   ✅ Bug fix: เดิมไม่ดู resign_date → คนลาออกแล้วยังถูกนับ absent หลัง resign_date
   const hireDate       = (emp.hire_date as string | null) ?? periodStart
   const resignDate     = (emp.resign_date as string | null) ?? null
-  const effectiveStart = cmp(hireDate, periodStart) > 0 ? hireDate : periodStart
+  // ── จ้างงาน 2 เฟส: การนับ "พนักงานจริง" (attendance/absent) เริ่มที่ phase2_start ──
+  //    วันในช่วง Pre-Employment (Phase 1) ไม่นับเป็นวันขาด/สายของ Phase 2
+  const twoPhase       = !!emp.pre_employment_enabled && !!emp.phase2_start_date
+  const empStart       = twoPhase ? (emp.phase2_start_date as string) : hireDate
+  const effectiveStart = cmp(empStart, periodStart) > 0 ? empStart : periodStart
   const effectiveEnd   = (resignDate && cmp(resignDate, periodEnd) < 0) ? resignDate : periodEnd
   const todayStr       = todayTH()
 
@@ -458,6 +462,22 @@ async function calcAndSave(
     : workDaysBetween(effectiveStart, effectiveEnd, holidaySet, shiftMap, fixedDayoffs)
   // ✅ รวมวันนี้ด้วย (<=) เพื่อนับสาย/ขาดของวันนี้ real-time
   const pastWorkDays = allWorkDays.filter(d => cmp(d, todayStr) <= 0)
+
+  // ── Phase 1 (Pre-Employee): ค่าจ้าง/วัน × วันทำงานจริงในช่วง pre-employment ที่ทับงวดนี้ ──
+  let phase1WorkDays = 0
+  if (twoPhase && emp.pre_employment_from && emp.pre_employment_to) {
+    const p1Start = cmp(emp.pre_employment_from, periodStart) > 0 ? (emp.pre_employment_from as string) : periodStart
+    const p1End   = cmp(emp.pre_employment_to, periodEnd)   < 0 ? (emp.pre_employment_to as string)   : periodEnd
+    if (cmp(p1Start, p1End) <= 0) {
+      phase1WorkDays = workDaysBetween(p1Start, p1End, holidaySet, shiftMap, fixedDayoffs)
+        .filter(d => cmp(d, todayStr) <= 0).length
+    }
+  }
+  const phase1DailyRate = Number(emp.pre_employment_daily_rate) || 500
+  const phase1Wage      = twoPhase ? Math.round(phase1DailyRate * phase1WorkDays) : 0
+  const phase1Tax       = Math.round(phase1Wage * 0.03)   // ภาษี ณ ที่จ่าย 3% ของค่าจ้าง Phase 1
+  // Phase 2 auto-prorate: เดือนแรก prorate ตาม phase2_start (ถ้า HR ไม่ได้ตั้ง prorate เอง)
+  const autoPhase2Prorate = twoPhase ? computeAutoProrateDays(emp.phase2_start_date, periodStart, periodEnd) : null
 
   // ── วันลาที่อนุมัติแล้ว (overlap กับ period) ─────────────────
   // overlap condition: leave.start_date <= periodEnd AND leave.end_date >= periodStart
@@ -644,7 +664,8 @@ async function calcAndSave(
   // ── Prorate: ถ้าตั้งค่า prorate_days < 30 → คูณ factor เฉพาะ "เงินเดือนฐาน" ──
   // null/30 = ไม่ prorate (ทำเต็มเดือน)
   // KPI bonus ไม่ prorate (เป็นเงินรางวัล จ่ายเต็มตามที่หัวหน้าประเมิน)
-  const prorateDays = Number(existingPR?.prorate_days) || null
+  //   two-phase: ถ้า HR ไม่ได้ตั้ง prorate เอง → ใช้ auto ตาม phase2_start (เดือนแรกได้เฉพาะส่วน Phase 2)
+  const prorateDays = Number(existingPR?.prorate_days) || autoPhase2Prorate || null
   const prorateFactor = (prorateDays != null && prorateDays > 0 && prorateDays < 30)
     ? Math.round((prorateDays / 30) * 10000) / 10000
     : 1
@@ -728,16 +749,25 @@ async function calcAndSave(
   const finalGross = effectiveBase + manualAllowPosition + manualAllowTransport + manualAllowFood
     + manualAllowPhone + manualAllowHousing + manualAllowVehicle + manualAllowOther
     + finalOtAmount + manualBonus + manualCommission + manualOtherIncome + incExtrasTotal
+    + phase1Wage   // ค่าจ้าง Phase 1 (Pre-Employee) — แสดงรวมใน "ค่าอื่นๆ"
   const taxWithholdingPctVal = sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
+  const phase2GrossForTax = finalGross - phase1Wage   // ฐานคิดภาษี Phase 2 (ไม่รวมค่าจ้าง Phase 1 ที่หัก 3% แยก)
   const finalTax = (isManual && existingPR?.monthly_tax_withheld != null)
     ? Number(existingPR.monthly_tax_withheld)
     : (() => {
-        if (!!sal.is_tax_3pct) return Math.round(finalGross * 0.03 * 100) / 100
-        if (taxWithholdingPctVal != null && taxWithholdingPctVal >= 0) return Math.round(finalGross * (taxWithholdingPctVal / 100) * 100) / 100
+        if (!!sal.is_tax_3pct) return Math.round(phase2GrossForTax * 0.03 * 100) / 100
+        if (taxWithholdingPctVal != null && taxWithholdingPctVal >= 0) return Math.round(phase2GrossForTax * (taxWithholdingPctVal / 100) * 100) / 100
         return result.tax
       })()
   const finalSso = result.sso
-  const finalTotalDeduct = finalDeductAbsent + result.deductLate + result.deductEarlyOut + loanDeduction + finalSso + finalTax + manualDeductOther + decExtrasTotal
+  // ── กองทุนสำรองเลี้ยงชีพ (PF) — หักจากฐาน Phase 2 (effectiveBase) ตาม % ต่อคน ──
+  const finalPF = (isManual && existingPR?.provident_fund != null)
+    ? Number(existingPR.provident_fund)
+    : calcPF(effectiveBase, sal.provident_fund_pct)
+  // ภาษี Phase 1 (3%) เพิ่มเข้าภาษีรวม — ยกเว้นกรณี HR override ภาษีเอง (ถือว่ารวมแล้ว)
+  const phase1TaxAdd  = (isManual && existingPR?.monthly_tax_withheld != null) ? 0 : phase1Tax
+  const finalTaxTotal = finalTax + phase1TaxAdd
+  const finalTotalDeduct = finalDeductAbsent + result.deductLate + result.deductEarlyOut + loanDeduction + finalSso + finalPF + finalTaxTotal + manualDeductOther + decExtrasTotal
 
   // ── upsert ────────────────────────────────────────────────────
   const payload: Record<string, unknown> = {
@@ -781,9 +811,14 @@ async function calcAndSave(
     social_security_base:   effectiveBase,             // ฐาน SSO ใช้ effective (กรณี prorate)
     social_security_rate:   0.05,
     social_security_amount: finalSso,
+    provident_fund:         finalPF,                   // ✅ กองทุนสำรองเลี้ยงชีพ
+    // ── Phase 1 (Pre-Employee) breakdown ──
+    phase1_wage:            phase1Wage,
+    phase1_tax:             phase1Tax,
+    phase1_work_days:       phase1WorkDays,
     taxable_income:         finalGross - finalSso,
-    monthly_tax_withheld:   finalTax,
-    ytd_tax_withheld:       previousYtdTax + finalTax,
+    monthly_tax_withheld:   finalTaxTotal,
+    ytd_tax_withheld:       previousYtdTax + finalTaxTotal,
     total_deductions:       finalTotalDeduct,
     net_salary:             Math.max(finalGross - finalTotalDeduct, 0),
     // สถิติ

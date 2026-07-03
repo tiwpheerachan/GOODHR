@@ -60,7 +60,7 @@ export default function EmployeeProbationEvalPage() {
                     <span className={`text-xl font-black ${gc.color}`}>{form.grade}</span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-800 text-sm">{ROUND_LABELS[form.round]}</p>
+                    <p className="font-bold text-slate-800 text-sm">{ROUND_LABELS[form.round] ?? `รอบ ${form.round}`}</p>
                     <p className="text-xs text-slate-400">
                       คะแนน {form.total_score?.toFixed(1)}% · ประเมินโดย {form.evaluator?.first_name_th} {form.evaluator?.last_name_th}
                     </p>

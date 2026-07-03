@@ -10,7 +10,7 @@ import Link from "next/link"
 import { Clock, ChevronRight, CalendarDays, TrendingUp, AlertCircle, Banknote, ArrowRight, CheckCircle2, XCircle, FileText, Zap, Building2, Users, Shield, AlertTriangle } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
-import { PROBATION_ROUNDS, ROUND_DAYS } from "@/lib/constants/probation"
+import { PROBATION_ROUNDS, ROUND_DAYS, effectiveEmploymentStart } from "@/lib/constants/probation"
 
 export default function DashboardPage() {
   const { user } = useAuth()
@@ -39,7 +39,7 @@ export default function DashboardPage() {
         const today = new Date().toISOString().split("T")[0]
         const alerts: any[] = []
         for (const m of (data.members ?? [])) {
-          const daysFromHire = Math.ceil((new Date(today).getTime() - new Date(m.hire_date).getTime()) / 86400000)
+          const daysFromHire = Math.ceil((new Date(today).getTime() - new Date(effectiveEmploymentStart(m) || m.hire_date).getTime()) / 86400000)
           const empForms = (data.forms ?? []).filter((f: any) => f.employee_id === m.id)
 
           // หา round ที่ใกล้ที่สุดที่ต้องทำ
@@ -113,9 +113,9 @@ export default function DashboardPage() {
   const noClockOut = alreadyIn && !todayRecord?.clock_out
   const todayDate  = format(new Date(), "yyyy-MM-dd")
 
-  const ROUND_LABELS = [
-    t("dashboard.probation_round_0"), t("dashboard.probation_round_1"), t("dashboard.probation_round_2"), t("dashboard.probation_round_3")
-  ]
+  const ROUND_LABELS: Record<number, string> = {
+    1: t("dashboard.probation_round_1"), 2: t("dashboard.probation_round_2"),
+  }
 
   return (
     <div className="flex flex-col bg-slate-50 min-h-screen pb-24">
@@ -263,15 +263,13 @@ export default function DashboardPage() {
             {/* Cards */}
             <div className="px-4 pb-4 space-y-2.5 relative z-10">
               {probationAlerts.slice(0, 5).map((a, idx) => {
-                const TOTAL_DAYS = 119
+                const TOTAL_DAYS = 90
                 const pct = Math.min((a.daysFromHire / TOTAL_DAYS) * 100, 100)
                 const daysRemain = Math.max(0, TOTAL_DAYS - a.daysFromHire)
                 const barClass = pct >= 100 ? "pk-fill-danger" : pct >= 75 ? "pk-fill-warn" : "pk-fill"
                 const ROUNDS = [
-                  { round: 0, day: 30 },
-                  { round: 1, day: 60 },
+                  { round: 1, day: 45 },
                   { round: 2, day: 90 },
-                  { round: 3, day: 119 },
                 ]
 
                 return (
@@ -331,7 +329,7 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Row 3: Round status cards */}
-                    <div className="grid grid-cols-4 gap-1.5 mt-2">
+                    <div className="grid grid-cols-2 gap-1.5 mt-2">
                       {ROUNDS.map(r => {
                         const form = (a.forms ?? []).find((f: any) => f.round === r.round)
                         const done = form && (form.status === "approved" || form.status === "submitted")
