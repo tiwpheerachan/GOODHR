@@ -86,6 +86,10 @@ export default function EmployeeDetailPage() {
   const [companies, setCompanies] = useState<any[]>([])
   const [departments, setDepartments] = useState<any[]>([])
   const [positions, setPositions] = useState<any[]>([])
+  // ── ประวัติเงินเดือน + ตำแหน่ง ──
+  const [salaryHistory, setSalaryHistory] = useState<any[]>([])
+  const [positionHistory, setPositionHistory] = useState<any[]>([])
+  const [historyTick, setHistoryTick] = useState(0)
   const [branches, setBranches] = useState<any[]>([])
   const [newPositionName, setNewPositionName] = useState("")
   const [creatingPosition, setCreatingPosition] = useState(false)
@@ -180,6 +184,18 @@ export default function EmployeeDetailPage() {
       setCompanies(comp.data ?? [])
     })
   }, [id, user])
+
+  // ── โหลดประวัติเงินเดือน (ทุกเวอร์ชัน) + ประวัติตำแหน่ง (reload เมื่อบันทึก) ──
+  useEffect(() => {
+    if (!id) return
+    supabase.from("salary_structures").select("*").eq("employee_id", id as string)
+      .order("effective_from", { ascending: false }).order("created_at", { ascending: false })
+      .then(({ data }) => setSalaryHistory(data ?? []))
+    supabase.from("employee_position_history")
+      .select("*, from_pos:positions!from_position_id(name), to_pos:positions!to_position_id(name), changer:employees!changed_by(first_name_th, last_name_th)")
+      .eq("employee_id", id as string).order("changed_at", { ascending: false })
+      .then(({ data }) => setPositionHistory(data ?? []))
+  }, [id, historyTick])
 
   // ── lazy-load รายชื่อพนักงาน: โหลดเฉพาะเมื่อเปิด dropdown ──
   const allEmpsLoaded = useRef(false)
@@ -334,6 +350,21 @@ export default function EmployeeDetailPage() {
       if (form.company_id && form.company_id !== emp?.company_id) {
         await supabase.from("users").update({ company_id: form.company_id }).eq("employee_id", id as string)
       }
+      // ── บันทึกประวัติเปลี่ยนตำแหน่ง (ถ้าเปลี่ยน) ──
+      const oldPos = emp?.position_id || null
+      const newPos = form.position_id || null
+      if (oldPos !== newPos) {
+        try {
+          await supabase.from("employee_position_history").insert({
+            employee_id: id as string,
+            company_id: form.company_id || emp?.company_id || null,
+            from_position_id: oldPos,
+            to_position_id: newPos,
+            changed_by: user?.employee_id ?? null,
+          })
+          setHistoryTick(t => t + 1)
+        } catch { /* ตาราง position history อาจยังไม่ถูกสร้าง (ยังไม่รัน migration) */ }
+      }
       setEmp((prev: any) => ({ ...prev, company_id: form.company_id, department_id: form.department_id, position_id: form.position_id, branch_id: form.branch_id }))
     }
     setLoading(false)
@@ -369,7 +400,7 @@ export default function EmployeeDetailPage() {
       change_reason:sf.change_reason,
       created_by:user?.employee_id,
     })
-    if (error) toast.error("เกิดข้อผิดพลาด"); else toast.success("บันทึกเงินเดือนสำเร็จ")
+    if (error) toast.error("เกิดข้อผิดพลาด"); else { toast.success("บันทึกเงินเดือนสำเร็จ"); setHistoryTick(t => t + 1) }
     setLoading(false)
   }
 
@@ -1167,6 +1198,28 @@ export default function EmployeeDetailPage() {
           <AdditionalEvaluatorsSection employeeId={id as string} allEmps={allEmps} loadAllEmps={loadAllEmps} />
 
           <button onClick={saveEmployment} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>
+
+          {/* ── ประวัติการเปลี่ยนตำแหน่ง ── */}
+          <div className="mt-8 pt-6 border-t border-slate-100">
+            <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2"><History size={15} className="text-violet-500"/>ประวัติการเปลี่ยนตำแหน่ง ({positionHistory.length})</h4>
+            {positionHistory.length === 0 ? (
+              <p className="text-sm text-slate-400">ยังไม่มีประวัติ — เมื่อเปลี่ยนตำแหน่งแล้วบันทึก จะแสดงที่นี่</p>
+            ) : (
+              <div className="space-y-2">
+                {positionHistory.map((h: any) => (
+                  <div key={h.id} className="rounded-xl border border-slate-100 bg-white p-3 flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-slate-400 line-through">{h.from_pos?.name ?? "—"}</span>
+                    <ChevronRight size={14} className="text-slate-300" />
+                    <span className="text-sm font-bold text-violet-700">{h.to_pos?.name ?? "—"}</span>
+                    <span className="ml-auto text-[11px] text-slate-400">
+                      {h.changed_at ? format(new Date(h.changed_at), "d MMM yyyy HH:mm", { locale: th }) : ""}
+                      {h.changer && <span> · โดย {h.changer.first_name_th} {h.changer.last_name_th}</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </>}
 
         {/* ── Tab 3: เงินเดือน ── */}
@@ -1291,6 +1344,42 @@ export default function EmployeeDetailPage() {
           </div>
 
           <button onClick={saveSalary} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึกเงินเดือน</button>
+
+          {/* ── ประวัติการปรับเงินเดือน (ทุกเวอร์ชันจาก salary_structures) ── */}
+          <div className="mt-8 pt-6 border-t border-slate-100">
+            <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2"><History size={15} className="text-indigo-500"/>ประวัติการปรับเงินเดือน ({salaryHistory.length})</h4>
+            {salaryHistory.length === 0 ? (
+              <p className="text-sm text-slate-400">ยังไม่มีประวัติ</p>
+            ) : (
+              <div className="space-y-2">
+                {salaryHistory.map((s: any, i: number) => {
+                  const allw = (Number(s.allowance_position)||0)+(Number(s.allowance_food)||0)+(Number(s.allowance_phone)||0)+(Number(s.allowance_housing)||0)+(Number(s.allowance_vehicle)||0)+(Number(s.allowance_transport)||0)
+                  const prev = salaryHistory[i + 1]
+                  const diff = prev ? Number(s.base_salary) - Number(prev.base_salary) : 0
+                  const isCurrent = !s.effective_to
+                  return (
+                    <div key={s.id} className={`rounded-xl border p-3 ${isCurrent ? "border-emerald-200 bg-emerald-50/40" : "border-slate-100 bg-white"}`}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-base font-black text-slate-800">฿{Number(s.base_salary).toLocaleString()}</span>
+                        {allw > 0 && <span className="text-xs text-slate-400">+ เบี้ยเลี้ยง ฿{allw.toLocaleString()}</span>}
+                        {diff !== 0 && (
+                          <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${diff > 0 ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+                            {diff > 0 ? "▲" : "▼"} ฿{Math.abs(diff).toLocaleString()}
+                          </span>
+                        )}
+                        {isCurrent && <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">ปัจจุบัน</span>}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        มีผล {s.effective_from ? format(new Date(s.effective_from + "T00:00:00"), "d MMM yyyy", { locale: th }) : "—"}
+                        {s.effective_to ? ` – ${format(new Date(s.effective_to + "T00:00:00"), "d MMM yyyy", { locale: th })}` : " – ปัจจุบัน"}
+                        {s.change_reason && <span className="text-slate-500"> · {s.change_reason}</span>}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </>}
 
         {/* ── Tab 4: สรุปเงินเดือนรายเดือน ── */}

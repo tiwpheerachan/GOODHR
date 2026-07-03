@@ -382,14 +382,16 @@ export default function ProfilePage() {
                 </div>
                 <div>
                   <p className="text-[14px] font-semibold text-rose-600">
-                    {resignStatus ? "ดูสถานะใบลาออก" : "ยื่นใบลาออก"}
+                    {resignStatus ? "ดูสถานะใบลาออก" : "ยื่นคำขอลาออก"}
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
+                    {resignStatus === "pending_intent"  && "⏳ รอ HR เปิดสิทธิ์ให้ลาออก"}
+                    {resignStatus === "intent_approved" && "📝 เปิดสิทธิ์แล้ว — กรอกฟอร์มได้"}
                     {resignStatus === "pending_manager" && "⏳ รอหัวหน้าอนุมัติ"}
                     {resignStatus === "pending_hr"      && "⏳ รอ HR อนุมัติ"}
                     {resignStatus === "approved"        && "✅ อนุมัติแล้ว"}
                     {resignStatus === "rejected"        && "❌ ถูกปฏิเสธ — ยื่นใหม่ได้"}
-                    {!resignStatus                      && "Resignation Form · SHD Technology"}
+                    {!resignStatus                      && "ต้องขออนุญาต HR ก่อน · SHD Technology"}
                   </p>
                 </div>
               </div>

@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     // ดึงข้อมูลพนักงาน
     const { data: emp } = await supa
       .from("employees")
-      .select("id, first_name_th, last_name_th, employee_code, employment_status, company_id")
+      .select("id, first_name_th, last_name_th, employee_code, employment_status, company_id, position_id")
       .eq("id", employee_id)
       .single()
 
@@ -51,6 +51,21 @@ export async function POST(req: Request) {
     if (mark_end_today) empUpdate.probation_end_date = today
 
     await supa.from("employees").update(empUpdate).eq("id", employee_id)
+
+    // 1.5 บันทึกประวัติเปลี่ยนตำแหน่ง (ถ้าเลื่อนตำแหน่งตอนผ่านทดลองงาน)
+    if (promo?.new_position_id && promo.new_position_id !== emp.position_id) {
+      try {
+        const { data: caller } = await supa.from("users").select("employee_id").eq("id", user.id).maybeSingle()
+        await supa.from("employee_position_history").insert({
+          employee_id,
+          company_id: emp.company_id,
+          from_position_id: emp.position_id ?? null,
+          to_position_id: promo.new_position_id,
+          reason: "เลื่อนตำแหน่ง (ผ่านทดลองงาน)",
+          changed_by: caller?.employee_id ?? null,
+        })
+      } catch { /* ตาราง position history อาจยังไม่ถูกสร้าง */ }
+    }
 
     // 2. ถ้ามี salary changes → สร้าง salary_structure ใหม่
     if (promo && promo.base_salary) {

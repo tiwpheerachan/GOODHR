@@ -7,11 +7,13 @@ import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import {
   CheckCircle2, Clock, XCircle, ChevronLeft,
-  UserX, ShieldCheck, Building2, AlertTriangle,
+  UserX, ShieldCheck, Building2, AlertTriangle, Send, ArrowRight,
 } from "lucide-react"
 import Link from "next/link"
 
 const STATUS_CFG = {
+  pending_intent:  { label:"รอ HR เปิดสิทธิ์",   color:"text-violet-700", bg:"bg-violet-50",  border:"border-violet-200", icon:Clock,         dot:"bg-violet-500" },
+  intent_approved: { label:"เปิดสิทธิ์แล้ว — กรอกฟอร์มได้", color:"text-indigo-700", bg:"bg-indigo-50", border:"border-indigo-200", icon:CheckCircle2, dot:"bg-indigo-500" },
   pending_manager: { label:"รอหัวหน้าอนุมัติ", color:"text-amber-700",  bg:"bg-amber-50",   border:"border-amber-200",  icon:Clock,         dot:"bg-amber-500"  },
   pending_hr:      { label:"รอ HR อนุมัติ",     color:"text-sky-700",    bg:"bg-sky-50",     border:"border-sky-200",    icon:Building2,     dot:"bg-sky-500"    },
   approved:        { label:"อนุมัติแล้ว",        color:"text-emerald-700",bg:"bg-emerald-50", border:"border-emerald-200",icon:CheckCircle2,  dot:"bg-emerald-500"},
@@ -19,6 +21,7 @@ const STATUS_CFG = {
 }
 
 const STEP_LABELS = [
+  { k:"intent",   label:"ขออนุญาต",         icon:Send },
   { k:"submit",   label:"ยื่นใบลาออก",      icon:UserX },
   { k:"manager",  label:"หัวหน้าอนุมัติ",    icon:ShieldCheck },
   { k:"hr",       label:"HR อนุมัติ",         icon:Building2 },
@@ -26,10 +29,12 @@ const STEP_LABELS = [
 ]
 
 function stepIndex(status:string) {
-  if (status==="pending_manager") return 1
-  if (status==="pending_hr")      return 2
-  if (status==="approved")        return 3
-  if (status==="rejected")        return 1
+  if (status==="pending_intent")  return 0
+  if (status==="intent_approved") return 1
+  if (status==="pending_manager") return 2
+  if (status==="pending_hr")      return 3
+  if (status==="approved")        return 4
+  if (status==="rejected")        return 0
   return 0
 }
 
@@ -127,6 +132,14 @@ export default function ResignationStatusPage() {
             )}
           </div>
         </div>
+
+        {/* HR เปิดสิทธิ์แล้ว → กรอกฟอร์มลาออก */}
+        {request.status === "intent_approved" && (
+          <Link href="/app/resignation/new"
+            className="flex items-center justify-center gap-2 py-3.5 bg-indigo-600 text-white font-bold rounded-2xl w-full hover:bg-indigo-700 transition-colors">
+            กรอกแบบฟอร์มลาออก <ArrowRight size={16}/>
+          </Link>
+        )}
 
         {/* Request info */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-3">

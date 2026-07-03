@@ -1,11 +1,11 @@
 "use client"
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import {
   ChevronLeft, ChevronRight, CheckCircle2, Loader2,
-  FileText, AlertTriangle, ClipboardList, PackageCheck, UserX, Calendar, Info,
+  FileText, AlertTriangle, ClipboardList, PackageCheck, UserX, Calendar, Info, Clock, Send,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -95,6 +95,58 @@ export default function ResignationNewPage() {
   const [step,       setStep]       = useState(1)
   const [submitting, setSubmitting] = useState(false)
 
+  // ── Gate: ต้องขออนุญาต (คำขอลาออก) → HR เปิดสิทธิ์ ก่อนกรอกฟอร์ม ──
+  const [gate, setGate] = useState<"loading" | "need_intent" | "pending_intent" | "form" | "done">("loading")
+  const [intentRow, setIntentRow] = useState<any>(null)
+  const [intentReason, setIntentReason] = useState("")
+  const [intentSubmitting, setIntentSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!emp?.id) return
+    supabase.from("resignation_requests").select("*")
+      .eq("employee_id", emp.id).order("created_at", { ascending: false }).limit(1).maybeSingle()
+      .then(({ data }) => {
+        const st = data?.status
+        if (!st || st === "rejected") setGate("need_intent")
+        else if (st === "pending_intent") setGate("pending_intent")
+        else if (st === "intent_approved") { setIntentRow(data); setGate("form") }
+        else { setGate("done"); router.replace("/app/resignation") } // pending_manager / pending_hr / approved
+      })
+  }, [emp?.id]) // eslint-disable-line
+
+  const submitIntent = async () => {
+    if (!emp?.id) return
+    setIntentSubmitting(true)
+    try {
+      const companyId = emp.company_id ?? (user as any)?.company_id
+      const { error } = await supabase.from("resignation_requests").insert({
+        employee_id: emp.id,
+        company_id:  companyId,
+        status:      "pending_intent",
+        intent_reason: intentReason.trim() || null,
+      })
+      if (error) throw error
+      // แจ้ง HR (best-effort — ถ้า RLS ไม่ให้อ่าน users ก็ข้าม, คำขอยังขึ้นในแท็บแอดมิน)
+      try {
+        const { data: hrUsers } = await supabase.from("users")
+          .select("employee_id").eq("company_id", companyId).in("role", ["hr_admin", "super_admin"])
+        for (const h of (hrUsers ?? [])) {
+          if (h.employee_id) await supabase.from("notifications").insert({
+            employee_id: h.employee_id, type: "resignation",
+            title: `${emp.first_name_th} ${emp.last_name_th} ยื่นคำขอลาออก`,
+            body:  "รอ HR เปิดสิทธิ์ให้ลาออก",
+          })
+        }
+      } catch {}
+      toast.success("ยื่นคำขอลาออกแล้ว — รอ HR อนุมัติ")
+      setGate("pending_intent")
+    } catch (e: any) {
+      toast.error(e.message || "เกิดข้อผิดพลาด")
+    } finally {
+      setIntentSubmitting(false)
+    }
+  }
+
   const today = format(new Date(), "yyyy-MM-dd")
   const [lastWorkDate,  setLastWorkDate]  = useState("")
   const [effectiveDate, setEffectiveDate] = useState("")
@@ -127,10 +179,9 @@ export default function ResignationNewPage() {
     if (!emp?.id) return
     setSubmitting(true)
     try {
-      const companyId = emp.company_id ?? (user as any)?.company_id
-      const { error } = await supabase.from("resignation_requests").insert({
-        employee_id:    emp.id,
-        company_id:     companyId,
+      // ต่อยอดจากแถวคำขอที่ HR เปิดสิทธิ์แล้ว (intent_approved) → กรอกฟอร์มเต็ม → รอหัวหน้าอนุมัติ
+      if (!intentRow?.id) { toast.error("ไม่พบสิทธิ์การลาออก กรุณายื่นคำขอใหม่"); setSubmitting(false); return }
+      const { error } = await supabase.from("resignation_requests").update({
         last_work_date: lastWorkDate,
         effective_date: effectiveDate,
         reasons,
@@ -139,7 +190,7 @@ export default function ResignationNewPage() {
         assets:         { items: assets, notes: assetNotes, deduct_amount: deductAmount || 0 },
         status:         "pending_manager",
         manager_id:     emp.manager_id ?? null,
-      })
+      }).eq("id", intentRow.id)
       if (error) throw error
       if (emp.manager_id) {
         await supabase.from("notifications").insert({
@@ -158,9 +209,59 @@ export default function ResignationNewPage() {
     }
   }
 
-  if (!emp) return (
+  if (!emp || gate === "loading" || gate === "done") return (
     <div className="flex items-center justify-center py-20 text-gray-400">
       <Loader2 size={18} className="animate-spin mr-2" /> กำลังโหลด…
+    </div>
+  )
+
+  // ── ยังไม่ได้ยื่นคำขอ / เคยถูกปฏิเสธ → ให้ยื่น "คำขอลาออก" ก่อน ──
+  if (gate === "need_intent") return (
+    <div className="min-h-screen bg-gray-50 pb-24">
+      <div className="bg-white border-b border-gray-100 px-4 pt-5 pb-4 sticky top-0 z-10 flex items-center gap-3">
+        <button onClick={() => router.back()} className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200">
+          <ChevronLeft size={16} className="text-gray-600" />
+        </button>
+        <div className="flex-1"><h1 className="text-[15px] font-bold text-gray-900">ขออนุญาตลาออก</h1></div>
+        <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center"><UserX size={15} className="text-rose-500" /></div>
+      </div>
+      <div className="px-4 pt-4 space-y-3">
+        <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
+          <Info size={14} className="text-amber-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-amber-700 leading-relaxed">ก่อนกรอกใบลาออก ต้อง<strong>ยื่นคำขอให้ HR อนุมัติก่อน</strong> เมื่อ HR เปิดสิทธิ์แล้ว คุณจึงจะกรอกแบบฟอร์มลาออกได้</p>
+        </div>
+        <SectionCard>
+          <SectionHeader label="เหตุผล (ไม่บังคับ)" />
+          <div className="px-5 py-4">
+            <textarea value={intentReason} onChange={e => setIntentReason(e.target.value)}
+              placeholder="แจ้งเหตุผล/รายละเอียดให้ HR ทราบเบื้องต้น (ถ้ามี)…"
+              className={inputCls + " resize-none h-24"} />
+          </div>
+        </SectionCard>
+        <button onClick={submitIntent} disabled={intentSubmitting}
+          className="w-full flex items-center justify-center gap-2 py-3.5 bg-rose-600 text-white font-bold text-sm rounded-2xl hover:bg-rose-700 active:scale-[0.98] transition-all disabled:opacity-50 shadow-sm shadow-rose-200">
+          {intentSubmitting ? <><Loader2 size={15} className="animate-spin" /> กำลังส่ง…</> : <><Send size={15} /> ยื่นคำขอลาออก</>}
+        </button>
+      </div>
+    </div>
+  )
+
+  // ── ยื่นคำขอแล้ว รอ HR เปิดสิทธิ์ ──
+  if (gate === "pending_intent") return (
+    <div className="min-h-screen bg-gray-50 pb-24">
+      <div className="bg-white border-b border-gray-100 px-4 pt-5 pb-4 sticky top-0 z-10 flex items-center gap-3">
+        <button onClick={() => router.push("/app/resignation")} className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200">
+          <ChevronLeft size={16} className="text-gray-600" />
+        </button>
+        <div className="flex-1"><h1 className="text-[15px] font-bold text-gray-900">คำขอลาออก</h1></div>
+      </div>
+      <div className="px-4 pt-10 flex flex-col items-center text-center">
+        <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mb-4">
+          <Clock size={28} className="text-amber-500" />
+        </div>
+        <p className="font-bold text-gray-900">รอ HR อนุมัติคำขอลาออก</p>
+        <p className="text-sm text-gray-400 mt-1.5 max-w-xs">เมื่อ HR เปิดสิทธิ์ให้แล้ว คุณจะกลับมากรอกแบบฟอร์มลาออกได้ที่หน้านี้</p>
+      </div>
     </div>
   )
 

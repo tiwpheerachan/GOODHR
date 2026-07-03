@@ -91,7 +91,8 @@ export default function AdminLeavePage() {
       (async () => {
       const {count:c1} = await fcResign(supabase.from("resignation_requests").select("id",{count:"exact",head:true})).eq("status","pending_hr")
       const {count:c2} = await fcResign(supabase.from("resignation_requests").select("id",{count:"exact",head:true})).eq("status","pending_manager")
-      return { count: (c1??0)+(c2??0) }
+      const {count:c3} = await fcResign(supabase.from("resignation_requests").select("id",{count:"exact",head:true})).eq("status","pending_intent")
+      return { count: (c1??0)+(c2??0)+(c3??0) }
     })()
     ])
     setTabCounts({ leave: lv.count??0, resignation: rs.count??0 })
@@ -332,10 +333,38 @@ export default function AdminLeavePage() {
     {v:"",                 l:"ทั้งหมด",     c:"bg-slate-100 text-slate-600",   n:counts.all},
   ]
 
+  // ── HR เปิดสิทธิ์ให้ลาออก (ขั้นก่อนกรอกฟอร์ม) ──
+  const handleIntent = async(id:string, action:"approved"|"rejected")=>{
+    setResignActing(id)
+    try{
+      const newStatus = action==="approved" ? "intent_approved" : "rejected"
+      const{error}=await supabase.from("resignation_requests").update({
+        status:             newStatus,
+        hr_id:              user?.employee_id,
+        intent_approved_at: action==="approved" ? new Date().toISOString() : null,
+        hr_note:            resignNotes[id] || null,
+      }).eq("id",id)
+      if(error){toast.error(error.message);return}
+      const item = resignReqs.find(r=>r.id===id)
+      if(item){
+        await supabase.from("notifications").insert({
+          employee_id: item.employee_id, type:"resignation",
+          title: action==="approved" ? "HR เปิดสิทธิ์ให้ลาออกแล้ว" : "คำขอลาออกถูกปฏิเสธ",
+          body:  action==="approved" ? "กรุณากรอกแบบฟอร์มลาออกในระบบ" : (resignNotes[id] || ""),
+        })
+      }
+      toast.success(action==="approved" ? "✅ เปิดสิทธิ์ให้ลาออกแล้ว" : "ปฏิเสธคำขอลาออกแล้ว")
+      loadResign(); loadTabCounts()
+    }finally{ setResignActing(null) }
+  }
+
   const resignStatusLabel=(s:string)=>({
+    pending_intent:"รอเปิดสิทธิ์", intent_approved:"เปิดสิทธิ์แล้ว",
     pending_manager:"รอหัวหน้า", pending_hr:"รอ HR", approved:"อนุมัติแล้ว", rejected:"ปฏิเสธ",
   } as any)[s]??s
   const resignStatusColor=(s:string)=>({
+    pending_intent:"bg-violet-100 text-violet-700",
+    intent_approved:"bg-indigo-100 text-indigo-700",
     pending_manager:"bg-amber-100 text-amber-700",
     pending_hr:"bg-sky-100 text-sky-700",
     approved:"bg-emerald-100 text-emerald-700",
@@ -558,6 +587,7 @@ export default function AdminLeavePage() {
           <div className="flex gap-2 flex-wrap">
             {[
               { v:"all",            l:"ทั้งหมด" },
+              { v:"pending_intent", l:"อนุมัติให้ลาออก" },
               { v:"pending_manager",l:"รอหัวหน้า" },
               { v:"pending_hr",     l:"รอ HR อนุมัติ" },
               { v:"approved",       l:"อนุมัติแล้ว" },
@@ -673,6 +703,35 @@ export default function AdminLeavePage() {
                         </div>
                         {Number(r.assets.deduct_amount)>0&&<p className="text-amber-600 font-bold mt-1.5">💰 ชดใช้ {Number(r.assets.deduct_amount).toLocaleString()} บาท</p>}
                       </div>
+                    )}
+
+                    {/* Intent action area — HR เปิดสิทธิ์ให้ลาออก (ก่อนกรอกฟอร์ม) */}
+                    {r.status==="pending_intent"&&(
+                      <>
+                        {r.intent_reason&&(
+                          <div className="text-xs bg-violet-50 border border-violet-100 rounded-xl px-3 py-2">
+                            <span className="font-bold text-violet-700">เหตุผลเบื้องต้น: </span>
+                            <span className="text-slate-600">{r.intent_reason}</span>
+                          </div>
+                        )}
+                        <textarea
+                          placeholder="หมายเหตุ (ถ้ามี)"
+                          value={resignNotes[r.id]||""}
+                          onChange={e=>setResignNotes(n=>({...n,[r.id]:e.target.value}))}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs outline-none focus:ring-2 focus:ring-[#2A505A] resize-none h-16"/>
+                        <div className="flex gap-2">
+                          <button onClick={()=>handleIntent(r.id,"rejected")} disabled={resignActing===r.id}
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-red-50 border border-red-200 text-red-600 font-bold text-sm rounded-xl hover:bg-red-100 disabled:opacity-50">
+                            {resignActing===r.id?<div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"/>:<X size={14}/>}
+                            ปฏิเสธ
+                          </button>
+                          <button onClick={()=>handleIntent(r.id,"approved")} disabled={resignActing===r.id}
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 disabled:opacity-50">
+                            {resignActing===r.id?<div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>:<Check size={14}/>}
+                            เปิดสิทธิ์ให้ลาออก
+                          </button>
+                        </div>
+                      </>
                     )}
 
                     {/* HR action area — ทำได้ทั้ง pending_manager และ pending_hr */}
