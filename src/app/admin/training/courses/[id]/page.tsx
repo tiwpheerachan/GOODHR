@@ -74,7 +74,8 @@ export default function CourseBuilderPage() {
   }
 
   const publish = () => {
-    if (modules.length === 0) { toast.error("กรุณาเพิ่มบทเรียนก่อนเผยแพร่"); return }
+    // เผยแพร่ได้ถ้ามีบทเรียนหรือควิซอย่างน้อย 1 (คอร์สที่มีแค่แบบทดสอบก็เผยแพร่ได้)
+    if (modules.length === 0 && quizzes.length === 0) { toast.error("กรุณาเพิ่มบทเรียนหรือควิซก่อนเผยแพร่"); return }
     setShowPublishConfirm(true)
   }
   const doPublish = async () => { await saveCourse({ status: "published" }) }
