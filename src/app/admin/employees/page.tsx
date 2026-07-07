@@ -313,7 +313,7 @@ export default function EmployeesPage() {
   // ── export CSV ────────────────────────────────────────────────────
   const exportCSV = async () => {
     let q: any = supabase.from("employees")
-      .select(`id, employee_code, first_name_th, last_name_th, nickname, gender, phone, email,
+      .select(`id, employee_code, first_name_th, last_name_th, nickname, gender, birth_date, phone, email,
                national_id, bank_account, bank_name,
                hire_date, resign_date, employment_status, employment_type, brand,
                position:positions(name), department:departments(name),
@@ -383,11 +383,13 @@ export default function EmployeesPage() {
       if (rr) for (const r of rr) if (r.resign_reason) reasonMap[r.id] = r.resign_reason
     }
 
-    const hdr  = ["รหัส","บริษัท","ชื่อ","นามสกุล","ชื่อเล่น","เพศ","โทร","อีเมล","วันเริ่มงาน","วันลาออก","เหตุผลลาออก","อายุงาน","สถานะ","ประเภท","ตำแหน่ง","แผนก","สาขา","แบรนด์","เลขที่บัตรประชาชน","เลขที่บัญชี","ธนาคาร","เงินเดือน","KPI"]
+    const hdr  = ["รหัส","บริษัท","ชื่อ","นามสกุล","ชื่อเล่น","เพศ","วันเกิด","โทร","อีเมล","วันเริ่มงาน","วันลาออก","เหตุผลลาออก","อายุงาน","สถานะ","ประเภท","ตำแหน่ง","แผนก","สาขา","แบรนด์","เลขที่บัตรประชาชน","เลขที่บัญชี","ธนาคาร","เงินเดือน","KPI"]
     const cell = (v: any) => { const s = (v == null ? "" : String(v)).replace(/"/g, '""'); return /[",\n]/.test(s) ? `"${s}"` : s }
     const rows = data.map((e: any) => [
       e.employee_code, (e.company as any)?.name_th,
-      e.first_name_th, e.last_name_th, e.nickname, e.gender, e.phone, e.email,
+      e.first_name_th, e.last_name_th, e.nickname, e.gender,
+      e.birth_date ? format(new Date(e.birth_date), "dd/MM/yyyy") : "",
+      e.phone, e.email,
       e.hire_date ? format(new Date(e.hire_date), "dd/MM/yyyy") : "",
       e.resign_date ? format(new Date(e.resign_date), "dd/MM/yyyy") : "",
       reasonMap[e.id] || "",

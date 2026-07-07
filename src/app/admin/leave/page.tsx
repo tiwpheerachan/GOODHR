@@ -17,10 +17,17 @@ const inp = "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm te
 type MainTab = "leave" | "resignation"
 
 const RESIGN_REASONS_MAP: Record<string,string> = {
-  heavy_work:"งานหนัก/ทีมน้อย", boss:"ปัญหาหัวหน้า", low_salary:"เงินเดือนน้อย",
-  study:"ศึกษาต่อ", own_biz:"ธุรกิจส่วนตัว", family:"ปัญหาครอบครัว",
-  health:"ปัญหาสุขภาพ", new_job:"ได้งานใหม่", mismatch:"ไม่เหมาะสมกับตำแหน่ง",
-  no_prob:"ไม่ผ่านทดลองงาน", other:"อื่นๆ",
+  compensation:"ค่าตอบแทน/สวัสดิการไม่พอ", career:"ก้าวหน้าจำกัด", better_offer:"ได้งานใหม่ที่ดีกว่า",
+  environment:"สภาพแวดล้อมไม่เหมาะสม", manager:"ความสัมพันธ์กับหัวหน้า", colleagues:"ความสัมพันธ์เพื่อนร่วมงาน",
+  work_life:"Work-Life Balance", relocation:"ย้ายที่อยู่", study:"ศึกษาต่อ",
+  retirement:"เกษียณ", other:"อื่นๆ",
+}
+// หัวข้อประเมินความพึงพอใจ (ส่วนที่ 3) — สำหรับแสดงผลฝั่งแอดมิน
+const SAT_TOPIC_LABELS: Record<string,string> = {
+  compensation:"ค่าตอบแทน/สวัสดิการ", career:"ความก้าวหน้า", work_life:"Work-Life Balance",
+  environment:"สภาพแวดล้อม", management:"การบริหารองค์กร", manager:"ความสัมพันธ์กับหัวหน้า",
+  colleagues:"ความสัมพันธ์เพื่อนร่วมงาน", job_challenge:"ความท้าทายของงาน",
+  communication:"การสื่อสารในองค์กร", training:"การฝึกอบรม/พัฒนา",
 }
 
 // ── Reject Note Modal ──────────────────────────────────────────────────────
@@ -287,8 +294,14 @@ export default function AdminLeavePage() {
       const item = resignReqs.find(r=>r.id===id)
       if(item){
         // update employee status on final approval
+        //   ✅ ตั้ง resign_date + is_active ด้วย เพื่อให้ระบบเงินเดือน "ซ่อนคนลาออก" ทำงานถูก
+        //   (เดิมตั้งแค่ employment_status → resign_date ว่าง → payroll ซ่อนไม่ได้ คนลาออกยังโผล่/export)
         if(action==="approved"){
-          await supabase.from("employees").update({ employment_status:"resigned" }).eq("id", item.employee_id)
+          await supabase.from("employees").update({
+            employment_status: "resigned",
+            resign_date: item.effective_date || item.last_work_date || new Date().toISOString().slice(0,10),
+            is_active: false,
+          }).eq("id", item.employee_id)
         }
         await supabase.from("notifications").insert({
           employee_id: item.employee_id,
@@ -677,20 +690,33 @@ export default function AdminLeavePage() {
                       {resignExpanded===r.id?<ChevronUp size={12}/>:<ChevronDown size={12}/>}
                       {resignExpanded===r.id?"ซ่อน":"ดู"} Exit Interview
                     </button>
-                    {resignExpanded===r.id&&r.exit_interview&&Object.keys(r.exit_interview).length>0&&(
-                      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 text-xs space-y-2">
-                        {["q1","q2","q3","q4","q5","q6","q7","q8"].map((k,i)=>
-                          r.exit_interview[k] ? (
-                            <div key={k} className="flex gap-2">
-                              <span className="text-indigo-400 font-bold shrink-0">ข้อ{i+1}:</span>
-                              <span className="text-slate-700">{Array.isArray(r.exit_interview[k])?r.exit_interview[k].join(", "):r.exit_interview[k]}</span>
+                    {resignExpanded===r.id&&r.exit_interview&&Object.keys(r.exit_interview).length>0&&(()=>{
+                      const ei = r.exit_interview
+                      const ratings = ei.ratings || {}
+                      const ratedKeys = Object.keys(ratings).filter(k=>ratings[k])
+                      return (
+                      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 text-xs space-y-2.5">
+                        {ei.additional_details&&<div className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">รายละเอียด:</span><span className="text-slate-700">{ei.additional_details}</span></div>}
+                        {ei.consulted&&<div className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">ปรึกษาก่อนลาออก:</span><span className="text-slate-700">{ei.consulted==="yes"?"ได้ปรึกษา/แจ้งแล้ว":"ไม่ได้ปรึกษา"}{ei.consulted_detail?` — ${ei.consulted_detail}`:""}</span></div>}
+                        {ratedKeys.length>0&&(
+                          <div>
+                            <p className="text-indigo-400 font-bold mb-1">ความพึงพอใจ (1-5):</p>
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                              {ratedKeys.map(k=>(
+                                <div key={k} className="flex justify-between gap-2">
+                                  <span className="text-slate-600 truncate">{SAT_TOPIC_LABELS[k]||k}</span>
+                                  <span className={`font-black shrink-0 ${ratings[k]>=4?"text-emerald-600":ratings[k]<=2?"text-rose-500":"text-amber-600"}`}>{ratings[k]}/5</span>
+                                </div>
+                              ))}
                             </div>
-                          ):null
+                          </div>
                         )}
-                        {r.exit_interview.suggestion&&<div className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">คำแนะนำ:</span><span className="text-slate-600">{r.exit_interview.suggestion}</span></div>}
-                        {r.exit_interview.comment&&<div className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">ข้อเสนอ:</span><span className="text-slate-600">{r.exit_interview.comment}</span></div>}
+                        {(ei.nps!==null&&ei.nps!==undefined)&&<div className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">แนะนำบริษัท (0-10):</span><span className={`font-black ${ei.nps>=9?"text-emerald-600":ei.nps<=6?"text-rose-500":"text-amber-600"}`}>{ei.nps}/10</span></div>}
+                        {ei.suggestion&&<div className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">คำแนะนำ:</span><span className="text-slate-600">{ei.suggestion}</span></div>}
+                        {ei.comment&&<div className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">ข้อเสนอ:</span><span className="text-slate-600">{ei.comment}</span></div>}
                       </div>
-                    )}
+                      )
+                    })()}
 
                     {/* asset checklist */}
                     {r.assets?.items&&Object.values(r.assets.items).some(Boolean)&&(

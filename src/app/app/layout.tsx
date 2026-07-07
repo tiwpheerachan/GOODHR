@@ -8,6 +8,7 @@ import {
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useEffect, useState, useRef, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
+import BirthdayCelebration from "@/components/BirthdayCelebration"
 
 // ── Bottom Nav (7 main items) ──
 const NAV = [
@@ -530,6 +531,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </header>
 
       <main className="pb-20 min-h-[calc(100vh-60px)]">{children}</main>
+
+      <BirthdayCelebration />
 
       <AssistiveTouch unreadAnn={unreadAnn}/>
 

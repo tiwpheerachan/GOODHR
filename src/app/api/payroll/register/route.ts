@@ -78,22 +78,24 @@ export async function GET(req: Request) {
     }
   }
 
-  // Deduplicate by employee_code
-  const byCode = new Map<string, any>()
+  // Deduplicate by employee_id (คีย์ unique ต่อคน) — ไม่ใช้ employee_code เพราะพนักงานคนละคน
+  //   อาจมี code ซ้ำ (ข้อมูลนำเข้า) → ถ้า dedup ด้วย code จะทำให้บางคน "หาย" = ไม่ได้เงิน
+  //   payroll_records unique (period, employee_id) อยู่แล้ว → dedup ด้วย employee_id ปลอดภัย ครบทุกคน
+  const byEmp = new Map<string, any>()
   for (const r of allData) {
-    const code = r.employee?.employee_code
-    if (!code) { byCode.set(r.id, r); continue }
-    const existing = byCode.get(code)
+    const key = r.employee_id || r.id   // fallback เป็น record id กันตกหล่นถ้าไม่มี employee_id
+    const existing = byEmp.get(key)
     if (!existing) {
-      byCode.set(code, r)
+      byEmp.set(key, r)
     } else {
-      const existDate = existing.employee?.updated_at || existing.updated_at || ''
-      const newDate = r.employee?.updated_at || r.updated_at || ''
-      if (newDate > existDate) byCode.set(code, r)
+      // กันซ้ำจริง (คนเดียวกันหลาย record) → เก็บ record ที่อัปเดตล่าสุด
+      const existDate = existing.updated_at || existing.employee?.updated_at || ''
+      const newDate = r.updated_at || r.employee?.updated_at || ''
+      if (newDate > existDate) byEmp.set(key, r)
     }
   }
 
-  const records = Array.from(byCode.values())
+  const records = Array.from(byEmp.values())
 
   // ── แนบ structural flags (is_sso_exempt / is_tax_3pct) จาก salary structure ล่าสุดที่ "เปิดอยู่" ──
   //    ใช้ใน recomputePayroll ฝั่ง client เพื่อให้คน prorate + exempt ไม่ถูกคำนวณ SSO/ภาษีผิด

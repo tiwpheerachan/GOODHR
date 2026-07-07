@@ -35,7 +35,7 @@ async function fetchUserOnce(forceRefresh = false): Promise<User | null> {
             id, employee_code, first_name_th, last_name_th, nickname,
             company_id, branch_id, department_id, position_id,
             employment_status, employment_type, is_active, avatar_url,
-            hire_date, is_attendance_exempt, brand,
+            hire_date, birth_date, is_attendance_exempt, brand,
             company:companies(id, name_th, code),
             branch:branches(id, name),
             department:departments(id, name),

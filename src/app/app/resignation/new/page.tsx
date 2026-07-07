@@ -11,30 +11,35 @@ import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
 
+// ── ส่วนที่ 2.1 สาเหตุหลักในการลาออก / Main Reasons for Leaving (เลือกได้มากกว่า 1) ──
 const RESIGN_REASONS = [
-  { key: "heavy_work",  label: "งานหนัก / พนักงานในทีมน้อย" },
-  { key: "boss",        label: "มีปัญหากับหัวหน้า / ผู้บังคับบัญชา" },
-  { key: "low_salary",  label: "เงินเดือนน้อย ไม่เพียงพอต่อค่าครองชีพ" },
-  { key: "study",       label: "ศึกษาต่อ" },
-  { key: "own_biz",     label: "ประกอบธุรกิจส่วนตัว" },
-  { key: "family",      label: "มีปัญหาครอบครัว" },
-  { key: "health",      label: "มีปัญหาด้านสุขภาพ" },
-  { key: "new_job",     label: "ได้งานใหม่" },
-  { key: "mismatch",    label: "ไม่เหมาะสมกับตำแหน่งงาน" },
-  { key: "no_prob",     label: "ไม่ผ่านทดลองงาน" },
-  { key: "other",       label: "อื่นๆ (ระบุ)" },
+  { key: "compensation", label: "ค่าตอบแทนและสวัสดิการไม่เพียงพอ / Compensation & Benefits" },
+  { key: "career",       label: "โอกาสความก้าวหน้าในสายงานจำกัด / Limited Career Advancement" },
+  { key: "better_offer", label: "ได้รับข้อเสนองานใหม่ที่ดีกว่า / Better Job Offer Received" },
+  { key: "environment",  label: "สภาพแวดล้อมการทำงานไม่เหมาะสม / Unsuitable Work Environment" },
+  { key: "manager",      label: "ความสัมพันธ์กับผู้บังคับบัญชา / Relationship with Direct Manager" },
+  { key: "colleagues",   label: "ความสัมพันธ์กับเพื่อนร่วมงาน / Relationship with Colleagues" },
+  { key: "work_life",    label: "ความสมดุลชีวิตและการทำงาน / Work-Life Balance" },
+  { key: "relocation",   label: "ย้ายที่อยู่อาศัย / Relocation" },
+  { key: "study",        label: "ต้องการศึกษาต่อ / Pursuing Further Education" },
+  { key: "retirement",   label: "เกษียณอายุ / Retirement" },
+  { key: "other",        label: "อื่นๆ โปรดระบุด้านล่าง / Other (please specify below)" },
 ]
 
-const EXIT_Q = [
-  { k: "q1", q: "สถานที่การทำงานของบริษัทฯ",          opts: ["ดีเยี่ยม","ดี","ปานกลาง","น้อยที่สุด"], multi: false },
-  { k: "q2", q: "สาเหตุที่ท้อแท้ ไม่อยากทำงานต่อ",    opts: ["ปริมาณงานเยอะ","เงินเดือน","การบริหาร/ระบบ","ผู้บังคับบัญชา","เพื่อนร่วมงาน","งานที่รับผิดชอบ","ไม่มีอำนาจตัดสินใจ","ไม่มีโอกาสเลื่อนตำแหน่ง","อื่นๆ"], multi: true },
-  { k: "q3", q: "เหตุผลหลักที่ทำให้ลาออก",             opts: ["โอกาสที่ดีกว่า","โอกาสเลื่อนตำแหน่งน้อย","เงินเดือนมากกว่า","ผลตอบแทนดีกว่า","สวัสดิการดีกว่า","ทิศทางนโยบายบริษัท","ระยะทางเดินทาง","อื่นๆ"], multi: true },
-  { k: "q4", q: "การเป็นผู้นำของหัวหน้างาน",           opts: ["ดีเยี่ยม","ดี","ปานกลาง","แย่","ไม่มีความคิดเห็น"], multi: false },
-  { k: "q5", q: "ความคิดเห็นต่อหัวหน้างาน",            opts: ["ดีเยี่ยม","ดี","ปานกลาง","แย่"], multi: false },
-  { k: "q6", q: "ผลตอบแทนแข่งกับบริษัทอื่นได้หรือไม่", opts: ["ได้","ไม่ได้"], multi: false },
-  { k: "q7", q: "สวัสดิการที่ได้รับ",                  opts: ["ดีเยี่ยม","ดี","ปานกลาง","แย่"], multi: false },
-  { k: "q8", q: "ปริมาณงานที่ได้รับมอบหมาย",           opts: ["มากเกินไป","เหมาะสม","น้อยเกินไป"], multi: false },
+// ── ส่วนที่ 3 ประเมินความพึงพอใจ / Satisfaction (ให้คะแนน 1-5) ──
+const SAT_TOPICS = [
+  { key: "compensation",  label: "ค่าตอบแทนและสวัสดิการ / Compensation & Benefits" },
+  { key: "career",        label: "โอกาสความก้าวหน้าในสายงาน / Career Advancement" },
+  { key: "work_life",     label: "ความสมดุลชีวิตและการทำงาน / Work-Life Balance" },
+  { key: "environment",   label: "สภาพแวดล้อมและบรรยากาศการทำงาน / Work Environment" },
+  { key: "management",    label: "การบริหารจัดการขององค์กร / Management" },
+  { key: "manager",       label: "ความสัมพันธ์กับผู้บังคับบัญชา / Relationship with Manager" },
+  { key: "colleagues",    label: "ความสัมพันธ์กับเพื่อนร่วมงาน / Relationship with Colleagues" },
+  { key: "job_challenge", label: "ความท้าทายและความน่าสนใจของงาน / Job Challenge & Interest" },
+  { key: "communication", label: "การสื่อสารภายในองค์กร / Internal Communication" },
+  { key: "training",      label: "การพัฒนาทักษะและการฝึกอบรม / Training & Development" },
 ]
+const SAT_SCALE = ["น้อยที่สุด", "น้อย", "ปานกลาง", "ดี", "ดีมาก"] // 1..5
 
 const ASSETS = [
   { k: "computer", l: "คอมพิวเตอร์" },
@@ -150,9 +155,13 @@ export default function ResignationNewPage() {
   const today = format(new Date(), "yyyy-MM-dd")
   const [lastWorkDate,  setLastWorkDate]  = useState("")
   const [effectiveDate, setEffectiveDate] = useState("")
-  const [reasons,       setReasons]       = useState<string[]>([])
-  const [otherReason,   setOtherReason]   = useState("")
-  const [exitAnswers,   setExitAnswers]   = useState<Record<string, string | string[]>>({})
+  const [reasons,       setReasons]       = useState<string[]>([])   // 2.1
+  const [otherReason,   setOtherReason]   = useState("")             // 2.1 other specify
+  const [additionalDetails, setAdditionalDetails] = useState("")     // 2.2
+  const [consulted,     setConsulted]     = useState<"" | "yes" | "no">("") // 2.3
+  const [consultedDetail, setConsultedDetail] = useState("")
+  const [ratings,       setRatings]       = useState<Record<string, number>>({}) // ส่วนที่ 3 (1-5)
+  const [nps,           setNps]           = useState<number | null>(null)        // 3.11 (0-10)
   const [suggestion,    setSuggestion]    = useState("")
   const [comment,       setComment]       = useState("")
   const [assets,        setAssets]        = useState<Record<string, boolean>>({})
@@ -161,13 +170,7 @@ export default function ResignationNewPage() {
 
   const toggleReason = (k: string) => setReasons(r => r.includes(k) ? r.filter(x => x !== k) : [...r, k])
   const toggleAsset  = (k: string) => setAssets(a => ({ ...a, [k]: !a[k] }))
-  const setExitAns   = (k: string, v: string, multi: boolean) => {
-    if (!multi) { setExitAnswers(a => ({ ...a, [k]: v })); return }
-    setExitAnswers(a => {
-      const cur = (a[k] as string[]) || []
-      return { ...a, [k]: cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v] }
-    })
-  }
+  const setRating    = (k: string, v: number) => setRatings(a => ({ ...a, [k]: v }))
 
   const canNext = () => {
     if (step === 1) return !!lastWorkDate && !!effectiveDate
@@ -186,7 +189,14 @@ export default function ResignationNewPage() {
         effective_date: effectiveDate,
         reasons,
         other_reason:   otherReason || null,
-        exit_interview: { ...exitAnswers, suggestion, comment },
+        exit_interview: {
+          additional_details: additionalDetails || "",   // 2.2
+          consulted,                                       // 2.3
+          consulted_detail: consultedDetail || "",
+          ratings,                                         // ส่วนที่ 3 (1-5)
+          nps,                                             // 3.11 (0-10)
+          suggestion, comment,
+        },
         assets:         { items: assets, notes: assetNotes, deduct_amount: deductAmount || 0 },
         status:         "pending_manager",
         manager_id:     emp.manager_id ?? null,
@@ -378,57 +388,112 @@ export default function ResignationNewPage() {
           </div>
         )}
 
-        {/* ── STEP 2: เหตุผล ── */}
+        {/* ── STEP 2: สาเหตุการลาออก ── */}
         {step === 2 && (
-          <SectionCard>
-            <SectionHeader label="เหตุผลการลาออก · เลือกได้มากกว่า 1 ข้อ" />
-            <div className="px-2 py-3 space-y-0.5">
-              {RESIGN_REASONS.map(r => (
-                <Checkbox key={r.key}
-                  checked={reasons.includes(r.key)}
-                  onChange={() => toggleReason(r.key)}
-                  label={r.label} />
-              ))}
-            </div>
-            {reasons.includes("other") && (
-              <div className="px-5 pb-4">
-                <textarea value={otherReason} onChange={e => setOtherReason(e.target.value)}
-                  placeholder="ระบุเหตุผลเพิ่มเติม…"
-                  className={inputCls + " resize-none h-20"} />
+          <div className="space-y-3">
+            <SectionCard>
+              <SectionHeader label="2.1 สาเหตุหลักในการลาออก · เลือกได้มากกว่า 1 ข้อ" />
+              <div className="px-2 py-3 space-y-0.5">
+                {RESIGN_REASONS.map(r => (
+                  <Checkbox key={r.key}
+                    checked={reasons.includes(r.key)}
+                    onChange={() => toggleReason(r.key)}
+                    label={r.label} />
+                ))}
               </div>
-            )}
-          </SectionCard>
+              {reasons.includes("other") && (
+                <div className="px-5 pb-4">
+                  <textarea value={otherReason} onChange={e => setOtherReason(e.target.value)}
+                    placeholder="ระบุเหตุผลอื่นๆ…"
+                    className={inputCls + " resize-none h-16"} />
+                </div>
+              )}
+            </SectionCard>
+
+            {/* 2.2 รายละเอียดเพิ่มเติม */}
+            <SectionCard>
+              <SectionHeader label="2.2 รายละเอียดเพิ่มเติม / Additional Details" />
+              <div className="px-5 py-4">
+                <textarea value={additionalDetails} onChange={e => setAdditionalDetails(e.target.value)}
+                  placeholder="อธิบายเพิ่มเติมเกี่ยวกับสาเหตุการลาออก (ถ้ามี)…"
+                  className={inputCls + " resize-none h-24"} />
+              </div>
+            </SectionCard>
+
+            {/* 2.3 ปรึกษาก่อนลาออก */}
+            <SectionCard>
+              <SectionHeader label="2.3 ก่อนตัดสินใจลาออก" />
+              <div className="px-5 py-4 space-y-3">
+                <p className="text-sm text-gray-700">ท่านได้ปรึกษาหรือแจ้งผู้บังคับบัญชาหรือ HR หรือไม่?</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {([["yes","ได้ปรึกษา / แจ้งแล้ว"],["no","ไม่ได้ปรึกษา / ไม่ได้แจ้ง"]] as const).map(([v,l]) => (
+                    <button key={v} onClick={() => setConsulted(v)}
+                      className={`py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${consulted===v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 bg-white text-gray-500"}`}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <textarea value={consultedDetail} onChange={e => setConsultedDetail(e.target.value)}
+                  placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)…"
+                  className={inputCls + " resize-none h-16"} />
+              </div>
+            </SectionCard>
+          </div>
         )}
 
-        {/* ── STEP 3: Exit Interview ── */}
+        {/* ── STEP 3: ประเมินความพึงพอใจ ── */}
         {step === 3 && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 px-1">
               <Info size={12} className="text-gray-400 shrink-0" />
-              <p className="text-xs text-gray-400">คำตอบจะไม่ถูกเปิดเผย ใช้เพื่อพัฒนาองค์กรเท่านั้น</p>
+              <p className="text-xs text-gray-400">คำตอบจะถูกเก็บเป็นความลับ ใช้เพื่อพัฒนาองค์กรเท่านั้น</p>
             </div>
 
-            {EXIT_Q.map((q, qi) => (
-              <SectionCard key={q.k}>
-                <div className="px-5 py-3 border-b border-gray-50">
-                  <p className="text-sm font-bold text-gray-800">{qi + 1}. {q.q}</p>
-                  {q.multi && <p className="text-[10px] text-blue-500 font-semibold mt-0.5">เลือกได้มากกว่า 1 ข้อ</p>}
+            <SectionCard>
+              <SectionHeader label="ส่วนที่ 3 · ให้คะแนน 1 (น้อยที่สุด) – 5 (ดีมาก)" />
+              <div className="px-4 py-2 flex items-center justify-between text-[9px] text-gray-400 font-semibold">
+                {SAT_SCALE.map((s, i) => <span key={i} className="text-center flex-1">{i + 1} {s}</span>)}
+              </div>
+              <div className="divide-y divide-gray-50">
+                {SAT_TOPICS.map((t, i) => (
+                  <div key={t.key} className="px-4 py-3">
+                    <p className="text-[13px] text-gray-700 mb-2 leading-snug">{i + 1}. {t.label}</p>
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {[1, 2, 3, 4, 5].map(n => (
+                        <button key={n} onClick={() => setRating(t.key, n)}
+                          className={`py-2 rounded-lg text-xs font-bold border transition-all ${ratings[t.key] === n ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-gray-50 text-gray-500 border-gray-200 hover:border-blue-300"}`}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+
+            {/* 3.11 NPS */}
+            <SectionCard>
+              <SectionHeader label="3.11 คุณจะแนะนำบริษัทให้คนอื่นมาสมัครงานหรือไม่?" />
+              <div className="px-4 py-4">
+                <div className="flex justify-between text-[9px] text-gray-400 font-semibold mb-1.5 px-0.5">
+                  <span>0 · ไม่แนะนำเลย</span><span>แนะนำอย่างยิ่ง · 10</span>
                 </div>
-                <div className="px-2 py-2 space-y-0.5">
-                  {q.opts.map(o => {
-                    const ans = exitAnswers[q.k]
-                    const checked = q.multi ? ((ans as string[]) || []).includes(o) : ans === o
-                    return <Checkbox key={o} checked={checked} onChange={() => setExitAns(q.k, o, q.multi)} label={o} />
-                  })}
+                <div className="grid grid-cols-11 gap-1">
+                  {Array.from({ length: 11 }, (_, n) => (
+                    <button key={n} onClick={() => setNps(n)}
+                      className={`py-2 rounded-md text-[11px] font-bold border transition-all ${nps === n ? "bg-emerald-600 text-white border-emerald-600" : "bg-gray-50 text-gray-500 border-gray-200"}`}>
+                      {n}
+                    </button>
+                  ))}
                 </div>
-              </SectionCard>
-            ))}
+              </div>
+            </SectionCard>
 
             <SectionCard>
               <SectionHeader label="ความคิดเห็นเพิ่มเติม" />
               <div className="px-5 py-4 space-y-3">
                 <div>
-                  <label className="text-xs font-bold text-gray-600 block mb-1.5">คำแนะนำสำหรับทีม</label>
+                  <label className="text-xs font-bold text-gray-600 block mb-1.5">คำแนะนำสำหรับทีม/แผนก</label>
                   <textarea value={suggestion} onChange={e => setSuggestion(e.target.value)}
                     placeholder="คุณมีคำแนะนำอะไรสำหรับทีมหรือแผนกบ้าง…"
                     className={inputCls + " resize-none h-20"} />

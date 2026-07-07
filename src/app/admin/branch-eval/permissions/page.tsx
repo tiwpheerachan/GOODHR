@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client"
 type Emp = {
   id: string
   first_name_th: string; last_name_th: string
+  first_name_en?: string | null; last_name_en?: string | null; nickname_en?: string | null
   nickname?: string | null; employee_code?: string | null
   avatar_url?: string | null
   position?: { name: string } | null
@@ -46,7 +47,7 @@ export default function BranchEvalPermissionsPage() {
   useEffect(() => {
     if (!showAdd || employees.length > 0) return
     supabase.from("employees")
-      .select("id, first_name_th, last_name_th, nickname, employee_code, avatar_url, position:positions(name), department:departments(name)")
+      .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, position:positions(name), department:departments(name)")
       .eq("is_active", true).order("first_name_th").limit(1500)
       .then(({ data }) => setEmployees((data ?? []) as any))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -76,7 +77,7 @@ export default function BranchEvalPermissionsPage() {
     return employees.filter(e => {
       if (isFullyGranted(e.id)) return false
       if (s) {
-        const hay = `${e.first_name_th} ${e.last_name_th} ${e.nickname ?? ""} ${e.employee_code ?? ""} ${e.position?.name ?? ""} ${e.department?.name ?? ""}`.toLowerCase()
+        const hay = `${e.first_name_th} ${e.last_name_th} ${e.first_name_en ?? ""} ${e.last_name_en ?? ""} ${e.nickname ?? ""} ${e.nickname_en ?? ""} ${e.employee_code ?? ""} ${e.position?.name ?? ""} ${e.department?.name ?? ""}`.toLowerCase()
         if (!hay.includes(s)) return false
       }
       return true

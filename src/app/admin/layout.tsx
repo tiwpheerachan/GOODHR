@@ -5,6 +5,7 @@ import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
 import AIChatWidget from "@/components/admin/AIChatWidget"
+import BirthdayCelebration from "@/components/BirthdayCelebration"
 import {
   LayoutDashboard, Users, Clock, CreditCard, Calendar, CalendarDays,
   Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target, Camera, CalendarClock,
@@ -222,6 +223,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </Link>
         </header>
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
+        <BirthdayCelebration />
       </div>
       <AIChatWidget />
     </div>

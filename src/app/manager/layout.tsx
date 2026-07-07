@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client"
 import { LayoutDashboard, Users, CheckSquare, ChevronLeft, Bell, Target, CalendarClock, CalendarDays, Shield, Globe, Camera } from "lucide-react"
 import { LanguageProvider, useLanguage, Lang } from "@/lib/i18n"
 import { PROBATION_ROUNDS, ROUND_DAYS, effectiveEmploymentStart } from "@/lib/constants/probation"
+import BirthdayCelebration from "@/components/BirthdayCelebration"
 
 // NAV items use i18n keys — resolved inside the component
 const NAV_ITEMS = [
@@ -175,6 +176,7 @@ function ManagerLayoutInner({ children }: { children: React.ReactNode }) {
       </header>
 
       <main className="pb-20 min-h-[calc(100vh-60px)]">{children}</main>
+      <BirthdayCelebration />
 
       {/* Bottom Nav */}
       <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white border-t border-slate-100 safe-bottom z-40">
