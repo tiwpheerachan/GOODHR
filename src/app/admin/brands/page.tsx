@@ -6,7 +6,7 @@ import { useBrands } from "@/lib/hooks/useBrands"
 import { normalizeBrands } from "@/lib/utils/brands"
 import {
   Store, Search, Users, Layers, Percent, Loader2, Sparkles,
-  AlertTriangle, ChevronDown,
+  AlertTriangle, ChevronDown, ClipboardCheck, UserX, CheckCircle2, CircleSlash,
 } from "lucide-react"
 
 // ─── Color theming ──────────────────────────────────────────────────
@@ -87,6 +87,11 @@ export default function BrandsPage() {
   const [selectedCompany, setSelectedCompany] = useState<string>("")
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
+  // ── view: "portfolio" (พอร์ตแบรนด์เดิม) | "pending" (ค้างตั้งค่าสัดส่วน จัดกลุ่มตามหัวหน้า) ──
+  const [view, setView] = useState<"portfolio" | "pending">("portfolio")
+  const [pending, setPending] = useState<any>(null)
+  const [pendingLoading, setPendingLoading] = useState(false)
+  const [onlyPending, setOnlyPending] = useState(true)  // filter: โชว์เฉพาะหัวหน้าที่ยังค้าง
 
   const myCompanyId: string | undefined =
     user?.employee?.company_id ?? (user as any)?.company_id ?? undefined
@@ -123,6 +128,23 @@ export default function BrandsPage() {
     else if (!isSuperAdmin) q = q.eq("company_id", myCompanyId!)
     q.then(({ data }) => { setEmployees(data ?? []); setLoading(false) })
   }, [activeCompanyId, isSuperAdmin, myCompanyId])
+
+  // ── load "ค้างตั้งค่าสัดส่วน" (จัดกลุ่มตามหัวหน้า) ──
+  const loadPending = useCallback(() => {
+    setPendingLoading(true)
+    const qs = activeCompanyId ? `?company_id=${activeCompanyId}` : ""
+    fetch(`/api/admin/brand-allocation-status${qs}`)
+      .then(r => r.json())
+      .then(d => setPending(d?.error ? null : d))
+      .catch(() => setPending(null))
+      .finally(() => setPendingLoading(false))
+  }, [activeCompanyId])
+
+  useEffect(() => {
+    if (view !== "pending") return
+    if (!isSuperAdmin && !myCompanyId) return
+    loadPending()
+  }, [view, loadPending, isSuperAdmin, myCompanyId])
 
   // เฉพาะคนที่ถือแบรนด์อย่างน้อย 1 แบรนด์
   const holders = useMemo(
@@ -221,7 +243,30 @@ export default function BrandsPage() {
         ))}
       </div>
 
-      {/* ── Toolbar ── */}
+      {/* ── View tabs ── */}
+      <div className="flex items-center gap-2 border-b border-slate-200">
+        {([
+          { v: "portfolio", label: "พอร์ตแบรนด์", icon: Store },
+          { v: "pending", label: "ค้างตั้งค่าสัดส่วน", icon: ClipboardCheck },
+        ] as const).map(tab => (
+          <button key={tab.v} onClick={() => setView(tab.v)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors ${
+              view === tab.v
+                ? "border-indigo-500 text-indigo-700"
+                : "border-transparent text-slate-400 hover:text-slate-600"
+            }`}>
+            <tab.icon size={15} /> {tab.label}
+            {tab.v === "pending" && pending?.summary?.pending > 0 && (
+              <span className="ml-1 text-[10px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
+                {pending.summary.pending}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Toolbar (พอร์ตแบรนด์) ── */}
+      {view === "portfolio" && (
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -230,9 +275,20 @@ export default function BrandsPage() {
             placeholder="ค้นหาชื่อพนักงาน หรือ แบรนด์..." />
         </div>
       </div>
+      )}
+
+      {/* ═══════════ VIEW: ค้างตั้งค่าสัดส่วน (จัดกลุ่มตามหัวหน้า) ═══════════ */}
+      {view === "pending" && (
+        <PendingView
+          data={pending}
+          loading={pendingLoading}
+          onlyPending={onlyPending}
+          setOnlyPending={setOnlyPending}
+        />
+      )}
 
       {/* ── Content ── */}
-      {loading ? (
+      {view === "portfolio" && (loading ? (
         <div className="py-20 flex items-center justify-center gap-2 text-slate-400">
           <Loader2 size={20} className="animate-spin" /> กำลังโหลด...
         </div>
@@ -323,6 +379,138 @@ export default function BrandsPage() {
                 </div>
               )
             })}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PendingView — หัวหน้าคนไหน / พนักงานคนไหน ยังไม่ได้ตั้งค่าสัดส่วน %
+// ═══════════════════════════════════════════════════════════════════
+const STATUS_META: Record<string, { label: string; cls: string; icon: any }> = {
+  no_alloc:   { label: "ยังไม่กรอก %",     cls: "bg-amber-50 text-amber-700 border-amber-200",   icon: AlertTriangle },
+  incomplete: { label: "รวมไม่ถึง 100%",   cls: "bg-orange-50 text-orange-700 border-orange-200", icon: AlertTriangle },
+  no_brand:   { label: "ยังไม่มีแบรนด์",   cls: "bg-slate-50 text-slate-500 border-slate-200",    icon: CircleSlash },
+  done:       { label: "ตั้งค่าครบ",       cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: CheckCircle2 },
+}
+
+function PendingView({
+  data, loading, onlyPending, setOnlyPending,
+}: {
+  data: any
+  loading: boolean
+  onlyPending: boolean
+  setOnlyPending: (v: boolean) => void
+}) {
+  if (loading) {
+    return (
+      <div className="py-20 flex items-center justify-center gap-2 text-slate-400">
+        <Loader2 size={20} className="animate-spin" /> กำลังตรวจสอบ...
+      </div>
+    )
+  }
+  if (!data) {
+    return <p className="text-center py-16 text-slate-400 text-sm">โหลดข้อมูลไม่สำเร็จ</p>
+  }
+
+  const s = data.summary ?? {}
+  const managers: any[] = data.managers ?? []
+  // โชว์เฉพาะหัวหน้าที่ยังค้าง (pending > 0) เมื่อ onlyPending
+  const shown = onlyPending ? managers.filter(m => m.pending > 0) : managers
+
+  return (
+    <div className="space-y-4">
+      {/* สรุปตัวเลข */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { icon: UserX, label: "หัวหน้าที่ยังตั้งค่าไม่ครบ", value: `${s.managers_pending ?? 0}/${s.managers_total ?? 0}`, tint: "from-rose-500 to-pink-500" },
+          { icon: AlertTriangle, label: "พนักงานค้างสัดส่วน", value: s.pending ?? 0, tint: "from-amber-500 to-orange-500" },
+          { icon: CheckCircle2, label: "ตั้งค่าครบแล้ว", value: s.done ?? 0, tint: "from-emerald-500 to-teal-500" },
+          { icon: CircleSlash, label: "ยังไม่มีแบรนด์", value: s.no_brand ?? 0, tint: "from-slate-400 to-slate-500" },
+        ].map((c, i) => (
+          <div key={i} className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${c.tint} text-white flex items-center justify-center shrink-0`}>
+              <c.icon size={18} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-2xl font-black text-slate-800 leading-none">{c.value}</p>
+              <p className="text-[11px] text-slate-400 mt-1 truncate">{c.label}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* filter toggle */}
+      <div className="flex items-center gap-2">
+        <button onClick={() => setOnlyPending(!onlyPending)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+            onlyPending
+              ? "bg-amber-500 border-amber-500 text-white"
+              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          }`}>
+          <AlertTriangle size={13} /> {onlyPending ? "เฉพาะหัวหน้าที่ยังค้าง" : "แสดงหัวหน้าทั้งหมด"}
+        </button>
+        <p className="text-[11px] text-slate-400">แสดง {shown.length} หัวหน้า</p>
+      </div>
+
+      {/* รายการหัวหน้า */}
+      {shown.length === 0 ? (
+        <div className="py-16 text-center text-emerald-500">
+          <CheckCircle2 size={40} className="mx-auto mb-3" />
+          <p className="font-bold text-sm">{onlyPending ? "หัวหน้าทุกคนตั้งค่าสัดส่วนครบแล้ว 🎉" : "ไม่มีข้อมูล"}</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {shown.map((m: any) => (
+            <div key={m.manager_id ?? "none"}
+              className="rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden">
+              {/* หัวหน้า header */}
+              <div className={`flex items-center gap-3 px-4 py-3 ${m.pending > 0 ? "bg-amber-50/60" : "bg-slate-50/60"}`}>
+                <Avatar url={m.manager_avatar} name={m.manager_name ?? "?"} size={40} />
+                <div className="flex-1 min-w-0">
+                  <p className="font-black text-slate-800 text-sm truncate">
+                    {m.manager_name ?? "— ไม่มีหัวหน้าที่กำหนดในระบบ —"}
+                    {m.manager_company_code && <span className="text-slate-400 font-normal text-[11px] ml-1.5">· {m.manager_company_code}</span>}
+                  </p>
+                  <p className="text-[11px] text-slate-400 truncate">{m.manager_position || "—"} · ลูกน้อง {m.total} คน</p>
+                </div>
+                {m.pending > 0 ? (
+                  <span className="shrink-0 text-[11px] font-black bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full">
+                    ค้าง {m.pending}
+                  </span>
+                ) : (
+                  <span className="shrink-0 text-[11px] font-black bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <CheckCircle2 size={11} /> ครบ
+                  </span>
+                )}
+              </div>
+              {/* ลูกน้อง list */}
+              <div className="divide-y divide-slate-50">
+                {m.subordinates.map((sub: any) => {
+                  const meta = STATUS_META[sub.status] ?? STATUS_META.no_alloc
+                  return (
+                    <div key={sub.id} className="flex items-center gap-2.5 px-4 py-2">
+                      <Avatar url={sub.avatar_url} name={sub.name} size={30} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-bold text-slate-700 truncate">{sub.name}
+                          {sub.employee_code && <span className="text-slate-300 font-normal text-[10px] ml-1">{sub.employee_code}</span>}
+                        </p>
+                        <p className="text-[10px] text-slate-400 truncate">
+                          {sub.position || "—"}
+                          {sub.brand_count > 0 && <span className="ml-1">· {sub.brand_count} แบรนด์</span>}
+                          {sub.status === "incomplete" && <span className="ml-1 text-orange-500">· รวม {sub.alloc_sum}%</span>}
+                        </p>
+                      </div>
+                      <span className={`shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${meta.cls}`}>
+                        <meta.icon size={10} /> {meta.label}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
