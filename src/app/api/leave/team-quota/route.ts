@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 
-const QUOTA_THRESHOLD = 0.7  // ต้องมีคนทำงาน ≥ 70% (สำหรับทีม ≥ 3 คน)
-const SMALL_TEAM_SIZE = 3    // ทีม < 3 คน → ใช้ floor allowance
+const QUOTA_THRESHOLD = 0.7  // ต้องมีคนทำงาน ≥ 70% (สำหรับทีม ≥ 4 คน)
+const SMALL_TEAM_SIZE = 4    // ทีม < 4 คน → ใช้ floor allowance (ลาได้ 1 คนเสมอ)
 const SMALL_TEAM_LEAVE = 1   // ทีมเล็ก ลาได้ 1 คน
 
 // คำนวณจำนวนคนลาได้สูงสุด (รองรับทีมเล็ก)
+//   ทีม < 4 คน → ลาได้ 1 คนเสมอ (ไม่ติดกฎ 70% เพื่อไม่ให้ทีมเล็กลาไม่ได้เลย)
+//   ทีม ≥ 4 คน → ใช้กฎ 70% (ต้องมีคนทำงาน ≥ 70%)
 function calcMaxLeave(teamSize: number): number {
   if (teamSize <= 0) return 0
   if (teamSize < SMALL_TEAM_SIZE) return SMALL_TEAM_LEAVE
