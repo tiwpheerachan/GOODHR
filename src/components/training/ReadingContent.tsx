@@ -54,8 +54,8 @@ function parseBlocks(src: string): Block[] {
     let line = lines[i]
     // ข้ามบรรทัดว่าง
     if (line.trim() === "") { i++; continue }
-    // เส้นคั่น
-    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { blocks.push({ t: "hr" }); i++; continue }
+    // เส้นคั่น / ตัวแบ่งหน้า (=== ก็ถือเป็นเส้นคั่นเวลาโชว์รวมทั้งเนื้อหา)
+    if (/^\s*(-{3,}|\*{3,}|_{3,}|={3,})\s*$/.test(line)) { blocks.push({ t: "hr" }); i++; continue }
     // หัวข้อ
     const h = /^(#{1,6})\s+(.*)$/.exec(line)
     if (h) { blocks.push({ t: "h", level: Math.min(h[1].length, 4), text: h[2] }); i++; continue }
@@ -82,7 +82,7 @@ function parseBlocks(src: string): Block[] {
     while (
       i < lines.length && lines[i].trim() !== "" &&
       !/^(#{1,6})\s+/.test(lines[i]) &&
-      !/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i]) &&
+      !/^\s*(-{3,}|\*{3,}|_{3,}|={3,})\s*$/.test(lines[i]) &&
       !/^>\s?/.test(lines[i]) &&
       !/^\s*[-*]\s+/.test(lines[i]) &&
       !/^\s*\d+\.\s+/.test(lines[i])
