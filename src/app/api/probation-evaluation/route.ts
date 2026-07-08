@@ -378,7 +378,8 @@ export async function POST(req: NextRequest) {
   // ══════════════════════════════════════════════════════════════
   // Save Draft / Submit (Manager)
   // ══════════════════════════════════════════════════════════════
-  const { employee_id, round, items, evaluator_note, attachments: rawAttachments, is_passed, assignment_id } = body
+  const { employee_id, items, evaluator_note, attachments: rawAttachments, is_passed, assignment_id } = body
+  let { round } = body
   const passVal: boolean | null = typeof is_passed === "boolean" ? is_passed : null
 
   if (!employee_id || round === undefined || round === null) {
@@ -390,7 +391,12 @@ export async function POST(req: NextRequest) {
   if (assignment_id) {
     const { data: a } = await svc.from("probation_evaluation_assignments").select("*").eq("id", assignment_id).single()
     if (!a) return NextResponse.json({ error: "ไม่พบงานมอบหมาย" }, { status: 404 })
+    // กัน mismatch: assignment ต้องเป็นของพนักงานคนเดียวกัน + ใช้ round ของ assignment เป็นหลัก
+    if (a.employee_id !== employee_id) {
+      return NextResponse.json({ error: "งานมอบหมายไม่ตรงกับพนักงาน" }, { status: 400 })
+    }
     assignment = a
+    round = a.round   // บังคับใช้รอบตาม assignment (กันปลอม round จาก client)
   }
 
   // Sanitize attachments: array of {url, name, size?}, max 10

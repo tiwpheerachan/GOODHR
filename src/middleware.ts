@@ -53,6 +53,21 @@ async function hasEvaluatorRole(employeeId: string): Promise<boolean> {
       .eq("manager_id", employeeId)
       .is("effective_to", null)
     if ((mh.count ?? 0) > 0) return true
+    // 4) ผู้ประเมินทดลองงานที่ถูกมอบหมาย (probation assignment)
+    try {
+      const pa = await supa.from("probation_evaluation_assignments")
+        .select("id", { count: "exact", head: true })
+        .eq("evaluator_id", employeeId)
+      if ((pa.count ?? 0) > 0) return true
+    } catch {}
+    // 5) designated probation evaluator
+    try {
+      const pe = await supa.from("employees")
+        .select("id", { count: "exact", head: true })
+        .eq("probation_evaluator_id", employeeId)
+        .eq("is_active", true)
+      if ((pe.count ?? 0) > 0) return true
+    } catch {}
   } catch {}
   return false
 }

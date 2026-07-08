@@ -48,5 +48,22 @@ export async function GET() {
     .is("effective_to", null)
   if ((mh.count ?? 0) > 0) return NextResponse.json({ is_evaluator: true })
 
+  // 4) ผู้ประเมินทดลองงานที่ถูกมอบหมาย (probation assignment)
+  try {
+    const pa = await supa.from("probation_evaluation_assignments")
+      .select("id", { count: "exact", head: true })
+      .eq("evaluator_id", empId)
+    if ((pa.count ?? 0) > 0) return NextResponse.json({ is_evaluator: true })
+  } catch {}
+
+  // 5) designated probation evaluator
+  try {
+    const pe = await supa.from("employees")
+      .select("id", { count: "exact", head: true })
+      .eq("probation_evaluator_id", empId)
+      .eq("is_active", true)
+    if ((pe.count ?? 0) > 0) return NextResponse.json({ is_evaluator: true })
+  } catch {}
+
   return NextResponse.json({ is_evaluator: false })
 }
