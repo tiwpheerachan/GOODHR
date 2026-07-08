@@ -67,12 +67,46 @@ export async function GET(req: NextRequest) {
     let forms: any[] = []
     if (memberIds.length > 0) {
       const { data } = await svc.from("probation_evaluations")
-        .select("id, employee_id, round, due_date, total_score, grade, status, evaluator_id, evaluator_role, submitted_at, rejection_note, evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th)")
+        .select("id, employee_id, round, assignment_id, due_date, total_score, grade, status, evaluator_id, evaluator_role, submitted_at, rejection_note, evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th)")
         .in("employee_id", memberIds)
       forms = data ?? []
     }
 
-    return NextResponse.json({ members, forms })
+    // ── งานที่ "ฉัน" ถูกมอบหมายให้ประเมิน (assignment) — พนักงานอาจไม่อยู่ในสายก็ได้ ──
+    let assignments: any[] = []
+    const { data: myAssign } = await svc.from("probation_evaluation_assignments")
+      .select("*, employee:employees!probation_evaluation_assignments_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, hire_date, phase2_start_date, position:positions(name), department:departments(name))")
+      .eq("evaluator_id", managerId)
+      .order("created_at", { ascending: true })
+    const assignIds = (myAssign ?? []).map((x: any) => x.id)
+    let assignForms: any[] = []
+    if (assignIds.length > 0) {
+      const { data } = await svc.from("probation_evaluations")
+        .select("id, assignment_id, status, grade, total_score, is_passed, submitted_at, rejection_note")
+        .in("assignment_id", assignIds)
+      assignForms = data ?? []
+    }
+    assignments = (myAssign ?? []).map((x: any) => ({ ...x, form: assignForms.find(f => f.assignment_id === x.id) ?? null }))
+
+    return NextResponse.json({ members, forms, assignments })
+  }
+
+  // Assignment form — โหลดฟอร์มของ assignment (ผู้ประเมินที่ถูกมอบหมาย หรือ admin)
+  if (mode === "assignment_form") {
+    const aid = url.get("assignment_id")
+    if (!aid) return NextResponse.json({ error: "assignment_id จำเป็น" }, { status: 400 })
+    const { data: assignment } = await svc.from("probation_evaluation_assignments")
+      .select("*, employee:employees!probation_evaluation_assignments_employee_id_fkey(*, position:positions(name), department:departments(name))")
+      .eq("id", aid).single()
+    if (!assignment) return NextResponse.json({ error: "ไม่พบงานมอบหมาย" }, { status: 404 })
+    const isAdmin = ["hr_admin", "super_admin"].includes(dbUser.role)
+    if (!isAdmin && dbUser.employee_id !== assignment.evaluator_id) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
+    }
+    const { data: form } = await svc.from("probation_evaluations")
+      .select("*, items:probation_evaluation_items(*)")
+      .eq("assignment_id", aid).maybeSingle()
+    return NextResponse.json({ assignment, employee: assignment.employee, form })
   }
 
   // Employee: ดูผลของตัวเอง (เฉพาะ approved)
@@ -344,11 +378,19 @@ export async function POST(req: NextRequest) {
   // ══════════════════════════════════════════════════════════════
   // Save Draft / Submit (Manager)
   // ══════════════════════════════════════════════════════════════
-  const { employee_id, round, items, evaluator_note, attachments: rawAttachments, is_passed } = body
+  const { employee_id, round, items, evaluator_note, attachments: rawAttachments, is_passed, assignment_id } = body
   const passVal: boolean | null = typeof is_passed === "boolean" ? is_passed : null
 
   if (!employee_id || round === undefined || round === null) {
     return NextResponse.json({ error: "employee_id และ round จำเป็น" }, { status: 400 })
+  }
+
+  // ── โหลด assignment (ถ้าเป็นการประเมินแบบมอบหมาย) ──
+  let assignment: any = null
+  if (assignment_id) {
+    const { data: a } = await svc.from("probation_evaluation_assignments").select("*").eq("id", assignment_id).single()
+    if (!a) return NextResponse.json({ error: "ไม่พบงานมอบหมาย" }, { status: 404 })
+    assignment = a
   }
 
   // Sanitize attachments: array of {url, name, size?}, max 10
@@ -397,12 +439,20 @@ export async function POST(req: NextRequest) {
   //   พนักงาน 2 เฟส (PC): นับทดลองงานจาก phase2_start_date (วันเป็นพนักงานจริง) แทน hire_date
   const { data: emp } = await svc.from("employees").select("hire_date, phase2_start_date, company_id").eq("id", employee_id).single()
   if (!emp) return NextResponse.json({ error: "ไม่พบพนักงาน" }, { status: 404 })
-  const dueDate = addDaysToDate(effectiveEmploymentStart(emp) || emp.hire_date, ROUND_DAYS[round] || 119)
+  const dueDays = assignment?.due_days ?? ROUND_DAYS[round] ?? 119
+  const dueDate = assignment?.due_date ?? addDaysToDate(effectiveEmploymentStart(emp) || emp.hire_date, dueDays)
+  const roundLabel = assignment?.label || ROUND_LABELS[round] || `รอบ ${round}`
 
   // ตรวจสิทธิ์ + คำนวณ role
   const isAdmin = ["hr_admin", "super_admin"].includes(dbUser.role)
   let evaluatorRole: "direct_manager" | "skip_level" | "additional" | "hr_admin" = "direct_manager"
-  if (isAdmin) {
+  if (assignment) {
+    // การประเมินแบบมอบหมาย — ผู้ประเมินที่ถูกกำหนด (ใครก็ได้) หรือ admin
+    if (!isAdmin && dbUser.employee_id !== assignment.evaluator_id) {
+      return NextResponse.json({ error: "คุณไม่ได้ถูกมอบหมายให้ประเมินคนนี้" }, { status: 403 })
+    }
+    evaluatorRole = isAdmin ? "hr_admin" : "additional"
+  } else if (isAdmin) {
     evaluatorRole = "hr_admin"
   } else {
     const auth = await canEvaluate(svc, dbUser.employee_id, employee_id, "probation")
@@ -412,9 +462,10 @@ export async function POST(req: NextRequest) {
     evaluatorRole = auth.role
   }
 
-  // Check existing
-  const { data: existing } = await svc.from("probation_evaluations")
-    .select("id, status").eq("employee_id", employee_id).eq("round", round).single()
+  // Check existing — assignment → หาโดย assignment_id, ไม่งั้น slot ปกติ (assignment_id null)
+  let existingQ = svc.from("probation_evaluations").select("id, status").eq("employee_id", employee_id).eq("round", round)
+  existingQ = assignment_id ? existingQ.eq("assignment_id", assignment_id) : existingQ.is("assignment_id", null)
+  const { data: existing } = await existingQ.maybeSingle()
 
   let formId = existing?.id
 
@@ -440,6 +491,7 @@ export async function POST(req: NextRequest) {
       employee_id, evaluator_id: dbUser.employee_id,
       evaluator_role: evaluatorRole,
       round, due_date: dueDate,
+      assignment_id: assignment_id ?? null,
       total_score: totalScore, grade, status, evaluator_note,
       is_passed: passVal,
       attachments,
@@ -483,7 +535,7 @@ export async function POST(req: NextRequest) {
         await svc.from("notifications").insert({
           employee_id: hr.employee_id,
           type: "probation_eval_pending",
-          title: `ประเมินทดลองงาน${ROUND_LABELS[round]} — ${empName} รอตรวจสอบ`,
+          title: `ประเมินทดลองงาน${roundLabel} — ${empName} รอตรวจสอบ`,
           body: `${evalName} ส่งผลประเมินทดลองงานของ ${empName} — เกรด ${grade} (${totalScore}%) รอ HR อนุมัติ`,
           ref_table: "probation_evaluations", ref_id: formId, is_read: false,
         })
@@ -513,7 +565,7 @@ export async function POST(req: NextRequest) {
           const mail = probationEvalSubmittedEmail({
             employeeName: empName,
             evaluatorName: evalName,
-            roundLabel: ROUND_LABELS[round] ?? `รอบ ${round}`,
+            roundLabel,
             grade,
             score: totalScore,
             isPassed: passVal,
@@ -546,7 +598,7 @@ export async function POST(req: NextRequest) {
     logAudit(svc, {
       actorId: user.id, actorName: actorNameSubmit, action: "submit_probation_eval",
       entityType: "probation_evaluation", entityId: formId!,
-      description: `ส่งประเมินทดลองงาน ${empN} ${ROUND_LABELS[round]} — เกรด ${grade} (${totalScore}%) โดย ${actorNameSubmit}`,
+      description: `ส่งประเมินทดลองงาน ${empN} ${roundLabel} — เกรด ${grade} (${totalScore}%) โดย ${actorNameSubmit}`,
       companyId: emp!.company_id,
     })
   }

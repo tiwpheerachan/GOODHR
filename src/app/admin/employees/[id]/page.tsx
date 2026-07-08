@@ -15,6 +15,7 @@ import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import { recomputePayroll } from "@/lib/utils/payroll"
 import AdditionalEvaluatorsSection from "@/components/admin/AdditionalEvaluatorsSection"
+import ProbationAssignmentsSection from "@/components/admin/ProbationAssignmentsSection"
 import EvaluationChainPanel from "@/components/admin/EvaluationChainPanel"
 import { computePhase2Start } from "@/lib/utils/payroll"
 import { systemEffectivePassedDate, probationEvalDeadline, nextPayrollCycleEnd } from "@/lib/utils/payrollCycle"
@@ -1196,6 +1197,9 @@ export default function EmployeeDetailPage() {
 
           {/* ── ผู้ประเมินเพิ่มเติม (multi) ── */}
           <AdditionalEvaluatorsSection employeeId={id as string} allEmps={allEmps} loadAllEmps={loadAllEmps} />
+
+          {/* ── มอบหมายประเมินทดลองงาน หลายคน/หลายรอบ ── */}
+          <ProbationAssignmentsSection employeeId={id as string} allEmps={allEmps} loadAllEmps={loadAllEmps} />
 
           <button onClick={saveEmployment} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>
 

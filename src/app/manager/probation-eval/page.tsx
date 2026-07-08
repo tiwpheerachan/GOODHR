@@ -23,6 +23,7 @@ export default function ManagerProbationEvalPage() {
   const empName = useEmployeeName()
   const [members, setMembers] = useState<any[]>([])
   const [forms, setForms] = useState<any[]>([])
+  const [assignments, setAssignments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showSkip, setShowSkip] = useState(false)
   const mountedRef = useRef(true)
@@ -41,6 +42,7 @@ export default function ManagerProbationEvalPage() {
         if (!mountedRef.current) return
         setMembers(data.members ?? [])
         setForms(data.forms ?? [])
+        setAssignments(data.assignments ?? [])
       })
       .catch(() => {})
       .finally(() => { if (mountedRef.current) setLoading(false) })
@@ -71,9 +73,48 @@ export default function ManagerProbationEvalPage() {
         <p className="text-sm text-slate-400 ml-10">{t("probation.subtitle")}</p>
       </div>
 
+      {/* ── งานประเมินที่ได้รับมอบหมาย (assignment) ── */}
+      {!loading && assignments.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <span className="text-xs font-black text-slate-600">งานประเมินที่ได้รับมอบหมาย</span>
+            <span className="text-[10px] font-bold text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full">{assignments.length} งาน</span>
+          </div>
+          {assignments.map((a: any) => {
+            const emp = a.employee || {}
+            const label = a.label || ROUND_SHORT[a.round] || `รอบ ${a.round}`
+            const f = a.form
+            const st = !f ? { l: "ยังไม่ประเมิน", c: "text-slate-400", b: "bg-slate-100", I: FilePlus2 } :
+              f.status === "approved" ? { l: "อนุมัติแล้ว", c: "text-emerald-600", b: "bg-emerald-50", I: CheckCircle2 } :
+              f.status === "submitted" ? { l: "รอ HR", c: "text-orange-600", b: "bg-orange-50", I: Clock } :
+              f.status === "rejected" ? { l: "ส่งคืน แก้ไข", c: "text-red-600", b: "bg-red-50", I: AlertCircle } :
+              { l: "ร่าง", c: "text-amber-600", b: "bg-amber-50", I: FilePen }
+            const Icon = st.I
+            return (
+              <Link key={a.id} href={`/manager/probation-eval/${emp.id}?assignment=${a.id}`}
+                className="card flex items-center gap-3 border-l-4 border-l-violet-300 hover:shadow-md active:scale-[0.99] transition-all">
+                <div className="w-10 h-10 rounded-xl overflow-hidden bg-violet-100 flex items-center justify-center shrink-0">
+                  {emp.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" /> : <span className="text-violet-600 font-bold">{emp.first_name_th?.[0]}</span>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-slate-800 text-sm truncate">{empName(emp)}</p>
+                  <p className="text-[11px] text-slate-400 truncate">{emp.position?.name} · {emp.employee_code}</p>
+                  <span className="inline-block mt-0.5 text-[10px] font-bold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded">{label}</span>
+                </div>
+                <div className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg ${st.b}`}>
+                  <Icon size={13} className={st.c} />
+                  <span className={`text-[11px] font-bold ${st.c}`}>{st.l}</span>
+                </div>
+                <ChevronRight size={16} className="text-slate-300 shrink-0" />
+              </Link>
+            )
+          })}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-slate-300" /></div>
-      ) : members.length === 0 ? (
+      ) : members.length === 0 && assignments.length === 0 ? (
         <div className="text-center py-12">
           <Shield size={32} className="text-slate-200 mx-auto mb-3" />
           <p className="text-slate-400 text-sm">{t("probation.no_members")}</p>
@@ -113,7 +154,7 @@ export default function ManagerProbationEvalPage() {
 
               <div className="grid grid-cols-2 gap-2">
                 {PROBATION_ROUNDS.map(round => {
-                  const form = empForms.find(f => f.round === round)
+                  const form = empForms.find(f => f.round === round && !f.assignment_id)
                   const rs = getRoundStatus(form)
                   const Icon = rs.icon
                   const isOverdue = daysFromHire > ROUND_DAYS[round] && !form
@@ -146,9 +187,9 @@ export default function ManagerProbationEvalPage() {
               </div>
 
               {/* แถวข้อมูลผู้ประเมินแต่ละรอบที่ทำแล้ว */}
-              {empForms.filter(f => f.status !== "draft" && f.evaluator).length > 0 && (
+              {empForms.filter(f => f.status !== "draft" && f.evaluator && !f.assignment_id).length > 0 && (
                 <div className="border-t border-slate-100 pt-2 space-y-1">
-                  {empForms.filter(f => f.status !== "draft" && f.evaluator).sort((a,b)=>a.round - b.round).map(f => {
+                  {empForms.filter(f => f.status !== "draft" && f.evaluator && !f.assignment_id).sort((a,b)=>a.round - b.round).map(f => {
                     const roleBadge =
                       f.evaluator_role === "skip_level"     ? { label: "ระดับสูง", color: "bg-indigo-50 text-indigo-700" } :
                       f.evaluator_role === "additional"     ? { label: "เพิ่มเติม", color: "bg-violet-50 text-violet-700" } :

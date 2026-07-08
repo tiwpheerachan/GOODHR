@@ -657,7 +657,7 @@ export default function AdminProbationEvalPage() {
                               className="flex-1 flex items-center justify-center gap-2 bg-red-50 text-red-600 font-bold text-sm py-2.5 rounded-xl hover:bg-red-100 border border-red-200 disabled:opacity-50">
                               <XCircle size={16} /> ส่งคืน
                             </button>
-                            <Link href={`/manager/probation-eval/${form.employee_id}?round=${form.round}`}
+                            <Link href={form.assignment_id ? `/manager/probation-eval/${form.employee_id}?assignment=${form.assignment_id}` : `/manager/probation-eval/${form.employee_id}?round=${form.round}`}
                               className="flex items-center justify-center gap-2 bg-slate-100 text-slate-700 font-bold text-sm py-2.5 px-4 rounded-xl hover:bg-slate-200">
                               <Pencil size={14} /> แก้ไข
                             </Link>
@@ -670,7 +670,7 @@ export default function AdminProbationEvalPage() {
                               <CheckCircle2 size={16} />
                               <span className="text-sm font-bold">อนุมัติแล้ว</span>
                             </div>
-                            <Link href={`/manager/probation-eval/${form.employee_id}?round=${form.round}`}
+                            <Link href={form.assignment_id ? `/manager/probation-eval/${form.employee_id}?assignment=${form.assignment_id}` : `/manager/probation-eval/${form.employee_id}?round=${form.round}`}
                               className="flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 font-bold px-3 py-1.5 rounded-lg hover:bg-slate-200">
                               <Pencil size={12} /> แก้ไข
                             </Link>

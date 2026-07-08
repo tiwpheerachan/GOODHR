@@ -54,7 +54,11 @@ export default function ProbationEvalFormPage() {
 
   const employeeId = params.employeeId as string
   const roundParam = searchParams.get("round")
-  const round = roundParam != null && roundParam !== "" ? Number(roundParam) : 1 // รอบ 1 = 45 วัน, 2 = 90 วัน
+  const assignmentId = searchParams.get("assignment")   // โหมดมอบหมาย
+  const paramRound = roundParam != null && roundParam !== "" ? Number(roundParam) : 1
+  const [assignmentRound, setAssignmentRound] = useState<number | null>(null)
+  const [roundLabel, setRoundLabel] = useState<string>("")
+  const round = assignmentId ? (assignmentRound ?? paramRound) : paramRound // รอบ 1 = 45 วัน, 2 = 90 วัน
 
   const [employee, setEmployee] = useState<any>(null)
   const [items, setItems] = useState<EvalRow[]>([...MANDATORY_ITEMS])
@@ -79,39 +83,58 @@ export default function ProbationEvalFormPage() {
     mountedRef.current = true
     if (!user?.employee_id) return
 
+    const applyForm = (form: any) => {
+      if (!form) return
+      setExistingFormId(form.id)
+      if (form.status === "submitted" || form.status === "approved") setIsSubmitted(true)
+      if (form.rejection_note && mountedRef.current) setRejectionNote(form.rejection_note)
+      if (form.items?.length > 0 && mountedRef.current) {
+        const sorted = [...form.items].sort((a: any, b: any) => a.order_no - b.order_no)
+        setItems(sorted.map((it: any) => ({
+          category: it.category, description: it.description || "",
+          is_mandatory: it.is_mandatory, weight_pct: it.weight_pct,
+          actual_score: it.actual_score, comment: it.comment || "",
+        })))
+        setEvaluatorNote(form.evaluator_note || "")
+        if (typeof form.is_passed === "boolean") setIsPassed(form.is_passed)
+        if (Array.isArray(form.attachments)) setAttachments(form.attachments)
+      }
+    }
+
     const load = async () => {
       try {
+        // ── โหมดมอบหมาย (assignment) — โหลดผ่าน endpoint เฉพาะ ──
+        if (assignmentId) {
+          const res = await fetch(`/api/probation-evaluation?mode=assignment_form&assignment_id=${assignmentId}`)
+          const data = await res.json()
+          if (data.error) { toast.error(data.error); if (mountedRef.current) setLoading(false); return }
+          if (mountedRef.current) {
+            setEmployee(data.employee)
+            setAssignmentRound(data.assignment?.round ?? paramRound)
+            setRoundLabel(data.assignment?.label || ROUND_LABELS[data.assignment?.round] || "")
+          }
+          if (data.form) applyForm(data.form)
+          return
+        }
+
+        // ── โหมดปกติ (หัวหน้า/ผู้ประเมินกำหนดเอง) ──
         const res = await fetch("/api/probation-evaluation?mode=manager")
         const data = await res.json()
         const emp = (data.members ?? []).find((m: any) => m.id === employeeId)
         if (emp && mountedRef.current) setEmployee(emp)
 
-        const form = (data.forms ?? []).find((f: any) => f.employee_id === employeeId && f.round === round)
+        const form = (data.forms ?? []).find((f: any) => f.employee_id === employeeId && f.round === round && !f.assignment_id)
         if (form) {
-          setExistingFormId(form.id)
-          if (form.status === "submitted" || form.status === "approved") setIsSubmitted(true)
-          if (form.rejection_note && mountedRef.current) setRejectionNote(form.rejection_note)
-
           const fRes = await fetch(`/api/probation-evaluation?mode=single&form_id=${form.id}`)
           const fData = await fRes.json()
-          if (fData.form?.items?.length > 0 && mountedRef.current) {
-            const sorted = fData.form.items.sort((a: any, b: any) => a.order_no - b.order_no)
-            setItems(sorted.map((it: any) => ({
-              category: it.category, description: it.description || "",
-              is_mandatory: it.is_mandatory, weight_pct: it.weight_pct,
-              actual_score: it.actual_score, comment: it.comment || "",
-            })))
-            setEvaluatorNote(fData.form.evaluator_note || "")
-            if (typeof fData.form.is_passed === "boolean") setIsPassed(fData.form.is_passed)
-            if (Array.isArray(fData.form.attachments)) setAttachments(fData.form.attachments)
-          }
+          applyForm({ ...form, ...(fData.form ?? {}) })
         }
       } catch (e) { console.error("Load error:", e) }
       finally { if (mountedRef.current) setLoading(false) }
     }
     load()
     return () => { mountedRef.current = false }
-  }, [user?.employee_id, employeeId, round])
+  }, [user?.employee_id, employeeId, round, assignmentId])
 
   const totalWeight = items.reduce((s, i) => s + (Number(i.weight_pct) || 0), 0)
   const weightValid = Math.abs(totalWeight - 100) < 0.01
@@ -194,7 +217,7 @@ export default function ProbationEvalFormPage() {
     try {
       const res = await fetch("/api/probation-evaluation", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_id: employeeId, round, items, evaluator_note: evaluatorNote, attachments, action, is_passed: isPassed }),
+        body: JSON.stringify({ employee_id: employeeId, round, items, evaluator_note: evaluatorNote, attachments, action, is_passed: isPassed, assignment_id: assignmentId || undefined }),
       })
       const data = await res.json()
       if (data.error) { toast.error(data.error); return }
@@ -221,7 +244,10 @@ export default function ProbationEvalFormPage() {
         </Link>
         <div>
           <h1 className="text-lg font-black text-slate-800">{t("probation.title")}</h1>
-          <p className="text-xs text-slate-400">{ROUND_LABELS[round]}</p>
+          <p className="text-xs text-slate-400">
+            {roundLabel || ROUND_LABELS[round] || `รอบ ${round}`}
+            {assignmentId && <span className="ml-1.5 text-violet-600 font-bold">· มอบหมาย</span>}
+          </p>
         </div>
       </div>
 
