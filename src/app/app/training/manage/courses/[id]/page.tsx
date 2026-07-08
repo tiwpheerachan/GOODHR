@@ -81,7 +81,12 @@ export default function CourseBuilderMobilePage() {
   }
   const modTitleFocusRef = useRef<string>("")  // ค่าชื่อบทเรียนตอนเริ่มแก้ (ใช้เทียบตอน blur)
   const updateModule = async (mid: string, updates: any) => {
-    await fetch("/api/training/modules", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: mid, ...updates }) })
+    const res = await fetch("/api/training/modules", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: mid, ...updates }) })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      toast.error(d.error || "บันทึกไม่สำเร็จ (อาจต้องรัน migration content_type)")
+      return
+    }
     await load()
   }
 
