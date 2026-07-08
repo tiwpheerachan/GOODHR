@@ -5,6 +5,8 @@ import toast from "react-hot-toast"
 import ReadingContent, { estimateReadMinutes } from "./ReadingContent"
 import { splitPages } from "./ReadingLesson"
 import { uploadTrainingFile } from "@/lib/training/upload"
+import { normalizeConfig, blankQuestion, type PageConfig, type PageQuestion, type PageQType } from "@/lib/training/pageConfig"
+import { Clock as ClockIcon, HelpCircle, Plus, Trash2, ChevronDown, ChevronRight } from "lucide-react"
 
 // ── Template เนื้อหาตัวอย่าง (ดาวน์โหลดไปแก้แล้วอัพโหลดกลับ) ──
 const CONTENT_TEMPLATE = `# ชื่อบทเรียน
@@ -49,9 +51,13 @@ const CONTENT_TEMPLATE = `# ชื่อบทเรียน
 export default function ReadingContentEditor({
   initialContent,
   onSave,
+  initialPageConfig,
+  onSaveConfig,
 }: {
   initialContent: string | null | undefined
   onSave: (content: string) => Promise<void> | void
+  initialPageConfig?: any
+  onSaveConfig?: (config: PageConfig[]) => Promise<void> | void
 }) {
   const [content, setContent] = useState(initialContent ?? "")
   const [tab, setTab] = useState<"write" | "preview">("write")
@@ -224,10 +230,184 @@ export default function ReadingContentEditor({
         <BookPreview content={content} />
       )}
 
+      {/* ตั้งค่าต่อหน้า: เวลาอ่าน + ควิซคั่นหน้า */}
+      {onSaveConfig && (
+        <PageSettingsEditor
+          pages={splitPages(content)}
+          initialConfig={initialPageConfig}
+          onSave={onSaveConfig}
+        />
+      )}
+
       {/* hint: ควิซท้ายบท */}
       <p className="text-[10px] text-slate-400 bg-white rounded-lg border border-slate-100 px-2.5 py-1.5">
-        💡 อ่านจบแล้วให้เพิ่ม <b className="text-amber-600">ควิซท้ายบท</b> ด้านล่างได้ — เลือกชนิดคำถามได้หลายแบบ: หลายตัวเลือก · ถูก/ผิด · เติมคำ
+        💡 นอกจากควิซคั่นหน้าด้านบน ยังเพิ่ม <b className="text-amber-600">ควิซท้ายบท</b> ด้านล่างได้ — เลือกชนิดคำถามได้หลายแบบ: หลายตัวเลือก · ถูก/ผิด · เติมคำ
       </p>
+    </div>
+  )
+}
+
+// ════════════ ตั้งค่าต่อหน้า — เวลาอ่าน + ควิซคั่นหน้า ════════════
+function PageSettingsEditor({
+  pages, initialConfig, onSave,
+}: {
+  pages: string[]
+  initialConfig: any
+  onSave: (config: PageConfig[]) => Promise<void> | void
+}) {
+  const [cfg, setCfg] = useState<PageConfig[]>(() => normalizeConfig(initialConfig, pages.length))
+  const [open, setOpen] = useState<number | null>(null)
+  const saveTimer = useRef<any>(null)
+
+  // sync ความยาว config ตามจำนวนหน้า (แต่คงค่าที่แก้ไว้)
+  useEffect(() => {
+    setCfg(prev => normalizeConfig(prev.length ? prev : initialConfig, pages.length))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages.length])
+
+  // บันทึกแบบ debounce — กัน fetch ทุก keystroke
+  const persist = (next: PageConfig[]) => {
+    setCfg(next)
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => onSave(next), 700)
+  }
+  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current) }, [])
+  const update = (i: number, patch: Partial<PageConfig>) => {
+    const next = cfg.map((c, idx) => idx === i ? { ...c, ...patch } : c)
+    persist(next)
+  }
+  const pageTitle = (p: string, i: number) => {
+    const h = /^#{1,3}\s+(.+)$/m.exec(p || "")
+    return h ? h[1].trim().slice(0, 40) : `หน้า ${i + 1}`
+  }
+
+  if (pages.length <= 1) {
+    return (
+      <div className="bg-white rounded-lg border border-dashed border-slate-200 px-3 py-2 text-[11px] text-slate-400">
+        💡 ใส่ตัวแบ่งหน้า <b className="text-amber-600">===</b> เพื่อแยกเป็นหลายหน้า แล้วจะตั้ง <b>เวลาอ่าน</b> และ <b>ควิซคั่นหน้า</b> รายหน้าได้
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-3 space-y-2">
+      <p className="text-xs font-bold text-slate-600 flex items-center gap-1.5"><ClockIcon size={13} /> ตั้งค่าแต่ละหน้า (เวลาอ่าน + ควิซคั่นหน้า)</p>
+      {pages.map((p, i) => {
+        const c = cfg[i] || {}
+        const quiz = c.quiz ?? []
+        const mins = c.read_seconds ? Math.round((c.read_seconds / 60) * 10) / 10 : ""
+        const isOpen = open === i
+        return (
+          <div key={i} className="border border-slate-100 rounded-lg overflow-hidden">
+            <button onClick={() => setOpen(isOpen ? null : i)}
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-left">
+              <span className="w-6 h-6 rounded-md bg-amber-100 text-amber-700 flex items-center justify-center font-black text-[11px]">{i + 1}</span>
+              <span className="flex-1 text-xs font-bold text-slate-700 truncate">{pageTitle(p, i)}</span>
+              {c.read_seconds ? <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><ClockIcon size={9} />{mins} น.</span> : null}
+              {quiz.length > 0 ? <span className="text-[9px] font-bold text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><HelpCircle size={9} />{quiz.length} ข้อ</span> : null}
+              {isOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+            </button>
+            {isOpen && (
+              <div className="px-3 py-3 space-y-3 bg-slate-50/50 border-t border-slate-100">
+                {/* เวลาอ่าน */}
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1"><ClockIcon size={12} /> เวลาอ่านขั้นต่ำ</label>
+                  <input type="number" min={0} step={0.5} defaultValue={mins}
+                    onBlur={e => {
+                      const v = e.target.value.trim()
+                      const secs = v === "" ? null : Math.max(0, Math.round(Number(v) * 60))
+                      update(i, { read_seconds: secs })
+                    }}
+                    placeholder="ไม่ตั้ง"
+                    className="w-20 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm text-right outline-none focus:border-amber-400" />
+                  <span className="text-[11px] text-slate-400">นาที</span>
+                  <span className="text-[10px] text-slate-400">(เว้นว่าง = ไม่บังคับเวลา)</span>
+                </div>
+
+                {/* ควิซคั่นหน้า */}
+                <PageQuizBuilder
+                  quiz={quiz}
+                  pageIdx={i}
+                  onChange={next => update(i, { quiz: next })}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── ตัวสร้างควิซคั่นหน้า (mc/tf/fill) ──
+function PageQuizBuilder({ quiz, pageIdx, onChange }: { quiz: PageQuestion[]; pageIdx: number; onChange: (q: PageQuestion[]) => void }) {
+  const addQ = () => onChange([...quiz, blankQuestion(`${pageIdx}_${quiz.length}_${quiz.length + 1}`)])
+  const upd = (qi: number, patch: Partial<PageQuestion>) => onChange(quiz.map((q, idx) => idx === qi ? { ...q, ...patch } : q))
+  const del = (qi: number) => onChange(quiz.filter((_, idx) => idx !== qi))
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <p className="text-[11px] font-bold text-slate-600 flex items-center gap-1"><HelpCircle size={12} /> ควิซคั่นหน้า (ตอบถูกก่อนไปต่อ)</p>
+        <button onClick={addQ} className="ml-auto flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100">
+          <Plus size={11} /> เพิ่มคำถาม
+        </button>
+      </div>
+      {quiz.length === 0 && <p className="text-[10px] text-slate-400 italic">ยังไม่มีควิซหน้านี้ (ไม่บังคับ)</p>}
+      {quiz.map((q, qi) => (
+        <div key={q.id} className="bg-white border border-slate-200 rounded-lg p-2.5 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-black text-slate-500">ข้อ {qi + 1}</span>
+            <select value={q.type} onChange={e => {
+              const type = e.target.value as PageQType
+              // reset answer/options ตามชนิด
+              if (type === "mc") upd(qi, { type, options: q.options?.length ? q.options : ["", ""], answer: 0 })
+              else if (type === "tf") upd(qi, { type, answer: true })
+              else upd(qi, { type, answer: "" })
+            }} className="text-[11px] font-bold border border-slate-200 rounded-lg px-2 py-1 outline-none">
+              <option value="mc">หลายตัวเลือก</option>
+              <option value="tf">ถูก/ผิด</option>
+              <option value="fill">เติมคำ</option>
+            </select>
+            <button onClick={() => del(qi)} className="ml-auto text-rose-500 hover:bg-rose-50 rounded p-1"><Trash2 size={12} /></button>
+          </div>
+          <input value={q.question} onChange={e => upd(qi, { question: e.target.value })} placeholder="โจทย์คำถาม..."
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-sky-400" />
+
+          {q.type === "mc" && (
+            <div className="space-y-1.5">
+              {(q.options ?? []).map((opt, oi) => (
+                <div key={oi} className="flex items-center gap-2">
+                  <input type="radio" name={`correct_${q.id}`} checked={Number(q.answer) === oi} onChange={() => upd(qi, { answer: oi })} title="ตั้งเป็นคำตอบที่ถูก" />
+                  <input value={opt} onChange={e => upd(qi, { options: (q.options ?? []).map((o, idx) => idx === oi ? e.target.value : o) })}
+                    placeholder={`ตัวเลือก ${oi + 1}`}
+                    className="flex-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm outline-none focus:border-sky-400" />
+                  {(q.options?.length ?? 0) > 2 && (
+                    <button onClick={() => upd(qi, { options: (q.options ?? []).filter((_, idx) => idx !== oi), answer: Number(q.answer) >= oi && Number(q.answer) > 0 ? Number(q.answer) - 1 : q.answer })}
+                      className="text-rose-400 hover:bg-rose-50 rounded p-0.5"><Trash2 size={11} /></button>
+                  )}
+                </div>
+              ))}
+              <button onClick={() => upd(qi, { options: [...(q.options ?? []), ""] })}
+                className="text-[10px] font-bold text-sky-600 hover:bg-sky-50 rounded px-2 py-0.5 flex items-center gap-1"><Plus size={10} /> เพิ่มตัวเลือก</button>
+              <p className="text-[10px] text-slate-400">• เลือกวงกลมหน้าตัวเลือกที่ถูกต้อง</p>
+            </div>
+          )}
+          {q.type === "tf" && (
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => upd(qi, { answer: true })}
+                className={`py-1.5 rounded-lg border-2 font-bold text-xs ${q.answer === true ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-500"}`}>เฉลย: ถูก ✓</button>
+              <button onClick={() => upd(qi, { answer: false })}
+                className={`py-1.5 rounded-lg border-2 font-bold text-xs ${q.answer === false ? "border-rose-400 bg-rose-50 text-rose-700" : "border-slate-200 text-slate-500"}`}>เฉลย: ผิด ✗</button>
+            </div>
+          )}
+          {q.type === "fill" && (
+            <input value={typeof q.answer === "string" ? q.answer : ""} onChange={e => upd(qi, { answer: e.target.value })}
+              placeholder="คำตอบที่ถูก (ใส่หลายคำตอบคั่นด้วย | )"
+              className="w-full bg-white border border-emerald-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400" />
+          )}
+        </div>
+      ))}
     </div>
   )
 }

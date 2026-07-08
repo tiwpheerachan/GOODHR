@@ -241,6 +241,7 @@ export default function LessonPlayerPage() {
           watermarkText={userInfo}
           initialReadPct={progress?.watched_pct ?? 0}
           alreadyCompleted={!!progress?.completed || currentPct >= requiredPct}
+          pageConfig={module.page_config}
           onProgress={pct => updateProgress({ watched_pct: pct, watch_time_sec: 0, last_position_sec: 0 })}
           onComplete={() => updateProgress({ watched_pct: 100, watch_time_sec: 0, last_position_sec: 0 })}
         />

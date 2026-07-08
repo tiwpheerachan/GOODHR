@@ -249,6 +249,8 @@ export default function CourseBuilderMobilePage() {
                 <ReadingContentEditor
                   initialContent={m.content}
                   onSave={content => updateModule(m.id, { content })}
+                  initialPageConfig={m.page_config}
+                  onSaveConfig={config => updateModule(m.id, { page_config: config })}
                 />
               )}
 
