@@ -5,12 +5,14 @@ import Link from "next/link"
 import {
   ArrowLeft, Plus, Trash2, Send, Loader2, Video, FileText, ListChecks,
   Upload, X, Check, Settings, Users, Award, ChevronRight, Eye, PlayCircle, Download, LayoutDashboard,
-  Image as ImageIcon,
+  Image as ImageIcon, BookOpen,
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { uploadTrainingFile, type UploadProgress as UProg } from "@/lib/training/upload"
 import UploadProgress from "@/components/training/UploadProgress"
 import VideoSourcePicker from "@/components/training/VideoSourcePicker"
+import ReadingContentEditor from "@/components/training/ReadingContentEditor"
+import ReadingContent from "@/components/training/ReadingContent"
 import { parseVideoUrl, supportsCheckpoint, videoSourceName } from "@/lib/training/video-url"
 import CheckpointEditor from "@/components/training/CheckpointEditorModal"
 import { PromptModal, ConfirmModal } from "@/components/training/PromptModal"
@@ -200,6 +202,29 @@ export default function CourseBuilderMobilePage() {
                 />
               </div>
 
+              {/* รูปแบบการเรียน */}
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 mb-1.5">รูปแบบการเรียน</p>
+                <div className="inline-flex bg-slate-100 rounded-xl p-1 gap-1">
+                  {([
+                    { v: "video", l: "วิดีโอ", icon: Video },
+                    { v: "text", l: "อ่านเนื้อหา", icon: BookOpen },
+                  ] as const).map(opt => {
+                    const active = (m.content_type === "text" ? "text" : "video") === opt.v
+                    return (
+                      <button key={opt.v}
+                        onClick={() => (m.content_type === "text" ? "text" : "video") !== opt.v && updateModule(m.id, { content_type: opt.v })}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                          active ? "bg-white text-sky-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                        }`}>
+                        <opt.icon size={13} /> {opt.l}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {m.content_type !== "text" && (
               <div className="bg-slate-50 rounded-xl p-3">
                 <p className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-1"><Video size={12} /> วิดีโอ</p>
                 {m.video_url ? (
@@ -213,6 +238,14 @@ export default function CourseBuilderMobilePage() {
                   />
                 )}
               </div>
+              )}
+
+              {m.content_type === "text" && (
+                <ReadingContentEditor
+                  initialContent={m.content}
+                  onSave={content => updateModule(m.id, { content })}
+                />
+              )}
 
               <div className="bg-slate-50 rounded-xl p-3">
                 <p className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-1"><FileText size={12} /> เอกสาร</p>
@@ -241,7 +274,9 @@ export default function CourseBuilderMobilePage() {
                 )}
               </div>
 
-              <CheckpointEditorWrapper moduleId={m.id} videoDuration={m.video_duration_sec} />
+              {m.content_type !== "text" && (
+                <CheckpointEditorWrapper moduleId={m.id} videoDuration={m.video_duration_sec} />
+              )}
               <ModuleQuizzes courseId={id as string} moduleId={m.id} quizzes={quizzes.filter(q => q.module_id === m.id)} onChange={load} />
             </div>
           ))}
@@ -427,6 +462,7 @@ function CoursePreviewModal({ course, modules, quizzes, onClose }: any) {
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-sm text-slate-800">{m.title}</p>
                     <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400">
+                      {m.content_type === "text" && (m.content?.trim()) && <span className="flex items-center gap-0.5"><BookOpen size={9} /> อ่านเนื้อหา</span>}
                       {m.video_url && <span className="flex items-center gap-0.5"><PlayCircle size={9} /> วิดีโอ</span>}
                       {(m.documents?.length ?? 0) > 0 && <span className="flex items-center gap-0.5"><FileText size={9} /> {m.documents.length} เอกสาร</span>}
                       {modQuizzes.length > 0 && <span className="flex items-center gap-0.5"><Award size={9} /> {modQuizzes.length} ควิซ</span>}
@@ -466,7 +502,12 @@ function CoursePreviewModal({ course, modules, quizzes, onClose }: any) {
                         <span className="text-[10px] text-amber-600">{q.question_count} ข้อ · ผ่าน {q.passing_score}%</span>
                       </div>
                     ))}
-                    {!m.video_url && (m.documents?.length ?? 0) === 0 && modQuizzes.length === 0 && (
+                    {m.content_type === "text" && (m.content?.trim()) && (
+                      <div className="bg-white border border-slate-200 rounded-lg p-3 max-h-64 overflow-y-auto">
+                        <ReadingContent content={m.content} />
+                      </div>
+                    )}
+                    {!m.video_url && !(m.content?.trim()) && (m.documents?.length ?? 0) === 0 && modQuizzes.length === 0 && (
                       <p className="text-center text-xs text-slate-400 italic">บทนี้ยังไม่มีเนื้อหา</p>
                     )}
                   </div>

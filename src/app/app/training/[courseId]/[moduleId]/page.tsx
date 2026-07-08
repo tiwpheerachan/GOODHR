@@ -7,6 +7,7 @@ import toast from "react-hot-toast"
 import { useAuth } from "@/lib/hooks/useAuth"
 import VideoPlayer, { type Checkpoint } from "@/components/training/VideoPlayer"
 import YouTubePlayer from "@/components/training/YouTubePlayer"
+import ReadingLesson from "@/components/training/ReadingLesson"
 import { parseVideoUrl, supportsCheckpoint, videoSourceName } from "@/lib/training/video-url"
 
 export default function LessonPlayerPage() {
@@ -82,7 +83,7 @@ export default function LessonPlayerPage() {
 
   const updateProgress = async (state: { watched_pct: number; watch_time_sec: number; last_position_sec: number }) => {
     setLivePct(state.watched_pct)
-    const reqPct = module?.required_watch_pct ?? 80
+    const reqPct = module?.content_type === "text" ? 100 : (module?.required_watch_pct ?? 80)
     // เรียนถึงเกณฑ์ครั้งแรก → auto-popup เฉพาะกรณีต้องทำควิซ (ไม่เด้งถ้า exhausted หรือผ่านแล้ว)
     const hasUnpassedQuiz = moduleQuizzes.length > 0 && moduleQuizzes.some((q: any) => {
       const atts = quizAttempts[q.id] ?? []
@@ -126,7 +127,10 @@ export default function LessonPlayerPage() {
     ? `${user.employee.first_name_th} ${user.employee.last_name_th} · ${user.employee.employee_code}`
     : "Confidential"
 
-  const requiredPct = module.required_watch_pct ?? 80
+  // ── บทเรียนแบบ "อ่านเนื้อหาให้จบ" ──
+  const isReading = module.content_type === "text" || (!!module.content && !module.video_url)
+  // บทเรียนแบบอ่าน ต้องอ่านจบจริง (100%) — ไม่งั้น quiz จะปลดล็อกตอนเลื่อนถึง 99%
+  const requiredPct = isReading ? 100 : (module.required_watch_pct ?? 80)
   const watchedEnough = (progress?.completed || livePct >= requiredPct)
   const currentPct = Math.max(livePct, progress?.watched_pct ?? 0)
 
@@ -198,7 +202,7 @@ export default function LessonPlayerPage() {
             </div>
             <div className="flex-1">
               <p className="font-black text-lg">บทเรียนนี้สำเร็จแล้ว 🎉</p>
-              <p className="text-xs opacity-90 mt-0.5">ดูครบ {currentPct.toFixed(0)}% · ผ่านควิซทั้งหมด</p>
+              <p className="text-xs opacity-90 mt-0.5">{isReading ? "อ่านเนื้อหาจบ" : `ดูครบ ${currentPct.toFixed(0)}%`} · ผ่านควิซทั้งหมด</p>
             </div>
           </div>
         </div>
@@ -230,12 +234,24 @@ export default function LessonPlayerPage() {
         </div>
       )}
 
+      {/* ── บทเรียนแบบอ่านเนื้อหา (Reading lesson) ── */}
+      {isReading && (
+        <ReadingLesson
+          content={module.content || ""}
+          watermarkText={userInfo}
+          initialReadPct={progress?.watched_pct ?? 0}
+          alreadyCompleted={!!progress?.completed || currentPct >= requiredPct}
+          onProgress={pct => updateProgress({ watched_pct: pct, watch_time_sec: 0, last_position_sec: 0 })}
+          onComplete={() => updateProgress({ watched_pct: 100, watch_time_sec: 0, last_position_sec: 0 })}
+        />
+      )}
+
       {/* Video — เลือก player ตาม source ───────────────────────────
            • YouTube       → YouTubePlayer (IFrame API + checkpoint)
            • Supabase/MP4  → VideoPlayer (HTML5 video + checkpoint)
            • Vimeo/Drive   → iframe ธรรมดา (ยังไม่รองรับ checkpoint)
       */}
-      {module.video_url && (() => {
+      {!isReading && module.video_url && (() => {
         const parsed = parseVideoUrl(module.video_url)
         if (parsed.type === "youtube") {
           return (
@@ -302,8 +318,8 @@ export default function LessonPlayerPage() {
         </div>
       )}
 
-      {/* Progress bar — สีตามสถานะ */}
-      {module.required_watch_pct && (
+      {/* Progress bar — สีตามสถานะ (เฉพาะบทเรียนวิดีโอ; แบบอ่านมีแถบของตัวเอง) */}
+      {!isReading && module.required_watch_pct && (
         <div className={`border rounded-xl p-3 ${
           isTrulyComplete ? "bg-emerald-50 border-emerald-200" :
           needsReview ? "bg-rose-50 border-rose-200" :
@@ -354,7 +370,7 @@ export default function LessonPlayerPage() {
                 <Trophy size={36} className="text-white" />
               </div>
               <h2 className="text-2xl font-black text-slate-800">เรียนสำเร็จ! 🎉</h2>
-              <p className="text-sm text-slate-500 mt-1">คุณดูบทเรียนนี้จนถึงเกณฑ์แล้ว ({module.required_watch_pct ?? 80}%)</p>
+              <p className="text-sm text-slate-500 mt-1">{isReading ? "คุณอ่านเนื้อหาบทเรียนนี้จบแล้ว" : `คุณดูบทเรียนนี้จนถึงเกณฑ์แล้ว (${module.required_watch_pct ?? 80}%)`}</p>
             </div>
             {moduleQuizzes.length > 0 ? (
               <>

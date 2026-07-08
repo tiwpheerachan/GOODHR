@@ -83,7 +83,9 @@ export default function CourseDetailPage() {
   // Pre-compute module statuses (hooks must come before early returns)
   const moduleStatuses = useMemo(() => modules.map(m => {
     const p = progress[m.id]
-    const watched = (p?.watched_pct ?? 0) >= (m.required_watch_pct ?? 80)
+    // บทเรียนแบบอ่าน ต้องอ่านจบจริง (100%) — ให้ตรงกับ server
+    const reqPct = m.content_type === "text" ? 100 : (m.required_watch_pct ?? 80)
+    const watched = (p?.watched_pct ?? 0) >= reqPct
     const modQuizzes = quizzes.filter(q => q.module_id === m.id)
     const allQuizPassed = modQuizzes.length === 0 ||
       modQuizzes.every(q => (quizAttempts[q.id] ?? []).some((a: any) => a.passed))
@@ -353,6 +355,7 @@ export default function CourseDetailPage() {
                   <StatusBadge />
                 </div>
                 <div className="flex items-center gap-2.5 text-[10px] text-slate-500 flex-wrap">
+                  {m.content_type === "text" && (m.content?.trim()) && <span className="flex items-center gap-0.5"><BookOpen size={10} /> อ่านเนื้อหา</span>}
                   {m.video_url && <span className="flex items-center gap-0.5"><PlayCircle size={10} /> วิดีโอ</span>}
                   {m.video_duration_sec && <span className="text-slate-400">{Math.floor(m.video_duration_sec/60)}:{String(m.video_duration_sec%60).padStart(2,"0")}</span>}
                   {(m.documents?.length ?? 0) > 0 && <span className="flex items-center gap-0.5"><FileText size={10} /> {m.documents.length} เอกสาร</span>}

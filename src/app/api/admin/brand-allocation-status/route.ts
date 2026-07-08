@@ -48,7 +48,6 @@ export async function GET(req: NextRequest) {
   const isSuperAdmin = ["super_admin", "hr_admin"].includes(role)
   if (!isSuperAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-  const myCompanyId = (dbUser as any).employee?.company_id ?? null
   const url = new URL(req.url)
   const reqCompany = url.searchParams.get("company_id") || ""
   // super_admin/hr_admin: เลือกบริษัทได้ (ว่าง = ทุกบริษัท) แต่ default = บริษัทตัวเอง ถ้าไม่ได้ระบุ

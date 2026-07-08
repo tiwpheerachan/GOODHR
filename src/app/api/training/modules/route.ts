@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
     order_no: body.order_no ?? nextOrder,
     description: body.description ?? null,
     content_type: body.content_type ?? "mixed",
+    content: body.content ?? null,
     video_url: body.video_url ?? null,
     video_duration_sec: body.video_duration_sec ?? null,
     required_watch_pct: body.required_watch_pct ?? 80,

@@ -23,12 +23,13 @@ export async function POST(req: NextRequest) {
 
   // get module required_watch_pct + existing progress (for monotonic merge)
   const [{ data: mod }, { data: existing }] = await Promise.all([
-    svc.from("training_modules").select("required_watch_pct").eq("id", module_id).single(),
+    svc.from("training_modules").select("required_watch_pct, content_type").eq("id", module_id).single(),
     svc.from("training_module_progress")
       .select("watched_pct, watch_time_sec, answered_checkpoints, completed")
       .eq("enrollment_id", enrollment_id).eq("module_id", module_id).maybeSingle(),
   ])
-  const required = Number(mod?.required_watch_pct ?? 80)
+  // บทเรียนแบบอ่าน (text) ต้องอ่านจนจบจริง (100%) — กันการ mark complete ตอนเลื่อนถึง 99%
+  const required = mod?.content_type === "text" ? 100 : Number(mod?.required_watch_pct ?? 80)
 
   // ── Monotonic: ค่า % และเวลาดูเดินหน้าอย่างเดียว (กัน race / out-of-order requests) ──
   const newWatchedPct = Math.max(Number(existing?.watched_pct ?? 0), Number(watched_pct ?? 0))
