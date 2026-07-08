@@ -1,9 +1,10 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
-import { Eye, Pencil, Bold, Heading, List, Link2, Quote, Clock, Save, Loader2, BookOpen, Download, Upload, FileText } from "lucide-react"
+import { Eye, Pencil, Bold, Heading, List, Link2, Quote, Clock, Save, Loader2, BookOpen, Download, Upload, FileText, ImagePlus } from "lucide-react"
 import toast from "react-hot-toast"
 import ReadingContent, { estimateReadMinutes } from "./ReadingContent"
 import { splitPages } from "./ReadingLesson"
+import { uploadTrainingFile } from "@/lib/training/upload"
 
 // ── Template เนื้อหาตัวอย่าง (ดาวน์โหลดไปแก้แล้วอัพโหลดกลับ) ──
 const CONTENT_TEMPLATE = `# ชื่อบทเรียน
@@ -55,8 +56,10 @@ export default function ReadingContentEditor({
   const [content, setContent] = useState(initialContent ?? "")
   const [tab, setTab] = useState<"write" | "preview">("write")
   const [saving, setSaving] = useState(false)
+  const [uploadingImg, setUploadingImg] = useState(false)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  const imgRef = useRef<HTMLInputElement | null>(null)
   const dirty = content !== (initialContent ?? "")
 
   useEffect(() => { setContent(initialContent ?? "") }, [initialContent])
@@ -86,13 +89,31 @@ export default function ReadingContentEditor({
     setContent(content.slice(0, lineStart) + prefix + content.slice(lineStart))
     requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = s + prefix.length })
   }
-  const insertPageBreak = () => {
+  const insertAtCursor = (ins: string) => {
     const ta = taRef.current
-    if (!ta) { setContent(content + "\n\n===\n\n"); return }
+    if (!ta) { setContent(c => c + ins); return }
     const s = ta.selectionStart
-    const ins = "\n\n===\n\n"
     setContent(content.slice(0, s) + ins + content.slice(s))
     requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = s + ins.length })
+  }
+  const insertPageBreak = () => insertAtCursor("\n\n===\n\n")
+
+  // ── อัปโหลดรูปแล้วแทรก markdown ![](url) ──
+  const onUploadImage = async (file: File) => {
+    if (!file.type.startsWith("image/")) { toast.error("รองรับไฟล์รูปภาพเท่านั้น"); return }
+    if (file.size > 15 * 1024 * 1024) { toast.error("รูปใหญ่เกิน 15MB"); return }
+    setUploadingImg(true)
+    const t = toast.loading("กำลังอัปโหลดรูป...")
+    try {
+      const res = await uploadTrainingFile(file, { subfolder: "reading-images" })
+      const alt = file.name.replace(/\.[^.]+$/, "")
+      insertAtCursor(`\n\n![${alt}](${res.url})\n\n`)
+      toast.success("แทรกรูปแล้ว", { id: t })
+    } catch (e: any) {
+      toast.error(e?.message || "อัปโหลดรูปไม่สำเร็จ", { id: t })
+    } finally {
+      setUploadingImg(false)
+    }
   }
 
   // ── ดาวน์โหลด template ──
@@ -170,10 +191,16 @@ export default function ReadingContentEditor({
                 <b.icon size={13} />
               </button>
             ))}
+            <button onClick={() => imgRef.current?.click()} disabled={uploadingImg} title="แทรกรูปภาพ"
+              className="flex items-center gap-1 h-7 px-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-700 hover:bg-sky-100 text-[11px] font-bold disabled:opacity-50">
+              {uploadingImg ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />} รูปภาพ
+            </button>
             <button onClick={insertPageBreak} title="แบ่งหน้า (===)"
               className="flex items-center gap-1 h-7 px-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 text-[11px] font-bold">
               <BookOpen size={12} /> แบ่งหน้า
             </button>
+            <input ref={imgRef} type="file" accept="image/*" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) onUploadImage(f); e.target.value = "" }} />
           </div>
           <textarea
             ref={taRef}
@@ -185,7 +212,7 @@ export default function ReadingContentEditor({
             className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-sky-400 font-mono leading-relaxed resize-y"
           />
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-[10px] text-slate-400">Markdown: # หัวข้อ · **หนา** · - รายการ · &gt; อ้างอิง · [ลิงก์](url) · <b className="text-amber-600">===</b> แบ่งหน้า</p>
+            <p className="text-[10px] text-slate-400">Markdown: # หัวข้อ · **หนา** · - รายการ · &gt; อ้างอิง · [ลิงก์](url) · 🖼️ รูป · <b className="text-amber-600">===</b> แบ่งหน้า</p>
             <button onClick={doSave} disabled={!dirty || saving}
               className="ml-auto px-3 py-1.5 text-[11px] font-bold rounded-lg flex items-center gap-1 disabled:opacity-40 bg-sky-500 text-white hover:bg-sky-600">
               {saving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}

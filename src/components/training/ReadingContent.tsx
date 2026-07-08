@@ -25,7 +25,7 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
       nodes.push(<code key={key} className="px-1.5 py-0.5 rounded bg-slate-100 text-rose-600 text-[0.9em] font-mono">{tok.slice(1, -1)}</code>)
     } else if (tok.startsWith("![")) {
       const mm = /!\[([^\]]*)\]\(([^)]+)\)/.exec(tok)
-      if (mm) nodes.push(<img key={key} src={mm[2]} alt={mm[1]} className="my-3 rounded-xl max-w-full mx-auto shadow-sm" />)
+      if (mm) nodes.push(<img key={key} src={mm[2]} alt={mm[1]} className="my-3 block rounded-xl max-w-full mx-auto shadow-sm" />)
     } else if (tok.startsWith("[")) {
       const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(tok)
       if (mm) nodes.push(<a key={key} href={mm[2]} target="_blank" rel="noreferrer" className="text-sky-600 underline font-medium hover:text-sky-700">{mm[1]}</a>)
