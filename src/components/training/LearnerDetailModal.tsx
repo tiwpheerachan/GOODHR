@@ -1,9 +1,10 @@
 "use client"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { createPortal } from "react-dom"
 import {
   X, Award, BookOpen, Clock, Target, CheckCircle2, XCircle, TrendingUp,
   Activity, AlertTriangle, Calendar, Trophy, RotateCcw, FileQuestion,
-  PlayCircle, Eye, ChevronRight, Sparkles, Loader2,
+  PlayCircle, Eye, ChevronRight, ChevronDown, Sparkles, Loader2, ListChecks,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -11,6 +12,7 @@ import { th } from "date-fns/locale"
 type Module = { id: string; order_no: number; title: string; required_watch_pct?: number; video_duration_sec?: number | null }
 type Quiz = { id: string; module_id: string | null; title: string; passing_score: number; question_count: number }
 type Attempt = {
+  id?: string
   enrollment_id: string; quiz_id: string; attempt_no: number
   score: number | null; passed: boolean | null
   tab_switches?: number | null; time_used_sec?: number | null
@@ -36,10 +38,20 @@ export default function LearnerDetailModal({
   onClose: () => void
 }) {
   const [tab, setTab] = useState<"modules" | "quizzes" | "checkpoints" | "timeline">("modules")
+  const [mounted, setMounted] = useState(false)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})  // attempt_id → เปิดดูรายข้อ
   const [aiOpen, setAiOpen] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiSummary, setAiSummary] = useState<string | null>(null)
   const [aiStats, setAiStats] = useState<any | null>(null)
+
+  // ── portal + ล็อค scroll พื้นหลัง (กัน modal โดน ancestor ที่มี backdrop-filter หนีบ) ──
+  useEffect(() => {
+    setMounted(true)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => { document.body.style.overflow = prev }
+  }, [])
 
   const askAI = async () => {
     setAiOpen(true); setAiLoading(true); setAiSummary(null); setAiStats(null)
@@ -132,8 +144,9 @@ export default function LearnerDetailModal({
   const initials = (emp?.first_name_th?.[0] ?? "") + (emp?.last_name_th?.[0] ?? "")
   const finalScore = learner.final_score
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm anim-fade-up" onClick={onClose}>
+  if (!mounted) return null
+  return createPortal((
+    <div className="fixed inset-0 z-[9990] flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm anim-fade-up" onClick={onClose}>
       <div className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Hero — clean white card style */}
         <div className="relative bg-white border-b border-slate-100 p-4 lg:p-5">
@@ -335,47 +348,61 @@ export default function LearnerDetailModal({
                       </span>
                     </div>
 
-                    {/* Attempt rows */}
+                    {/* Attempt rows — กดเพื่อดูรายข้อ (ถูก/ผิด) ของแต่ละรอบ */}
                     <div className="space-y-1.5">
                       {atts.map(a => {
                         const isBest = best && a.attempt_no === best.attempt_no
+                        const canExpand = !!a.id && !!a.submitted_at
+                        const open = a.id ? !!expanded[a.id] : false
                         return (
-                          <div key={a.attempt_no} className={`flex items-center gap-3 p-2.5 rounded-xl border ${
+                          <div key={a.attempt_no} className={`rounded-xl border overflow-hidden ${
                             a.passed ? "bg-emerald-50 border-emerald-100" :
                             a.submitted_at ? "bg-rose-50 border-rose-100" :
                             "bg-slate-50 border-slate-100"
                           }`}>
-                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs flex-shrink-0 ${
-                              a.passed ? "bg-emerald-500 text-white" :
-                              a.submitted_at ? "bg-rose-500 text-white" :
-                              "bg-slate-300 text-white"
-                            }`}>
-                              {a.attempt_no}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className={`font-black text-sm ${a.passed ? "text-emerald-700" : a.submitted_at ? "text-rose-700" : "text-slate-500"}`}>
-                                  {a.score != null ? `${a.score}%` : "—"}
+                            <button
+                              onClick={() => { if (canExpand && a.id) setExpanded(m => ({ ...m, [a.id!]: !m[a.id!] })) }}
+                              className={`w-full flex items-center gap-3 p-2.5 text-left ${canExpand ? "hover:brightness-[0.98]" : "cursor-default"}`}>
+                              <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs flex-shrink-0 ${
+                                a.passed ? "bg-emerald-500 text-white" :
+                                a.submitted_at ? "bg-rose-500 text-white" :
+                                "bg-slate-300 text-white"
+                              }`}>
+                                {a.attempt_no}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[10px] font-bold text-slate-400">รอบที่ {a.attempt_no}</span>
+                                  <span className={`font-black text-sm ${a.passed ? "text-emerald-700" : a.submitted_at ? "text-rose-700" : "text-slate-500"}`}>
+                                    {a.score != null ? `${a.score}%` : "—"}
+                                  </span>
+                                  {a.passed ? <CheckCircle2 size={12} className="text-emerald-600" /> : a.submitted_at ? <XCircle size={12} className="text-rose-500" /> : null}
+                                  {isBest && <span className="text-[9px] font-black px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full">BEST</span>}
+                                  {(a.tab_switches ?? 0) > 2 && (
+                                    <span className="text-[9px] font-black px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded-full flex items-center gap-0.5">
+                                      <AlertTriangle size={9} /> สลับแท็บ {a.tab_switches}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 text-[10px] text-slate-500 mt-0.5">
+                                  {a.submitted_at && (
+                                    <span className="flex items-center gap-1">
+                                      <Calendar size={9} />
+                                      {format(new Date(a.submitted_at), "d MMM HH:mm", { locale: th })}
+                                    </span>
+                                  )}
+                                  {a.time_used_sec && <span className="flex items-center gap-1"><Clock size={9} /> {fmtSec(a.time_used_sec)}</span>}
+                                  {!a.submitted_at && <span className="text-amber-600 font-bold">⏳ กำลังทำ</span>}
+                                </div>
+                              </div>
+                              {canExpand && (
+                                <span className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 shrink-0">
+                                  <ListChecks size={12} /> ดูรายข้อ
+                                  {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                                 </span>
-                                {a.passed ? <CheckCircle2 size={12} className="text-emerald-600" /> : a.submitted_at ? <XCircle size={12} className="text-rose-500" /> : null}
-                                {isBest && <span className="text-[9px] font-black px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full">BEST</span>}
-                                {(a.tab_switches ?? 0) > 2 && (
-                                  <span className="text-[9px] font-black px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded-full flex items-center gap-0.5">
-                                    <AlertTriangle size={9} /> สลับแท็บ {a.tab_switches}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-3 text-[10px] text-slate-500 mt-0.5">
-                                {a.submitted_at && (
-                                  <span className="flex items-center gap-1">
-                                    <Calendar size={9} />
-                                    {format(new Date(a.submitted_at), "d MMM HH:mm", { locale: th })}
-                                  </span>
-                                )}
-                                {a.time_used_sec && <span className="flex items-center gap-1"><Clock size={9} /> {fmtSec(a.time_used_sec)}</span>}
-                                {!a.submitted_at && <span className="text-amber-600 font-bold">⏳ กำลังทำ</span>}
-                              </div>
-                            </div>
+                              )}
+                            </button>
+                            {open && a.id && <AttemptQuestions attemptId={a.id} />}
                           </div>
                         )
                       })}
@@ -565,6 +592,57 @@ export default function LearnerDetailModal({
           </div>
         </div>
       )}
+    </div>
+  ), document.body)
+}
+
+// ── รายละเอียดคำถามของ attempt (โหลดเมื่อกดดู) ──
+function AttemptQuestions({ attemptId }: { attemptId: string }) {
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<any | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    fetch(`/api/training/attempt-detail?attempt_id=${attemptId}`)
+      .then(r => r.json())
+      .then(d => { if (!alive) return; if (d.error) setErr(d.error); else setData(d) })
+      .catch(e => alive && setErr(e?.message || "โหลดไม่สำเร็จ"))
+      .finally(() => alive && setLoading(false))
+    return () => { alive = false }
+  }, [attemptId])
+
+  if (loading) return <div className="px-3 pb-3 pt-1 flex items-center gap-2 text-xs text-slate-400"><Loader2 size={13} className="animate-spin" /> กำลังโหลดคำตอบ...</div>
+  if (err) return <div className="px-3 pb-3 pt-1 text-xs text-rose-500">{err}</div>
+  if (!data) return null
+
+  return (
+    <div className="border-t border-slate-200/70 bg-white/70 px-3 py-2.5 space-y-1.5">
+      <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1.5">
+        <ListChecks size={12} className="text-indigo-500" />
+        ตอบถูก <span className="text-emerald-600 font-black">{data.correct_count}</span>/<span>{data.total}</span> ข้อ
+      </p>
+      {data.results.map((r: any) => (
+        <div key={r.order} className={`rounded-lg border px-2.5 py-2 ${r.correct ? "bg-emerald-50/60 border-emerald-100" : "bg-rose-50/60 border-rose-100"}`}>
+          <div className="flex items-start gap-2">
+            <span className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-white flex-shrink-0 ${r.correct ? "bg-emerald-500" : "bg-rose-500"}`}>
+              {r.correct ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-slate-800"><span className="text-slate-400">ข้อ {r.order}.</span> {r.question_text || "—"}</p>
+              <p className="text-[11px] mt-0.5">
+                <span className="text-slate-400">ตอบ: </span>
+                <span className={r.correct ? "text-emerald-700 font-bold" : "text-rose-700 font-bold"}>{r.user_answer}</span>
+              </p>
+              {!r.correct && (
+                <p className="text-[11px] mt-0.5">
+                  <span className="text-slate-400">เฉลย: </span>
+                  <span className="text-emerald-700 font-bold">{r.correct_answer}</span>
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

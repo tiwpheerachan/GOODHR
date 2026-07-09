@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
       : Promise.resolve({ data: [] }),
     enrollmentIds.length > 0
       ? svc.from("training_quiz_attempts")
-          .select("enrollment_id, quiz_id, attempt_no, score, passed, tab_switches, time_used_sec, submitted_at, started_at, graded_answers")
+          .select("id, enrollment_id, quiz_id, attempt_no, score, passed, tab_switches, time_used_sec, submitted_at, started_at, graded_answers")
           .in("enrollment_id", enrollmentIds)
       : Promise.resolve({ data: [] }),
     enrollmentIds.length > 0
