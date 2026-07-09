@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useMemo, useRef, useState, useCallback } from "react"
-import { BookOpen, CheckCircle2, Clock, ChevronLeft, ChevronRight, Check, X, HelpCircle } from "lucide-react"
+import { BookOpen, CheckCircle2, Clock, ChevronLeft, ChevronRight, Check, X, HelpCircle, Maximize2, Minimize2 } from "lucide-react"
 import ReadingContent, { estimateReadMinutes } from "./ReadingContent"
 import { normalizeConfig, checkAnswer, type PageConfig, type PageQuestion } from "@/lib/training/pageConfig"
 
@@ -60,9 +60,11 @@ function BookReader({
   const [secondsOnPage, setSecondsOnPage] = useState<number>(0)
   const [quizPassed, setQuizPassed] = useState<Record<number, boolean>>({})
 
+  const [fullscreen, setFullscreen] = useState(false)
   const completedRef = useRef<boolean>(alreadyCompleted)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const cardRef = useRef<HTMLDivElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)   // พื้นที่เลื่อนตอนเต็มจอ
 
   const pageCfg = cfg[page] || {}
   const requiredSec = pageCfg.read_seconds && pageCfg.read_seconds > 0 ? pageCfg.read_seconds : 0
@@ -74,24 +76,41 @@ function BookReader({
   const canAdvance = readGateDone && quizDone
   const estMin = estimateReadMinutes(pages[page] || "")
 
-  // reset gating เมื่อเปลี่ยนหน้า + ตัวจับเวลา + observer
+  // reset gating + ตัวจับเวลา เมื่อเปลี่ยนหน้า (ไม่ผูกกับ fullscreen — กันรีเซ็ตตอนสลับจอ)
   useEffect(() => {
     if (alreadyCompleted) { setBottomSeen(true); return }
     setBottomSeen(false)
     setSecondsOnPage(0)
-    if (cardRef.current) {
+    // เลื่อนขึ้นบนสุด (เต็มจอ = เลื่อน container, ปกติ = เลื่อน window)
+    if (fullscreen && scrollRef.current) scrollRef.current.scrollTo({ top: 0, behavior: "smooth" })
+    else if (cardRef.current) {
       const y = cardRef.current.getBoundingClientRect().top + window.scrollY - 80
       window.scrollTo({ top: Math.max(0, y), behavior: "smooth" })
     }
     const tick = setInterval(() => setSecondsOnPage(s => s + 1), 1000)
-    const io = new IntersectionObserver(
-      es => { if (es.some(e => e.isIntersecting)) setBottomSeen(true) },
-      { threshold: 0.9 },
-    )
-    if (bottomRef.current) io.observe(bottomRef.current)
-    return () => { clearInterval(tick); io.disconnect() }
+    return () => clearInterval(tick)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, alreadyCompleted])
+
+  // observer สำหรับ sentinel ท้ายหน้า — root เปลี่ยนตามโหมด (viewport / container) แต่ตั้ง bottomSeen ได้อย่างเดียว
+  useEffect(() => {
+    if (alreadyCompleted) return
+    const io = new IntersectionObserver(
+      es => { if (es.some(e => e.isIntersecting)) setBottomSeen(true) },
+      { threshold: 0.9, root: fullscreen ? scrollRef.current : null },
+    )
+    if (bottomRef.current) io.observe(bottomRef.current)
+    return () => io.disconnect()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, fullscreen, alreadyCompleted])
+
+  // ล็อค scroll พื้นหลังตอนเต็มจอ
+  useEffect(() => {
+    if (!fullscreen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => { document.body.style.overflow = prev }
+  }, [fullscreen])
 
   const fireComplete = useCallback(() => {
     if (completedRef.current) return
@@ -117,95 +136,131 @@ function BookReader({
   const isLast = page >= total - 1
   const remainSec = Math.max(0, requiredSec - secondsOnPage)
 
+  // ── ชิ้นส่วนที่ใช้ร่วมทั้ง 2 โหมด ──
+  const progressBar = (
+    <div className={fullscreen
+      ? "px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 bg-white/95 backdrop-blur border-b border-amber-100"
+      : "sticky top-0 z-20 -mx-4 lg:-mx-6 px-4 lg:px-6 py-2 bg-white/85 backdrop-blur border-b border-slate-100"}>
+      <div className="flex items-center gap-2">
+        <BookOpen size={14} className={done ? "text-emerald-600" : "text-amber-600"} />
+        <p className={`text-xs font-bold ${done ? "text-emerald-700" : "text-amber-700"}`}>
+          {done ? "อ่านจบแล้ว ✓" : `หน้า ${page + 1} / ${total}`}
+        </p>
+        <span className="ml-auto flex items-center gap-1 text-[10px] text-slate-400 font-medium">
+          {requiredSec > 0
+            ? <><Clock size={10} /> ต้องอ่าน {Math.ceil(requiredSec/60) >= 1 && requiredSec >= 60 ? `${Math.ceil(requiredSec/60)} นาที` : `${requiredSec} วิ`}</>
+            : <><Clock size={10} /> ~{estMin} นาที/หน้า</>}
+        </span>
+        {/* ปุ่มสลับเต็มจอ / ออกจากเต็มจอ */}
+        <button onClick={() => setFullscreen(f => !f)}
+          className="ml-1 w-7 h-7 rounded-lg bg-amber-50 border border-amber-200 text-amber-600 hover:bg-amber-100 flex items-center justify-center shrink-0"
+          title={fullscreen ? "ออกจากเต็มจอ" : "อ่านแบบเต็มจอ"}>
+          {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </button>
+      </div>
+      <div className="mt-1.5 flex gap-1">
+        {pages.map((_, i) => (
+          <div key={i} className={`h-1.5 flex-1 rounded-full transition-all ${
+            i < readCount || done ? "bg-emerald-400" : i === page ? "bg-amber-400" : "bg-slate-200"
+          }`} />
+        ))}
+      </div>
+    </div>
+  )
+
+  const pageCard = (
+    <div ref={cardRef} className={`relative ${fullscreen ? "max-w-3xl w-full mx-auto" : ""}`}>
+      {watermarkText && (
+        <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden opacity-[0.05] select-none">
+          <div className="absolute inset-0 flex flex-wrap gap-8 rotate-[-24deg] scale-125">
+            {Array.from({ length: 24 }).map((_, i) => (
+              <span key={i} className="text-slate-900 text-sm font-bold whitespace-nowrap">{watermarkText}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      <div key={page}
+        className={`reading-book relative rounded-2xl border border-amber-100 shadow-md anim-fade-up ${
+          fullscreen ? "px-5 py-7 sm:px-8 lg:px-12 lg:py-10" : "px-5 py-6 lg:px-10 lg:py-9"}`}
+        style={{ background: "linear-gradient(180deg,#fffdf8 0%,#fdf9f0 100%)" }}>
+        <span className="absolute top-3 right-4 text-[11px] font-bold text-amber-700/50">{page + 1}/{total}</span>
+        <div className={`text-[#3d362b] ${fullscreen ? "text-[17px] sm:text-lg lg:text-xl leading-[1.95]" : "text-[15px] lg:text-[17px] leading-[1.85]"}`}>
+          <ReadingContent content={pages[page]} />
+        </div>
+        <div ref={bottomRef} className="h-1 mt-4" />
+      </div>
+    </div>
+  )
+
+  const timeHint = !done && requiredSec > 0 && !timeDone ? (
+    <div className="flex items-center justify-center gap-2 text-amber-600 text-xs font-bold py-1">
+      <Clock size={13} /> อ่านต่ออีก {remainSec} วินาที
+    </div>
+  ) : null
+
+  const quizPanel = !done && readGateDone && hasQuiz && !quizPassed[page] ? (
+    <div className={fullscreen ? "max-w-3xl w-full mx-auto" : ""}>
+      <PageQuizPanel key={page} questions={pageQuiz} onPass={() => setQuizPassed(m => ({ ...m, [page]: true }))} />
+    </div>
+  ) : null
+
+  const navRow = (
+    <div className="flex items-center gap-2">
+      <button onClick={goPrev} disabled={page === 0}
+        className="flex items-center gap-1 px-4 py-2.5 rounded-xl text-sm font-bold border border-slate-200 bg-white text-slate-600 disabled:opacity-40 hover:bg-slate-50">
+        <ChevronLeft size={16} /> ก่อนหน้า
+      </button>
+      <div className="flex-1" />
+      {done ? (
+        <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm px-3">
+          <CheckCircle2 size={18} /> อ่านจบทั้งเล่มแล้ว
+        </div>
+      ) : (
+        <button onClick={goNext} disabled={!canAdvance}
+          className={`flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-sm font-black text-white shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+            isLast ? "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700"
+                   : "bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700"
+          }`}>
+          {isLast ? <><CheckCircle2 size={16} /> อ่านจบ — ยืนยัน</> : <>หน้าถัดไป <ChevronRight size={16} /></>}
+        </button>
+      )}
+    </div>
+  )
+  const hintText = !done && !canAdvance ? (
+    <p className="text-center text-[11px] text-slate-400">
+      {hasQuiz && readGateDone && !quizPassed[page] ? "ตอบควิซให้ถูกก่อน แล้วปุ่มจะเปิดให้ไปต่อ" : "อ่านหน้านี้ให้ครบก่อน แล้วปุ่มจะเปิดให้ไปต่อ"}
+    </p>
+  ) : null
+
+  // ── โหมดเต็มจอ: header + พื้นที่เลื่อน + footer (กันควิซ/ปุ่มโดนขอบตัด) ──
+  if (fullscreen) {
+    return (
+      <div className="fixed inset-0 z-[1000] flex flex-col" style={{ background: "linear-gradient(180deg,#fdfaf3,#f7f1e5)" }}>
+        {progressBar}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-3">
+          {pageCard}
+          {timeHint}
+          {quizPanel}
+          {/* เผื่อพื้นที่ล่างไม่ให้เนื้อหาชนแถบปุ่ม */}
+          <div className="h-2" />
+        </div>
+        <div className="px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-white/95 backdrop-blur border-t border-amber-100 space-y-1.5">
+          {navRow}
+          {hintText}
+        </div>
+      </div>
+    )
+  }
+
+  // ── โหมดปกติ (inline) ──
   return (
     <div className="space-y-3">
-      {/* Book progress bar */}
-      <div className="sticky top-0 z-20 -mx-4 lg:-mx-6 px-4 lg:px-6 py-2 bg-white/85 backdrop-blur border-b border-slate-100">
-        <div className="flex items-center gap-2">
-          <BookOpen size={14} className={done ? "text-emerald-600" : "text-amber-600"} />
-          <p className={`text-xs font-bold ${done ? "text-emerald-700" : "text-amber-700"}`}>
-            {done ? "อ่านจบแล้ว ✓" : `หน้า ${page + 1} / ${total}`}
-          </p>
-          <span className="ml-auto flex items-center gap-1 text-[10px] text-slate-400 font-medium">
-            {requiredSec > 0
-              ? <><Clock size={10} /> ต้องอ่าน {Math.round(requiredSec/60*10)/10 >= 1 ? `${Math.ceil(requiredSec/60)} นาที` : `${requiredSec} วิ`}</>
-              : <><Clock size={10} /> ~{estMin} นาที/หน้า</>}
-          </span>
-        </div>
-        {/* page dots */}
-        <div className="mt-1.5 flex gap-1">
-          {pages.map((_, i) => (
-            <div key={i} className={`h-1.5 flex-1 rounded-full transition-all ${
-              i < readCount || done ? "bg-emerald-400" : i === page ? "bg-amber-400" : "bg-slate-200"
-            }`} />
-          ))}
-        </div>
-      </div>
-
-      {/* Book page — paper look */}
-      <div ref={cardRef} className="relative">
-        {watermarkText && (
-          <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden opacity-[0.05] select-none">
-            <div className="absolute inset-0 flex flex-wrap gap-8 rotate-[-24deg] scale-125">
-              {Array.from({ length: 24 }).map((_, i) => (
-                <span key={i} className="text-slate-900 text-sm font-bold whitespace-nowrap">{watermarkText}</span>
-              ))}
-            </div>
-          </div>
-        )}
-        <div key={page}
-          className="reading-book relative rounded-2xl border border-amber-100 shadow-md px-5 py-6 lg:px-10 lg:py-9 anim-fade-up"
-          style={{ background: "linear-gradient(180deg,#fffdf8 0%,#fdf9f0 100%)" }}>
-          <span className="absolute top-3 right-4 text-[11px] font-bold text-amber-700/50">{page + 1}/{total}</span>
-          <div className="text-[15px] lg:text-[17px] leading-[1.85] text-[#3d362b]">
-            <ReadingContent content={pages[page]} />
-          </div>
-          <div ref={bottomRef} className="h-1 mt-4" />
-        </div>
-      </div>
-
-      {/* ⏳ ต้องอ่านต่ออีก (เมื่อตั้งเวลาไว้และยังไม่ครบ) */}
-      {!done && requiredSec > 0 && !timeDone && (
-        <div className="flex items-center justify-center gap-2 text-amber-600 text-xs font-bold py-1">
-          <Clock size={13} /> อ่านต่ออีก {remainSec} วินาที
-        </div>
-      )}
-
-      {/* 📝 ควิซคั่นหน้า — โผล่เมื่ออ่านหน้านี้ครบแล้ว ต้องตอบถูกก่อนไปต่อ */}
-      {!done && readGateDone && hasQuiz && !quizPassed[page] && (
-        <PageQuizPanel
-          key={page}
-          questions={pageQuiz}
-          onPass={() => setQuizPassed(m => ({ ...m, [page]: true }))}
-        />
-      )}
-
-      {/* Nav */}
-      <div className="flex items-center gap-2">
-        <button onClick={goPrev} disabled={page === 0}
-          className="flex items-center gap-1 px-4 py-2.5 rounded-xl text-sm font-bold border border-slate-200 bg-white text-slate-600 disabled:opacity-40 hover:bg-slate-50">
-          <ChevronLeft size={16} /> ก่อนหน้า
-        </button>
-        <div className="flex-1" />
-        {done ? (
-          <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm px-3">
-            <CheckCircle2 size={18} /> อ่านจบทั้งเล่มแล้ว
-          </div>
-        ) : (
-          <button onClick={goNext} disabled={!canAdvance}
-            className={`flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-sm font-black text-white shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-              isLast ? "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700"
-                     : "bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700"
-            }`}>
-            {isLast ? <><CheckCircle2 size={16} /> อ่านจบ — ยืนยัน</> : <>หน้าถัดไป <ChevronRight size={16} /></>}
-          </button>
-        )}
-      </div>
-      {!done && !canAdvance && (
-        <p className="text-center text-[11px] text-slate-400">
-          {hasQuiz && readGateDone && !quizPassed[page] ? "ตอบควิซให้ถูกก่อน แล้วปุ่มจะเปิดให้ไปต่อ" : "อ่านหน้านี้ให้ครบก่อน แล้วปุ่มจะเปิดให้ไปต่อ"}
-        </p>
-      )}
+      {progressBar}
+      {pageCard}
+      {timeHint}
+      {quizPanel}
+      {navRow}
+      {hintText}
     </div>
   )
 }
