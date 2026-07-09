@@ -96,11 +96,15 @@ export default function AdminLeavePage() {
     const [lv, rs] = await Promise.all([
       fc(supabase.from("leave_requests").select("id",{count:"exact",head:true})).eq("status","pending"),
       (async () => {
-      const {count:c1} = await fcResign(supabase.from("resignation_requests").select("id",{count:"exact",head:true})).eq("status","pending_hr")
-      const {count:c2} = await fcResign(supabase.from("resignation_requests").select("id",{count:"exact",head:true})).eq("status","pending_manager")
-      const {count:c3} = await fcResign(supabase.from("resignation_requests").select("id",{count:"exact",head:true})).eq("status","pending_intent")
-      return { count: (c1??0)+(c2??0)+(c3??0) }
-    })()
+        // resignation counts ผ่าน service API (bypass RLS)
+        try {
+          const qs = new URLSearchParams({ counts: "1" })
+          if(cid) qs.set("company_id", cid)
+          const res = await fetch(`/api/admin/resignations?${qs.toString()}`)
+          const d = await res.json()
+          return { count: res.ok ? (d.total ?? 0) : 0 }
+        } catch { return { count: 0 } }
+      })()
     ])
     setTabCounts({ leave: lv.count??0, resignation: rs.count??0 })
   },[cid,isSA,myId])
@@ -207,14 +211,16 @@ export default function AdminLeavePage() {
   const loadResign = useCallback(async()=>{
     if(!isSA&&!myId) return
     setResignLoading(true)
-    let q = fcResign(supabase.from("resignation_requests")
-      .select(`*, employee:employees!resignation_requests_employee_id_fkey(
-        id,first_name_th,last_name_th,employee_code,avatar_url,hire_date,
-        position:positions(name),department:departments(name))`)
-      .order("created_at",{ascending:false}))
-    if(resignFilter !== "all") q = q.eq("status", resignFilter)
-    const { data } = await q
-    setResignReqs(data??[])
+    // ── ผ่าน service API (bypass RLS) — เดิมอ่านผ่าน browser client ติด RLS → HR เห็นข้ามบริษัทไม่ได้ ──
+    const qs = new URLSearchParams()
+    if(resignFilter !== "all") qs.set("status", resignFilter)
+    if(cid) qs.set("company_id", cid)
+    try {
+      const res = await fetch(`/api/admin/resignations?${qs.toString()}`)
+      const d = await res.json()
+      setResignReqs(res.ok ? (d.requests ?? []) : [])
+      if(!res.ok) toast.error(d.error || "โหลดใบลาออกไม่สำเร็จ")
+    } catch { setResignReqs([]) }
     setResignLoading(false)
   },[cid,isSA,myId,resignFilter])
 
@@ -282,34 +288,12 @@ export default function AdminLeavePage() {
   const handleResign = async(id:string, action:"approved"|"rejected")=>{
     setResignActing(id)
     try{
-      const newStatus = action==="approved" ? "approved" : "rejected"
-      const{error}=await supabase.from("resignation_requests").update({
-        status:          newStatus,
-        hr_id:           user?.employee_id,
-        hr_approved_at:  new Date().toISOString(),
-        hr_note:         resignNotes[id] || null,
-      }).eq("id",id)
-      if(error){toast.error(error.message);return}
-
-      const item = resignReqs.find(r=>r.id===id)
-      if(item){
-        // update employee status on final approval
-        //   ✅ ตั้ง resign_date + is_active ด้วย เพื่อให้ระบบเงินเดือน "ซ่อนคนลาออก" ทำงานถูก
-        //   (เดิมตั้งแค่ employment_status → resign_date ว่าง → payroll ซ่อนไม่ได้ คนลาออกยังโผล่/export)
-        if(action==="approved"){
-          await supabase.from("employees").update({
-            employment_status: "resigned",
-            resign_date: item.effective_date || item.last_work_date || new Date().toISOString().slice(0,10),
-            is_active: false,
-          }).eq("id", item.employee_id)
-        }
-        await supabase.from("notifications").insert({
-          employee_id: item.employee_id,
-          type:"resignation",
-          title: action==="approved" ? "ใบลาออกได้รับการอนุมัติแล้ว" : "ใบลาออกถูกปฏิเสธโดย HR",
-          body: resignNotes[id] || "",
-        })
-      }
+      const res = await fetch("/api/admin/resignations", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ id, action: action==="approved" ? "approve" : "reject", note: resignNotes[id] || null }),
+      })
+      const d = await res.json()
+      if(!res.ok){ toast.error(d.error || "ไม่สำเร็จ"); return }
       toast.success(action==="approved" ? "✅ อนุมัติใบลาออก — อัพเดตสถานะพนักงานแล้ว" : "ปฏิเสธใบลาออกแล้ว")
       loadResign(); loadTabCounts()
     }finally{ setResignActing(null) }
@@ -350,22 +334,12 @@ export default function AdminLeavePage() {
   const handleIntent = async(id:string, action:"approved"|"rejected")=>{
     setResignActing(id)
     try{
-      const newStatus = action==="approved" ? "intent_approved" : "rejected"
-      const{error}=await supabase.from("resignation_requests").update({
-        status:             newStatus,
-        hr_id:              user?.employee_id,
-        intent_approved_at: action==="approved" ? new Date().toISOString() : null,
-        hr_note:            resignNotes[id] || null,
-      }).eq("id",id)
-      if(error){toast.error(error.message);return}
-      const item = resignReqs.find(r=>r.id===id)
-      if(item){
-        await supabase.from("notifications").insert({
-          employee_id: item.employee_id, type:"resignation",
-          title: action==="approved" ? "HR เปิดสิทธิ์ให้ลาออกแล้ว" : "คำขอลาออกถูกปฏิเสธ",
-          body:  action==="approved" ? "กรุณากรอกแบบฟอร์มลาออกในระบบ" : (resignNotes[id] || ""),
-        })
-      }
+      const res = await fetch("/api/admin/resignations", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ id, action: action==="approved" ? "intent_approve" : "intent_reject", note: resignNotes[id] || null }),
+      })
+      const d = await res.json()
+      if(!res.ok){ toast.error(d.error || "ไม่สำเร็จ"); return }
       toast.success(action==="approved" ? "✅ เปิดสิทธิ์ให้ลาออกแล้ว" : "ปฏิเสธคำขอลาออกแล้ว")
       loadResign(); loadTabCounts()
     }finally{ setResignActing(null) }
