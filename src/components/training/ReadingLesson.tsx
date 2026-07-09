@@ -352,6 +352,7 @@ function ScrollReader({
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null)
   const endRef = useRef<HTMLDivElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)   // container ที่เลื่อนตอนเต็มจอ
   const startRef = useRef<number>(0)
   const completedRef = useRef<boolean>(alreadyCompleted)
   const reachedEndRef = useRef<boolean>(false)
@@ -361,6 +362,7 @@ function ScrollReader({
 
   const [readPct, setReadPct] = useState<number>(alreadyCompleted ? 100 : Math.min(99, Math.round(initialReadPct)))
   const [done, setDone] = useState<boolean>(alreadyCompleted)
+  const [fullscreen, setFullscreen] = useState(false)
 
   const estMin = estimateReadMinutes(content)
   const minSeconds = Math.min(90, Math.max(5, Math.round(estMin * 60 * 0.4)))
@@ -379,8 +381,16 @@ function ScrollReader({
     else endTimerRef.current = setTimeout(() => fireComplete(), (minSeconds - elapsed) * 1000)
   }, [minSeconds, fireComplete])
 
+  // ล็อค scroll พื้นหลังตอนเต็มจอ
   useEffect(() => {
-    startRef.current = Date.now()
+    if (!fullscreen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => { document.body.style.overflow = prev }
+  }, [fullscreen])
+
+  useEffect(() => {
+    if (startRef.current === 0) startRef.current = Date.now()   // เริ่มจับเวลาครั้งเดียว (ไม่รีเซ็ตตอนสลับจอ)
     if (alreadyCompleted) return
     const compute = () => {
       const el = contentRef.current
@@ -404,72 +414,107 @@ function ScrollReader({
       if (rafRef.current) return
       rafRef.current = requestAnimationFrame(() => { rafRef.current = 0; compute() })
     }
+    // เต็มจอ = เลื่อนใน container, ปกติ = เลื่อน window — ฟังทั้งคู่กันพลาด
+    const cont = scrollRef.current
     window.addEventListener("scroll", onScroll, { passive: true })
     window.addEventListener("resize", onScroll)
+    cont?.addEventListener("scroll", onScroll, { passive: true })
     compute()
     const io = new IntersectionObserver(
       es => { if (es.some(e => e.isIntersecting)) handleReachedEnd() },
-      { threshold: 0.6 },
+      { threshold: 0.6, root: fullscreen ? scrollRef.current : null },
     )
     if (endRef.current) io.observe(endRef.current)
     return () => {
       window.removeEventListener("scroll", onScroll)
       window.removeEventListener("resize", onScroll)
+      cont?.removeEventListener("scroll", onScroll)
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       if (endTimerRef.current) clearTimeout(endTimerRef.current)
       io.disconnect()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [alreadyCompleted, content])
+  }, [alreadyCompleted, content, fullscreen])
+
+  // ── ชิ้นส่วนที่ใช้ร่วม ──
+  const progressBar = (
+    <div className={fullscreen
+      ? "px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 bg-white/95 backdrop-blur border-b border-slate-100"
+      : "sticky top-0 z-20 -mx-4 lg:-mx-6 px-4 lg:px-6 py-2 bg-white/85 backdrop-blur border-b border-slate-100"}>
+      <div className="flex items-center gap-2">
+        <BookOpen size={14} className={done ? "text-emerald-600" : "text-sky-600"} />
+        <p className={`text-xs font-bold ${done ? "text-emerald-700" : "text-sky-700"}`}>
+          {done ? "อ่านจบแล้ว ✓" : `กำลังอ่าน ${readPct}%`}
+        </p>
+        <span className="ml-auto flex items-center gap-1 text-[10px] text-slate-400 font-medium">
+          <Clock size={10} /> ~{estMin} นาที
+        </span>
+        <button onClick={() => setFullscreen(f => !f)}
+          className="ml-1 w-7 h-7 rounded-lg bg-sky-50 border border-sky-200 text-sky-600 hover:bg-sky-100 flex items-center justify-center shrink-0"
+          title={fullscreen ? "ออกจากเต็มจอ" : "อ่านแบบเต็มจอ"}>
+          {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </button>
+      </div>
+      <div className="mt-1.5 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+        <div className={`h-full transition-all ${done ? "bg-gradient-to-r from-emerald-400 to-green-500" : "bg-gradient-to-r from-sky-400 to-blue-500"}`}
+          style={{ width: `${readPct}%` }} />
+      </div>
+    </div>
+  )
+
+  const contentBlock = (
+    <div className={`relative ${fullscreen ? "max-w-3xl w-full mx-auto" : ""}`}>
+      {watermarkText && (
+        <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden opacity-[0.05] select-none">
+          <div className="absolute inset-0 flex flex-wrap gap-8 rotate-[-24deg] scale-125">
+            {Array.from({ length: 24 }).map((_, i) => (
+              <span key={i} className="text-slate-900 text-sm font-bold whitespace-nowrap">{watermarkText}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      <div ref={contentRef}
+        className={`relative bg-white border border-slate-200 rounded-2xl shadow-sm ${
+          fullscreen ? "p-5 sm:p-8 text-[17px] sm:text-lg leading-[1.9]" : "p-5 lg:p-7 text-[15px] lg:text-base"}`}>
+        <ReadingContent content={content} />
+      </div>
+    </div>
+  )
+
+  const endBlock = (
+    <div ref={endRef} className={`pt-1 ${fullscreen ? "max-w-3xl w-full mx-auto" : ""}`}>
+      {done ? (
+        <div className="flex items-center gap-2 justify-center py-3 text-emerald-600 font-bold text-sm">
+          <CheckCircle2 size={18} /> คุณอ่านเนื้อหาจบแล้ว
+        </div>
+      ) : readPct >= 90 ? (
+        <button onClick={handleReachedEnd}
+          className="w-full py-3 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-black rounded-xl shadow-sm flex items-center justify-center gap-2">
+          <CheckCircle2 size={16} /> อ่านจบแล้ว — ยืนยัน
+        </button>
+      ) : (
+        <p className="text-center text-[11px] text-slate-400 py-2">เลื่อนอ่านต่อจนจบเพื่อทำเครื่องหมายว่าเรียนจบ</p>
+      )}
+    </div>
+  )
+
+  if (fullscreen) {
+    return (
+      <div className="fixed inset-0 z-[1000] flex flex-col bg-slate-50">
+        {progressBar}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {contentBlock}
+          {endBlock}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-3">
-      <div className="sticky top-0 z-20 -mx-4 lg:-mx-6 px-4 lg:px-6 py-2 bg-white/85 backdrop-blur border-b border-slate-100">
-        <div className="flex items-center gap-2">
-          <BookOpen size={14} className={done ? "text-emerald-600" : "text-sky-600"} />
-          <p className={`text-xs font-bold ${done ? "text-emerald-700" : "text-sky-700"}`}>
-            {done ? "อ่านจบแล้ว ✓" : `กำลังอ่าน ${readPct}%`}
-          </p>
-          <span className="ml-auto flex items-center gap-1 text-[10px] text-slate-400 font-medium">
-            <Clock size={10} /> ~{estMin} นาที
-          </span>
-        </div>
-        <div className="mt-1.5 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-          <div className={`h-full transition-all ${done ? "bg-gradient-to-r from-emerald-400 to-green-500" : "bg-gradient-to-r from-sky-400 to-blue-500"}`}
-            style={{ width: `${readPct}%` }} />
-        </div>
-      </div>
-
-      <div className="relative">
-        {watermarkText && (
-          <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden opacity-[0.05] select-none">
-            <div className="absolute inset-0 flex flex-wrap gap-8 rotate-[-24deg] scale-125">
-              {Array.from({ length: 24 }).map((_, i) => (
-                <span key={i} className="text-slate-900 text-sm font-bold whitespace-nowrap">{watermarkText}</span>
-              ))}
-            </div>
-          </div>
-        )}
-        <div ref={contentRef}
-          className="relative bg-white border border-slate-200 rounded-2xl p-5 lg:p-7 shadow-sm text-[15px] lg:text-base">
-          <ReadingContent content={content} />
-        </div>
-      </div>
-
-      <div ref={endRef} className="pt-1">
-        {done ? (
-          <div className="flex items-center gap-2 justify-center py-3 text-emerald-600 font-bold text-sm">
-            <CheckCircle2 size={18} /> คุณอ่านเนื้อหาจบแล้ว
-          </div>
-        ) : readPct >= 90 ? (
-          <button onClick={handleReachedEnd}
-            className="w-full py-3 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-black rounded-xl shadow-sm flex items-center justify-center gap-2">
-            <CheckCircle2 size={16} /> อ่านจบแล้ว — ยืนยัน
-          </button>
-        ) : (
-          <p className="text-center text-[11px] text-slate-400 py-2">เลื่อนอ่านต่อจนจบเพื่อทำเครื่องหมายว่าเรียนจบ</p>
-        )}
-      </div>
+      {progressBar}
+      {contentBlock}
+      {endBlock}
     </div>
   )
 }
