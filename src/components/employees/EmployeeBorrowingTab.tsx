@@ -20,6 +20,7 @@ import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
 import PhotoLightbox from "@/components/PhotoLightbox"
 import FeishuImage, { getFeishuProxyUrl, isFeishuUrl } from "@/components/FeishuImage"
+import { useLanguage } from "@/lib/i18n"
 
 // ─────────────────────────────────────────────────────
 // Types
@@ -125,6 +126,7 @@ const CATEGORIES: Record<Category, {
 // Main component
 // ════════════════════════════════════════════════════════════════════
 export default function EmployeeBorrowingTab({ employeeId, employeeName, employeeNickname, employeeFirstNameEn }: Props) {
+  const { t } = useLanguage()
   const [samples, setSamples]           = useState<SampleRequest[]>([])
   const [feishuAssets, setFeishuAssets] = useState<FeishuAssetData | null>(null)
   const [loadingS, setLoadingS]         = useState(true)
@@ -202,9 +204,9 @@ export default function EmployeeBorrowingTab({ employeeId, employeeName, employe
             <Package size={18} className="text-white"/>
           </div>
           <div>
-            <h3 className="font-black text-slate-800 text-sm">ของที่ยืม / ครอบครอง</h3>
+            <h3 className="font-black text-slate-800 text-sm">{t("admin.emp_detail.borrow_title")}</h3>
             <p className="text-[11px] text-slate-400">
-              จากฟอร์ม Sample Request + ตาราง Feishu Assets · {total} รายการรวม
+              {t("admin.emp_detail.borrow_subtitle", { n: total })}
             </p>
           </div>
         </div>
@@ -222,8 +224,8 @@ export default function EmployeeBorrowingTab({ employeeId, employeeName, employe
             <AlertTriangle size={16} className="text-white"/>
           </div>
           <div className="flex-1">
-            <p className="font-black text-rose-900 text-sm">⚠ มี {sampleOverdue.length} รายการ Sample Request เกินกำหนดคืน</p>
-            <p className="text-[11px] text-rose-700/80">ต้องตามคืนก่อนพนักงานลาออก/เปลี่ยนตำแหน่ง</p>
+            <p className="font-black text-rose-900 text-sm">{t("admin.emp_detail.borrow_overdue_banner", { n: sampleOverdue.length })}</p>
+            <p className="text-[11px] text-rose-700/80">{t("admin.emp_detail.borrow_overdue_banner_sub")}</p>
           </div>
         </div>
       )}
@@ -249,10 +251,10 @@ export default function EmployeeBorrowingTab({ employeeId, employeeName, employe
                 <div className={`w-7 h-7 rounded-lg ${n > 0 ? cfg.iconBg : "bg-slate-200"} flex items-center justify-center`}>
                   <Icon size={13} className="text-white"/>
                 </div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide truncate">{cfg.label}</p>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide truncate">{t(`admin.emp_detail.borrow_cat_${cat}`)}</p>
               </div>
               <p className={`text-2xl font-black ${n > 0 ? cfg.color : "text-slate-300"} leading-tight`}>{n}</p>
-              <p className="text-[10px] text-slate-400 mt-0.5">{n > 0 ? "รายการ" : "ไม่มี"}</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">{n > 0 ? t("admin.emp_detail.borrow_items_unit") : t("admin.emp_detail.borrow_none")}</p>
             </button>
           )
         })}
@@ -292,11 +294,11 @@ export default function EmployeeBorrowingTab({ employeeId, employeeName, employe
       {feishuAssets && (
         <details className="text-[10px] text-slate-400">
           <summary className="cursor-pointer font-bold flex items-center gap-1">
-            <Database size={10}/> ระบบจับคู่ Feishu Assets ด้วย identifier {
+            <Database size={10}/> {t("admin.emp_detail.borrow_match_identifier_summary", { n:
               (feishuAssets.identifiers_used.emails?.length || 0) +
               (feishuAssets.identifiers_used.feishuIds?.length || 0) +
               (feishuAssets.identifiers_used.names?.length || 0)
-            } ตัว
+            })}
           </summary>
           <div className="mt-1.5 bg-slate-50 rounded-lg p-2 space-y-0.5">
             {feishuAssets.identifiers_used.emails?.map((e: string) => <p key={e}>📧 {e}</p>)}
@@ -322,17 +324,18 @@ function EmptyState({ feishuAssets, candidates, searchName, setSearchName }: {
   searchName: string
   setSearchName: (s: string) => void
 }) {
+  const { t } = useLanguage()
   return (
     <div className="bg-white border border-dashed border-slate-200 rounded-2xl py-10 text-center">
       <Package size={28} className="mx-auto text-slate-200 mb-2"/>
-      <p className="text-sm text-slate-500 font-bold">ไม่พบของที่ยืม</p>
+      <p className="text-sm text-slate-500 font-bold">{t("admin.emp_detail.borrow_empty_title")}</p>
       <p className="text-[11px] text-slate-400 mt-1">
-        ระบบจับคู่ Sample Request ด้วย <b>ชื่อ</b> และ Feishu Assets ด้วย <b>email / Feishu ID / ชื่อ</b>
+        {t("admin.emp_detail.borrow_empty_desc_1")}<b>{t("admin.emp_detail.borrow_empty_desc_name")}</b>{t("admin.emp_detail.borrow_empty_desc_2")}<b>{t("admin.emp_detail.borrow_empty_desc_idlist")}</b>
       </p>
       {/* Try other names */}
       {candidates.length > 1 && (
         <div className="mt-3">
-          <p className="text-[10px] text-slate-400 mb-1">ลองค้น Sample Request ด้วยชื่ออื่น:</p>
+          <p className="text-[10px] text-slate-400 mb-1">{t("admin.emp_detail.borrow_try_other_names")}</p>
           <div className="flex items-center gap-1.5 justify-center">
             {candidates.map(n => (
               <button key={n} onClick={() => setSearchName(n)}
@@ -346,7 +349,7 @@ function EmptyState({ feishuAssets, candidates, searchName, setSearchName }: {
         </div>
       )}
       <p className="text-[10px] text-slate-300 mt-3">
-        เชื่อมพนักงานกับ Feishu user ก่อน → คลิกแท็บ "🔗 Feishu Link"
+        {t("admin.emp_detail.borrow_connect_hint")}
       </p>
     </div>
   )
@@ -362,6 +365,7 @@ function SampleSection({ samples, candidates, searchName, setSearchName, unretur
   setSearchName: (s: string) => void
   unreturned: SampleRequest[]
 }) {
+  const { t } = useLanguage()
   const returned = samples.filter(r => r.return_done)
   const noReturnNeeded = samples.filter(r => {
     const needReturn = (r.situation || "").includes("Need to return") || (r.situation || "").includes("需要退回")
@@ -373,7 +377,7 @@ function SampleSection({ samples, candidates, searchName, setSearchName, unretur
       {/* Search name picker */}
       {candidates.length > 1 && (
         <div className="bg-slate-50 border border-slate-100 rounded-xl p-2 flex items-center gap-1.5 flex-wrap">
-          <p className="text-[10px] font-bold text-slate-500 px-1">ค้นด้วยชื่อ:</p>
+          <p className="text-[10px] font-bold text-slate-500 px-1">{t("admin.emp_detail.borrow_search_by_name")}</p>
           {candidates.map(n => (
             <button key={n} onClick={() => setSearchName(n)}
               className={`text-[10px] font-bold px-2 py-1 rounded-lg ${
@@ -393,8 +397,8 @@ function SampleSection({ samples, candidates, searchName, setSearchName, unretur
               <AlertCircle size={15} className="text-white"/>
             </div>
             <div className="flex-1">
-              <p className="font-black text-amber-900 text-sm">⚠ ต้องคืน {unreturned.length} รายการ</p>
-              <p className="text-[11px] text-amber-700">ต้องตามคืนก่อนพนักงานลาออก</p>
+              <p className="font-black text-amber-900 text-sm">{t("admin.emp_detail.borrow_must_return", { n: unreturned.length })}</p>
+              <p className="text-[11px] text-amber-700">{t("admin.emp_detail.borrow_must_return_sub")}</p>
             </div>
           </div>
           <div className="space-y-1.5">
@@ -410,7 +414,7 @@ function SampleSection({ samples, candidates, searchName, setSearchName, unretur
             <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center">
               <Check size={14} className="text-white"/>
             </div>
-            <p className="font-bold text-emerald-800 text-sm flex-1">✓ คืนแล้ว · {returned.length} รายการ</p>
+            <p className="font-bold text-emerald-800 text-sm flex-1">{t("admin.emp_detail.borrow_returned", { n: returned.length })}</p>
             <ChevronDown size={14} className="text-slate-400"/>
           </summary>
           <div className="px-3 pb-3 space-y-1.5 bg-emerald-50/30 border-t border-emerald-100">
@@ -426,7 +430,7 @@ function SampleSection({ samples, candidates, searchName, setSearchName, unretur
             <div className="w-7 h-7 rounded-lg bg-slate-400 flex items-center justify-center">
               <Package size={14} className="text-white"/>
             </div>
-            <p className="font-bold text-slate-700 text-sm flex-1">ไม่ต้องคืน · {noReturnNeeded.length} รายการ</p>
+            <p className="font-bold text-slate-700 text-sm flex-1">{t("admin.emp_detail.borrow_no_return_needed", { n: noReturnNeeded.length })}</p>
             <ChevronDown size={14} className="text-slate-400"/>
           </summary>
           <div className="px-3 pb-3 space-y-1.5 bg-slate-50/40 border-t border-slate-100">
@@ -436,9 +440,9 @@ function SampleSection({ samples, candidates, searchName, setSearchName, unretur
       )}
 
       <div className="text-[10px] text-slate-400 text-center">
-        🔗 จัดการ Sample Request ได้ที่{" "}
+        {t("admin.emp_detail.borrow_manage_sample_at")}
         <Link href="/equipment/sample-requests" className="font-bold text-cyan-600 hover:underline">
-          อุปกรณ์ &gt; Sample Request
+          {t("admin.emp_detail.borrow_equipment_sample_link")}
         </Link>
       </div>
     </div>
@@ -446,6 +450,7 @@ function SampleSection({ samples, candidates, searchName, setSearchName, unretur
 }
 
 function SampleCard({ r, highlightOverdue }: { r: SampleRequest; highlightOverdue?: boolean }) {
+  const { t } = useLanguage()
   const overdue = highlightOverdue && r.estimated_return && new Date(r.estimated_return) < new Date()
   return (
     <Link href="/equipment/sample-requests"
@@ -459,15 +464,15 @@ function SampleCard({ r, highlightOverdue }: { r: SampleRequest; highlightOverdu
             <p className="text-[11px] font-mono font-bold text-slate-700">{r.request_no || "—"}</p>
             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${statusColor(r.status)}`}>{r.status || "—"}</span>
             {r.brand && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700">{r.brand}</span>}
-            {overdue && <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-rose-500 text-white">⚠ เกิน</span>}
+            {overdue && <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-rose-500 text-white">{t("admin.emp_detail.borrow_overdue_badge")}</span>}
           </div>
           <p className="text-xs text-slate-700 mt-0.5 line-clamp-2" title={r.sku || ""}>
-            {r.sku || "—"} {r.quantity && <span className="text-slate-400">· {r.quantity} ชิ้น</span>}
+            {r.sku || "—"} {r.quantity && <span className="text-slate-400">· {t("admin.emp_detail.borrow_qty_pieces", { n: r.quantity })}</span>}
           </p>
           <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-500 flex-wrap">
-            {r.application_date && <span className="flex items-center gap-0.5"><Calendar size={9}/>ขอ {fmtDate(r.application_date)}</span>}
-            {r.estimated_return && <span className="flex items-center gap-0.5"><Truck size={9}/>ครบ {fmtDate(r.estimated_return)}</span>}
-            {r.return_done && r.return_date && <span className="flex items-center gap-0.5 text-emerald-600 font-bold"><Check size={9}/>คืน {fmtDate(r.return_date)}</span>}
+            {r.application_date && <span className="flex items-center gap-0.5"><Calendar size={9}/>{t("admin.emp_detail.borrow_requested_on", { d: fmtDate(r.application_date) })}</span>}
+            {r.estimated_return && <span className="flex items-center gap-0.5"><Truck size={9}/>{t("admin.emp_detail.borrow_due_on", { d: fmtDate(r.estimated_return) })}</span>}
+            {r.return_done && r.return_date && <span className="flex items-center gap-0.5 text-emerald-600 font-bold"><Check size={9}/>{t("admin.emp_detail.borrow_returned_on", { d: fmtDate(r.return_date) })}</span>}
           </div>
         </div>
         <ExternalLink size={11} className="text-slate-300 mt-1 shrink-0"/>
@@ -485,6 +490,7 @@ function FeishuAssetSection({ category, results, matchRoles, onOpenPhoto }: {
   matchRoles: Record<string, string>
   onOpenPhoto: (urls: string[], idx: number) => void
 }) {
+  const { t } = useLanguage()
   const cfg = CATEGORIES[category]
   return (
     <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
@@ -493,12 +499,12 @@ function FeishuAssetSection({ category, results, matchRoles, onOpenPhoto }: {
           <cfg.icon size={13} className="text-white"/>
         </div>
         <div className="flex-1">
-          <p className="text-sm font-black text-slate-800">{cfg.label}</p>
-          <p className="text-[10px] text-slate-500">{results.length} รายการ</p>
+          <p className="text-sm font-black text-slate-800">{t(`admin.emp_detail.borrow_cat_${category}`)}</p>
+          <p className="text-[10px] text-slate-500">{t("admin.emp_detail.borrow_items_count", { n: results.length })}</p>
         </div>
         <Link href="/equipment/assets"
           className="text-[10px] font-bold text-slate-500 hover:text-cyan-600 flex items-center gap-1">
-          <ExternalLink size={10}/> หน้า Assets
+          <ExternalLink size={10}/> {t("admin.emp_detail.borrow_assets_page")}
         </Link>
       </div>
       <div className="divide-y divide-slate-50">
@@ -520,6 +526,7 @@ function AssetRow({ category, record, matchRole, onOpenPhoto }: {
   matchRole?: string
   onOpenPhoto: (urls: string[], idx: number) => void
 }) {
+  const { t } = useLanguage()
   const [expanded, setExpanded] = useState(false)
   const f = record.fields || {}
   const edit = record.edit || {}
@@ -544,7 +551,7 @@ function AssetRow({ category, record, matchRole, onOpenPhoto }: {
     if (value)  metaChips.push(<Chip key="val" color="amber" text={`฿${value.toLocaleString()}`}/>)
     if (damage) metaChips.push(<Chip key="dmg" color={damage.includes("ปกติ") || damage.includes("完好") ? "emerald" : "rose"} text={damage}/>)
     if (maint)  stateChip = <Chip color="blue" text={maint}/>
-    if (checkedAt) metaChips.push(<Chip key="dt" icon={Calendar} color="slate" text={`ตรวจ ${checkedAt}`}/>)
+    if (checkedAt) metaChips.push(<Chip key="dt" icon={Calendar} color="slate" text={t("admin.emp_detail.borrow_checked_on", { d: checkedAt })}/>)
   } else if (category === "tel_user") {
     title = readText(f["รหัสลูกค้า代号"]) || "—"
     const phone = readText(f["เบอร์โทร电话☎️"])
@@ -555,7 +562,7 @@ function AssetRow({ category, record, matchRole, onOpenPhoto }: {
     if (dept) metaChips.push(<Chip key="dept" icon={Building2} color="slate" text={dept}/>)
   } else if (category === "tel") {
     const billNo = readText(f["รหัสลูกค้า代号"]) || readText(f["รายการหลัก"])
-    title = `บิล ${billNo}`
+    title = t("admin.emp_detail.borrow_bill_title", { no: billNo })
     const phone = readText(f["เบอร์โทร电话☎️"])
     const year = readText(f["年份"])
     const month = readText(f["月份"])
@@ -565,12 +572,12 @@ function AssetRow({ category, record, matchRole, onOpenPhoto }: {
     if (year && month) metaChips.push(<Chip key="ym" icon={Calendar} color="slate" text={`${month}/${year}`}/>)
     if (network) metaChips.push(<Chip key="net" color="violet" text={network}/>)
     if (total)  metaChips.push(<Chip key="amt" color="amber" text={`฿${total.toLocaleString()}`}/>)
-    if (record.chk) stateChip = <Chip icon={Check} color="emerald" text="ตรวจแล้ว"/>
+    if (record.chk) stateChip = <Chip icon={Check} color="emerald" text={t("admin.emp_detail.borrow_checked_badge")}/>
   }
 
   let roleChip: React.ReactNode = null
   if (matchRole?.includes("หัวหน้า") || matchRole?.includes("负责人")) {
-    roleChip = <Chip icon={Shield} color="indigo" text="หัวหน้า"/>
+    roleChip = <Chip icon={Shield} color="indigo" text={t("admin.emp_detail.borrow_role_head")}/>
   }
 
   const cfg = CATEGORIES[category]
@@ -605,7 +612,7 @@ function AssetRow({ category, record, matchRole, onOpenPhoto }: {
               {metaChips}
               {imgUrls.length > 1 && (
                 <span className="text-[10px] text-slate-400 inline-flex items-center gap-0.5">
-                  <ImageIcon size={9}/> +{imgUrls.length - 1} รูป
+                  <ImageIcon size={9}/> {t("admin.emp_detail.borrow_more_photos", { n: imgUrls.length - 1 })}
                 </span>
               )}
             </div>
@@ -622,7 +629,7 @@ function AssetRow({ category, record, matchRole, onOpenPhoto }: {
         <div className="mt-3 bg-slate-50 rounded-xl p-3 space-y-2">
           {(readText(f["Note"]) || edit.note || record.note) && (
             <div className="bg-white border border-slate-200 rounded-lg p-2">
-              <p className="text-[9px] font-bold text-slate-400 uppercase">หมายเหตุ</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase">{t("admin.emp_detail.borrow_note_label")}</p>
               <p className="text-[11px] text-slate-700 whitespace-pre-wrap">{readText(f["Note"]) || edit.note || record.note}</p>
             </div>
           )}
@@ -638,8 +645,8 @@ function AssetRow({ category, record, matchRole, onOpenPhoto }: {
           )}
           {record.updated_at && (
             <p className="text-[10px] text-slate-400">
-              อัพเดต {format(new Date(record.updated_at), "d MMM yy HH:mm", { locale: th })}
-              {record.updated_by && ` · โดย ${record.updated_by}`}
+              {t("admin.emp_detail.borrow_updated_at", { d: format(new Date(record.updated_at), "d MMM yy HH:mm", { locale: th }) })}
+              {record.updated_by && ` ${t("admin.emp_detail.borrow_updated_by", { name: record.updated_by })}`}
             </p>
           )}
         </div>

@@ -4,6 +4,7 @@ import { Loader2, Save, Tag, Check, X, Search, RotateCcw, Percent, Split } from 
 import toast from "react-hot-toast"
 import { normalizeBrands } from "@/lib/utils/brands"
 import { useBrands } from "@/lib/hooks/useBrands"
+import { useLanguage } from "@/lib/i18n"
 
 // ── Brand mini chip color (สีสุภาพ ไม่จี้ตา) ──
 function brandColor(brand: string): { bg: string; text: string; border: string; activeBg: string; activeText: string } {
@@ -49,6 +50,7 @@ export default function BrandsTab({
   initialAllocations?: Record<string, number> | null
   feishuBrand?: string | null
 }) {
+  const { t } = useLanguage()
   const { names: BRAND_NAMES, brands: brandRecords, loading: brandsLoading } = useBrands()
   const [selected, setSelected] = useState<string[]>(normalizeBrands(initialBrands))
   const [original, setOriginal] = useState<string[]>(normalizeBrands(initialBrands))
@@ -172,12 +174,12 @@ export default function BrandsTab({
   const clearAll = () => setSelected([])
   const adoptFeishu = () => {
     setSelected(prev => Array.from(new Set([...prev, ...feishuSuggestions])))
-    toast.success(`เพิ่ม ${feishuSuggestions.length} แบรนด์จาก Feishu`)
+    toast.success(t("admin.emp_detail.brands_toast_adopt_feishu", { n: feishuSuggestions.length }))
   }
 
   const save = async () => {
     setSaving(true)
-    const t = toast.loading("กำลังบันทึก...")
+    const toastId = toast.loading(t("admin.emp_detail.brands_toast_saving"))
     try {
       // ส่ง allocations ก็ต่อเมื่อ admin กรอกครบทุก brand ที่เลือก (มิฉะนั้นเก็บ NULL → หารเท่ากัน)
       const filledKeys = selected.filter(b => (allocations[b] ?? null) !== null && allocations[b] !== undefined)
@@ -195,14 +197,14 @@ export default function BrandsTab({
         }),
       })
       const d = await res.json()
-      if (!res.ok) { toast.error(d.error || "ไม่สำเร็จ", { id: t }); return }
+      if (!res.ok) { toast.error(d.error || t("admin.emp_detail.brands_toast_failed"), { id: toastId }); return }
       setOriginal([...selected])
       setOriginalAllocs(sendAllocations ?? {})
       toast.success(
         sendAllocations
-          ? `บันทึก ${selected.length} แบรนด์ + % สำเร็จ`
-          : `บันทึก ${selected.length} แบรนด์แล้ว (ยังไม่กรอก % → จะคิดต้นทุนแบบหารเท่ากัน)`,
-        { id: t, duration: 4000 },
+          ? t("admin.emp_detail.brands_toast_saved_with_pct", { n: selected.length })
+          : t("admin.emp_detail.brands_toast_saved_no_pct", { n: selected.length }),
+        { id: toastId, duration: 4000 },
       )
     } finally { setSaving(false) }
   }
@@ -223,15 +225,15 @@ export default function BrandsTab({
       {/* Header */}
       <div className="flex items-center gap-2">
         <Tag size={16} className="text-indigo-500"/>
-        <h3 className="font-bold text-slate-800 text-sm">แบรนด์ที่ดูแล</h3>
+        <h3 className="font-bold text-slate-800 text-sm">{t("admin.emp_detail.brands_title")}</h3>
         <span className="text-[10px] font-black bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full ml-1">
-          เลือก {selected.length}/{BRAND_NAMES.length}
+          {t("admin.emp_detail.brands_selected_count", { n: selected.length, total: BRAND_NAMES.length })}
         </span>
         <div className="flex-1"/>
         {dirty && (
           <button onClick={reset}
             className="px-2.5 py-1.5 text-[11px] font-bold text-slate-500 hover:bg-slate-100 rounded-lg flex items-center gap-1">
-            <RotateCcw size={11}/> ยกเลิกการเปลี่ยนแปลง
+            <RotateCcw size={11}/> {t("admin.emp_detail.brands_discard_changes")}
           </button>
         )}
       </div>
@@ -240,8 +242,8 @@ export default function BrandsTab({
       {selected.length > 0 ? (
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1">
-            <Check size={11} className="text-emerald-600"/> แบรนด์ที่เลือก
-            <span className="text-slate-400 font-normal">· {selected.length} แบรนด์</span>
+            <Check size={11} className="text-emerald-600"/> {t("admin.emp_detail.brands_selected_label")}
+            <span className="text-slate-400 font-normal">· {t("admin.emp_detail.brands_count_unit", { n: selected.length })}</span>
           </p>
           <div className="flex flex-wrap gap-1.5">
             {selected.map(b => {
@@ -270,7 +272,7 @@ export default function BrandsTab({
       ) : (
         <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-4 text-center">
           <Tag size={18} className="mx-auto text-slate-300 mb-1"/>
-          <p className="text-xs text-slate-500">ยังไม่ได้เลือกแบรนด์</p>
+          <p className="text-xs text-slate-500">{t("admin.emp_detail.brands_empty_selected")}</p>
         </div>
       )}
 
@@ -280,34 +282,34 @@ export default function BrandsTab({
           <div className="flex items-center gap-2 flex-wrap">
             <Percent size={13} className="text-slate-500"/>
             <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">
-              สัดส่วน % ของแต่ละแบรนด์ <span className="text-slate-400 normal-case font-normal">(ใช้คำนวณต้นทุน)</span>
+              {t("admin.emp_detail.brands_alloc_heading")} <span className="text-slate-400 normal-case font-normal">{t("admin.emp_detail.brands_alloc_heading_note")}</span>
             </p>
             <div className="flex-1"/>
             {/* เกลี่ยให้ครบ 100% — เด่นเมื่อรวมไม่ใช่ 100 */}
             {sumStatus !== "ok" && Object.keys(allocations).length > 0 && (
               <button onClick={normalizeTo100}
-                title="ปรับสัดส่วนเดิมตามอัตราส่วน ให้รวม = 100%"
+                title={t("admin.emp_detail.brands_normalize_title")}
                 className={`flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors ${
                   sumStatus === "over"
                     ? "bg-rose-500 hover:bg-rose-600 text-white animate-pulse"
                     : "bg-amber-500 hover:bg-amber-600 text-white animate-pulse"
                 }`}>
-                ⚡ เกลี่ยให้ครบ 100%
+                ⚡ {t("admin.emp_detail.brands_normalize_btn")}
               </button>
             )}
             <button onClick={distributeEqually}
-              title="หาร 100% เท่ากันทุกแบรนด์ที่เลือก"
+              title={t("admin.emp_detail.brands_distribute_title")}
               className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg transition-colors ${
                 Object.keys(allocations).length === 0
                   ? "bg-indigo-500 hover:bg-indigo-600 text-white shadow-sm"
                   : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
               }`}>
-              <Split size={10}/> หารเท่ากัน
+              <Split size={10}/> {t("admin.emp_detail.brands_distribute_btn")}
             </button>
             {Object.keys(allocations).length > 0 && (
               <button onClick={clearAllocations}
                 className="text-[10px] font-bold px-2 py-1 text-rose-500 hover:bg-rose-50 rounded-lg">
-                ล้าง %
+                {t("admin.emp_detail.brands_clear_pct")}
               </button>
             )}
           </div>
@@ -365,11 +367,11 @@ export default function BrandsTab({
           {/* Sum indicator — สีพื้นหลังคงที่ ใช้ text color เปลี่ยน */}
           <div className="flex items-center justify-between border-t border-slate-100 pt-2">
             <p className="text-[10px] font-bold text-slate-500">
-              {sumStatus === "ok"    ? "✓ สัดส่วนสมบูรณ์ (รวม 100%)" :
-               sumStatus === "over"  ? "⚠ รวมเกิน 100%" :
+              {sumStatus === "ok"    ? t("admin.emp_detail.brands_sum_ok") :
+               sumStatus === "over"  ? t("admin.emp_detail.brands_sum_over") :
                sumStatus === "under" ? Object.keys(allocations).length === 0
-                                       ? "ยังไม่กรอก — ระบบจะคิดแบบหารเท่ากัน"
-                                       : "⚠ รวมน้อยกว่า 100% — กรอกให้ครบ"
+                                       ? t("admin.emp_detail.brands_sum_empty")
+                                       : t("admin.emp_detail.brands_sum_under")
                                      : ""}
             </p>
             <div className="flex items-center gap-1.5">
@@ -398,12 +400,12 @@ export default function BrandsTab({
         <div className="bg-sky-50/60 border border-sky-200 rounded-xl p-3">
           <div className="flex items-center justify-between mb-2">
             <p className="text-[10px] font-bold text-sky-700 uppercase tracking-wide flex items-center gap-1">
-              🔗 แนะนำจาก Feishu
-              <span className="text-sky-500 font-normal">· {feishuSuggestions.length} แบรนด์</span>
+              🔗 {t("admin.emp_detail.brands_feishu_title")}
+              <span className="text-sky-500 font-normal">· {t("admin.emp_detail.brands_count_unit", { n: feishuSuggestions.length })}</span>
             </p>
             <button onClick={adoptFeishu}
               className="text-[10px] font-bold px-2.5 py-1 bg-white border border-sky-300 text-sky-700 hover:bg-sky-100 rounded-lg">
-              + เพิ่มทั้งหมด
+              + {t("admin.emp_detail.brands_feishu_add_all")}
             </button>
           </div>
           <div className="flex flex-wrap gap-1">
@@ -432,13 +434,13 @@ export default function BrandsTab({
       <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
         <Search size={12} className="text-slate-400"/>
         <input value={q} onChange={e => setQ(e.target.value)}
-          placeholder="ค้นแบรนด์..."
+          placeholder={t("admin.emp_detail.brands_search_placeholder")}
           className="flex-1 bg-transparent outline-none text-sm"/>
         {q && <button onClick={() => setQ("")}><X size={11} className="text-slate-400"/></button>}
         {selected.length > 0 && (
           <button onClick={clearAll}
             className="text-[10px] font-bold text-rose-500 hover:text-rose-700 px-2 py-0.5 rounded">
-            ล้างทั้งหมด
+            {t("admin.emp_detail.brands_clear_all")}
           </button>
         )}
       </div>
@@ -446,7 +448,7 @@ export default function BrandsTab({
       {/* All brands — grid: เน้น logo + ชื่อ, สีแค่ accent ขีดซ้าย */}
       <div>
         <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">
-          แบรนด์ทั้งหมด <span className="text-slate-400 font-normal">({filtered.length})</span>
+          {t("admin.emp_detail.brands_all_heading")} <span className="text-slate-400 font-normal">({filtered.length})</span>
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1.5">
           {filtered.map(b => {
@@ -492,17 +494,17 @@ export default function BrandsTab({
       <div className="sticky bottom-0 -mx-6 -mb-6 px-6 py-3 bg-white border-t border-slate-100 flex items-center gap-3 mt-6">
         <p className="text-xs text-slate-500 flex-1">
           {dirty
-            ? <><span className="font-bold text-amber-600">มีการเปลี่ยนแปลง</span> — กดบันทึกเพื่อยืนยัน</>
-            : <span className="text-emerald-600">✓ บันทึกล่าสุดแล้ว</span>}
+            ? <><span className="font-bold text-amber-600">{t("admin.emp_detail.brands_footer_dirty_label")}</span> {t("admin.emp_detail.brands_footer_dirty_hint")}</>
+            : <span className="text-emerald-600">{t("admin.emp_detail.brands_footer_saved")}</span>}
           {sumStatus === "over" && (
-            <span className="ml-2 text-rose-500 font-bold">• รวม % เกิน 100</span>
+            <span className="ml-2 text-rose-500 font-bold">{t("admin.emp_detail.brands_footer_over")}</span>
           )}
         </p>
         <button onClick={save} disabled={saving || !dirty || sumStatus === "over"}
-          title={sumStatus === "over" ? "รวม % เกิน 100 — แก้ไขก่อนบันทึก" : ""}
+          title={sumStatus === "over" ? t("admin.emp_detail.brands_save_over_title") : ""}
           className="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-black rounded-xl flex items-center gap-1.5 shadow-sm">
           {saving ? <Loader2 size={13} className="animate-spin"/> : <Save size={13}/>}
-          บันทึก {dirty && `(${selected.length})`}
+          {t("admin.emp_detail.brands_save_btn")} {dirty && `(${selected.length})`}
         </button>
       </div>
     </div>

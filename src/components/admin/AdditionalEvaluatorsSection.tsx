@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react"
 import { Users, Plus, X, Loader2, Eye, BarChart2, Shield } from "lucide-react"
 import toast from "react-hot-toast"
+import { useLanguage } from "@/lib/i18n"
 
 type Evaluator = {
   id: string
@@ -18,11 +19,11 @@ type Evaluator = {
   }
 }
 
-const SCOPE_LABEL: Record<string, { label: string; color: string; icon: any }> = {
-  kpi:        { label: "ประเมิน KPI ได้",     color: "bg-violet-50 text-violet-700 border-violet-200", icon: BarChart2 },
-  probation:  { label: "ประเมินทดลองงานได้", color: "bg-rose-50 text-rose-700 border-rose-200",       icon: Shield },
-  all:        { label: "ประเมินได้ทั้งหมด",  color: "bg-indigo-50 text-indigo-700 border-indigo-200", icon: Users },
-  view_only:  { label: "ดูได้อย่างเดียว",     color: "bg-slate-50 text-slate-600 border-slate-200",   icon: Eye },
+const SCOPE_LABEL: Record<string, { labelKey: string; color: string; icon: any }> = {
+  kpi:        { labelKey: "addeval_scope_kpi",       color: "bg-violet-50 text-violet-700 border-violet-200", icon: BarChart2 },
+  probation:  { labelKey: "addeval_scope_probation", color: "bg-rose-50 text-rose-700 border-rose-200",       icon: Shield },
+  all:        { labelKey: "addeval_scope_all",       color: "bg-indigo-50 text-indigo-700 border-indigo-200", icon: Users },
+  view_only:  { labelKey: "addeval_scope_view_only", color: "bg-slate-50 text-slate-600 border-slate-200",   icon: Eye },
 }
 
 export default function AdditionalEvaluatorsSection({
@@ -32,6 +33,7 @@ export default function AdditionalEvaluatorsSection({
   allEmps: any[]
   loadAllEmps: () => void
 }) {
+  const { t } = useLanguage()
   const [list, setList] = useState<Evaluator[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -54,7 +56,7 @@ export default function AdditionalEvaluatorsSection({
   useEffect(() => { load() }, [employeeId])
 
   async function handleAdd() {
-    if (!pickEvalId) { toast.error("กรุณาเลือกผู้ประเมิน"); return }
+    if (!pickEvalId) { toast.error(t("admin.emp_detail.addeval_toast_select_evaluator")); return }
     setSaving(true)
     try {
       const res = await fetch("/api/employees/evaluators", {
@@ -63,8 +65,8 @@ export default function AdditionalEvaluatorsSection({
         body: JSON.stringify({ employee_id: employeeId, evaluator_id: pickEvalId, scope: pickScope, note: pickNote || null }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "เพิ่มไม่สำเร็จ")
-      toast.success("เพิ่มผู้ประเมินสำเร็จ")
+      if (!res.ok) throw new Error(data.error || t("admin.emp_detail.addeval_err_add_failed"))
+      toast.success(t("admin.emp_detail.addeval_toast_add_success"))
       setShowAdd(false); setPickEvalId(null); setPickScope("kpi"); setPickNote(""); setSearch("")
       load()
     } catch (e: any) { toast.error(e.message) }
@@ -72,12 +74,12 @@ export default function AdditionalEvaluatorsSection({
   }
 
   async function handleRemove(id: string) {
-    if (!confirm("ลบผู้ประเมินคนนี้?")) return
+    if (!confirm(t("admin.emp_detail.addeval_confirm_remove"))) return
     try {
       const res = await fetch(`/api/employees/evaluators?id=${id}`, { method: "DELETE" })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "ลบไม่สำเร็จ")
-      toast.success("ลบสำเร็จ")
+      if (!res.ok) throw new Error(data.error || t("admin.emp_detail.addeval_err_remove_failed"))
+      toast.success(t("admin.emp_detail.addeval_toast_remove_success"))
       load()
     } catch (e: any) { toast.error(e.message) }
   }
@@ -97,23 +99,23 @@ export default function AdditionalEvaluatorsSection({
       <div className="flex items-center justify-between mb-1">
         <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
           <Users size={14} className="text-indigo-500"/>
-          ผู้ประเมินเพิ่มเติม
+          {t("admin.emp_detail.addeval_title")}
           {list.length > 0 && <span className="text-xs text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full">{list.length}</span>}
         </h4>
         {!showAdd && (
           <button onClick={() => { setShowAdd(true); loadAllEmps() }}
             className="flex items-center gap-1 text-xs font-bold text-indigo-600 bg-white border border-indigo-200 rounded-lg px-2.5 py-1.5 hover:bg-indigo-50">
-            <Plus size={12}/> เพิ่ม
+            <Plus size={12}/> {t("admin.emp_detail.addeval_add_btn")}
           </button>
         )}
       </div>
-      <p className="text-xs text-slate-400 mb-3">หัวหน้าเพิ่มเติม นอกเหนือจากหัวหน้าตรง ที่สามารถประเมิน/ดูพนักงานคนนี้ได้</p>
+      <p className="text-xs text-slate-400 mb-3">{t("admin.emp_detail.addeval_subtitle")}</p>
 
       {/* List */}
       {loading ? (
         <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-slate-300"/></div>
       ) : list.length === 0 ? (
-        <p className="text-xs text-slate-400 text-center py-2">ยังไม่มี — กดปุ่ม "เพิ่ม" เพื่อตั้งหัวหน้าเพิ่มเติม</p>
+        <p className="text-xs text-slate-400 text-center py-2">{t("admin.emp_detail.addeval_empty")}</p>
       ) : (
         <div className="space-y-2 mb-3">
           {list.map(ev => {
@@ -130,7 +132,7 @@ export default function AdditionalEvaluatorsSection({
                   <p className="text-[11px] text-slate-400 truncate">{e?.employee_code} · {e?.position?.name ?? "—"}</p>
                 </div>
                 <span className={`text-[10px] font-bold border px-2 py-1 rounded-md flex items-center gap-1 ${meta.color}`}>
-                  <Icon size={10}/> {meta.label}
+                  <Icon size={10}/> {t(`admin.emp_detail.${meta.labelKey}`)}
                 </span>
                 <button onClick={() => handleRemove(ev.id)} className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center">
                   <X size={13} className="text-slate-400 hover:text-red-500"/>
@@ -145,7 +147,7 @@ export default function AdditionalEvaluatorsSection({
       {showAdd && (
         <div className="bg-white rounded-xl border border-indigo-200 p-3 space-y-2 mt-2">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-slate-700">เลือกผู้ประเมิน</p>
+            <p className="text-xs font-bold text-slate-700">{t("admin.emp_detail.addeval_pick_evaluator")}</p>
             <button onClick={() => { setShowAdd(false); setPickEvalId(null); setSearch(""); setPickNote("") }} className="w-6 h-6 rounded-md hover:bg-slate-100 flex items-center justify-center">
               <X size={11} className="text-slate-400"/>
             </button>
@@ -157,7 +159,7 @@ export default function AdditionalEvaluatorsSection({
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="ค้นหาชื่อ / รหัส..."
+                placeholder={t("admin.emp_detail.addeval_search_ph")}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400"
               />
               <div className="mt-2 max-h-[180px] overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-50">
@@ -168,21 +170,21 @@ export default function AdditionalEvaluatorsSection({
                     <span className="text-xs text-slate-400">{e.employee_code}</span>
                   </button>
                 ))}
-                {filtered.length === 0 && <p className="px-3 py-3 text-xs text-slate-400 text-center">ไม่พบ</p>}
+                {filtered.length === 0 && <p className="px-3 py-3 text-xs text-slate-400 text-center">{t("admin.emp_detail.addeval_not_found")}</p>}
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-3 py-2">
               <span className="font-bold text-sm text-slate-800">{pickEmp.first_name_th} {pickEmp.last_name_th}</span>
               <span className="text-xs text-slate-500">{pickEmp.employee_code}</span>
-              <button onClick={() => setPickEvalId(null)} className="ml-auto text-xs text-indigo-600 hover:underline">เปลี่ยน</button>
+              <button onClick={() => setPickEvalId(null)} className="ml-auto text-xs text-indigo-600 hover:underline">{t("admin.emp_detail.addeval_change")}</button>
             </div>
           )}
 
           {/* Scope picker */}
           {pickEvalId && (
             <>
-              <p className="text-xs font-bold text-slate-700 mt-2">สิทธิ์การประเมิน</p>
+              <p className="text-xs font-bold text-slate-700 mt-2">{t("admin.emp_detail.addeval_permission")}</p>
               <div className="grid grid-cols-2 gap-1.5">
                 {(["kpi","probation","all","view_only"] as const).map(s => {
                   const meta = SCOPE_LABEL[s]
@@ -191,7 +193,7 @@ export default function AdditionalEvaluatorsSection({
                   return (
                     <button key={s} onClick={() => setPickScope(s)}
                       className={`text-xs font-bold border rounded-lg px-2 py-1.5 flex items-center gap-1 ${active ? meta.color + " ring-2 ring-indigo-300" : "bg-slate-50 text-slate-500 border-slate-200"}`}>
-                      <Icon size={11}/> {meta.label}
+                      <Icon size={11}/> {t(`admin.emp_detail.${meta.labelKey}`)}
                     </button>
                   )
                 })}
@@ -200,14 +202,14 @@ export default function AdditionalEvaluatorsSection({
               <input
                 value={pickNote}
                 onChange={e => setPickNote(e.target.value)}
-                placeholder="หมายเหตุ (ไม่บังคับ)"
+                placeholder={t("admin.emp_detail.addeval_note_ph")}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-indigo-400 mt-1"
               />
 
               <button onClick={handleAdd} disabled={saving}
                 className="w-full mt-2 bg-indigo-600 text-white text-sm font-bold py-2 rounded-xl hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
                 {saving ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>}
-                บันทึก
+                {t("admin.emp_detail.addeval_save")}
               </button>
             </>
           )}

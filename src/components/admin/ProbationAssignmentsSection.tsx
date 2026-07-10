@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react"
 import { Shield, Plus, X, Loader2, UserCheck, CheckCircle2, Clock, FilePlus2, AlertCircle, CalendarClock } from "lucide-react"
 import toast from "react-hot-toast"
+import { useLanguage } from "@/lib/i18n"
 
 type Assignment = {
   id: string
@@ -14,23 +15,27 @@ type Assignment = {
 }
 
 // รอบมาตรฐาน + กำหนดเอง (99)
-const ROUND_OPTS: { v: number; l: string }[] = [
-  { v: 1, l: "รอบที่ 1 (45 วัน)" },
-  { v: 2, l: "รอบที่ 2 (90 วัน)" },
-  { v: 99, l: "กำหนดเอง" },
-]
+type TFn = (key: string, vars?: Record<string, any>) => string
 
-function roundText(a: Assignment) {
-  if (a.round === 99) return a.label || "รอบกำหนดเอง"
-  return ROUND_OPTS.find(r => r.v === a.round)?.l || `รอบ ${a.round}`
+function roundOpts(t: TFn): { v: number; l: string }[] {
+  return [
+    { v: 1, l: t("admin.emp_detail.probassign_round_opt_1") },
+    { v: 2, l: t("admin.emp_detail.probassign_round_opt_2") },
+    { v: 99, l: t("admin.emp_detail.probassign_round_opt_custom") },
+  ]
 }
 
-function statusMeta(f: Assignment["form"]) {
-  if (!f) return { l: "ยังไม่ประเมิน", c: "bg-slate-100 text-slate-500", I: FilePlus2 }
-  if (f.status === "approved") return { l: `อนุมัติ · ${f.grade ?? ""}`, c: "bg-emerald-50 text-emerald-700", I: CheckCircle2 }
-  if (f.status === "submitted") return { l: "รอ HR อนุมัติ", c: "bg-orange-50 text-orange-700", I: Clock }
-  if (f.status === "rejected") return { l: "ส่งคืนแก้ไข", c: "bg-red-50 text-red-600", I: AlertCircle }
-  return { l: "ร่าง", c: "bg-amber-50 text-amber-700", I: Clock }
+function roundText(a: Assignment, t: TFn) {
+  if (a.round === 99) return a.label || t("admin.emp_detail.probassign_round_custom_default")
+  return roundOpts(t).find(r => r.v === a.round)?.l || t("admin.emp_detail.probassign_round_n", { n: a.round })
+}
+
+function statusMeta(f: Assignment["form"], t: TFn) {
+  if (!f) return { l: t("admin.emp_detail.probassign_status_not_evaluated"), c: "bg-slate-100 text-slate-500", I: FilePlus2 }
+  if (f.status === "approved") return { l: t("admin.emp_detail.probassign_status_approved", { grade: f.grade ?? "" }), c: "bg-emerald-50 text-emerald-700", I: CheckCircle2 }
+  if (f.status === "submitted") return { l: t("admin.emp_detail.probassign_status_wait_hr"), c: "bg-orange-50 text-orange-700", I: Clock }
+  if (f.status === "rejected") return { l: t("admin.emp_detail.probassign_status_returned"), c: "bg-red-50 text-red-600", I: AlertCircle }
+  return { l: t("admin.emp_detail.probassign_status_draft"), c: "bg-amber-50 text-amber-700", I: Clock }
 }
 
 export default function ProbationAssignmentsSection({
@@ -40,6 +45,7 @@ export default function ProbationAssignmentsSection({
   allEmps: any[]
   loadAllEmps: () => void
 }) {
+  const { t } = useLanguage()
   const [list, setList] = useState<Assignment[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -62,8 +68,8 @@ export default function ProbationAssignmentsSection({
   useEffect(() => { load() }, [employeeId])
 
   async function handleAdd() {
-    if (!pickEvalId) { toast.error("กรุณาเลือกผู้ประเมิน"); return }
-    if (round === 99 && (!customLabel.trim() || !Number(customDays))) { toast.error("กรอกชื่อรอบและจำนวนวันของรอบกำหนดเอง"); return }
+    if (!pickEvalId) { toast.error(t("admin.emp_detail.probassign_toast_select_evaluator")); return }
+    if (round === 99 && (!customLabel.trim() || !Number(customDays))) { toast.error(t("admin.emp_detail.probassign_toast_fill_custom")); return }
     setSaving(true)
     try {
       const res = await fetch("/api/probation-evaluation/assignments", {
@@ -75,8 +81,8 @@ export default function ProbationAssignmentsSection({
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "เพิ่มไม่สำเร็จ")
-      toast.success("เพิ่มผู้ประเมินแล้ว")
+      if (!res.ok) throw new Error(data.error || t("admin.emp_detail.probassign_toast_add_failed"))
+      toast.success(t("admin.emp_detail.probassign_toast_add_success"))
       setShowAdd(false); setPickEvalId(null); setSearch(""); setRound(2); setCustomLabel(""); setCustomDays("")
       load()
     } catch (e: any) { toast.error(e.message) }
@@ -84,12 +90,12 @@ export default function ProbationAssignmentsSection({
   }
 
   async function handleRemove(id: string) {
-    if (!confirm("ลบการมอบหมายนี้?")) return
+    if (!confirm(t("admin.emp_detail.probassign_confirm_remove"))) return
     try {
       const res = await fetch(`/api/probation-evaluation/assignments?id=${id}`, { method: "DELETE" })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "ลบไม่สำเร็จ")
-      toast.success("ลบแล้ว")
+      if (!res.ok) throw new Error(data.error || t("admin.emp_detail.probassign_toast_remove_failed"))
+      toast.success(t("admin.emp_detail.probassign_toast_remove_success"))
       load()
     } catch (e: any) { toast.error(e.message) }
   }
@@ -107,27 +113,27 @@ export default function ProbationAssignmentsSection({
       <div className="flex items-center justify-between mb-1">
         <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
           <Shield size={14} className="text-violet-500"/>
-          มอบหมายประเมินทดลองงาน (หลายคน/หลายรอบ)
+          {t("admin.emp_detail.probassign_title")}
           {list.length > 0 && <span className="text-xs text-violet-600 bg-violet-100 px-2 py-0.5 rounded-full">{list.length}</span>}
         </h4>
         {!showAdd && (
           <button onClick={() => { setShowAdd(true); loadAllEmps() }}
             className="flex items-center gap-1 text-xs font-bold text-violet-600 bg-white border border-violet-200 rounded-lg px-2.5 py-1.5 hover:bg-violet-50">
-            <Plus size={12}/> เพิ่ม
+            <Plus size={12}/> {t("admin.emp_detail.probassign_add")}
           </button>
         )}
       </div>
-      <p className="text-xs text-slate-400 mb-3">กำหนดผู้ประเมินเพิ่มเติมได้ไม่จำกัด — เลือกรอบ (45/90 หรือกำหนดเอง) และผู้ประเมิน (ใครก็ได้) · แต่ละใบแยกอิสระ HR เห็นทุกใบ</p>
+      <p className="text-xs text-slate-400 mb-3">{t("admin.emp_detail.probassign_description")}</p>
 
       {/* List */}
       {loading ? (
         <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-slate-300"/></div>
       ) : list.length === 0 ? (
-        <p className="text-xs text-slate-400 text-center py-2">ยังไม่มี — กด &quot;เพิ่ม&quot; เพื่อมอบหมายผู้ประเมิน</p>
+        <p className="text-xs text-slate-400 text-center py-2">{t("admin.emp_detail.probassign_empty")}</p>
       ) : (
         <div className="space-y-2 mb-3">
           {list.map(a => {
-            const st = statusMeta(a.form)
+            const st = statusMeta(a.form, t)
             const Icon = st.I
             const e = a.evaluator
             return (
@@ -141,8 +147,8 @@ export default function ProbationAssignmentsSection({
                     {e?.nickname && <span className="text-xs text-violet-500 font-normal">({e.nickname})</span>}
                   </p>
                   <p className="text-[11px] text-slate-400 truncate flex items-center gap-1">
-                    <span className="font-bold text-violet-600">{roundText(a)}</span>
-                    {a.round === 99 && a.due_days && <span className="flex items-center gap-0.5"><CalendarClock size={9}/> {a.due_days} วัน</span>}
+                    <span className="font-bold text-violet-600">{roundText(a, t)}</span>
+                    {a.round === 99 && a.due_days && <span className="flex items-center gap-0.5"><CalendarClock size={9}/> {t("admin.emp_detail.probassign_days", { n: a.due_days })}</span>}
                   </p>
                 </div>
                 <span className={`text-[10px] font-bold px-2 py-1 rounded-md flex items-center gap-1 shrink-0 ${st.c}`}>
@@ -161,16 +167,16 @@ export default function ProbationAssignmentsSection({
       {showAdd && (
         <div className="bg-white rounded-xl border border-violet-200 p-3 space-y-2 mt-2">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-slate-700">มอบหมายผู้ประเมิน</p>
+            <p className="text-xs font-bold text-slate-700">{t("admin.emp_detail.probassign_form_title")}</p>
             <button onClick={() => { setShowAdd(false); setPickEvalId(null); setSearch("") }} className="w-6 h-6 rounded-md hover:bg-slate-100 flex items-center justify-center">
               <X size={11} className="text-slate-400"/>
             </button>
           </div>
 
           {/* รอบ */}
-          <p className="text-xs font-bold text-slate-700">รอบการประเมิน</p>
+          <p className="text-xs font-bold text-slate-700">{t("admin.emp_detail.probassign_round_label")}</p>
           <div className="grid grid-cols-3 gap-1.5">
-            {ROUND_OPTS.map(r => (
+            {roundOpts(t).map(r => (
               <button key={r.v} onClick={() => setRound(r.v)}
                 className={`text-xs font-bold border rounded-lg px-2 py-1.5 ${round === r.v ? "bg-violet-50 text-violet-700 border-violet-300 ring-2 ring-violet-200" : "bg-slate-50 text-slate-500 border-slate-200"}`}>
                 {r.l}
@@ -179,21 +185,21 @@ export default function ProbationAssignmentsSection({
           </div>
           {round === 99 && (
             <div className="grid grid-cols-3 gap-1.5">
-              <input value={customLabel} onChange={e => setCustomLabel(e.target.value)} placeholder="ชื่อรอบ เช่น รอบ 120 วัน"
+              <input value={customLabel} onChange={e => setCustomLabel(e.target.value)} placeholder={t("admin.emp_detail.probassign_custom_label_placeholder")}
                 className="col-span-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-sm outline-none focus:border-violet-400"/>
               <div className="relative">
-                <input value={customDays} onChange={e => setCustomDays(e.target.value.replace(/\D/g, ""))} placeholder="วัน" inputMode="numeric"
+                <input value={customDays} onChange={e => setCustomDays(e.target.value.replace(/\D/g, ""))} placeholder={t("admin.emp_detail.probassign_days_placeholder")} inputMode="numeric"
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-sm outline-none focus:border-violet-400 pr-8"/>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">วัน</span>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">{t("admin.emp_detail.probassign_days_unit")}</span>
               </div>
             </div>
           )}
 
           {/* Evaluator picker */}
-          <p className="text-xs font-bold text-slate-700 mt-1">ผู้ประเมิน (ใครก็ได้)</p>
+          <p className="text-xs font-bold text-slate-700 mt-1">{t("admin.emp_detail.probassign_evaluator_label")}</p>
           {!pickEmp ? (
             <div>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาชื่อ / รหัส..."
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("admin.emp_detail.probassign_search_placeholder")}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-400"/>
               <div className="mt-2 max-h-[180px] overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-50">
                 {filtered.slice(0, 30).map(e => (
@@ -204,21 +210,21 @@ export default function ProbationAssignmentsSection({
                     <span className="text-xs text-slate-400">{e.employee_code}</span>
                   </button>
                 ))}
-                {filtered.length === 0 && <p className="px-3 py-3 text-xs text-slate-400 text-center">ไม่พบ</p>}
+                {filtered.length === 0 && <p className="px-3 py-3 text-xs text-slate-400 text-center">{t("admin.emp_detail.probassign_not_found")}</p>}
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-2 bg-violet-50 rounded-lg px-3 py-2">
               <span className="font-bold text-sm text-slate-800">{pickEmp.first_name_th} {pickEmp.last_name_th}</span>
               <span className="text-xs text-slate-500">{pickEmp.employee_code}</span>
-              <button onClick={() => setPickEvalId(null)} className="ml-auto text-xs text-violet-600 hover:underline">เปลี่ยน</button>
+              <button onClick={() => setPickEvalId(null)} className="ml-auto text-xs text-violet-600 hover:underline">{t("admin.emp_detail.probassign_change")}</button>
             </div>
           )}
 
           <button onClick={handleAdd} disabled={saving || !pickEvalId}
             className="w-full mt-2 bg-violet-600 text-white text-sm font-bold py-2 rounded-xl hover:bg-violet-700 disabled:opacity-50 flex items-center justify-center gap-2">
             {saving ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>}
-            มอบหมาย
+            {t("admin.emp_detail.probassign_submit")}
           </button>
         </div>
       )}

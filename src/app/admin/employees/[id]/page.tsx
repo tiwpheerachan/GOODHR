@@ -23,8 +23,9 @@ import FeishuLinkTab from "@/components/employees/FeishuLinkTab"
 import BrandsTab from "@/components/employees/BrandsTab"
 import EmployeeBorrowingTab from "@/components/employees/EmployeeBorrowingTab"
 import EmployeeShaderBg from "@/components/ui/employee-shader-bg"
+import { useLanguage } from "@/lib/i18n"
 
-const TABS = ["สรุปข้อมูล","ข้อมูลส่วนตัว","การจ้างงาน","เงินเดือน","สรุปเงินเดือน","ตารางงาน","สิทธิ์เช็คอิน","ประวัติหัวหน้า","บทบาท","โควต้าการลา","สาย/ผู้ประเมิน","🏷️ แบรนด์ที่ดูแล","🔗 Feishu Link","📦 ของที่ยืม","🚪 ลาออก/หลักฐาน"]
+const TAB_KEYS = ["tab_summary","tab_personal","tab_employment","tab_salary","tab_payroll_summary","tab_schedule","tab_checkin","tab_mgr_history","tab_roles","tab_leave_quota","tab_eval_chain","tab_brands","tab_feishu","tab_borrow","tab_resign"]
 const inp = "input-field"
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -41,6 +42,7 @@ function fmtDec(n?: number | null) {
 export default function EmployeeDetailPage() {
   const { id } = useParams()
   const { user } = useAuth()
+  const { t } = useLanguage()
   const supabase = createClient()
 
   const [emp,        setEmp]        = useState<any>(null)
@@ -101,8 +103,8 @@ export default function EmployeeDetailPage() {
 
   const createDepartment = async () => {
     const cid = form?.company_id || emp?.company_id
-    if (!newDeptName.trim()) { toast.error("กรุณากรอกชื่อแผนก"); return }
-    if (!cid) { toast.error("ไม่พบบริษัท"); return }
+    if (!newDeptName.trim()) { toast.error(t("admin.emp_detail.toast_enter_dept_name")); return }
+    if (!cid) { toast.error(t("admin.emp_detail.toast_no_company")); return }
     setCreatingDept(true)
     try {
       const res = await fetch("/api/org", {
@@ -111,21 +113,21 @@ export default function EmployeeDetailPage() {
         body: JSON.stringify({ action: "create_department", name: newDeptName.trim(), company_id: cid }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "สร้างแผนกไม่สำเร็จ")
+      if (!res.ok) throw new Error(data.error || t("admin.emp_detail.toast_dept_create_fail"))
       const newDept = { id: data.department_id, name: newDeptName.trim() }
       setDepartments((prev: any[]) => [...prev, newDept].sort((a, b) => a.name.localeCompare(b.name)))
       set("department_id", data.department_id)
       setNewDeptName("")
-      toast.success(`เพิ่มแผนก "${newDeptName.trim()}" แล้ว`)
-    } catch (e: any) { toast.error(e.message || "ไม่สามารถสร้างแผนกได้") }
+      toast.success(t("admin.emp_detail.toast_dept_added", { name: newDeptName.trim() }))
+    } catch (e: any) { toast.error(e.message || t("admin.emp_detail.toast_dept_create_fail")) }
     setCreatingDept(false)
   }
 
   const createPosition = async () => {
     const cid = form?.company_id || emp?.company_id
     const name = newPositionName.trim()
-    if (!name) { toast.error("กรุณากรอกชื่อตำแหน่ง"); return }
-    if (!cid) { toast.error("ไม่พบบริษัท"); return }
+    if (!name) { toast.error(t("admin.emp_detail.toast_enter_pos_name")); return }
+    if (!cid) { toast.error(t("admin.emp_detail.toast_no_company")); return }
     setCreatingPosition(true)
     try {
       // Auto-generate code (column NOT NULL)
@@ -139,8 +141,8 @@ export default function EmployeeDetailPage() {
       setPositions((prev: any[]) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
       set("position_id", data.id)
       setNewPositionName("")
-      toast.success(`เพิ่มตำแหน่ง "${data.name}" แล้ว`)
-    } catch (e: any) { toast.error(e.message || "ไม่สามารถสร้างตำแหน่งได้") }
+      toast.success(t("admin.emp_detail.toast_pos_added", { name: data.name }))
+    } catch (e: any) { toast.error(e.message || t("admin.emp_detail.toast_pos_create_fail")) }
     setCreatingPosition(false)
   }
 
@@ -246,12 +248,12 @@ export default function EmployeeDetailPage() {
           // สุ่มรหัสผ่านเริ่มต้น (12 ตัวอักษร) — admin ต้องส่งให้พนักงาน
           const tempPw = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8).toUpperCase()
           const ok = confirm(
-            `พนักงานนี้ยังไม่มีบัญชีล็อกอิน\n\n` +
-            `จะสร้างบัญชีใหม่ด้วย:\n` +
-            `  • อีเมล: ${newEmail}\n` +
-            `  • รหัสผ่าน: ${tempPw}\n` +
-            `  • บทบาท: employee\n\n` +
-            `กดตกลงเพื่อสร้าง — ระบบจะ copy รหัสผ่านไว้ให้ส่งให้พนักงาน`
+            t("admin.emp_detail.confirm_create_account_l1") + `\n\n` +
+            t("admin.emp_detail.confirm_create_account_l2") + `\n` +
+            t("admin.emp_detail.confirm_create_account_email", { email: newEmail }) + `\n` +
+            t("admin.emp_detail.confirm_create_account_pw", { pw: tempPw }) + `\n` +
+            t("admin.emp_detail.confirm_create_account_role") + `\n\n` +
+            t("admin.emp_detail.confirm_create_account_l3")
           )
           if (!ok) { setLoading(false); return }
 
@@ -263,22 +265,22 @@ export default function EmployeeDetailPage() {
           })
           const cD = await cRes.json()
           if (!cRes.ok || !cD.success) {
-            toast.error(cD.error || "สร้างบัญชีไม่สำเร็จ")
+            toast.error(cD.error || t("admin.emp_detail.toast_create_account_fail"))
             setLoading(false)
             return
           }
           // copy password to clipboard (best effort)
           try { await navigator.clipboard.writeText(tempPw) } catch {}
-          toast.success(`สร้างบัญชีสำเร็จ — ${newEmail} / ${tempPw} (copied)`, { duration: 10_000 })
+          toast.success(t("admin.emp_detail.toast_account_created", { email: newEmail, pw: tempPw }), { duration: 10_000 })
         } else if (!res.ok) {
-          toast.error(`อีเมล: ${d.error}`)
+          toast.error(t("admin.emp_detail.toast_email_error", { error: d.error }))
           setLoading(false)
           return
         } else {
-          toast.success(`เปลี่ยนอีเมลล็อกอินเป็น ${form.email} สำเร็จ`)
+          toast.success(t("admin.emp_detail.toast_email_changed", { email: form.email }))
         }
       } catch {
-        toast.error("ไม่สามารถ sync อีเมลกับระบบล็อกอินได้")
+        toast.error(t("admin.emp_detail.toast_email_sync_fail"))
         setLoading(false)
         return
       }
@@ -300,8 +302,8 @@ export default function EmployeeDetailPage() {
       emergency_contact_phone: form.emergency_contact_phone || null,
       emergency_contact_relation: form.emergency_contact_relation || null,
     }).eq("id",id as string)
-    if (error) toast.error("เกิดข้อผิดพลาดในการบันทึก")
-    else if (!emailChanged) toast.success("บันทึกสำเร็จ")
+    if (error) toast.error(t("admin.emp_detail.toast_save_error"))
+    else if (!emailChanged) toast.success(t("admin.emp_detail.toast_saved"))
 
     // อัพเดท emp state ให้ตรงกับข้อมูลใหม่
     setEmp((prev: any) => ({ ...prev, ...form }))
@@ -313,10 +315,10 @@ export default function EmployeeDetailPage() {
     const yearCheck = (d: string | null | undefined, label: string) => {
       if (!d) return true
       const y = parseInt(d.split("-")[0])
-      if (y > 2100) { toast.error(`${label}: ปีต้องเป็น ค.ศ. (เช่น 2026) ไม่ใช่ พ.ศ. (${y})`); return false }
+      if (y > 2100) { toast.error(t("admin.emp_detail.toast_year_must_be_ce", { label, y })); return false }
       return true
     }
-    if (!yearCheck(form.hire_date, "วันเริ่มงาน") || !yearCheck(form.probation_end_date, "สิ้นสุดทดลองงาน")) return
+    if (!yearCheck(form.hire_date, t("admin.emp_detail.emp_hire_date")) || !yearCheck(form.probation_end_date, t("admin.emp_detail.emp_probation_end"))) return
 
     setLoading(true)
     const updateData: any = {
@@ -345,8 +347,8 @@ export default function EmployeeDetailPage() {
       updateData.phase2_start_date = on ? (form.phase2_start_date || computePhase2Start(form.pre_employment_to)) : null
     }
     const { error } = await supabase.from("employees").update(updateData).eq("id", id as string)
-    if (error) toast.error("เกิดข้อผิดพลาด"); else {
-      toast.success("บันทึกสำเร็จ")
+    if (error) toast.error(t("admin.emp_detail.toast_error")); else {
+      toast.success(t("admin.emp_detail.toast_saved"))
       // อัปเดต users table ด้วย company_id ถ้าเปลี่ยน
       if (form.company_id && form.company_id !== emp?.company_id) {
         await supabase.from("users").update({ company_id: form.company_id }).eq("employee_id", id as string)
@@ -363,7 +365,7 @@ export default function EmployeeDetailPage() {
             to_position_id: newPos,
             changed_by: user?.employee_id ?? null,
           })
-          setHistoryTick(t => t + 1)
+          setHistoryTick(prev => prev + 1)
         } catch { /* ตาราง position history อาจยังไม่ถูกสร้าง (ยังไม่รัน migration) */ }
       }
       setEmp((prev: any) => ({ ...prev, company_id: form.company_id, department_id: form.department_id, position_id: form.position_id, branch_id: form.branch_id }))
@@ -372,7 +374,7 @@ export default function EmployeeDetailPage() {
   }
 
   const saveSalary = async () => {
-    if (!sf.base_salary) return toast.error("กรุณากรอกเงินเดือน")
+    if (!sf.base_salary) return toast.error(t("admin.emp_detail.toast_enter_salary"))
     setLoading(true)
     // ปิด salary ที่ยังเปิดอยู่ "ทุกตัว" ของพนักงานคนนี้ ก่อน insert ตัวใหม่
     //   กัน duplicate open structures (effective_to=null) ที่ทำให้ payroll เลือก structure ผิด
@@ -401,7 +403,7 @@ export default function EmployeeDetailPage() {
       change_reason:sf.change_reason,
       created_by:user?.employee_id,
     })
-    if (error) toast.error("เกิดข้อผิดพลาด"); else { toast.success("บันทึกเงินเดือนสำเร็จ"); setHistoryTick(t => t + 1) }
+    if (error) toast.error(t("admin.emp_detail.toast_error")); else { toast.success(t("admin.emp_detail.toast_salary_saved")); setHistoryTick(prev => prev + 1) }
     setLoading(false)
   }
 
@@ -410,20 +412,20 @@ export default function EmployeeDetailPage() {
     const amt = parseFloat(kpiAmount) || 0
     if (kpiSetting?.id) {
       const { error } = await supabase.from("kpi_bonus_settings").update({ standard_amount: amt }).eq("id", kpiSetting.id)
-      if (error) { console.error("KPI update error:", error); toast.error("เกิดข้อผิดพลาด: " + error.message) }
-      else { toast.success("บันทึก KPI สำเร็จ"); setKpiSetting({ ...kpiSetting, standard_amount: amt }) }
+      if (error) { console.error("KPI update error:", error); toast.error(t("admin.emp_detail.toast_error") + ": " + error.message) }
+      else { toast.success(t("admin.emp_detail.toast_kpi_saved")); setKpiSetting({ ...kpiSetting, standard_amount: amt }) }
     } else {
       const { data, error } = await supabase.from("kpi_bonus_settings")
         .insert({ employee_id: id, company_id: emp?.company_id, standard_amount: amt, is_active: true })
         .select().single()
-      if (error) { console.error("KPI insert error:", error); toast.error("เกิดข้อผิดพลาด: " + error.message) }
-      else { toast.success("บันทึก KPI สำเร็จ"); setKpiSetting(data) }
+      if (error) { console.error("KPI insert error:", error); toast.error(t("admin.emp_detail.toast_error") + ": " + error.message) }
+      else { toast.success(t("admin.emp_detail.toast_kpi_saved")); setKpiSetting(data) }
     }
     setLoading(false)
   }
 
   const addMgr = async () => {
-    if (!newMgr) return toast.error("กรุณาเลือกหัวหน้า")
+    if (!newMgr) return toast.error(t("admin.emp_detail.toast_select_manager"))
     try {
       const res = await fetch("/api/employees/manager", {
         method: "POST",
@@ -431,8 +433,8 @@ export default function EmployeeDetailPage() {
         body: JSON.stringify({ employee_id: id, manager_id: newMgr, effective_from: newMgrDate }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "อัปเดตหัวหน้าไม่สำเร็จ")
-      toast.success("อัปเดตหัวหน้าสำเร็จ")
+      if (!res.ok) throw new Error(data.error || t("admin.emp_detail.toast_manager_update_fail"))
+      toast.success(t("admin.emp_detail.toast_manager_updated"))
       window.location.reload()
     } catch (e: any) {
       toast.error(e.message)
@@ -447,13 +449,13 @@ export default function EmployeeDetailPage() {
         body: JSON.stringify({ action: "resign", employee_id: id, resign_date: resignDate, resign_reason: resignReason }),
       })
       const data = await res.json()
-      if (!res.ok) { toast.error(data.error || "เกิดข้อผิดพลาด"); return }
-      toast.success(data.message || "บันทึกลาออกเรียบร้อย")
+      if (!res.ok) { toast.error(data.error || t("admin.emp_detail.toast_error")); return }
+      toast.success(data.message || t("admin.emp_detail.toast_resign_saved"))
       setShowResignModal(false)
       setResignReason("")
       // reload
       window.location.reload()
-    } catch { toast.error("เกิดข้อผิดพลาด") }
+    } catch { toast.error(t("admin.emp_detail.toast_error")) }
     finally { setResignLoading(false) }
   }
 
@@ -461,9 +463,9 @@ export default function EmployeeDetailPage() {
   const uploadResignFiles = async (ev: React.ChangeEvent<HTMLInputElement>) => {
     const files = ev.target.files
     if (!files || files.length === 0) return
-    if (resignAttach.length + files.length > 10) { toast.error("แนบได้สูงสุด 10 ไฟล์"); return }
+    if (resignAttach.length + files.length > 10) { toast.error(t("admin.emp_detail.toast_max_10_files")); return }
     for (let i = 0; i < files.length; i++) {
-      if (files[i].size > 10 * 1024 * 1024) { toast.error(`ไฟล์ ${files[i].name} ใหญ่เกิน 10 MB`); return }
+      if (files[i].size > 10 * 1024 * 1024) { toast.error(t("admin.emp_detail.toast_file_too_large", { name: files[i].name })); return }
     }
     setResignAttachUploading(true)
     try {
@@ -471,12 +473,12 @@ export default function EmployeeDetailPage() {
       for (let i = 0; i < files.length; i++) fd.append("files", files[i])
       const res = await fetch("/api/leave/upload", { method: "POST", body: fd })
       const json = await res.json()
-      if (!res.ok) { toast.error(json.error || "อัปโหลดไม่สำเร็จ"); return }
+      if (!res.ok) { toast.error(json.error || t("admin.emp_detail.toast_upload_fail")); return }
       const newFiles = (json.files ?? [{ url: json.url, name: json.name }])
         .map((f: any, i: number) => ({ url: f.url, name: f.name, size: files[i]?.size }))
       setResignAttach(prev => [...prev, ...newFiles])
-      toast.success(`อัปโหลด ${newFiles.length} ไฟล์แล้ว`)
-    } catch { toast.error("อัปโหลดไม่สำเร็จ") }
+      toast.success(t("admin.emp_detail.toast_upload_done", { n: newFiles.length }))
+    } catch { toast.error(t("admin.emp_detail.toast_upload_fail")) }
     finally { setResignAttachUploading(false); if (resignFileRef.current) resignFileRef.current.value = "" }
   }
 
@@ -488,10 +490,10 @@ export default function EmployeeDetailPage() {
         resign_attachments: resignAttach,
         resign_date: form.resign_date || null,
       }).eq("id", id as string)
-      if (error) { toast.error(error.message.includes("resign_reason") ? "ยังไม่ได้รัน migration (เพิ่มคอลัมน์ resign_reason)" : error.message); return }
-      toast.success("บันทึกข้อมูลการลาออกแล้ว")
+      if (error) { toast.error(error.message.includes("resign_reason") ? t("admin.emp_detail.toast_migration_needed") : error.message); return }
+      toast.success(t("admin.emp_detail.toast_resign_info_saved"))
       setEmp((p: any) => ({ ...p, resign_reason: resignReasonEdit, resign_attachments: resignAttach }))
-    } catch (e: any) { toast.error(e.message || "บันทึกไม่สำเร็จ") }
+    } catch (e: any) { toast.error(e.message || t("admin.emp_detail.toast_save_fail")) }
     finally { setResignTabSaving(false) }
   }
 
@@ -503,12 +505,12 @@ export default function EmployeeDetailPage() {
         body: JSON.stringify({ action: "reinstate", employee_id: id, previous_status: "active", resign_reason: resignReason }),
       })
       const data = await res.json()
-      if (!res.ok) { toast.error(data.error || "เกิดข้อผิดพลาด"); return }
-      toast.success(data.message || "ดึงกลับเรียบร้อย")
+      if (!res.ok) { toast.error(data.error || t("admin.emp_detail.toast_error")); return }
+      toast.success(data.message || t("admin.emp_detail.toast_reinstated"))
       setShowReinstateModal(false)
       setResignReason("")
       window.location.reload()
-    } catch { toast.error("เกิดข้อผิดพลาด") }
+    } catch { toast.error(t("admin.emp_detail.toast_error")) }
     finally { setResignLoading(false) }
   }
 
@@ -520,10 +522,10 @@ export default function EmployeeDetailPage() {
         body: JSON.stringify({ employee_id: id, promotion_id: promotion?.id, mark_end_today: !!opts?.markEndToday }),
       })
       const data = await res.json()
-      if (!res.ok) { toast.error(data.error || "เกิดข้อผิดพลาด"); return }
-      toast.success(data.message || "ยืนยันผ่านทดลองงานสำเร็จ")
+      if (!res.ok) { toast.error(data.error || t("admin.emp_detail.toast_error")); return }
+      toast.success(data.message || t("admin.emp_detail.toast_probation_passed"))
       window.location.reload()
-    } catch { toast.error("เกิดข้อผิดพลาด") }
+    } catch { toast.error(t("admin.emp_detail.toast_error")) }
     finally { setPromoteLoading(false) }
   }
 
@@ -550,17 +552,17 @@ export default function EmployeeDetailPage() {
         body: JSON.stringify({ action: "delete", employee_id: id, reason: deleteReason }),
       })
       const data = await res.json()
-      if (!res.ok) { toast.error(data.error || "เกิดข้อผิดพลาด"); return }
-      toast.success(data.message || "ลบพนักงานเรียบร้อย")
+      if (!res.ok) { toast.error(data.error || t("admin.emp_detail.toast_error")); return }
+      toast.success(data.message || t("admin.emp_detail.toast_deleted"))
       setShowDeleteModal(false)
       window.location.href = "/admin/employees"
-    } catch { toast.error("เกิดข้อผิดพลาด") }
+    } catch { toast.error(t("admin.emp_detail.toast_error")) }
     finally { setDeleteLoading(false) }
   }
 
-  if (!emp) return <div className="flex items-center justify-center py-24 gap-2 text-slate-400"><Loader2 size={18} className="animate-spin"/>กำลังโหลด...</div>
+  if (!emp) return <div className="flex items-center justify-center py-24 gap-2 text-slate-400"><Loader2 size={18} className="animate-spin"/>{t("admin.emp_detail.common_loading")}</div>
 
-  const empStatusMap: Record<string,string> = { active:"ปกติ", probation:"ทดลองงาน", resigned:"ลาออก", terminated:"เลิกจ้าง", on_leave:"ลา", suspended:"พักงาน" }
+  const empStatusMap: Record<string,string> = { active:t("admin.emp_detail.status_active"), probation:t("admin.emp_detail.status_probation"), resigned:t("admin.emp_detail.status_resigned"), terminated:t("admin.emp_detail.status_terminated"), on_leave:t("admin.emp_detail.status_on_leave"), suspended:t("admin.emp_detail.status_suspended") }
   const empStatusColor: Record<string,string> = { active:"bg-green-100 text-green-700", probation:"bg-amber-100 text-amber-700", resigned:"bg-slate-100 text-slate-500", terminated:"bg-red-100 text-red-600", on_leave:"bg-blue-100 text-blue-700", suspended:"bg-orange-100 text-orange-700" }
 
   return (
@@ -569,24 +571,24 @@ export default function EmployeeDetailPage() {
       {/* ── Top bar: back + actions ── */}
       <div className="flex items-center gap-3">
         <Link href="/admin/employees" className="p-2 hover:bg-slate-100 rounded-xl"><ArrowLeft size={18}/></Link>
-        <h1 className="text-sm font-bold text-slate-500">รายละเอียดพนักงาน</h1>
+        <h1 className="text-sm font-bold text-slate-500">{t("admin.emp_detail.hdr_title")}</h1>
         <div className="flex-1"/>
         {/* Resign / Reinstate */}
         {emp.employment_status === "resigned" || emp.employment_status === "terminated" ? (
           <button onClick={() => { setResignReason(""); setShowReinstateModal(true) }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm">
-            <UserCheck size={14}/>ดึงกลับ
+            <UserCheck size={14}/>{t("admin.emp_detail.hdr_reinstate")}
           </button>
         ) : (
           <button onClick={() => { setResignReason(""); setResignDate(format(new Date(),"yyyy-MM-dd")); setShowResignModal(true) }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-all">
-            <UserX size={14}/>แจ้งลาออก
+            <UserX size={14}/>{t("admin.emp_detail.hdr_resign")}
           </button>
         )}
         {(user?.role === "super_admin" || user?.role === "hr_admin") && !emp.deleted_at && (
           <button onClick={() => { setDeleteReason(""); setShowDeleteModal(true) }}
             className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 border border-slate-200 hover:border-red-200 transition-all">
-            <Trash2 size={13}/>ลบ
+            <Trash2 size={13}/>{t("admin.emp_detail.hdr_delete")}
           </button>
         )}
       </div>
@@ -599,16 +601,16 @@ export default function EmployeeDetailPage() {
           </div>
           <div className="flex-1">
             <p className="font-bold text-red-800">
-              {emp.employment_status === "resigned" ? "พนักงานลาออกแล้ว" : "เลิกจ้างแล้ว"}
+              {emp.employment_status === "resigned" ? t("admin.emp_detail.card_resigned_banner") : t("admin.emp_detail.card_terminated_banner")}
             </p>
             <p className="text-sm text-red-600 mt-0.5">
-              {emp.resign_date ? `วันที่มีผล: ${format(new Date(emp.resign_date + "T00:00:00"),"d MMMM yyyy",{locale:th})}` : "ไม่ระบุวันที่"}
-              {" · "}ข้อมูลยังคงอยู่ในระบบ · ไม่รวมในเงินเดือน
+              {emp.resign_date ? t("admin.emp_detail.card_effective_date", { date: format(new Date(emp.resign_date + "T00:00:00"),"d MMMM yyyy",{locale:th}) }) : t("admin.emp_detail.card_no_date")}
+              {" · "}{t("admin.emp_detail.card_resigned_note")}
             </p>
           </div>
           <button onClick={() => { setResignReason(""); setShowReinstateModal(true) }}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50 transition-all">
-            <UserCheck size={13}/>ดึงกลับเข้ามา
+            <UserCheck size={13}/>{t("admin.emp_detail.card_reinstate_full")}
           </button>
         </div>
       )}
@@ -626,15 +628,15 @@ export default function EmployeeDetailPage() {
           <div className="flex-1 min-w-0">
             <p className={`font-bold text-sm ${promotion ? "text-amber-800" : "text-slate-600"}`}>
               {emp.probation_end_date
-                ? `ทดลองงานถึง ${format(new Date(emp.probation_end_date + "T00:00:00"),"d MMMM yyyy",{locale:th})}`
-                : "อยู่ในช่วงทดลองงาน"}
+                ? t("admin.emp_detail.card_probation_until", { date: format(new Date(emp.probation_end_date + "T00:00:00"),"d MMMM yyyy",{locale:th}) })
+                : t("admin.emp_detail.card_in_probation")}
             </p>
             {promotion && (
               <p className="text-xs text-amber-600 mt-0.5">
-                มีการตั้งค่าหลังผ่านทดลองงานรออยู่
-                {promotion.base_salary && ` · เงินเดือนใหม่ ฿${(+promotion.base_salary).toLocaleString()}`}
-                {promotion.new_position?.name && ` · ตำแหน่ง "${promotion.new_position.name}"`}
-                {promotion.kpi_standard_amount != null && ` · KPI ฿${(+promotion.kpi_standard_amount).toLocaleString()}`}
+                {t("admin.emp_detail.card_promo_pending")}
+                {promotion.base_salary && t("admin.emp_detail.card_promo_new_salary", { amount: (+promotion.base_salary).toLocaleString() })}
+                {promotion.new_position?.name && t("admin.emp_detail.card_promo_new_position", { name: promotion.new_position.name })}
+                {promotion.kpi_standard_amount != null && t("admin.emp_detail.card_promo_kpi", { amount: (+promotion.kpi_standard_amount).toLocaleString() })}
               </p>
             )}
           </div>
@@ -643,7 +645,7 @@ export default function EmployeeDetailPage() {
             disabled={promoteLoading}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 transition-all shadow-sm flex-shrink-0">
             {promoteLoading ? <Loader2 size={13} className="animate-spin"/> : <CheckCircle2 size={13}/>}
-            {isEarlyPass ? "ยืนยันผ่านทดลองงานก่อนกำหนด" : "ยืนยันผ่านทดลองงาน"}
+            {isEarlyPass ? t("admin.emp_detail.card_confirm_pass_early") : t("admin.emp_detail.card_confirm_pass")}
           </button>
         </div>
       )}
@@ -720,15 +722,15 @@ export default function EmployeeDetailPage() {
 
           {/* Tab navigation — vertical on desktop */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-2 space-y-0.5">
-            {TABS.map((t,i) => (
-              <button key={t} onClick={() => setTab(i)}
+            {TAB_KEYS.map((key,i) => (
+              <button key={key} onClick={() => setTab(i)}
                 className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-left transition-all ${
                   tab===i
                     ? "bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-sm"
                     : "text-slate-600 hover:bg-slate-50"
                 }`}>
                 <span className={`w-1 h-4 rounded-full ${tab === i ? "bg-white/80" : "bg-transparent"}`}/>
-                <span className="flex-1 truncate">{t}</span>
+                <span className="flex-1 truncate">{t(`admin.emp_detail.${key}`)}</span>
               </button>
             ))}
           </div>
@@ -742,121 +744,121 @@ export default function EmployeeDetailPage() {
 
         {/* ── Tab 1: ข้อมูลส่วนตัว ── */}
         {tab === 1 && <>
-          <h3 className="font-bold text-slate-800 mb-4">ข้อมูลส่วนตัว</h3>
+          <h3 className="font-bold text-slate-800 mb-4">{t("admin.emp_detail.personal_title")}</h3>
 
           {/* คำนำหน้า + เพศ */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">คำนำหน้าชื่อ</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.personal_title_prefix")}</label>
               <select value={form.title_th || ""} onChange={e => set("title_th", e.target.value)} className={inp}>
-                <option value="">— เลือก —</option>
-                <option value="นาย">นาย</option>
-                <option value="นาง">นาง</option>
-                <option value="นางสาว">นางสาว</option>
-                <option value="ดร.">ดร.</option>
-                <option value="อื่นๆ">อื่นๆ</option>
+                <option value="">{t("admin.emp_detail.common_select")}</option>
+                <option value="นาย">{t("admin.emp_detail.personal_title_mr")}</option>
+                <option value="นาง">{t("admin.emp_detail.personal_title_mrs")}</option>
+                <option value="นางสาว">{t("admin.emp_detail.personal_title_miss")}</option>
+                <option value="ดร.">{t("admin.emp_detail.personal_title_dr")}</option>
+                <option value="อื่นๆ">{t("admin.emp_detail.common_other")}</option>
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">เพศ</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.personal_gender")}</label>
               <select value={form.gender || ""} onChange={e => set("gender", e.target.value)} className={inp}>
-                <option value="">ไม่ระบุ</option>
-                <option value="male">ชาย</option>
-                <option value="female">หญิง</option>
-                <option value="other">อื่นๆ</option>
+                <option value="">{t("admin.emp_detail.common_unspecified")}</option>
+                <option value="male">{t("admin.emp_detail.personal_gender_male")}</option>
+                <option value="female">{t("admin.emp_detail.personal_gender_female")}</option>
+                <option value="other">{t("admin.emp_detail.common_other")}</option>
               </select>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[["first_name_th","ชื่อ (ไทย)"],["last_name_th","นามสกุล (ไทย)"],["first_name_en","ชื่อ (EN)"],["last_name_en","นามสกุล (EN)"],["nickname","ชื่อเล่น"],["phone","เบอร์โทร"],["national_id","บัตรประชาชน"],["bank_account","เลขบัญชี"],["bank_name","ธนาคาร"]].map(([k,l]) => (
-              <div key={k}><label className="block text-sm font-medium text-slate-700 mb-1.5">{l}</label><input value={form[k]||""} onChange={e => set(k,e.target.value)} className={inp}/></div>
+            {[["first_name_th","personal_first_name_th"],["last_name_th","personal_last_name_th"],["first_name_en","personal_first_name_en"],["last_name_en","personal_last_name_en"],["nickname","personal_nickname"],["phone","personal_phone"],["national_id","personal_national_id"],["bank_account","personal_bank_account"],["bank_name","personal_bank_name"]].map(([k,l]) => (
+              <div key={k}><label className="block text-sm font-medium text-slate-700 mb-1.5">{t(`admin.emp_detail.${l}`)}</label><input value={form[k]||""} onChange={e => set(k,e.target.value)} className={inp}/></div>
             ))}
             {/* วันเกิด + อายุที่คำนวณอัตโนมัติ */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                วันเกิด {form.birth_date && (() => {
+                {t("admin.emp_detail.personal_birthdate")} {form.birth_date && (() => {
                   const b = new Date(form.birth_date)
                   const now = new Date()
                   let age = now.getFullYear() - b.getFullYear()
                   const m = now.getMonth() - b.getMonth()
                   if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--
-                  return <span className="text-indigo-600 font-bold">· อายุ {age} ปี</span>
+                  return <span className="text-indigo-600 font-bold">{t("admin.emp_detail.personal_age", { n: age })}</span>
                 })()}
               </label>
               <input type="date" value={form.birth_date || ""} onChange={e => set("birth_date", e.target.value)} className={inp}/>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">สัญชาติ</label>
-              <input value={form.nationality || ""} onChange={e => set("nationality", e.target.value)} placeholder="ไทย" className={inp}/>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.personal_nationality")}</label>
+              <input value={form.nationality || ""} onChange={e => set("nationality", e.target.value)} placeholder={t("admin.emp_detail.personal_nationality_ph")} className={inp}/>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">ศาสนา</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.personal_religion")}</label>
               <select value={form.religion || ""} onChange={e => set("religion", e.target.value)} className={inp}>
-                <option value="">ไม่ระบุ</option>
-                <option value="พุทธ">พุทธ</option>
-                <option value="อิสลาม">อิสลาม</option>
-                <option value="คริสต์">คริสต์</option>
-                <option value="ฮินดู">ฮินดู</option>
-                <option value="ซิกข์">ซิกข์</option>
-                <option value="อื่นๆ">อื่นๆ</option>
+                <option value="">{t("admin.emp_detail.common_unspecified")}</option>
+                <option value="พุทธ">{t("admin.emp_detail.personal_religion_buddhist")}</option>
+                <option value="อิสลาม">{t("admin.emp_detail.personal_religion_islam")}</option>
+                <option value="คริสต์">{t("admin.emp_detail.personal_religion_christian")}</option>
+                <option value="ฮินดู">{t("admin.emp_detail.personal_religion_hindu")}</option>
+                <option value="ซิกข์">{t("admin.emp_detail.personal_religion_sikh")}</option>
+                <option value="อื่นๆ">{t("admin.emp_detail.common_other")}</option>
               </select>
             </div>
 
             {/* อีเมล — แสดงแยกเพื่อบอกว่ากระทบระบบล็อกอิน */}
             <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-xl p-4">
-              <label className="block text-sm font-bold text-blue-800 mb-1">อีเมล (ใช้เข้าสู่ระบบ)</label>
-              <p className="text-[11px] text-blue-600 mb-2">การเปลี่ยนอีเมลจะอัปเดตอีเมลล็อกอินของพนักงานด้วย — พนักงานต้องใช้อีเมลใหม่ในการเข้าสู่ระบบ</p>
+              <label className="block text-sm font-bold text-blue-800 mb-1">{t("admin.emp_detail.personal_email_login")}</label>
+              <p className="text-[11px] text-blue-600 mb-2">{t("admin.emp_detail.personal_email_note")}</p>
               <input value={form.email||""} onChange={e => set("email",e.target.value)} placeholder="example@company.com" className={inp + " border-blue-300 focus:border-blue-500"}/>
               {form.email && form.email !== (emp?.email || "") && (
-                <p className="text-[11px] text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle size={10}/> จะเปลี่ยนจาก {emp?.email || "ไม่มี"} → {form.email}</p>
+                <p className="text-[11px] text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle size={10}/> {t("admin.emp_detail.personal_email_change_hint", { old: emp?.email || t("admin.emp_detail.common_none"), new: form.email })}</p>
               )}
             </div>
-            <div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1.5">ที่อยู่</label><textarea value={form.address||""} onChange={e => set("address",e.target.value)} className={inp + " h-20 resize-none"}/></div>
+            <div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.personal_address")}</label><textarea value={form.address||""} onChange={e => set("address",e.target.value)} className={inp + " h-20 resize-none"}/></div>
 
             {/* ── ผู้ติดต่อกรณีฉุกเฉิน ── */}
             <div className="md:col-span-2 bg-rose-50/50 border border-rose-200 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-rose-600">🚨</span>
-                <h4 className="font-bold text-rose-800 text-sm">ผู้ติดต่อกรณีฉุกเฉิน</h4>
+                <h4 className="font-bold text-rose-800 text-sm">{t("admin.emp_detail.personal_emergency_contact")}</h4>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">ชื่อ-นามสกุล</label>
-                  <input value={form.emergency_contact_name || ""} onChange={e => set("emergency_contact_name", e.target.value)} placeholder="ชื่อผู้ติดต่อ" className={inp}/>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.personal_full_name")}</label>
+                  <input value={form.emergency_contact_name || ""} onChange={e => set("emergency_contact_name", e.target.value)} placeholder={t("admin.emp_detail.personal_contact_name_ph")} className={inp}/>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">ความสัมพันธ์</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.personal_relation")}</label>
                   <select value={form.emergency_contact_relation || ""} onChange={e => set("emergency_contact_relation", e.target.value)} className={inp}>
-                    <option value="">— เลือก —</option>
-                    <option value="พ่อ">พ่อ</option>
-                    <option value="แม่">แม่</option>
-                    <option value="พี่ชาย">พี่ชาย</option>
-                    <option value="พี่สาว">พี่สาว</option>
-                    <option value="น้องชาย">น้องชาย</option>
-                    <option value="น้องสาว">น้องสาว</option>
-                    <option value="สามี">สามี</option>
-                    <option value="ภรรยา">ภรรยา</option>
-                    <option value="แฟน">แฟน</option>
-                    <option value="ลูก">ลูก</option>
-                    <option value="ญาติ">ญาติ</option>
-                    <option value="เพื่อน">เพื่อน</option>
-                    <option value="อื่นๆ">อื่นๆ</option>
+                    <option value="">{t("admin.emp_detail.common_select")}</option>
+                    <option value="พ่อ">{t("admin.emp_detail.personal_rel_father")}</option>
+                    <option value="แม่">{t("admin.emp_detail.personal_rel_mother")}</option>
+                    <option value="พี่ชาย">{t("admin.emp_detail.personal_rel_older_brother")}</option>
+                    <option value="พี่สาว">{t("admin.emp_detail.personal_rel_older_sister")}</option>
+                    <option value="น้องชาย">{t("admin.emp_detail.personal_rel_younger_brother")}</option>
+                    <option value="น้องสาว">{t("admin.emp_detail.personal_rel_younger_sister")}</option>
+                    <option value="สามี">{t("admin.emp_detail.personal_rel_husband")}</option>
+                    <option value="ภรรยา">{t("admin.emp_detail.personal_rel_wife")}</option>
+                    <option value="แฟน">{t("admin.emp_detail.personal_rel_partner")}</option>
+                    <option value="ลูก">{t("admin.emp_detail.personal_rel_child")}</option>
+                    <option value="ญาติ">{t("admin.emp_detail.personal_rel_relative")}</option>
+                    <option value="เพื่อน">{t("admin.emp_detail.personal_rel_friend")}</option>
+                    <option value="อื่นๆ">{t("admin.emp_detail.common_other")}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">เบอร์โทร</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.personal_phone")}</label>
                   <input value={form.emergency_contact_phone || ""} onChange={e => set("emergency_contact_phone", e.target.value)} placeholder="08x-xxx-xxxx" className={inp}/>
                 </div>
               </div>
             </div>
           </div>
-          <button onClick={saveEmployee} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>
+          <button onClick={saveEmployee} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>{t("admin.emp_detail.common_save")}</button>
         </>}
 
         {/* ── Tab 2: การจ้างงาน ── */}
         {tab === 2 && <>
-          <h3 className="font-bold text-slate-800 mb-4">ข้อมูลการจ้างงาน</h3>
+          <h3 className="font-bold text-slate-800 mb-4">{t("admin.emp_detail.emp_title")}</h3>
 
           {/* ── ทดลองงาน: ยืนยันผ่านก่อนกำหนด ── */}
           {showProbationPass && (
@@ -866,20 +868,20 @@ export default function EmployeeDetailPage() {
                   <CalendarClock size={18} className="text-amber-600"/>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-amber-800 text-sm">อยู่ในช่วงทดลองงาน</p>
+                  <p className="font-bold text-amber-800 text-sm">{t("admin.emp_detail.card_in_probation")}</p>
                   <p className="text-xs text-amber-600 mt-0.5">
                     {emp.probation_end_date
-                      ? <>ครบกำหนด {format(new Date(emp.probation_end_date + "T00:00:00"), "d MMMM yyyy", { locale: th })}
-                          {isEarlyPass && <span className="font-bold"> · เหลืออีก {probationDaysLeft} วัน</span>}
-                          {probationDaysLeft != null && probationDaysLeft <= 0 && <span className="font-bold"> · ครบกำหนดแล้ว</span>}
+                      ? <>{t("admin.emp_detail.emp_probation_due", { date: format(new Date(emp.probation_end_date + "T00:00:00"), "d MMMM yyyy", { locale: th }) })}
+                          {isEarlyPass && <span className="font-bold">{t("admin.emp_detail.emp_days_left", { n: probationDaysLeft })}</span>}
+                          {probationDaysLeft != null && probationDaysLeft <= 0 && <span className="font-bold">{t("admin.emp_detail.emp_due_reached")}</span>}
                         </>
-                      : "ยังไม่ได้กำหนดวันสิ้นสุดทดลองงาน"}
+                      : t("admin.emp_detail.emp_no_probation_end")}
                   </p>
                   {promotion && (
                     <p className="text-xs text-amber-700 mt-1 bg-amber-100/60 rounded-lg px-2 py-1 inline-block">
-                      มีการตั้งค่าหลังผ่านทดลองงานรออยู่
-                      {promotion.base_salary && ` · เงินเดือนใหม่ ฿${(+promotion.base_salary).toLocaleString()}`}
-                      {promotion.new_position?.name && ` · ตำแหน่ง "${promotion.new_position.name}"`}
+                      {t("admin.emp_detail.card_promo_pending")}
+                      {promotion.base_salary && t("admin.emp_detail.card_promo_new_salary", { amount: (+promotion.base_salary).toLocaleString() })}
+                      {promotion.new_position?.name && t("admin.emp_detail.card_promo_new_position", { name: promotion.new_position.name })}
                     </p>
                   )}
                 </div>
@@ -890,14 +892,14 @@ export default function EmployeeDetailPage() {
                 disabled={promoteLoading}
                 className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 transition-all shadow-sm">
                 {promoteLoading ? <Loader2 size={15} className="animate-spin"/> : <CheckCircle2 size={15}/>}
-                {isEarlyPass ? "ยืนยันผ่านทดลองงานก่อนกำหนด" : "ยืนยันผ่านทดลองงาน"}
+                {isEarlyPass ? t("admin.emp_detail.card_confirm_pass_early") : t("admin.emp_detail.card_confirm_pass")}
               </button>
             </div>
           )}
 
           {/* บริษัทที่สังกัด */}
           <div className="mb-4 p-3 rounded-xl border-2 border-blue-100 bg-blue-50/50">
-            <label className="block text-sm font-bold text-blue-800 mb-1.5 flex items-center gap-1.5"><Building2 size={14}/> บริษัทที่สังกัด</label>
+            <label className="block text-sm font-bold text-blue-800 mb-1.5 flex items-center gap-1.5"><Building2 size={14}/> {t("admin.emp_detail.emp_company")}</label>
             <select value={form.company_id||""} onChange={e => {
               const newCid = e.target.value
               setForm((f: any) => f.company_id === newCid ? f : ({
@@ -906,62 +908,62 @@ export default function EmployeeDetailPage() {
                 department_id: null, position_id: null, branch_id: null,
               }))
             }} className={inp}>
-              <option value="">— เลือกบริษัท —</option>
+              <option value="">{t("admin.emp_detail.emp_select_company")}</option>
               {companies.map((c: any) => <option key={c.id} value={c.id}>{c.code ? `[${c.code}] ` : ""}{c.name_th}</option>)}
             </select>
-            <p className="text-[11px] text-blue-500 mt-1">เปลี่ยนบริษัทจะล้างแผนก/ตำแหน่ง/สาขา ให้เลือกใหม่ของบริษัทนั้น (พิมพ์เพิ่มได้ถ้ายังไม่มี)</p>
+            <p className="text-[11px] text-blue-500 mt-1">{t("admin.emp_detail.emp_company_note")}</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">ประเภท</label>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.emp_type")}</label>
               <select value={form.employment_type||""} onChange={e => set("employment_type",e.target.value)} className={inp}>
-                {[["full_time","ประจำ"],["part_time","พาร์ทไทม์"],["contract","สัญญา"],["intern","ฝึกงาน"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                {[["full_time","emp_type_full_time"],["part_time","emp_type_part_time"],["contract","emp_type_contract"],["intern","emp_type_intern"]].map(([v,l]) => <option key={v} value={v}>{t(`admin.emp_detail.${l}`)}</option>)}
               </select></div>
-            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สถานะ</label>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.emp_status")}</label>
               <select value={form.employment_status||""} onChange={e => set("employment_status",e.target.value)} className={inp}>
-                {[["active","ปกติ"],["probation","ทดลองงาน"],["resigned","ลาออก"],["terminated","เลิกจ้าง"],["on_leave","ลา"],["suspended","พักงาน"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                {[["active","status_active"],["probation","status_probation"],["resigned","status_resigned"],["terminated","status_terminated"],["on_leave","status_on_leave"],["suspended","status_suspended"]].map(([v,l]) => <option key={v} value={v}>{t(`admin.emp_detail.${l}`)}</option>)}
               </select></div>
-            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">แผนก</label>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.emp_department")}</label>
               <select value={form.department_id||""} onChange={e => set("department_id",e.target.value)} className={inp}>
-                <option value="">ไม่ระบุ</option>
+                <option value="">{t("admin.emp_detail.common_unspecified")}</option>
                 {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
               <div className="flex gap-1.5 mt-1.5">
                 <input value={newDeptName} onChange={e => setNewDeptName(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && (e.preventDefault(), createDepartment())}
-                  placeholder="+ พิมพ์แผนกใหม่..." className="flex-1 bg-white border border-dashed border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-400 placeholder-slate-300"/>
+                  placeholder={t("admin.emp_detail.emp_new_dept_ph")} className="flex-1 bg-white border border-dashed border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-400 placeholder-slate-300"/>
                 {newDeptName.trim() && (
                   <button type="button" onClick={createDepartment} disabled={creatingDept}
                     className="px-2.5 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-100 disabled:opacity-50 whitespace-nowrap">
-                    {creatingDept ? <Loader2 size={12} className="animate-spin"/> : "เพิ่ม"}
+                    {creatingDept ? <Loader2 size={12} className="animate-spin"/> : t("admin.emp_detail.common_add")}
                   </button>
                 )}
               </div>
             </div>
-            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">ตำแหน่ง</label>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.emp_position")}</label>
               <select value={form.position_id||""} onChange={e => set("position_id",e.target.value)} className={inp}>
-                <option value="">ไม่ระบุ</option>
+                <option value="">{t("admin.emp_detail.common_unspecified")}</option>
                 {positions.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <div className="flex gap-1.5 mt-1.5">
                 <input value={newPositionName} onChange={e => setNewPositionName(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && (e.preventDefault(), createPosition())}
-                  placeholder="+ พิมพ์ตำแหน่งใหม่..." className="flex-1 bg-white border border-dashed border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-indigo-400 placeholder-slate-300"/>
+                  placeholder={t("admin.emp_detail.emp_new_pos_ph")} className="flex-1 bg-white border border-dashed border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-indigo-400 placeholder-slate-300"/>
                 {newPositionName.trim() && (
                   <button type="button" onClick={createPosition} disabled={creatingPosition}
                     className="px-2.5 py-1.5 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg text-xs font-bold hover:bg-indigo-100 disabled:opacity-50 whitespace-nowrap">
-                    {creatingPosition ? <Loader2 size={12} className="animate-spin"/> : "เพิ่ม"}
+                    {creatingPosition ? <Loader2 size={12} className="animate-spin"/> : t("admin.emp_detail.common_add")}
                   </button>
                 )}
               </div>
             </div>
-            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สาขา</label>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.emp_branch")}</label>
               <select value={form.branch_id||""} onChange={e => set("branch_id",e.target.value)} className={inp}>
-                <option value="">ไม่ระบุ</option>
+                <option value="">{t("admin.emp_detail.common_unspecified")}</option>
                 {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select></div>
-            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">วันเริ่มงาน</label><input type="date" value={form.hire_date||""} onChange={e => set("hire_date",e.target.value)} className={inp}/></div>
-            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">สิ้นสุดทดลองงาน</label><input type="date" value={form.probation_end_date||""} onChange={e => set("probation_end_date",e.target.value)} className={inp}/></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.emp_hire_date")}</label><input type="date" value={form.hire_date||""} onChange={e => set("hire_date",e.target.value)} className={inp}/></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.emp_probation_end")}</label><input type="date" value={form.probation_end_date||""} onChange={e => set("probation_end_date",e.target.value)} className={inp}/></div>
           </div>
 
           {/* ── จ้างงาน 2 เฟส (Pre-Employee) ── */}
@@ -975,21 +977,21 @@ export default function EmployeeDetailPage() {
                   if (on && from && !to) { const d = new Date(from); d.setDate(d.getDate() + 6); to = d.toISOString().split("T")[0] }
                   setForm((p:any) => ({ ...p, pre_employment_enabled: on, pre_employment_from: from, pre_employment_to: to, phase2_start_date: on ? (p.phase2_start_date || computePhase2Start(to)) : p.phase2_start_date }))
                 }} className="w-4 h-4 accent-amber-500" />
-              <span className="font-bold text-amber-800 text-sm flex items-center gap-1.5"><Briefcase size={14}/>จ้างงาน 2 เฟส — มีทดลองงานก่อน 7 วัน (Pre-Employee)</span>
+              <span className="font-bold text-amber-800 text-sm flex items-center gap-1.5"><Briefcase size={14}/>{t("admin.emp_detail.emp_two_phase_label")}</span>
             </label>
             {form.pre_employment_enabled && (
               <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div><label className="block text-xs font-medium text-amber-700 mb-1">วันเริ่มงานเฟส 1 (Pre-Employee)</label>
+                  <div><label className="block text-xs font-medium text-amber-700 mb-1">{t("admin.emp_detail.emp_phase1_start")}</label>
                     <input type="date" value={form.pre_employment_from||""} onChange={e => set("pre_employment_from", e.target.value)} className={inp}/></div>
-                  <div><label className="block text-xs font-medium text-slate-600 mb-1">วันสิ้นสุดเฟส 1</label>
+                  <div><label className="block text-xs font-medium text-slate-600 mb-1">{t("admin.emp_detail.emp_phase1_end")}</label>
                     <input type="date" value={form.pre_employment_to||""}
                       onChange={e => { const to = e.target.value; setForm((p:any) => ({ ...p, pre_employment_to: to, phase2_start_date: computePhase2Start(to) || p.phase2_start_date })) }}
                       className={inp}/></div>
-                  <div><label className="block text-xs font-medium text-emerald-700 mb-1">วันเริ่มงานเฟส 2 (พนักงานจริง)</label>
+                  <div><label className="block text-xs font-medium text-emerald-700 mb-1">{t("admin.emp_detail.emp_phase2_start")}</label>
                     <input type="date" value={form.phase2_start_date||""} onChange={e => set("phase2_start_date", e.target.value)} className={inp}/>
-                    <p className="text-[10px] text-slate-400 mt-1">เว้นว่าง = คำนวณอัตโนมัติจากวันสิ้นสุดเฟส 1 · เงินเดือนอิงวันนี้</p></div>
-                  <div><label className="block text-xs font-medium text-slate-600 mb-1">ค่าจ้าง/วัน เฟส 1 (บาท)</label>
+                    <p className="text-[10px] text-slate-400 mt-1">{t("admin.emp_detail.emp_phase2_note")}</p></div>
+                  <div><label className="block text-xs font-medium text-slate-600 mb-1">{t("admin.emp_detail.emp_phase1_rate")}</label>
                     <input type="number" value={form.pre_employment_daily_rate ?? 500} onChange={e => set("pre_employment_daily_rate", e.target.value)} className={inp}/></div>
                 </div>
                 {/* Phase 1 / Phase 2 สรุปเกณฑ์ */}
@@ -998,16 +1000,16 @@ export default function EmployeeDetailPage() {
                     <p className="text-xs font-black text-amber-700 mb-1">Phase 1 · Pre-Employee</p>
                     <p className="text-[11px] text-slate-500 leading-relaxed">
                       {form.pre_employment_from || "—"} → {form.pre_employment_to || "—"}<br/>
-                      ค่าจ้าง {form.pre_employment_daily_rate ?? 500} ฿/วัน (ลงช่อง "ค่าอื่นๆ")<br/>
-                      หักภาษี 3% · <span className="text-rose-500 font-bold">ไม่หัก</span> ประกันสังคม/กองทุน
+                      {t("admin.emp_detail.emp_phase1_wage_line", { rate: form.pre_employment_daily_rate ?? 500 })}<br/>
+                      {t("admin.emp_detail.emp_phase1_tax")} <span className="text-rose-500 font-bold">{t("admin.emp_detail.emp_no_deduct")}</span> {t("admin.emp_detail.emp_phase1_sso_pf")}
                     </p>
                   </div>
                   <div className="rounded-xl bg-white border border-emerald-200 p-3">
-                    <p className="text-xs font-black text-emerald-700 mb-1">Phase 2 · Employee (พนักงานจริง)</p>
+                    <p className="text-xs font-black text-emerald-700 mb-1">{t("admin.emp_detail.emp_phase2_heading")}</p>
                     <p className="text-[11px] text-slate-500 leading-relaxed">
-                      เริ่ม <span className="text-emerald-600 font-black">{form.phase2_start_date || computePhase2Start(form.pre_employment_to) || "—"}</span>{!form.phase2_start_date && " (อัตโนมัติ · เลื่อน ส./อา. → จันทร์)"}<br/>
-                      ค่าจ้าง + ประกันสังคม + กองทุน (PF) · ภาษีปกติ<br/>
-                      <span className="font-bold">เริ่มนับทดลองงานจากวันนี้</span>
+                      {t("admin.emp_detail.emp_phase2_start_prefix")} <span className="text-emerald-600 font-black">{form.phase2_start_date || computePhase2Start(form.pre_employment_to) || "—"}</span>{!form.phase2_start_date && t("admin.emp_detail.emp_phase2_auto_note")}<br/>
+                      {t("admin.emp_detail.emp_phase2_wage_line")}<br/>
+                      <span className="font-bold">{t("admin.emp_detail.emp_phase2_probation_start")}</span>
                     </p>
                   </div>
                 </div>
@@ -1024,11 +1026,11 @@ export default function EmployeeDetailPage() {
             const termEff = nextPayrollCycleEnd(today)
             return (
               <div className="mt-6 p-4 rounded-2xl border-2 border-slate-200 bg-slate-50/70">
-                <h4 className="font-bold text-slate-800 text-sm mb-1 flex items-center gap-2"><CalendarClock size={14} className="text-slate-500"/>วันผ่านทดลองงาน &amp; การบอกเลิกจ้าง (1 รอบจ่าย)</h4>
-                <p className="text-[11px] text-slate-400 mb-3">แสดงข้อมูลคำนวณตามกฎ — ไม่ใช่การดำเนินการจริง</p>
+                <h4 className="font-bold text-slate-800 text-sm mb-1 flex items-center gap-2"><CalendarClock size={14} className="text-slate-500"/>{t("admin.emp_detail.emp_term_title")}</h4>
+                <p className="text-[11px] text-slate-400 mb-3">{t("admin.emp_detail.emp_term_note")}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                   <div className="bg-white rounded-xl border border-slate-100 px-3 py-2">
-                    <p className="text-[11px] text-slate-400">วันผ่านทดลองงาน (Probation Passed)</p>
+                    <p className="text-[11px] text-slate-400">{t("admin.emp_detail.emp_probation_passed_date")}</p>
                     <p className="font-bold text-slate-800">{fmtTH(form.probation_end_date)}</p>
                   </div>
                   <div className="bg-white rounded-xl border border-slate-100 px-3 py-2">
@@ -1036,12 +1038,12 @@ export default function EmployeeDetailPage() {
                     <p className="font-bold text-indigo-700">{fmtTH(sysEff)}</p>
                   </div>
                   <div className="bg-white rounded-xl border border-amber-200 px-3 py-2">
-                    <p className="text-[11px] text-amber-600">ประเมินทดลองงานต้องเสร็จภายใน</p>
+                    <p className="text-[11px] text-amber-600">{t("admin.emp_detail.emp_eval_deadline")}</p>
                     <p className="font-bold text-amber-700">{fmtTH(deadline)}</p>
                   </div>
                   <div className="bg-white rounded-xl border border-rose-200 px-3 py-2">
-                    <p className="text-[11px] text-rose-500">หากแจ้งเลิกจ้างวันนี้ ({fmtTH(today)}) → มีผล</p>
-                    <p className="font-bold text-rose-700">{fmtTH(termEff)} <span className="font-normal text-[11px] text-slate-400">(สิ้นรอบจ่ายถัดไป)</span></p>
+                    <p className="text-[11px] text-rose-500">{t("admin.emp_detail.emp_term_if_today", { date: fmtTH(today) })}</p>
+                    <p className="font-bold text-rose-700">{fmtTH(termEff)} <span className="font-normal text-[11px] text-slate-400">{t("admin.emp_detail.emp_term_next_cycle")}</span></p>
                   </div>
                 </div>
               </div>
@@ -1054,23 +1056,23 @@ export default function EmployeeDetailPage() {
               <input type="checkbox" checked={!!form.is_attendance_exempt} onChange={e => set("is_attendance_exempt", e.target.checked)}
                 className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
               <div>
-                <span className="text-sm font-medium text-slate-700">ยกเว้นเช็คอิน/เช็คเอาท์</span>
-                <p className="text-xs text-slate-400">ไม่หักมาสาย / ขาดงาน / ออกก่อน</p>
+                <span className="text-sm font-medium text-slate-700">{t("admin.emp_detail.emp_attendance_exempt")}</span>
+                <p className="text-xs text-slate-400">{t("admin.emp_detail.emp_attendance_exempt_note")}</p>
               </div>
             </label>
           </div>
 
           {/* ── ผู้ประเมิน KPI ── */}
           <div className="mt-6 p-4 rounded-2xl border-2 border-violet-100 bg-violet-50/50">
-            <h4 className="font-bold text-slate-800 text-sm mb-1 flex items-center gap-2"><BarChart2 size={14} className="text-violet-500"/>ผู้ประเมิน KPI</h4>
-            <p className="text-xs text-slate-400 mb-3">เว้นว่าง = ใช้หัวหน้าปัจจุบันเป็นผู้ประเมินตามปกติ</p>
+            <h4 className="font-bold text-slate-800 text-sm mb-1 flex items-center gap-2"><BarChart2 size={14} className="text-violet-500"/>{t("admin.emp_detail.emp_kpi_evaluator")}</h4>
+            <p className="text-xs text-slate-400 mb-3">{t("admin.emp_detail.emp_evaluator_note")}</p>
             <div className="relative">
               <input
                 type="text"
                 value={kpiEvalSearch ?? ""}
                 onChange={e => { setKpiEvalSearch(e.target.value); setShowKpiEvalDropdown(true); loadAllEmps() }}
                 onFocus={() => { setShowKpiEvalDropdown(true); loadAllEmps() }}
-                placeholder="ค้นหาชื่อ หรือ รหัสพนักงาน... (เว้นว่าง = หัวหน้า)"
+                placeholder={t("admin.emp_detail.emp_search_evaluator_ph")}
                 className={inp}
               />
               {form.kpi_evaluator_id && (
@@ -1092,7 +1094,7 @@ export default function EmployeeDetailPage() {
                     e.nickname, e.nickname_en,
                     e.employee_code,
                   ].filter(Boolean).join(" ").toLowerCase()
-                  return terms.every(t => hay.includes(t))
+                  return terms.every(term => hay.includes(term))
                 })
                 return (
                   <>
@@ -1108,7 +1110,7 @@ export default function EmployeeDetailPage() {
                         </button>
                       ))}
                       {matches.length === 0 && (
-                        <p className="px-3 py-4 text-sm text-slate-400 text-center">ไม่พบพนักงาน</p>
+                        <p className="px-3 py-4 text-sm text-slate-400 text-center">{t("admin.emp_detail.emp_no_employee_found")}</p>
                       )}
                     </div>
                   </>
@@ -1116,7 +1118,7 @@ export default function EmployeeDetailPage() {
               })()}
             </div>
             {form.kpi_evaluator_id && (
-              <p className="text-xs text-violet-600 font-medium mt-2 flex items-center gap-1"><CheckCircle2 size={11}/>กำหนดผู้ประเมิน KPI แล้ว — จะใช้แทนหัวหน้า</p>
+              <p className="text-xs text-violet-600 font-medium mt-2 flex items-center gap-1"><CheckCircle2 size={11}/>{t("admin.emp_detail.emp_kpi_evaluator_set")}</p>
             )}
           </div>
 
@@ -1125,15 +1127,15 @@ export default function EmployeeDetailPage() {
             const currentMgr = mgrHistory.find((h: any) => !h.effective_to)?.manager
             return (
           <div className="mt-6 p-4 rounded-2xl border-2 border-rose-100 bg-rose-50/50">
-            <h4 className="font-bold text-slate-800 text-sm mb-1 flex items-center gap-2"><Shield size={14} className="text-rose-500"/>ผู้ประเมินทดลองงาน</h4>
-            <p className="text-xs text-slate-400 mb-3">เว้นว่าง = ใช้หัวหน้าปัจจุบันเป็นผู้ประเมินตามปกติ</p>
+            <h4 className="font-bold text-slate-800 text-sm mb-1 flex items-center gap-2"><Shield size={14} className="text-rose-500"/>{t("admin.emp_detail.emp_probation_evaluator")}</h4>
+            <p className="text-xs text-slate-400 mb-3">{t("admin.emp_detail.emp_evaluator_note")}</p>
             <div className="relative">
               <input
                 type="text"
                 value={probEvalSearch ?? ""}
                 onChange={e => { setProbEvalSearch(e.target.value); setShowProbEvalDropdown(true); loadAllEmps() }}
                 onFocus={() => { setShowProbEvalDropdown(true); loadAllEmps() }}
-                placeholder="ค้นหาชื่อ หรือ รหัสพนักงาน... (เว้นว่าง = หัวหน้า)"
+                placeholder={t("admin.emp_detail.emp_search_evaluator_ph")}
                 className={inp}
               />
               {form.probation_evaluator_id && (
@@ -1153,7 +1155,7 @@ export default function EmployeeDetailPage() {
                     e.nickname, e.nickname_en,
                     e.employee_code,
                   ].filter(Boolean).join(" ").toLowerCase()
-                  return terms.every(t => hay.includes(t))
+                  return terms.every(term => hay.includes(term))
                 })
                 return (
                   <>
@@ -1169,7 +1171,7 @@ export default function EmployeeDetailPage() {
                         </button>
                       ))}
                       {matches.length === 0 && (
-                        <p className="px-3 py-4 text-sm text-slate-400 text-center">ไม่พบพนักงาน</p>
+                        <p className="px-3 py-4 text-sm text-slate-400 text-center">{t("admin.emp_detail.emp_no_employee_found")}</p>
                       )}
                     </div>
                   </>
@@ -1178,17 +1180,17 @@ export default function EmployeeDetailPage() {
             </div>
             {/* ── ผู้ประเมินปัจจุบัน (designated หรือหัวหน้าตรง) ── */}
             <div className="mt-3 flex items-center gap-2 text-xs">
-              <span className="text-slate-400">ผู้ประเมินทดลองงานปัจจุบัน:</span>
+              <span className="text-slate-400">{t("admin.emp_detail.emp_current_prob_evaluator")}</span>
               {form.probation_evaluator_id ? (
                 <span className="font-bold text-rose-600 flex items-center gap-1">
-                  <UserCheck size={12}/> {probEvalSearch || "—"} <span className="font-normal text-slate-400">(กำหนดเอง)</span>
+                  <UserCheck size={12}/> {probEvalSearch || "—"} <span className="font-normal text-slate-400">{t("admin.emp_detail.emp_designated")}</span>
                 </span>
               ) : currentMgr ? (
                 <span className="font-bold text-slate-700 flex items-center gap-1">
-                  <UserCheck size={12} className="text-slate-400"/> {currentMgr.first_name_th} {currentMgr.last_name_th} <span className="font-normal text-slate-400">(หัวหน้าตรง)</span>
+                  <UserCheck size={12} className="text-slate-400"/> {currentMgr.first_name_th} {currentMgr.last_name_th} <span className="font-normal text-slate-400">{t("admin.emp_detail.emp_direct_manager")}</span>
                 </span>
               ) : (
-                <span className="text-amber-600 font-medium">ยังไม่มีหัวหน้า — กรุณากำหนดหัวหน้าหรือผู้ประเมิน</span>
+                <span className="text-amber-600 font-medium">{t("admin.emp_detail.emp_no_manager_warning")}</span>
               )}
             </div>
           </div>
@@ -1201,13 +1203,13 @@ export default function EmployeeDetailPage() {
           {/* ── มอบหมายประเมินทดลองงาน หลายคน/หลายรอบ ── */}
           <ProbationAssignmentsSection employeeId={id as string} allEmps={allEmps} loadAllEmps={loadAllEmps} />
 
-          <button onClick={saveEmployment} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึก</button>
+          <button onClick={saveEmployment} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>{t("admin.emp_detail.common_save")}</button>
 
           {/* ── ประวัติการเปลี่ยนตำแหน่ง ── */}
           <div className="mt-8 pt-6 border-t border-slate-100">
-            <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2"><History size={15} className="text-violet-500"/>ประวัติการเปลี่ยนตำแหน่ง ({positionHistory.length})</h4>
+            <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2"><History size={15} className="text-violet-500"/>{t("admin.emp_detail.emp_position_history", { n: positionHistory.length })}</h4>
             {positionHistory.length === 0 ? (
-              <p className="text-sm text-slate-400">ยังไม่มีประวัติ — เมื่อเปลี่ยนตำแหน่งแล้วบันทึก จะแสดงที่นี่</p>
+              <p className="text-sm text-slate-400">{t("admin.emp_detail.emp_position_history_empty")}</p>
             ) : (
               <div className="space-y-2">
                 {positionHistory.map((h: any) => (
@@ -1217,7 +1219,7 @@ export default function EmployeeDetailPage() {
                     <span className="text-sm font-bold text-violet-700">{h.to_pos?.name ?? "—"}</span>
                     <span className="ml-auto text-[11px] text-slate-400">
                       {h.changed_at ? format(new Date(h.changed_at), "d MMM yyyy HH:mm", { locale: th }) : ""}
-                      {h.changer && <span> · โดย {h.changer.first_name_th} {h.changer.last_name_th}</span>}
+                      {h.changer && <span>{t("admin.emp_detail.emp_by", { name: `${h.changer.first_name_th} ${h.changer.last_name_th}` })}</span>}
                     </span>
                   </div>
                 ))}
@@ -1228,21 +1230,21 @@ export default function EmployeeDetailPage() {
 
         {/* ── Tab 3: เงินเดือน ── */}
         {tab === 3 && <>
-          <h3 className="font-bold text-slate-800 mb-4">โครงสร้างเงินเดือน</h3>
-          {salary && <div className="bg-green-50 border border-green-100 rounded-xl p-3 mb-4 text-sm"><p className="text-green-800 font-semibold">เงินเดือนปัจจุบัน: ฿{salary.base_salary?.toLocaleString()}</p><p className="text-green-600 text-xs">มีผล {format(new Date(salary.effective_from),"d MMM yyyy",{locale:th})}</p></div>}
+          <h3 className="font-bold text-slate-800 mb-4">{t("admin.emp_detail.salary_structure")}</h3>
+          {salary && <div className="bg-green-50 border border-green-100 rounded-xl p-3 mb-4 text-sm"><p className="text-green-800 font-semibold">{t("admin.emp_detail.salary_current", { amount: salary.base_salary?.toLocaleString() })}</p><p className="text-green-600 text-xs">{t("admin.emp_detail.salary_effective", { date: format(new Date(salary.effective_from),"d MMM yyyy",{locale:th}) })}</p></div>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[["base_salary","เงินเดือน (บาท)*"],["allowance_position","เบี้ยตำแหน่ง"],["allowance_transport","ค่าเดินทาง"],["allowance_food","ค่าอาหาร"],["allowance_phone","ค่าโทรศัพท์"],["allowance_housing","ค่าที่พัก"],["allowance_vehicle","ค่าเสื่อมรถยนต์"],["ot_rate_normal","อัตรา OT ปกติ (x)"],["ot_rate_holiday","อัตรา OT วันหยุด (x)"]].map(([k,l]) => (
-              <div key={k}><label className="block text-sm font-medium text-slate-700 mb-1.5">{l}</label><input type="number" step="0.01" value={sf[k]||""} onChange={e => setSf((f: any) => ({ ...f, [k]:e.target.value }))} className={inp}/></div>
+            {[["base_salary","salary_base_input"],["allowance_position","salary_allow_position"],["allowance_transport","salary_allow_transport"],["allowance_food","salary_allow_food"],["allowance_phone","salary_allow_phone"],["allowance_housing","salary_allow_housing"],["allowance_vehicle","salary_allow_vehicle"],["ot_rate_normal","salary_ot_normal"],["ot_rate_holiday","salary_ot_holiday"]].map(([k,l]) => (
+              <div key={k}><label className="block text-sm font-medium text-slate-700 mb-1.5">{t(`admin.emp_detail.${l}`)}</label><input type="number" step="0.01" value={sf[k]||""} onChange={e => setSf((f: any) => ({ ...f, [k]:e.target.value }))} className={inp}/></div>
             ))}
-            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">วันที่มีผล*</label><input type="date" value={sf.effective_from||""} onChange={e => setSf((f: any) => ({ ...f, effective_from:e.target.value }))} className={inp}/></div>
-            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">เหตุผล</label><input value={sf.change_reason||""} onChange={e => setSf((f: any) => ({ ...f, change_reason:e.target.value }))} className={inp} placeholder="เช่น ปรับเงินเดือนประจำปี"/></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.salary_effective_from")}</label><input type="date" value={sf.effective_from||""} onChange={e => setSf((f: any) => ({ ...f, effective_from:e.target.value }))} className={inp}/></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.salary_reason")}</label><input value={sf.change_reason||""} onChange={e => setSf((f: any) => ({ ...f, change_reason:e.target.value }))} className={inp} placeholder={t("admin.emp_detail.salary_reason_ph")}/></div>
           </div>
 
           {/* ── ประกันสังคม + ภาษี ── */}
           <div className="mt-6 p-4 rounded-2xl border-2 border-indigo-100 bg-indigo-50/50 space-y-4">
             <div>
-              <h4 className="font-bold text-slate-800 text-sm mb-1">ภาษีหัก ณ ที่จ่าย</h4>
-              <p className="text-xs text-slate-400 mb-3">ตั้งค่า % ที่จะหักจาก Gross Income ทุกเดือน — เว้นว่างเพื่อคำนวณอัตโนมัติตามขั้นบันไดภาษี</p>
+              <h4 className="font-bold text-slate-800 text-sm mb-1">{t("admin.emp_detail.salary_wht")}</h4>
+              <p className="text-xs text-slate-400 mb-3">{t("admin.emp_detail.salary_wht_note")}</p>
               <div className="flex items-center gap-3">
                 <div className="flex-1 max-w-[200px]">
                   <div className="relative">
@@ -1254,16 +1256,16 @@ export default function EmployeeDetailPage() {
                       value={sf.tax_withholding_pct ?? ""}
                       onChange={e => setSf((f: any) => ({ ...f, tax_withholding_pct: e.target.value === "" ? null : e.target.value }))}
                       className={inp + " pr-8"}
-                      placeholder="อัตโนมัติ"
+                      placeholder={t("admin.emp_detail.salary_auto")}
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 font-bold">%</span>
                   </div>
                 </div>
                 <div className="text-xs text-slate-500 space-y-0.5">
                   {sf.tax_withholding_pct != null && sf.tax_withholding_pct !== "" ? (
-                    <p className="text-indigo-600 font-bold">หักคงที่ {sf.tax_withholding_pct}% ของรายได้รวม</p>
+                    <p className="text-indigo-600 font-bold">{t("admin.emp_detail.salary_fixed_deduct", { pct: sf.tax_withholding_pct })}</p>
                   ) : (
-                    <p className="text-emerald-600 font-bold">คำนวณอัตโนมัติตามขั้นบันไดภาษี</p>
+                    <p className="text-emerald-600 font-bold">{t("admin.emp_detail.salary_auto_progressive")}</p>
                   )}
                 </div>
               </div>
@@ -1279,10 +1281,10 @@ export default function EmployeeDetailPage() {
                   className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                 />
                 <div>
-                  <p className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">ไม่หักประกันสังคม</p>
-                  <p className="text-[11px] text-slate-400">พนักงานไม่เข้าร่วมประกันสังคม — จะไม่หัก 5% (สูงสุด 875 บาท/เดือน)</p>
+                  <p className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">{t("admin.emp_detail.salary_no_sso")}</p>
+                  <p className="text-[11px] text-slate-400">{t("admin.emp_detail.salary_no_sso_note")}</p>
                 </div>
-                {sf.is_sso_exempt && <span className="ml-auto text-xs font-black text-red-500 bg-red-50 px-2 py-1 rounded-lg">ไม่หัก SSO</span>}
+                {sf.is_sso_exempt && <span className="ml-auto text-xs font-black text-red-500 bg-red-50 px-2 py-1 rounded-lg">{t("admin.emp_detail.salary_badge_no_sso")}</span>}
               </label>
 
               {/* ภาษี 3% */}
@@ -1294,16 +1296,16 @@ export default function EmployeeDetailPage() {
                   className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                 />
                 <div>
-                  <p className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">หักภาษี ณ ที่จ่าย 3%</p>
-                  <p className="text-[11px] text-slate-400">หักภาษี 3% ของรายได้รวมแทนการคำนวณขั้นบันได (เช่น ฟรีแลนซ์, ที่ปรึกษา)</p>
+                  <p className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">{t("admin.emp_detail.salary_tax_3pct")}</p>
+                  <p className="text-[11px] text-slate-400">{t("admin.emp_detail.salary_tax_3pct_note")}</p>
                 </div>
-                {sf.is_tax_3pct && <span className="ml-auto text-xs font-black text-amber-600 bg-amber-50 px-2 py-1 rounded-lg">หัก 3%</span>}
+                {sf.is_tax_3pct && <span className="ml-auto text-xs font-black text-amber-600 bg-amber-50 px-2 py-1 rounded-lg">{t("admin.emp_detail.salary_badge_3pct")}</span>}
               </label>
 
               {/* กองทุนสำรองเลี้ยงชีพ (PF) */}
               <div className="pt-1">
-                <label className="block text-sm font-bold text-slate-700 mb-1">กองทุนสำรองเลี้ยงชีพ (PF)</label>
-                <p className="text-[11px] text-slate-400 mb-2">% ของเงินเดือนฐาน · 0 = ไม่หัก (Phase 1 Pre-Employee ไม่หัก PF)</p>
+                <label className="block text-sm font-bold text-slate-700 mb-1">{t("admin.emp_detail.salary_pf")}</label>
+                <p className="text-[11px] text-slate-400 mb-2">{t("admin.emp_detail.salary_pf_note")}</p>
                 <div className="relative max-w-[180px]">
                   <input type="number" step="0.5" min="0" max="15"
                     value={sf.provident_fund_pct ?? ""}
@@ -1317,8 +1319,8 @@ export default function EmployeeDetailPage() {
 
           {/* ── KPI Bonus ── */}
           <div className="mt-6 p-4 rounded-2xl border-2 border-emerald-100 bg-emerald-50/50">
-            <h4 className="font-bold text-slate-800 text-sm mb-1">KPI Bonus (ฐานโบนัส KPI)</h4>
-            <p className="text-xs text-slate-400 mb-3">จำนวนเงินฐาน KPI มาตรฐาน (เกรด B) — เกรด A ได้ +20%, เกรด C ได้ -20%, เกรด D ได้ 0</p>
+            <h4 className="font-bold text-slate-800 text-sm mb-1">{t("admin.emp_detail.salary_kpi_bonus")}</h4>
+            <p className="text-xs text-slate-400 mb-3">{t("admin.emp_detail.salary_kpi_note")}</p>
             <div className="flex items-center gap-3">
               <div className="flex-1 max-w-[250px]">
                 <input
@@ -1335,25 +1337,25 @@ export default function EmployeeDetailPage() {
                 {parseFloat(kpiAmount) > 0 ? (
                   <>
                     <p className="text-emerald-600 font-bold">A = ฿{(parseFloat(kpiAmount) * 1.2).toLocaleString()} · B = ฿{parseFloat(kpiAmount).toLocaleString()} · C = ฿{(parseFloat(kpiAmount) * 0.8).toLocaleString()}</p>
-                    <p className="text-slate-400">D (0-70 คะแนน) = ฿0</p>
+                    <p className="text-slate-400">{t("admin.emp_detail.salary_kpi_grade_d")}</p>
                   </>
                 ) : (
-                  <p className="text-slate-400">ยังไม่ได้ตั้งค่า KPI Bonus</p>
+                  <p className="text-slate-400">{t("admin.emp_detail.salary_kpi_unset")}</p>
                 )}
               </div>
             </div>
             <button onClick={saveKpi} disabled={loading} className="mt-3 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 disabled:opacity-60 transition-colors flex items-center gap-2">
-              {loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/> บันทึก KPI
+              {loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/> {t("admin.emp_detail.salary_save_kpi")}
             </button>
           </div>
 
-          <button onClick={saveSalary} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึกเงินเดือน</button>
+          <button onClick={saveSalary} disabled={loading} className="btn-primary mt-4 flex items-center gap-2">{loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>{t("admin.emp_detail.salary_save")}</button>
 
           {/* ── ประวัติการปรับเงินเดือน (ทุกเวอร์ชันจาก salary_structures) ── */}
           <div className="mt-8 pt-6 border-t border-slate-100">
-            <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2"><History size={15} className="text-indigo-500"/>ประวัติการปรับเงินเดือน ({salaryHistory.length})</h4>
+            <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2"><History size={15} className="text-indigo-500"/>{t("admin.emp_detail.salary_history", { n: salaryHistory.length })}</h4>
             {salaryHistory.length === 0 ? (
-              <p className="text-sm text-slate-400">ยังไม่มีประวัติ</p>
+              <p className="text-sm text-slate-400">{t("admin.emp_detail.common_no_history")}</p>
             ) : (
               <div className="space-y-2">
                 {salaryHistory.map((s: any, i: number) => {
@@ -1365,17 +1367,17 @@ export default function EmployeeDetailPage() {
                     <div key={s.id} className={`rounded-xl border p-3 ${isCurrent ? "border-emerald-200 bg-emerald-50/40" : "border-slate-100 bg-white"}`}>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-base font-black text-slate-800">฿{Number(s.base_salary).toLocaleString()}</span>
-                        {allw > 0 && <span className="text-xs text-slate-400">+ เบี้ยเลี้ยง ฿{allw.toLocaleString()}</span>}
+                        {allw > 0 && <span className="text-xs text-slate-400">{t("admin.emp_detail.salary_plus_allowance", { amount: allw.toLocaleString() })}</span>}
                         {diff !== 0 && (
                           <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${diff > 0 ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
                             {diff > 0 ? "▲" : "▼"} ฿{Math.abs(diff).toLocaleString()}
                           </span>
                         )}
-                        {isCurrent && <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">ปัจจุบัน</span>}
+                        {isCurrent && <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">{t("admin.emp_detail.common_current")}</span>}
                       </div>
                       <p className="text-[11px] text-slate-400 mt-1">
-                        มีผล {s.effective_from ? format(new Date(s.effective_from + "T00:00:00"), "d MMM yyyy", { locale: th }) : "—"}
-                        {s.effective_to ? ` – ${format(new Date(s.effective_to + "T00:00:00"), "d MMM yyyy", { locale: th })}` : " – ปัจจุบัน"}
+                        {t("admin.emp_detail.salary_effective_prefix")} {s.effective_from ? format(new Date(s.effective_from + "T00:00:00"), "d MMM yyyy", { locale: th }) : "—"}
+                        {s.effective_to ? ` – ${format(new Date(s.effective_to + "T00:00:00"), "d MMM yyyy", { locale: th })}` : t("admin.emp_detail.salary_until_present")}
                         {s.change_reason && <span className="text-slate-500"> · {s.change_reason}</span>}
                       </p>
                     </div>
@@ -1397,16 +1399,16 @@ export default function EmployeeDetailPage() {
 
         {/* ── Tab 7: ประวัติหัวหน้า ── */}
         {tab === 7 && <>
-          <h3 className="font-bold text-slate-800 mb-4">ประวัติหัวหน้างาน</h3>
+          <h3 className="font-bold text-slate-800 mb-4">{t("admin.emp_detail.mgr_title")}</h3>
           <div className="flex gap-3 mb-5 items-end">
             <div className="flex-1 relative">
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">เลือกหัวหน้าใหม่</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.mgr_select_new")}</label>
               <input
                 type="text"
                 value={mgrSearch ?? (newMgr ? allEmps.find(e => e.id === newMgr)?.first_name_th + " " + allEmps.find(e => e.id === newMgr)?.last_name_th : "")}
                 onChange={e => { setMgrSearch(e.target.value); setNewMgr(""); setShowMgrDropdown(true); loadAllEmps() }}
                 onFocus={() => { setShowMgrDropdown(true); loadAllEmps() }}
-                placeholder="ค้นหาชื่อ หรือ รหัสพนักงาน..."
+                placeholder={t("admin.emp_detail.mgr_search_ph")}
                 className={inp}
               />
               {showMgrDropdown && (
@@ -1433,23 +1435,23 @@ export default function EmployeeDetailPage() {
                       if (!s) return true
                       return `${e.first_name_th} ${e.last_name_th} ${e.employee_code}`.toLowerCase().includes(s)
                     }).length === 0 && (
-                      <p className="px-3 py-4 text-sm text-slate-400 text-center">ไม่พบพนักงาน</p>
+                      <p className="px-3 py-4 text-sm text-slate-400 text-center">{t("admin.emp_detail.emp_no_employee_found")}</p>
                     )}
                   </div>
                 </>
               )}
             </div>
             <input type="date" value={newMgrDate} onChange={e => setNewMgrDate(e.target.value)} className={inp + " w-40"}/>
-            <button onClick={() => { addMgr(); setMgrSearch("") }} disabled={!newMgr} className="btn-primary px-4 py-2 flex items-center gap-1 disabled:opacity-50"><Plus size={14}/>เพิ่ม</button>
+            <button onClick={() => { addMgr(); setMgrSearch("") }} disabled={!newMgr} className="btn-primary px-4 py-2 flex items-center gap-1 disabled:opacity-50"><Plus size={14}/>{t("admin.emp_detail.common_add")}</button>
           </div>
           <div className="space-y-3">
             {mgrHistory.map(h => (
               <div key={h.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                <div className="flex-1"><p className="font-medium text-slate-800 text-sm">{h.manager?.first_name_th} {h.manager?.last_name_th}</p><p className="text-xs text-slate-500">{format(new Date(h.effective_from),"d MMM yyyy",{locale:th})} - {h.effective_to ? format(new Date(h.effective_to),"d MMM yyyy",{locale:th}) : "ปัจจุบัน"}</p></div>
-                {!h.effective_to && <span className="badge bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-bold">ปัจจุบัน</span>}
+                <div className="flex-1"><p className="font-medium text-slate-800 text-sm">{h.manager?.first_name_th} {h.manager?.last_name_th}</p><p className="text-xs text-slate-500">{format(new Date(h.effective_from),"d MMM yyyy",{locale:th})} - {h.effective_to ? format(new Date(h.effective_to),"d MMM yyyy",{locale:th}) : t("admin.emp_detail.common_present")}</p></div>
+                {!h.effective_to && <span className="badge bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-bold">{t("admin.emp_detail.common_current")}</span>}
               </div>
             ))}
-            {mgrHistory.length === 0 && <p className="text-center text-slate-400 text-sm py-4">ไม่มีประวัติ</p>}
+            {mgrHistory.length === 0 && <p className="text-center text-slate-400 text-sm py-4">{t("admin.emp_detail.common_no_history_short")}</p>}
           </div>
         </>}
 
@@ -1462,7 +1464,7 @@ export default function EmployeeDetailPage() {
         {/* ── Tab 10: สาย/ผู้ประเมิน ── */}
         {tab === 10 && (
           <>
-            <h3 className="font-bold text-slate-800 mb-4">สายผู้ประเมิน + ทีมในสาย</h3>
+            <h3 className="font-bold text-slate-800 mb-4">{t("admin.emp_detail.evalchain_title")}</h3>
             <EvaluationChainPanel employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`.trim()} />
           </>
         )}
@@ -1490,40 +1492,40 @@ export default function EmployeeDetailPage() {
 
         {/* ── Tab 14: ลาออก / หลักฐาน ── */}
         {tab === 14 && <>
-          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><UserX size={16} className="text-rose-500"/>ข้อมูลการลาออก + หลักฐาน</h3>
+          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><UserX size={16} className="text-rose-500"/>{t("admin.emp_detail.resign_tab_title")}</h3>
 
           {/* สถานะ */}
           <div className={`mb-4 p-3 rounded-xl border ${(emp.employment_status === "resigned" || emp.employment_status === "terminated") ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200"}`}>
             <p className="text-sm font-bold text-slate-700">
-              สถานะ: {empStatusMap[emp.employment_status] || emp.employment_status}
+              {t("admin.emp_detail.resign_status", { status: empStatusMap[emp.employment_status] || emp.employment_status })}
             </p>
             <p className="text-xs text-slate-400 mt-0.5">
               {(emp.employment_status === "resigned" || emp.employment_status === "terminated")
-                ? "บันทึกเหตุผล + แนบหลักฐานการลาออกได้ที่นี่"
-                : "พนักงานยังทำงานอยู่ — บันทึกล่วงหน้าได้ หรือกดปุ่ม \"แจ้งลาออก\" ด้านบนเพื่อเปลี่ยนสถานะ"}
+                ? t("admin.emp_detail.resign_note_resigned")
+                : t("admin.emp_detail.resign_note_active")}
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">วันที่ลาออกมีผล</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.resign_effective_date")}</label>
               <input type="date" value={form.resign_date || ""} onChange={e => set("resign_date", e.target.value)} className={inp}/>
             </div>
           </div>
 
           <div className="mt-4">
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">เหตุผลการลาออก</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.resign_reason_label")}</label>
             <textarea value={resignReasonEdit} onChange={e => setResignReasonEdit(e.target.value)}
-              className={inp + " h-28 resize-none"} placeholder="เช่น ลาออกเอง, ย้ายงาน, ไม่ผ่านทดลองงาน, สิ้นสุดสัญญา, เลิกจ้าง..."/>
+              className={inp + " h-28 resize-none"} placeholder={t("admin.emp_detail.resign_reason_ph")}/>
           </div>
 
           {/* แนบหลักฐาน */}
           <div className="mt-4">
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">แนบรูป / หลักฐาน (ใบลาออก ฯลฯ) — สูงสุด 10 ไฟล์</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.resign_attach_label")}</label>
             <input ref={resignFileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx" onChange={uploadResignFiles} className="hidden"/>
             <button type="button" onClick={() => resignFileRef.current?.click()} disabled={resignAttachUploading}
               className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-white border-2 border-dashed border-rose-300 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60 transition-colors">
-              {resignAttachUploading ? <><Loader2 size={13} className="animate-spin"/> กำลังอัปโหลด...</> : <><Plus size={13}/> {resignAttach.length > 0 ? "เพิ่มไฟล์" : "แนบรูป/ไฟล์หลักฐาน"}</>}
+              {resignAttachUploading ? <><Loader2 size={13} className="animate-spin"/> {t("admin.emp_detail.resign_uploading")}</> : <><Plus size={13}/> {resignAttach.length > 0 ? t("admin.emp_detail.resign_add_file") : t("admin.emp_detail.resign_attach_btn")}</>}
             </button>
             {resignAttach.length > 0 && (
               <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1544,18 +1546,18 @@ export default function EmployeeDetailPage() {
           </div>
 
           <button onClick={saveResignInfo} disabled={resignTabSaving} className="btn-primary mt-4 flex items-center gap-2">
-            {resignTabSaving && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>บันทึกข้อมูลการลาออก
+            {resignTabSaving && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/>{t("admin.emp_detail.resign_save")}
           </button>
 
           {/* ประวัติการลาออก/ดึงกลับ */}
           {resignHistory.length > 0 && (
             <div className="mt-6">
-              <p className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2">ประวัติการลาออก / ดึงกลับ</p>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2">{t("admin.emp_detail.resign_history_title")}</p>
               <div className="space-y-1.5">
                 {resignHistory.map((h: any) => (
                   <div key={h.id} className="flex items-center gap-2 text-xs bg-slate-50 rounded-lg px-3 py-2">
                     <span className={`font-bold px-2 py-0.5 rounded ${h.action === "resign" ? "bg-rose-100 text-rose-600" : "bg-emerald-100 text-emerald-600"}`}>
-                      {h.action === "resign" ? "ลาออก" : "ดึงกลับ"}
+                      {h.action === "resign" ? t("admin.emp_detail.resign_action_resign") : t("admin.emp_detail.resign_action_reinstate")}
                     </span>
                     {h.resign_date && <span className="text-slate-500">{format(new Date(h.resign_date + "T00:00:00"), "d MMM yyyy", { locale: th })}</span>}
                     {h.reason && <span className="text-slate-600 truncate">· {h.reason}</span>}
@@ -1575,7 +1577,7 @@ export default function EmployeeDetailPage() {
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
             <History size={15} className="text-slate-400"/>
-            <h3 className="font-bold text-slate-800 text-sm">ประวัติการลาออก / ดึงกลับ</h3>
+            <h3 className="font-bold text-slate-800 text-sm">{t("admin.emp_detail.resign_history_title")}</h3>
           </div>
           <div className="space-y-2">
             {resignHistory.map((h: any) => (
@@ -1589,10 +1591,10 @@ export default function EmployeeDetailPage() {
                 </div>
                 <div className="flex-1">
                   <p className={`text-sm font-bold ${h.action === "resign" ? "text-red-700" : "text-emerald-700"}`}>
-                    {h.action === "resign" ? "ลาออก" : "ดึงกลับ"}
-                    {h.resign_date && <span className="font-normal text-slate-500 ml-2">วันที่มีผล: {format(new Date(h.resign_date + "T00:00:00"),"d MMM yyyy",{locale:th})}</span>}
+                    {h.action === "resign" ? t("admin.emp_detail.resign_action_resign") : t("admin.emp_detail.resign_action_reinstate")}
+                    {h.resign_date && <span className="font-normal text-slate-500 ml-2">{t("admin.emp_detail.resign_effective_prefix", { date: format(new Date(h.resign_date + "T00:00:00"),"d MMM yyyy",{locale:th}) })}</span>}
                   </p>
-                  {h.reason && <p className="text-xs text-slate-500 mt-0.5">เหตุผล: {h.reason}</p>}
+                  {h.reason && <p className="text-xs text-slate-500 mt-0.5">{t("admin.emp_detail.resign_reason_prefix", { reason: h.reason })}</p>}
                 </div>
                 <p className="text-[10px] text-slate-400 flex-shrink-0">{format(new Date(h.created_at),"d MMM yyyy HH:mm",{locale:th})}</p>
               </div>
@@ -1612,7 +1614,7 @@ export default function EmployeeDetailPage() {
               </div>
               <div>
                 <h3 className="font-black text-slate-800 text-lg">
-                  {isEarlyPass ? "ยืนยันผ่านทดลองงานก่อนกำหนด" : "ยืนยันผ่านทดลองงาน"}
+                  {isEarlyPass ? t("admin.emp_detail.card_confirm_pass_early") : t("admin.emp_detail.card_confirm_pass")}
                 </h3>
                 <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
               </div>
@@ -1622,35 +1624,35 @@ export default function EmployeeDetailPage() {
               <div className="mb-4 flex items-center gap-2 bg-amber-100/70 border border-amber-200 rounded-xl px-3 py-2">
                 <CalendarClock size={15} className="text-amber-600 flex-shrink-0"/>
                 <p className="text-xs text-amber-800">
-                  ผ่านเร็วกว่ากำหนดเดิม <span className="font-black">{probationDaysLeft} วัน</span>
-                  {emp.probation_end_date && <> (เดิมครบ {format(new Date(emp.probation_end_date + "T00:00:00"), "d MMM yyyy", { locale: th })})</>}
+                  {t("admin.emp_detail.promote_early_before")} <span className="font-black">{t("admin.emp_detail.promote_days", { n: probationDaysLeft })}</span>
+                  {emp.probation_end_date && <>{t("admin.emp_detail.promote_orig_due", { date: format(new Date(emp.probation_end_date + "T00:00:00"), "d MMM yyyy", { locale: th }) })}</>}
                 </p>
               </div>
             )}
 
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-              <p className="text-xs font-bold text-slate-700 mb-1.5">สิ่งที่จะเกิดขึ้น:</p>
+              <p className="text-xs font-bold text-slate-700 mb-1.5">{t("admin.emp_detail.modal_what_happens")}</p>
               <ul className="text-xs text-slate-600 space-y-1 ml-3 list-disc">
-                <li>เปลี่ยนสถานะเป็น &quot;ปกติ&quot; (พ้นทดลองงาน)</li>
-                <li>บันทึกวันสิ้นสุดทดลองงานเป็นวันนี้ ({format(new Date(), "d MMM yyyy", { locale: th })})</li>
-                {promotion?.base_salary && <li>ปรับเงินเดือนใหม่ ฿{(+promotion.base_salary).toLocaleString()}</li>}
-                {promotion?.new_position?.name && <li>เปลี่ยนตำแหน่งเป็น &quot;{promotion.new_position.name}&quot;</li>}
-                {promotion?.kpi_standard_amount != null && <li>ตั้งค่า KPI ฿{(+promotion.kpi_standard_amount).toLocaleString()}</li>}
-                {!promotion && <li className="text-slate-400">ไม่มีการตั้งค่าเงินเดือน/ตำแหน่งใหม่รออยู่ (เปลี่ยนเฉพาะสถานะ)</li>}
+                <li>{t("admin.emp_detail.promote_li_status")}</li>
+                <li>{t("admin.emp_detail.promote_li_end_today", { date: format(new Date(), "d MMM yyyy", { locale: th }) })}</li>
+                {promotion?.base_salary && <li>{t("admin.emp_detail.promote_li_new_salary", { amount: (+promotion.base_salary).toLocaleString() })}</li>}
+                {promotion?.new_position?.name && <li>{t("admin.emp_detail.promote_li_new_position", { name: promotion.new_position.name })}</li>}
+                {promotion?.kpi_standard_amount != null && <li>{t("admin.emp_detail.promote_li_kpi", { amount: (+promotion.kpi_standard_amount).toLocaleString() })}</li>}
+                {!promotion && <li className="text-slate-400">{t("admin.emp_detail.promote_li_none")}</li>}
               </ul>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowPromoteConfirm(false)} disabled={promoteLoading}
                 className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-50 transition-all">
-                ยกเลิก
+                {t("admin.emp_detail.common_cancel")}
               </button>
               <button
                 onClick={async () => { setShowPromoteConfirm(false); await handlePromote({ markEndToday: true }) }}
                 disabled={promoteLoading}
                 className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
                 {promoteLoading ? <Loader2 size={14} className="animate-spin"/> : <CheckCircle2 size={14}/>}
-                ยืนยันผ่านทดลองงาน
+                {t("admin.emp_detail.card_confirm_pass")}
               </button>
             </div>
           </div>
@@ -1665,41 +1667,41 @@ export default function EmployeeDetailPage() {
                 <UserX size={20} className="text-red-600"/>
               </div>
               <div>
-                <h3 className="font-black text-slate-800 text-lg">แจ้งลาออก</h3>
+                <h3 className="font-black text-slate-800 text-lg">{t("admin.emp_detail.hdr_resign")}</h3>
                 <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">วันที่ลาออกมีผล *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.resign_effective_date_req")}</label>
                 <input type="date" value={resignDate} onChange={e => setResignDate(e.target.value)} className={inp}/>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">เหตุผล (ถ้ามี)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.resign_reason_optional")}</label>
                 <textarea value={resignReason} onChange={e => setResignReason(e.target.value)}
-                  className={inp + " h-20 resize-none"} placeholder="เช่น ลาออกเอง, ไม่มาทำงาน, สิ้นสุดสัญญา..."/>
+                  className={inp + " h-20 resize-none"} placeholder={t("admin.emp_detail.resign_reason_ph2")}/>
               </div>
 
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                <p className="text-xs font-bold text-amber-800 mb-1">สิ่งที่จะเกิดขึ้น:</p>
+                <p className="text-xs font-bold text-amber-800 mb-1">{t("admin.emp_detail.modal_what_happens")}</p>
                 <ul className="text-xs text-amber-700 space-y-1 ml-3">
-                  <li>• สถานะเปลี่ยนเป็น &quot;ลาออก&quot;</li>
-                  <li>• ไม่คำนวณเงินเดือนอีกต่อไป</li>
-                  <li>• ปิดการเข้าสู่ระบบ</li>
-                  <li>• ข้อมูลทั้งหมดยังคงอยู่ — สามารถดึงกลับได้</li>
+                  <li>• {t("admin.emp_detail.resign_modal_li1")}</li>
+                  <li>• {t("admin.emp_detail.resign_modal_li2")}</li>
+                  <li>• {t("admin.emp_detail.resign_modal_li3")}</li>
+                  <li>• {t("admin.emp_detail.resign_modal_li4")}</li>
                 </ul>
               </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowResignModal(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
-                ยกเลิก
+                {t("admin.emp_detail.common_cancel")}
               </button>
               <button onClick={handleResign} disabled={resignLoading || !resignDate}
                 className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
                 {resignLoading ? <Loader2 size={14} className="animate-spin"/> : <UserX size={14}/>}
-                ยืนยันลาออก
+                {t("admin.emp_detail.resign_confirm")}
               </button>
             </div>
           </div>
@@ -1715,37 +1717,37 @@ export default function EmployeeDetailPage() {
                 <UserCheck size={20} className="text-emerald-600"/>
               </div>
               <div>
-                <h3 className="font-black text-slate-800 text-lg">ดึงกลับเข้ามา</h3>
+                <h3 className="font-black text-slate-800 text-lg">{t("admin.emp_detail.card_reinstate_full")}</h3>
                 <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">หมายเหตุ (ถ้ามี)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.reinstate_note_optional")}</label>
                 <textarea value={resignReason} onChange={e => setResignReason(e.target.value)}
-                  className={inp + " h-20 resize-none"} placeholder="เช่น กลับมาทำงาน, ต่อสัญญาใหม่..."/>
+                  className={inp + " h-20 resize-none"} placeholder={t("admin.emp_detail.reinstate_note_ph")}/>
               </div>
 
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-                <p className="text-xs font-bold text-emerald-800 mb-1">สิ่งที่จะเกิดขึ้น:</p>
+                <p className="text-xs font-bold text-emerald-800 mb-1">{t("admin.emp_detail.modal_what_happens")}</p>
                 <ul className="text-xs text-emerald-700 space-y-1 ml-3">
-                  <li>• สถานะเปลี่ยนกลับเป็น &quot;ปกติ&quot;</li>
-                  <li>• กลับเข้าสู่ระบบเงินเดือนได้</li>
-                  <li>• เปิดการเข้าสู่ระบบ</li>
-                  <li>• ข้อมูลเดิมทั้งหมดยังอยู่</li>
+                  <li>• {t("admin.emp_detail.reinstate_modal_li1")}</li>
+                  <li>• {t("admin.emp_detail.reinstate_modal_li2")}</li>
+                  <li>• {t("admin.emp_detail.reinstate_modal_li3")}</li>
+                  <li>• {t("admin.emp_detail.reinstate_modal_li4")}</li>
                 </ul>
               </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowReinstateModal(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
-                ยกเลิก
+                {t("admin.emp_detail.common_cancel")}
               </button>
               <button onClick={handleReinstate} disabled={resignLoading}
                 className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
                 {resignLoading ? <Loader2 size={14} className="animate-spin"/> : <UserCheck size={14}/>}
-                ยืนยันดึงกลับ
+                {t("admin.emp_detail.reinstate_confirm")}
               </button>
             </div>
           </div>
@@ -1761,36 +1763,36 @@ export default function EmployeeDetailPage() {
                 <ShieldAlert size={20} className="text-red-600"/>
               </div>
               <div>
-                <h3 className="font-black text-slate-800 text-lg">ลบพนักงานออกจากระบบ</h3>
+                <h3 className="font-black text-slate-800 text-lg">{t("admin.emp_detail.delete_title")}</h3>
                 <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">เหตุผล (ถ้ามี)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.resign_reason_optional")}</label>
                 <textarea value={deleteReason} onChange={e => setDeleteReason(e.target.value)}
-                  className={inp + " h-20 resize-none"} placeholder="เช่น เพิ่มข้อมูลผิด, พนักงานทดลองงานไม่ผ่าน..."/>
+                  className={inp + " h-20 resize-none"} placeholder={t("admin.emp_detail.delete_reason_ph")}/>
               </div>
 
               <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                <p className="text-xs font-bold text-red-800 mb-1">สิ่งที่จะเกิดขึ้น:</p>
+                <p className="text-xs font-bold text-red-800 mb-1">{t("admin.emp_detail.modal_what_happens")}</p>
                 <ul className="text-xs text-red-700 space-y-1 ml-3">
-                  <li>• ซ่อนพนักงานออกจากทุกรายการในระบบ</li>
-                  <li>• ปิดการเข้าสู่ระบบทันที</li>
-                  <li>• ข้อมูลทั้งหมดยังคงอยู่ — สามารถกู้คืนได้จากหน้า &quot;ประวัติการลบ&quot;</li>
+                  <li>• {t("admin.emp_detail.delete_modal_li1")}</li>
+                  <li>• {t("admin.emp_detail.delete_modal_li2")}</li>
+                  <li>• {t("admin.emp_detail.delete_modal_li3")}</li>
                 </ul>
               </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowDeleteModal(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
-                ยกเลิก
+                {t("admin.emp_detail.common_cancel")}
               </button>
               <button onClick={handleDelete} disabled={deleteLoading}
                 className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
                 {deleteLoading ? <Loader2 size={14} className="animate-spin"/> : <Trash2 size={14}/>}
-                ยืนยันลบ
+                {t("admin.emp_detail.delete_confirm")}
               </button>
             </div>
           </div>
@@ -1803,6 +1805,7 @@ export default function EmployeeDetailPage() {
 
 // ─── SummaryTab ───────────────────────────────────────────────────────────────
 function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: string; emp: any; salary: any; kpiSetting?: any }) {
+  const { t } = useLanguage()
   const supabase = createClient()
   const [stats,     setStats]     = useState<any>(null)
   const [schedule,  setSchedule]  = useState<any>(null)
@@ -1883,7 +1886,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
     })
   }, [employeeId, attPeriodOffset])
 
-  if (loading) return <div className="flex items-center justify-center py-16 gap-2 text-slate-400"><Loader2 size={16} className="animate-spin"/>กำลังโหลด...</div>
+  if (loading) return <div className="flex items-center justify-center py-16 gap-2 text-slate-400"><Loader2 size={16} className="animate-spin"/>{t("admin.emp_detail.common_loading")}</div>
 
   const shift = schedule?.shift
   const allAllowances = salary
@@ -1891,7 +1894,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
     : 0
 
   const statusIcon: Record<string,string> = { present:"✅", late:"⏰", absent:"❌", early_out:"🔔", wfh:"🏠", leave:"📝" }
-  const statusLabel: Record<string,string> = { present:"มาทำงาน", late:"มาสาย", absent:"ขาดงาน", early_out:"ออกก่อน", wfh:"WFH", leave:"ลา" }
+  const statusLabel: Record<string,string> = { present:t("admin.emp_detail.checkin_st_present"), late:t("admin.emp_detail.checkin_st_late"), absent:t("admin.emp_detail.checkin_st_absent"), early_out:t("admin.emp_detail.checkin_st_early_out"), wfh:"WFH", leave:t("admin.emp_detail.checkin_st_leave") }
   const statusClr: Record<string,string> = { present:"text-emerald-600 bg-emerald-50", late:"text-amber-600 bg-amber-50", absent:"text-red-600 bg-red-50", early_out:"text-orange-600 bg-orange-50", wfh:"text-teal-600 bg-teal-50", leave:"text-blue-600 bg-blue-50" }
 
   return (
@@ -1900,10 +1903,10 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
       {/* ── Bio strip ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { icon:<User2 size={14}/>, label:"แผนก",     val:emp.department?.name ?? "—",                  c:"bg-blue-50 text-blue-600"    },
-          { icon:<Calendar size={14}/>, label:"เริ่มงาน", val:emp.hire_date ? format(new Date(emp.hire_date),"d MMM yy",{locale:th}) : "—", c:"bg-violet-50 text-violet-600" },
-          { icon:<Building2 size={14}/>, label:"สาขา",   val:emp.branch?.name ?? "—",                    c:"bg-sky-50 text-sky-600"       },
-          { icon:<DollarSign size={14}/>, label:"เงินเดือน", val:salary ? `฿${fmt(salary.base_salary)}` : "ยังไม่กำหนด", c:"bg-emerald-50 text-emerald-600" },
+          { icon:<User2 size={14}/>, label:t("admin.emp_detail.card_department"),     val:emp.department?.name ?? "—",                  c:"bg-blue-50 text-blue-600"    },
+          { icon:<Calendar size={14}/>, label:t("admin.emp_detail.card_start_work"), val:emp.hire_date ? format(new Date(emp.hire_date),"d MMM yy",{locale:th}) : "—", c:"bg-violet-50 text-violet-600" },
+          { icon:<Building2 size={14}/>, label:t("admin.emp_detail.card_branch"),   val:emp.branch?.name ?? "—",                    c:"bg-sky-50 text-sky-600"       },
+          { icon:<DollarSign size={14}/>, label:t("admin.emp_detail.card_salary"), val:salary ? `฿${fmt(salary.base_salary)}` : t("admin.emp_detail.card_salary_unset"), c:"bg-emerald-50 text-emerald-600" },
         ].map(item => (
           <div key={item.label} className={`rounded-2xl p-4 ${item.c.split(" ")[0]} border border-white`}>
             <div className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide mb-1 ${item.c.split(" ")[1]}`}>
@@ -1919,7 +1922,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
         <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <Clock size={14} className="text-indigo-500"/>
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">กะการทำงานปัจจุบัน</span>
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">{t("admin.emp_detail.sched_current_shift")}</span>
           </div>
         </div>
         {shift ? (
@@ -1931,18 +1934,18 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
               <p className="font-black text-slate-800">{shift.name}</p>
               <p className="text-sm text-slate-500 mt-0.5">
                 {shift.work_start?.slice(0,5)} – {shift.work_end?.slice(0,5)}
-                {shift.break_minutes && <span className="ml-2 text-slate-400">พัก {shift.break_minutes} นาที</span>}
+                {shift.break_minutes && <span className="ml-2 text-slate-400">{t("admin.emp_detail.sched_break_min", { n: shift.break_minutes })}</span>}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-[10px] text-slate-400">มีผลตั้งแต่</p>
+              <p className="text-[10px] text-slate-400">{t("admin.emp_detail.sched_effective_since")}</p>
               <p className="text-sm font-bold text-slate-600">{format(new Date(schedule.effective_from),"d MMM yyyy",{locale:th})}</p>
             </div>
           </div>
         ) : (
           <div className="px-4 py-5 flex items-center gap-3">
             <AlertTriangle size={16} className="text-amber-500"/>
-            <p className="text-sm text-amber-700 font-medium">ยังไม่ได้กำหนดกะทำงาน</p>
+            <p className="text-sm text-amber-700 font-medium">{t("admin.emp_detail.sched_no_shift")}</p>
           </div>
         )}
       </div>
@@ -1952,18 +1955,18 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
         <div className="rounded-2xl border border-slate-100 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 bg-slate-50 border-b border-slate-100">
             <DollarSign size={14} className="text-emerald-500"/>
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">โครงสร้างเงินเดือน</span>
-            <span className="ml-auto font-black text-emerald-600 text-sm">฿{fmt(salary.base_salary + allAllowances)}/เดือน</span>
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">{t("admin.emp_detail.salary_structure")}</span>
+            <span className="ml-auto font-black text-emerald-600 text-sm">฿{fmt(salary.base_salary + allAllowances)}{t("admin.emp_detail.card_per_month")}</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 divide-x divide-y divide-slate-100">
             {[
-              { l:"เงินเดือนฐาน",   v:salary.base_salary,           show:true },
-              { l:"เบี้ยตำแหน่ง",   v:salary.allowance_position,    show:(salary.allowance_position||0)>0 },
-              { l:"ค่าเดินทาง",     v:salary.allowance_transport,   show:(salary.allowance_transport||0)>0 },
-              { l:"ค่าอาหาร",       v:salary.allowance_food,        show:(salary.allowance_food||0)>0 },
-              { l:"ค่าโทรศัพท์",    v:salary.allowance_phone,       show:(salary.allowance_phone||0)>0 },
-              { l:"ค่าที่พัก",       v:salary.allowance_housing,     show:(salary.allowance_housing||0)>0 },
-              { l:"ค่าเสื่อมรถยนต์", v:salary.allowance_vehicle,     show:(salary.allowance_vehicle||0)>0 },
+              { l:t("admin.emp_detail.salary_base_label"),   v:salary.base_salary,           show:true },
+              { l:t("admin.emp_detail.salary_allow_position"),   v:salary.allowance_position,    show:(salary.allowance_position||0)>0 },
+              { l:t("admin.emp_detail.salary_allow_transport"),     v:salary.allowance_transport,   show:(salary.allowance_transport||0)>0 },
+              { l:t("admin.emp_detail.salary_allow_food"),       v:salary.allowance_food,        show:(salary.allowance_food||0)>0 },
+              { l:t("admin.emp_detail.salary_allow_phone"),    v:salary.allowance_phone,       show:(salary.allowance_phone||0)>0 },
+              { l:t("admin.emp_detail.salary_allow_housing"),       v:salary.allowance_housing,     show:(salary.allowance_housing||0)>0 },
+              { l:t("admin.emp_detail.salary_allow_vehicle"), v:salary.allowance_vehicle,     show:(salary.allowance_vehicle||0)>0 },
             ].filter(i=>i.show).map(item => (
               <div key={item.l} className="px-4 py-3">
                 <p className="text-[10px] text-slate-400">{item.l}</p>
@@ -1974,7 +1977,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
           {kpiSetting?.standard_amount > 0 && (
             <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between bg-emerald-50/50">
               <div>
-                <p className="text-[10px] text-emerald-600 font-bold">KPI Bonus (ฐาน)</p>
+                <p className="text-[10px] text-emerald-600 font-bold">{t("admin.emp_detail.stat_kpi_base")}</p>
                 <p className="text-[9px] text-slate-400">A=฿{fmt(Math.round(kpiSetting.standard_amount*1.2))} · B=฿{fmt(kpiSetting.standard_amount)} · C=฿{fmt(Math.round(kpiSetting.standard_amount*0.8))}</p>
               </div>
               <p className="font-bold text-emerald-700 text-sm tabular-nums">฿{fmt(kpiSetting.standard_amount)}</p>
@@ -1987,16 +1990,16 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
       <div className="rounded-2xl border border-slate-100 overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 bg-slate-50 border-b border-slate-100">
           <BarChart2 size={14} className="text-blue-500"/>
-          <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">สถิติเดือนนี้</span>
+          <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">{t("admin.emp_detail.stat_month_title")}</span>
         </div>
         <div className="grid grid-cols-3 md:grid-cols-6 divide-x divide-slate-100">
           {[
-            { l:"มาแล้ว",   v:stats?.present,      unit:"วัน",  c:"text-blue-600" },
-            { l:"มาสาย",    v:stats?.late,          unit:"ครั้ง",c:"text-amber-600" },
-            { l:"ขาดงาน",   v:stats?.absent,        unit:"วัน",  c:"text-red-500" },
-            { l:"ออกก่อน",  v:stats?.earlyOut,      unit:"ครั้ง",c:"text-orange-500" },
-            { l:"สายรวม",   v:stats?.totalLateMin,  unit:"นาที", c:"text-amber-500" },
-            { l:"ออกก่อนรวม",v:stats?.totalEarlyMin,unit:"นาที", c:"text-orange-500" },
+            { l:t("admin.emp_detail.stat_present"),   v:stats?.present,      unit:t("admin.emp_detail.stat_unit_day"),  c:"text-blue-600" },
+            { l:t("admin.emp_detail.stat_late"),    v:stats?.late,          unit:t("admin.emp_detail.stat_unit_times"),c:"text-amber-600" },
+            { l:t("admin.emp_detail.stat_absent"),   v:stats?.absent,        unit:t("admin.emp_detail.stat_unit_day"),  c:"text-red-500" },
+            { l:t("admin.emp_detail.stat_early_out"),  v:stats?.earlyOut,      unit:t("admin.emp_detail.stat_unit_times"),c:"text-orange-500" },
+            { l:t("admin.emp_detail.stat_late_total"),   v:stats?.totalLateMin,  unit:t("admin.emp_detail.stat_unit_min"), c:"text-amber-500" },
+            { l:t("admin.emp_detail.stat_early_total"),v:stats?.totalEarlyMin,unit:t("admin.emp_detail.stat_unit_min"), c:"text-orange-500" },
           ].map(s => (
             <div key={s.l} className="px-3 py-4 text-center">
               <p className="text-[10px] text-slate-400 mb-1">{s.l}</p>
@@ -2012,14 +2015,14 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
         <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <MapPin size={14} className="text-pink-500"/>
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">สาขาที่เช็คอินได้</span>
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">{t("admin.emp_detail.checkin_allowed_branches")}</span>
           </div>
-          <span className="text-[11px] font-bold text-blue-500">{locations.length} สาขา</span>
+          <span className="text-[11px] font-bold text-blue-500">{t("admin.emp_detail.checkin_branches_unit", { n: locations.length })}</span>
         </div>
         {locations.length === 0 ? (
           <div className="px-4 py-5 flex items-center gap-3">
             <AlertTriangle size={15} className="text-amber-500"/>
-            <p className="text-sm text-amber-700 font-medium">ยังไม่ได้กำหนดสาขา — ไปที่ Tab สิทธิ์เช็คอิน</p>
+            <p className="text-sm text-amber-700 font-medium">{t("admin.emp_detail.checkin_no_branch")}</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
@@ -2030,7 +2033,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-bold text-slate-700">{b.name}</p>
-                  {b.geo_radius_m && <p className="text-[10px] text-slate-400">รัศมี {b.geo_radius_m} ม.</p>}
+                  {b.geo_radius_m && <p className="text-[10px] text-slate-400">{t("admin.emp_detail.checkin_radius", { n: b.geo_radius_m })}</p>}
                 </div>
                 <CheckCircle2 size={14} className="text-green-500"/>
               </div>
@@ -2044,7 +2047,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
         <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <CalendarClock size={14} className="text-slate-500"/>
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">การเข้างาน</span>
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">{t("admin.emp_detail.checkin_attendance")}</span>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setAttPeriodOffset(o => o - 1)}
@@ -2056,7 +2059,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
           <span className="text-[10px] text-slate-400">{currentPeriod.start.slice(5)} – {currentPeriod.end.slice(5)}</span>
         </div>
         <div className="divide-y divide-slate-50">
-          {recent.length === 0 && <p className="text-sm text-slate-300 text-center py-6">ไม่มีข้อมูล</p>}
+          {recent.length === 0 && <p className="text-sm text-slate-300 text-center py-6">{t("admin.emp_detail.common_no_data")}</p>}
           {recent.map((r:any) => (
             <div key={r.work_date} className="flex items-center gap-3 px-4 py-3">
               <div className="w-9 text-center flex-shrink-0">
@@ -2070,8 +2073,8 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
                   <span className="font-bold text-slate-700">{r.clock_out ? new Date(r.clock_out).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit",hour12:false,timeZone:"Asia/Bangkok"}) : "--:--"}</span>
                 </p>
                 <div className="flex items-center gap-1.5">
-                  {r.late_minutes > 0 && <span className="text-[10px] text-amber-600 font-bold">สาย {r.late_minutes}น.</span>}
-                  {r.early_out_minutes > 0 && <span className="text-[10px] text-orange-500 font-bold">ออกก่อน {r.early_out_minutes}น.</span>}
+                  {r.late_minutes > 0 && <span className="text-[10px] text-amber-600 font-bold">{t("admin.emp_detail.checkin_late_min", { n: r.late_minutes })}</span>}
+                  {r.early_out_minutes > 0 && <span className="text-[10px] text-orange-500 font-bold">{t("admin.emp_detail.checkin_early_min", { n: r.early_out_minutes })}</span>}
                 </div>
               </div>
               <span className={`text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${statusClr[r.status]??""}`}>
@@ -2083,7 +2086,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
                 const coDate = r.clock_out ? new Date(r.clock_out).toLocaleDateString("sv-SE",{timeZone:"Asia/Bangkok"}) : r.work_date
                 setEditAttRec(r)
                 setEditAttForm({ clock_in: ci, clock_out: co, clock_in_date: r.work_date, clock_out_date: coDate })
-              }} className="text-slate-300 hover:text-indigo-600 flex-shrink-0" title="แก้ไขเวลา">
+              }} className="text-slate-300 hover:text-indigo-600 flex-shrink-0" title={t("admin.emp_detail.checkin_edit_time_title")}>
                 <Pencil size={12}/>
               </button>
             </div>
@@ -2096,12 +2099,12 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditAttRec(null)}>
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="bg-indigo-600 px-5 py-4">
-              <h3 className="text-white font-bold">แก้ไขเวลาเข้า-ออก</h3>
+              <h3 className="text-white font-bold">{t("admin.emp_detail.checkin_edit_inout")}</h3>
               <p className="text-indigo-200 text-xs mt-0.5">{emp?.first_name_th} {emp?.last_name_th} · {editAttRec.work_date}</p>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1.5">วันที่ + เวลาเข้างาน</label>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">{t("admin.emp_detail.checkin_date_time_in")}</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input type="date" value={editAttForm.clock_in_date} onChange={e => setEditAttForm(f => ({ ...f, clock_in_date: e.target.value }))}
                     className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400"/>
@@ -2110,7 +2113,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1.5">วันที่ + เวลาออกงาน</label>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">{t("admin.emp_detail.checkin_date_time_out")}</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input type="date" value={editAttForm.clock_out_date} onChange={e => setEditAttForm(f => ({ ...f, clock_out_date: e.target.value }))}
                     className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400"/>
@@ -2118,13 +2121,13 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
                     className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400 font-semibold"/>
                 </div>
                 {editAttForm.clock_out_date && editAttForm.clock_out_date !== editAttForm.clock_in_date && (
-                  <p className="text-[10px] text-amber-600 font-bold mt-1">กะข้ามคืน — ออกงานคนละวัน</p>
+                  <p className="text-[10px] text-amber-600 font-bold mt-1">{t("admin.emp_detail.checkin_overnight_note")}</p>
                 )}
               </div>
             </div>
             <div className="px-5 pb-5 flex gap-3">
               <button onClick={() => setEditAttRec(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">{t("admin.emp_detail.common_cancel")}</button>
               <button onClick={async () => {
                 setEditAttSaving(true)
                 try {
@@ -2140,7 +2143,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
                   })
                   const data = await res.json()
                   if (data.success) {
-                    toast.success("แก้ไขเวลาสำเร็จ")
+                    toast.success(t("admin.emp_detail.toast_edit_time_saved"))
                     setEditAttRec(null)
                     // reload attendance ตามรอบตัดเงินเดือน
                     const { data: newRec } = await supabase.from("attendance_records")
@@ -2149,12 +2152,12 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
                       .gte("work_date", currentPeriod.start).lte("work_date", currentPeriod.end)
                       .order("work_date", { ascending: false })
                     setRecent(newRec ?? [])
-                  } else toast.error(data.error || "เกิดข้อผิดพลาด")
-                } catch { toast.error("เกิดข้อผิดพลาด") }
+                  } else toast.error(data.error || t("admin.emp_detail.toast_error"))
+                } catch { toast.error(t("admin.emp_detail.toast_error")) }
                 setEditAttSaving(false)
               }} disabled={editAttSaving}
                 className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
-                {editAttSaving ? "กำลังบันทึก..." : "บันทึก"}
+                {editAttSaving ? t("admin.emp_detail.common_saving") : t("admin.emp_detail.common_save")}
               </button>
             </div>
           </div>
@@ -2167,6 +2170,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
 
 // ─── PayrollHistoryTab ───────────────────────────────────────────────────────
 function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; companyId: string }) {
+  const { t } = useLanguage()
   const supabase = createClient()
   const [records, setRecords] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -2234,17 +2238,19 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
     })
     await loadRecords()
     setRecalcing(false)
-    if (res.ok) toast.success("คำนวณเงินเดือนใหม่แล้ว")
-    else toast.error("คำนวณใหม่ไม่สำเร็จ")
+    if (res.ok) toast.success(t("admin.emp_detail.toast_recalc_done"))
+    else toast.error(t("admin.emp_detail.toast_recalc_fail"))
   }
 
   const TH_MONTHS_SHORT = ["","ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
+  const hrU = t("admin.emp_detail.paysum_unit_hr")
+  const minU = t("admin.emp_detail.paysum_unit_min")
 
   function minToHr(m?: number | null) {
-    if (!m) return "0 ชม."
+    if (!m) return `0 ${hrU}`
     const h = Math.floor(m / 60)
     const min = m % 60
-    return min > 0 ? `${h} ชม. ${min} น.` : `${h} ชม.`
+    return min > 0 ? `${h} ${hrU} ${min} ${minU}` : `${h} ${hrU}`
   }
 
   if (loading) return (
@@ -2256,7 +2262,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
   if (records.length === 0) return (
     <div className="py-12 text-center text-slate-400">
       <DollarSign size={36} className="mx-auto mb-3 opacity-30"/>
-      <p className="font-medium">ยังไม่มีข้อมูลเงินเดือน</p>
+      <p className="font-medium">{t("admin.emp_detail.paysum_no_payroll")}</p>
     </div>
   )
 
@@ -2289,7 +2295,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors disabled:opacity-60 flex-shrink-0"
           >
             {recalcing ? <Loader2 size={12} className="animate-spin"/> : <BarChart2 size={12}/>}
-            คำนวณใหม่
+            {t("admin.emp_detail.paysum_recalc")}
           </button>
         )}
       </div>
@@ -2299,7 +2305,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
           {/* ── รายได้ ── */}
           <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 space-y-2">
             <h4 className="text-sm font-black text-emerald-800 mb-3 flex items-center gap-2">
-              <TrendingUp size={15}/> รายได้
+              <TrendingUp size={15}/> {t("admin.emp_detail.paysum_income")}
             </h4>
             <div className="space-y-1.5">
               {(() => {
@@ -2310,20 +2316,20 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                 const ot10 = Math.round(rph * (Number(r.ot_holiday_reg_minutes)||0) / 60 * 100) / 100
                 const ot30 = Math.round(rph * (Number(r.ot_holiday_ot_minutes)||0) / 60 * 3.0 * 100) / 100
                 const items: [string, number][] = [
-                  [rc.factor < 1 ? `เงินเดือนฐาน (${rc.prorateDays}/30 วัน)` : "เงินเดือนฐาน", rc.effBase],
-                  ["ค่าตำแหน่ง", Number(r.allowance_position)||0],
-                  ["ค่าเดินทาง", Number(r.allowance_transport)||0],
-                  ["ค่าอาหาร", Number(r.allowance_food)||0],
-                  ["ค่าโทรศัพท์", Number(r.allowance_phone)||0],
-                  ["ค่าที่พัก", Number(r.allowance_housing)||0],
-                  ["ค่าเสื่อมรถยนต์", Number(r.allowance_vehicle)||0],
-                  ["เบี้ยอื่นๆ", Number(r.allowance_other)||0],
-                  [`OT วันทำงาน ×1.5 (${minToHr(r.ot_weekday_minutes)})`, ot15],
-                  [`OT วันหยุด ×1.0 (${minToHr(r.ot_holiday_reg_minutes)})`, ot10],
-                  [`OT วันหยุด ×3.0 (${minToHr(r.ot_holiday_ot_minutes)})`, ot30],
-                  [`โบนัส KPI${r.kpi_grade && r.kpi_grade !== "pending" ? ` (เกรด ${r.kpi_grade})` : ""}`, rc.effBonus],
-                  ["คอมมิชชั่น", Number(r.commission)||0],
-                  ["รายได้อื่นๆ", Number(r.other_income)||0],
+                  [rc.factor < 1 ? t("admin.emp_detail.paysum_base_prorated", { days: rc.prorateDays }) : t("admin.emp_detail.salary_base_label"), rc.effBase],
+                  [t("admin.emp_detail.paysum_allow_position"), Number(r.allowance_position)||0],
+                  [t("admin.emp_detail.salary_allow_transport"), Number(r.allowance_transport)||0],
+                  [t("admin.emp_detail.salary_allow_food"), Number(r.allowance_food)||0],
+                  [t("admin.emp_detail.salary_allow_phone"), Number(r.allowance_phone)||0],
+                  [t("admin.emp_detail.salary_allow_housing"), Number(r.allowance_housing)||0],
+                  [t("admin.emp_detail.salary_allow_vehicle"), Number(r.allowance_vehicle)||0],
+                  [t("admin.emp_detail.paysum_other_allowance"), Number(r.allowance_other)||0],
+                  [t("admin.emp_detail.paysum_ot_weekday", { time: minToHr(r.ot_weekday_minutes) }), ot15],
+                  [t("admin.emp_detail.paysum_ot_holiday_reg", { time: minToHr(r.ot_holiday_reg_minutes) }), ot10],
+                  [t("admin.emp_detail.paysum_ot_holiday_ot", { time: minToHr(r.ot_holiday_ot_minutes) }), ot30],
+                  [`${t("admin.emp_detail.paysum_kpi_bonus")}${r.kpi_grade && r.kpi_grade !== "pending" ? t("admin.emp_detail.paysum_grade_suffix", { grade: r.kpi_grade }) : ""}`, rc.effBonus],
+                  [t("admin.emp_detail.paysum_commission"), Number(r.commission)||0],
+                  [t("admin.emp_detail.paysum_other_income"), Number(r.other_income)||0],
                 ]
                 return items.filter(([,v]) => v > 0).map(([label, val]) => (
                   <div key={label} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2">
@@ -2340,7 +2346,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                 </div>
               ))}
               <div className="flex items-center justify-between bg-emerald-100 rounded-xl px-3 py-2 mt-1">
-                <span className="text-xs font-bold text-emerald-800">รายได้รวม (Gross)</span>
+                <span className="text-xs font-bold text-emerald-800">{t("admin.emp_detail.paysum_gross")}</span>
                 <span className="font-black text-emerald-800 text-base">฿{fmt(recomputePayroll(r).gross)}</span>
               </div>
             </div>
@@ -2349,19 +2355,19 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
           {/* ── การหัก ── */}
           <div className="rounded-2xl border border-rose-100 bg-rose-50/50 p-4 space-y-2">
             <h4 className="text-sm font-black text-rose-800 mb-3 flex items-center gap-2">
-              <TrendingDown size={15}/> การหัก
+              <TrendingDown size={15}/> {t("admin.emp_detail.paysum_deductions")}
             </h4>
             <div className="space-y-1.5">
               {(() => {
                 const rc = recomputePayroll(r)
                 return [
-                  ["หักขาดงาน", r.deduct_absent],
-                  ["หักมาสาย", r.deduct_late],
-                  ["หักออกก่อน", r.deduct_early_out],
-                  ["ประกันสังคม (5%)", rc.sso],
-                  ["ภาษีหัก ณ ที่จ่าย", rc.tax],
-                  ["หักเงินกู้", r.deduct_loan],
-                  ["หักอื่นๆ", r.deduct_other],
+                  [t("admin.emp_detail.paysum_deduct_absent"), r.deduct_absent],
+                  [t("admin.emp_detail.paysum_deduct_late"), r.deduct_late],
+                  [t("admin.emp_detail.paysum_deduct_early"), r.deduct_early_out],
+                  [t("admin.emp_detail.paysum_sso"), rc.sso],
+                  [t("admin.emp_detail.salary_wht"), rc.tax],
+                  [t("admin.emp_detail.paysum_deduct_loan"), r.deduct_loan],
+                  [t("admin.emp_detail.paysum_deduct_other"), r.deduct_other],
                 ].filter(([, v]) => (v as number) > 0).map(([label, val]) => (
                   <div key={label as string} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2">
                     <span className="text-slate-600 font-medium">{label as string}</span>
@@ -2377,7 +2383,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                 </div>
               ))}
               <div className="flex items-center justify-between bg-rose-100 rounded-xl px-3 py-2 mt-1">
-                <span className="text-xs font-bold text-rose-800">หักรวม</span>
+                <span className="text-xs font-bold text-rose-800">{t("admin.emp_detail.paysum_total_deduct")}</span>
                 <span className="font-black text-rose-800">-฿{fmt(recomputePayroll(r).totalDed)}</span>
               </div>
             </div>
@@ -2385,7 +2391,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
 
           {/* ── เงินสุทธิ + สถิติ ── */}
           <div className="rounded-2xl border border-indigo-200 bg-indigo-600 p-4 text-white text-center">
-            <p className="text-xs font-bold opacity-70 mb-1">เงินเดือนสุทธิ</p>
+            <p className="text-xs font-bold opacity-70 mb-1">{t("admin.emp_detail.paysum_net")}</p>
             <p className="text-3xl font-black">฿{fmt(recomputePayroll(r).net)}</p>
             <p className="text-[10px] opacity-60 mt-1">{TH_MONTHS_SHORT[r.month]} {r.year + 543}</p>
           </div>
@@ -2393,15 +2399,15 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
           {/* ── สถิติการทำงาน ── */}
           <div className="rounded-2xl border border-slate-100 bg-white p-4">
             <h4 className="text-sm font-black text-slate-700 mb-3 flex items-center gap-2">
-              <BarChart2 size={15}/> สถิติการทำงาน
+              <BarChart2 size={15}/> {t("admin.emp_detail.paysum_work_stats")}
             </h4>
             <div className="grid grid-cols-3 gap-2 text-center">
               {[
-                ["มาทำงาน", r.present_days ?? 0, "text-emerald-600", "วัน"],
-                ["ขาด", r.absent_days ?? 0, "text-rose-500", "วัน"],
-                ["สาย", r.late_count ?? 0, "text-amber-500", "ครั้ง"],
-                ["ลาพักร้อน", r.leave_paid_days ?? 0, "text-sky-500", "วัน"],
-                ["OT", fmtDec(r.ot_hours), "text-indigo-600", "ชม."],
+                [t("admin.emp_detail.paysum_stat_present"), r.present_days ?? 0, "text-emerald-600", t("admin.emp_detail.stat_unit_day")],
+                [t("admin.emp_detail.paysum_stat_absent"), r.absent_days ?? 0, "text-rose-500", t("admin.emp_detail.stat_unit_day")],
+                [t("admin.emp_detail.paysum_stat_late"), r.late_count ?? 0, "text-amber-500", t("admin.emp_detail.stat_unit_times")],
+                [t("admin.emp_detail.paysum_stat_vacation"), r.leave_paid_days ?? 0, "text-sky-500", t("admin.emp_detail.stat_unit_day")],
+                ["OT", fmtDec(r.ot_hours), "text-indigo-600", t("admin.emp_detail.paysum_unit_hr")],
               ].map(([label, val, color, unit]) => (
                 <div key={label as string} className="bg-slate-50 rounded-xl p-2">
                   <p className={`text-base font-black ${color}`}>{val}</p>
@@ -2419,7 +2425,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
               className="w-full flex items-center justify-between text-sm font-black text-slate-700"
             >
               <span className="flex items-center gap-2">
-                <Calendar size={15}/> รายละเอียดรายวัน
+                <Calendar size={15}/> {t("admin.emp_detail.paysum_daily_detail")}
               </span>
               <ChevronRight size={16} className={`transition-transform ${bdOpen ? "rotate-90" : ""}`}/>
             </button>
@@ -2441,12 +2447,12 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                   </div>
                 ) : breakdown?._error ? (
                   <div className="text-center py-6">
-                    <p className="text-slate-400 text-xs mb-2">ไม่สามารถโหลดข้อมูลได้</p>
+                    <p className="text-slate-400 text-xs mb-2">{t("admin.emp_detail.paysum_load_fail")}</p>
                     <button
                       onClick={() => { bdCache.current = {}; setBreakdown(null); setBdOpen(false); setTimeout(() => setBdOpen(true), 50) }}
                       className="text-xs text-indigo-600 font-bold hover:underline"
                     >
-                      ลองใหม่
+                      {t("admin.emp_detail.paysum_retry")}
                     </button>
                   </div>
                 ) : breakdown ? (
@@ -2455,7 +2461,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                     {breakdown.absent?.length > 0 && (
                       <div>
                         <p className="text-xs font-bold text-rose-600 mb-2 flex items-center gap-1.5">
-                          <X size={12}/> ขาดงาน ({breakdown.absent.length} วัน)
+                          <X size={12}/> {t("admin.emp_detail.paysum_absent_days", { n: breakdown.absent.length })}
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                           {breakdown.absent.map((d: any) => (
@@ -2471,7 +2477,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                     {breakdown.late?.length > 0 && (
                       <div>
                         <p className="text-xs font-bold text-amber-600 mb-2 flex items-center gap-1.5">
-                          <Clock size={12}/> สาย ({breakdown.late.length} ครั้ง — รวม {breakdown.summary?.late_total_min ?? 0} นาที)
+                          <Clock size={12}/> {t("admin.emp_detail.paysum_late_detail", { n: breakdown.late.length, m: breakdown.summary?.late_total_min ?? 0 })}
                         </p>
                         <div className="space-y-1">
                           {breakdown.late.map((d: any) => (
@@ -2479,8 +2485,8 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                               <span className="font-bold text-amber-800 min-w-[60px]">
                                 {new Date(d.date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
                               </span>
-                              <span className="text-amber-600">สาย {d.minutes} นาที</span>
-                              {d.clock_in && <span className="text-amber-400 ml-auto">เข้า {new Date(d.clock_in).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })}</span>}
+                              <span className="text-amber-600">{t("admin.emp_detail.paysum_late_n_min", { n: d.minutes })}</span>
+                              {d.clock_in && <span className="text-amber-400 ml-auto">{t("admin.emp_detail.paysum_clock_in", { time: new Date(d.clock_in).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) })}</span>}
                             </div>
                           ))}
                         </div>
@@ -2491,7 +2497,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                     {breakdown.early_out?.length > 0 && (
                       <div>
                         <p className="text-xs font-bold text-orange-600 mb-2 flex items-center gap-1.5">
-                          <ArrowLeft size={12}/> ออกก่อน ({breakdown.early_out.length} ครั้ง — รวม {breakdown.summary?.early_out_total_min ?? 0} นาที)
+                          <ArrowLeft size={12}/> {t("admin.emp_detail.paysum_early_detail", { n: breakdown.early_out.length, m: breakdown.summary?.early_out_total_min ?? 0 })}
                         </p>
                         <div className="space-y-1">
                           {breakdown.early_out.map((d: any) => (
@@ -2499,8 +2505,8 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                               <span className="font-bold text-orange-800 min-w-[60px]">
                                 {new Date(d.date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
                               </span>
-                              <span className="text-orange-600">ออกก่อน {d.minutes} นาที</span>
-                              {d.clock_out && <span className="text-orange-400 ml-auto">ออก {new Date(d.clock_out).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })}</span>}
+                              <span className="text-orange-600">{t("admin.emp_detail.paysum_early_n_min", { n: d.minutes })}</span>
+                              {d.clock_out && <span className="text-orange-400 ml-auto">{t("admin.emp_detail.paysum_clock_out", { time: new Date(d.clock_out).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) })}</span>}
                             </div>
                           ))}
                         </div>
@@ -2511,7 +2517,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                     {breakdown.ot?.length > 0 && (
                       <div>
                         <p className="text-xs font-bold text-indigo-600 mb-2 flex items-center gap-1.5">
-                          <TrendingUp size={12}/> OT ({breakdown.ot.length} วัน — รวม {(() => { const t = breakdown.summary?.ot_total_min ?? 0; return `${Math.floor(t/60)} ชม. ${t%60 > 0 ? `${t%60} น.` : ""}` })()})
+                          <TrendingUp size={12}/> {t("admin.emp_detail.paysum_ot_detail", { n: breakdown.ot.length, time: (() => { const tot = breakdown.summary?.ot_total_min ?? 0; return `${Math.floor(tot/60)} ${hrU} ${tot%60 > 0 ? `${tot%60} ${minU}` : ""}` })() })}
                         </p>
                         <div className="space-y-1">
                           {breakdown.ot.map((d: any) => (
@@ -2519,7 +2525,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                               <span className="font-bold text-indigo-800 min-w-[60px]">
                                 {new Date(d.date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
                               </span>
-                              <span className="text-indigo-600">{Math.floor(d.minutes / 60)} ชม. {d.minutes % 60 > 0 ? `${d.minutes % 60} น.` : ""}</span>
+                              <span className="text-indigo-600">{Math.floor(d.minutes / 60)} {hrU} {d.minutes % 60 > 0 ? `${d.minutes % 60} ${minU}` : ""}</span>
                             </div>
                           ))}
                         </div>
@@ -2530,7 +2536,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                     {breakdown.leave?.length > 0 && (
                       <div>
                         <p className="text-xs font-bold text-sky-600 mb-2 flex items-center gap-1.5">
-                          <CalendarClock size={12}/> ลา ({breakdown.leave.length} วัน)
+                          <CalendarClock size={12}/> {t("admin.emp_detail.paysum_leave_days", { n: breakdown.leave.length })}
                         </p>
                         <div className="space-y-1">
                           {breakdown.leave.map((d: any) => (
@@ -2541,9 +2547,9 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: d.color || "#6B7280" }}>
                                 {d.type_name}
                               </span>
-                              {d.is_half_day && <span className="text-sky-400">(ครึ่งวัน)</span>}
+                              {d.is_half_day && <span className="text-sky-400">{t("admin.emp_detail.paysum_half_day")}</span>}
                               <span className={`ml-auto text-[10px] ${d.is_paid ? "text-green-500" : "text-rose-400"}`}>
-                                {d.is_paid ? "ได้เงิน" : "ไม่ได้เงิน"}
+                                {d.is_paid ? t("admin.emp_detail.paysum_paid") : t("admin.emp_detail.paysum_unpaid")}
                               </span>
                             </div>
                           ))}
@@ -2555,7 +2561,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                     {breakdown.holidays?.length > 0 && (
                       <div>
                         <p className="text-xs font-bold text-purple-600 mb-2 flex items-center gap-1.5">
-                          <Calendar size={12}/> วันหยุดบริษัท ({breakdown.holidays.length} วัน)
+                          <Calendar size={12}/> {t("admin.emp_detail.paysum_holidays", { n: breakdown.holidays.length })}
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                           {breakdown.holidays.map((d: any) => (
@@ -2568,11 +2574,11 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
                     )}
 
                     {!breakdown.absent?.length && !breakdown.late?.length && !breakdown.early_out?.length && !breakdown.ot?.length && !breakdown.leave?.length && !breakdown.holidays?.length && (
-                      <p className="text-center text-slate-400 text-xs py-4">ไม่มีข้อมูลรายละเอียดรายวัน</p>
+                      <p className="text-center text-slate-400 text-xs py-4">{t("admin.emp_detail.paysum_no_daily")}</p>
                     )}
                   </>
                 ) : (
-                  <p className="text-center text-slate-400 text-xs py-4">ไม่สามารถโหลดข้อมูลได้</p>
+                  <p className="text-center text-slate-400 text-xs py-4">{t("admin.emp_detail.paysum_load_fail")}</p>
                 )}
               </div>
             )}
@@ -2585,6 +2591,7 @@ function PayrollHistoryTab({ employeeId, companyId }: { employeeId: string; comp
 
 // ─── WorkScheduleTab ──────────────────────────────────────────────────────────
 function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; companyId: string }) {
+  const { t } = useLanguage()
   const supabase = createClient()
   const { user } = useAuth()
 
@@ -2629,7 +2636,7 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
 
     // สร้าง custom shift template ถ้าเลือก custom
     if (mode === "custom") {
-      if (!workStart || !workEnd) { toast.error("กรุณากรอกเวลา"); setSaving(false); return }
+      if (!workStart || !workEnd) { toast.error(t("admin.emp_detail.toast_enter_time")); setSaving(false); return }
       const name = customName || `${workStart}–${workEnd}`
       const { data: newShift, error: shiftErr } = await supabase.from("shift_templates").insert({
         company_id:           companyId,
@@ -2642,11 +2649,11 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
         ot_start_after_minutes: 30,
         is_active:            true,
       }).select("id").single()
-      if (shiftErr || !newShift) { toast.error("สร้างกะไม่สำเร็จ: " + shiftErr?.message); setSaving(false); return }
+      if (shiftErr || !newShift) { toast.error(t("admin.emp_detail.toast_create_shift_fail") + (shiftErr?.message || "")); setSaving(false); return }
       shiftId = newShift.id
     }
 
-    if (!shiftId) { toast.error("กรุณาเลือกกะ"); setSaving(false); return }
+    if (!shiftId) { toast.error(t("admin.emp_detail.toast_select_shift")); setSaving(false); return }
 
     // ปิด schedule ปัจจุบัน
     const current = schedules.find(s => !s.effective_to)
@@ -2661,14 +2668,14 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
     })
     setSaving(false)
     if (error) { toast.error(error.message); return }
-    toast.success("✓ กำหนดกะทำงานสำเร็จ")
+    toast.success(t("admin.emp_detail.toast_shift_assigned"))
     closeForm(); load()
   }
 
   const remove = async (id: string) => {
-    if (!confirm("ลบการกำหนดกะนี้?")) return
+    if (!confirm(t("admin.emp_detail.confirm_delete_shift"))) return
     await supabase.from("work_schedules").delete().eq("id", id)
-    toast.success("ลบแล้ว"); load()
+    toast.success(t("admin.emp_detail.toast_deleted_short")); load()
   }
 
   const current = schedules.find(s => !s.effective_to)
@@ -2677,13 +2684,13 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h3 className="font-bold text-slate-800">กำหนดกะทำงาน</h3>
-          <p className="text-xs text-slate-400 mt-0.5">เพิ่มกะได้เรื่อยๆ ระบบจะปิดกะเดิมอัตโนมัติเมื่อกำหนดกะใหม่</p>
+          <h3 className="font-bold text-slate-800">{t("admin.emp_detail.sched_assign_title")}</h3>
+          <p className="text-xs text-slate-400 mt-0.5">{t("admin.emp_detail.sched_assign_note")}</p>
         </div>
         <button onClick={() => setShowForm(v => !v)}
           className={`flex items-center gap-1.5 text-xs font-bold px-4 py-2.5 rounded-xl transition-all ${showForm ? "bg-slate-100 text-slate-600" : "bg-blue-600 text-white shadow-sm shadow-blue-200"}`}>
           {showForm ? <X size={12}/> : <Plus size={12}/>}
-          {showForm ? "ยกเลิก" : "เพิ่มกะ"}
+          {showForm ? t("admin.emp_detail.common_cancel") : t("admin.emp_detail.sched_add_shift")}
         </button>
       </div>
 
@@ -2694,43 +2701,43 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
             <Clock size={18} className="text-indigo-600"/>
           </div>
           <div className="flex-1">
-            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide mb-0.5">กะปัจจุบัน</p>
+            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide mb-0.5">{t("admin.emp_detail.sched_current")}</p>
             <p className="font-black text-indigo-800">{current.shift?.name}</p>
             <p className="text-xs text-indigo-500 mt-0.5">
               {current.shift?.work_start?.slice(0,5)} – {current.shift?.work_end?.slice(0,5)}
-              {current.shift?.break_minutes ? ` · พัก ${current.shift.break_minutes} น.` : ""}
-              {current.shift?.is_overnight ? " · ข้ามคืน" : ""}
+              {current.shift?.break_minutes ? ` · ${t("admin.emp_detail.sched_break_short", { n: current.shift.break_minutes })}` : ""}
+              {current.shift?.is_overnight ? ` · ${t("admin.emp_detail.sched_overnight")}` : ""}
             </p>
           </div>
           <div className="text-right">
             {current.late_threshold_minutes != null ? (
               <div className="bg-amber-100 text-amber-700 text-[11px] font-bold px-2.5 py-1 rounded-full mb-1">
-                สายได้ {current.late_threshold_minutes} นาที
+                {t("admin.emp_detail.sched_late_allow", { n: current.late_threshold_minutes })}
               </div>
             ) : (
-              <div className="bg-slate-100 text-slate-400 text-[11px] px-2.5 py-1 rounded-full mb-1">ใช้ค่าแผนก</div>
+              <div className="bg-slate-100 text-slate-400 text-[11px] px-2.5 py-1 rounded-full mb-1">{t("admin.emp_detail.sched_use_dept")}</div>
             )}
-            <p className="text-[10px] text-indigo-400">มีผลตั้งแต่ {format(new Date(current.effective_from),"d MMM yyyy",{locale:th})}</p>
+            <p className="text-[10px] text-indigo-400">{t("admin.emp_detail.sched_effective_from", { date: format(new Date(current.effective_from),"d MMM yyyy",{locale:th}) })}</p>
           </div>
         </div>
       ) : (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-5 flex items-center gap-3">
           <AlertTriangle size={15} className="text-amber-500"/>
-          <p className="text-sm text-amber-800 font-medium">ยังไม่ได้กำหนดกะทำงาน กรุณากด &quot;+ เพิ่มกะ&quot;</p>
+          <p className="text-sm text-amber-800 font-medium">{t("admin.emp_detail.sched_no_shift_hint")}</p>
         </div>
       )}
 
       {/* ── Add Form ── */}
       {showForm && (
         <div className="bg-slate-50 rounded-2xl p-5 mb-5 border border-slate-200 space-y-4">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">กำหนดกะใหม่</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">{t("admin.emp_detail.sched_new_shift")}</p>
 
           {/* Mode toggle */}
           <div className="flex bg-white rounded-xl border border-slate-200 p-1 gap-1">
-            {([["template","เลือกจากกะที่มี"],["custom","กำหนดเวลาเอง"]] as const).map(([m,l]) => (
+            {([["template","sched_mode_template"],["custom","sched_mode_custom"]] as const).map(([m,l]) => (
               <button key={m} onClick={() => setMode(m)}
                 className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${mode===m ? "bg-blue-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}>
-                {l}
+                {t(`admin.emp_detail.${l}`)}
               </button>
             ))}
           </div>
@@ -2738,21 +2745,21 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
           {/* Template picker */}
           {mode === "template" && (
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">กะทำงาน</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">{t("admin.emp_detail.sched_shift")}</label>
               <select value={selectedShift} onChange={e => setSelectedShift(e.target.value)} className={inp}>
-                <option value="">เลือกกะทำงาน</option>
+                <option value="">{t("admin.emp_detail.sched_select_shift")}</option>
                 {shifts.map(s => (
                   <option key={s.id} value={s.id}>{s.name} ({s.work_start?.slice(0,5)}–{s.work_end?.slice(0,5)})</option>
                 ))}
               </select>
-              {shifts.length === 0 && <p className="text-xs text-amber-600 mt-1">ไม่มีกะ — ไปเพิ่มที่ ตั้งค่า → กะทำงาน</p>}
+              {shifts.length === 0 && <p className="text-xs text-amber-600 mt-1">{t("admin.emp_detail.sched_no_shifts")}</p>}
               {selectedShift && (() => {
                 const s = shifts.find(x => x.id === selectedShift)
                 if (!s) return null
                 return (
                   <div className="mt-2 bg-white border border-indigo-100 rounded-xl px-4 py-3">
                     <p className="text-sm font-bold text-indigo-700">{s.name}</p>
-                    <p className="text-xs text-slate-500">{s.work_start?.slice(0,5)} – {s.work_end?.slice(0,5)} · พัก {s.break_minutes} น.{s.is_overnight?" · ข้ามคืน":""}</p>
+                    <p className="text-xs text-slate-500">{s.work_start?.slice(0,5)} – {s.work_end?.slice(0,5)} · {t("admin.emp_detail.sched_break_short", { n: s.break_minutes })}{s.is_overnight?` · ${t("admin.emp_detail.sched_overnight")}`:""}</p>
                   </div>
                 )
               })()}
@@ -2763,55 +2770,55 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
           {mode === "custom" && (
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1.5">ชื่อกะ (ถ้าไม่กรอกจะใช้เวลาอัตโนมัติ)</label>
-                <input value={customName} onChange={e => setCustomName(e.target.value)} className={inp} placeholder="เช่น กะพิเศษ A"/>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">{t("admin.emp_detail.sched_shift_name")}</label>
+                <input value={customName} onChange={e => setCustomName(e.target.value)} className={inp} placeholder={t("admin.emp_detail.sched_shift_name_ph")}/>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">เวลาเข้างาน</label>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">{t("admin.emp_detail.sched_time_in")}</label>
                   <input type="time" value={workStart} onChange={e => setWorkStart(e.target.value)} className={inp}/>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">เวลาออกงาน</label>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">{t("admin.emp_detail.sched_time_out")}</label>
                   <input type="time" value={workEnd} onChange={e => setWorkEnd(e.target.value)} className={inp}/>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">พักกลางวัน (นาที)</label>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">{t("admin.emp_detail.sched_break_label")}</label>
                   <input type="number" value={breakMin} onChange={e => setBreakMin(e.target.value)} className={inp} min="0" max="120"/>
                 </div>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={isOvernight} onChange={e => setIsOvernight(e.target.checked)} className="rounded"/>
-                <span className="text-xs text-slate-600 font-medium">กะข้ามคืน (นับ work_date เป็นวันก่อนหน้า)</span>
+                <span className="text-xs text-slate-600 font-medium">{t("admin.emp_detail.sched_overnight_label")}</span>
               </label>
             </div>
           )}
 
           {/* Late threshold override */}
           <div className="bg-white border border-amber-100 rounded-xl p-4">
-            <label className="block text-xs font-bold text-amber-700 mb-2">⏱ อนุโลมมาสายได้กี่นาที (สำหรับคนนี้)</label>
+            <label className="block text-xs font-bold text-amber-700 mb-2">{t("admin.emp_detail.sched_late_threshold")}</label>
             <div className="flex items-center gap-3">
               <input type="number" value={lateThreshold} onChange={e => setLateThreshold(e.target.value)}
                 className={inp + " w-28"} min="0" max="60" placeholder="—"/>
-              <p className="text-xs text-slate-400">ถ้าไม่กรอก = ใช้ค่าตามแผนก<br/>0 = หักทันทีถ้าสาย 1 นาที</p>
+              <p className="text-xs text-slate-400">{t("admin.emp_detail.sched_late_threshold_note1")}<br/>{t("admin.emp_detail.sched_late_threshold_note2")}</p>
             </div>
             {lateThreshold !== "" && (
               <p className="text-xs text-amber-600 mt-2 font-medium">
-                ✓ มาสายได้ {lateThreshold} นาที โดยไม่โดนหัก
+                {t("admin.emp_detail.sched_late_allow_ok", { n: lateThreshold })}
               </p>
             )}
           </div>
 
           {/* Effective from */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">วันที่มีผล</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">{t("admin.emp_detail.sched_effective_date")}</label>
             <input type="date" value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} className={inp + " w-48"}/>
           </div>
 
           <button onClick={assign} disabled={saving}
             className="bg-blue-600 text-white text-sm font-bold px-5 py-2.5 rounded-xl flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50 transition-all">
             {saving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
-            บันทึกกะทำงาน
+            {t("admin.emp_detail.sched_save")}
           </button>
         </div>
       )}
@@ -2819,7 +2826,7 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
       {/* ── History ── */}
       {schedules.length > 0 && (
         <div>
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">ประวัติกะทำงาน ({schedules.length})</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">{t("admin.emp_detail.sched_history", { n: schedules.length })}</p>
           <div className="space-y-2">
             {schedules.map(sc => (
               <div key={sc.id} className={`flex items-center gap-3 p-3 rounded-xl border ${!sc.effective_to ? "border-indigo-100 bg-indigo-50/40" : "border-slate-100 bg-slate-50/50"}`}>
@@ -2831,7 +2838,7 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
                     <p className="text-sm font-bold text-slate-700">{sc.shift?.name}</p>
                     {sc.late_threshold_minutes != null && (
                       <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">
-                        สายได้ {sc.late_threshold_minutes} นาที
+                        {t("admin.emp_detail.sched_late_allow", { n: sc.late_threshold_minutes })}
                       </span>
                     )}
                   </div>
@@ -2839,10 +2846,10 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
                     {sc.shift?.work_start?.slice(0,5)} – {sc.shift?.work_end?.slice(0,5)}
                     &nbsp;·&nbsp;
                     {format(new Date(sc.effective_from),"d MMM yyyy",{locale:th})}
-                    {sc.effective_to ? ` – ${format(new Date(sc.effective_to),"d MMM yyyy",{locale:th})}` : " – ปัจจุบัน"}
+                    {sc.effective_to ? ` – ${format(new Date(sc.effective_to),"d MMM yyyy",{locale:th})}` : t("admin.emp_detail.salary_until_present")}
                   </p>
                 </div>
-                {!sc.effective_to && <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-1 rounded-full flex-shrink-0">ปัจจุบัน</span>}
+                {!sc.effective_to && <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-1 rounded-full flex-shrink-0">{t("admin.emp_detail.common_current")}</span>}
                 <button onClick={() => remove(sc.id)} className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-slate-300 hover:text-red-500 transition-colors flex-shrink-0">
                   <Trash2 size={12}/>
                 </button>
@@ -2857,6 +2864,7 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
 
 // ─── CheckinLocationsTab ──────────────────────────────────────────────────────
 function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; companyId: string }) {
+  const { t } = useLanguage()
   const supabase = createClient()
   const { user } = useAuth()
 
@@ -2898,10 +2906,10 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
     if (branchAllowedIds.has(branchId)) {
       const row = allowedRows.find((r: any) => r.branch_id === branchId)
       if (row) await supabase.from("employee_allowed_locations").delete().eq("id", row.id)
-      toast.success("ยกเลิกสิทธิ์แล้ว")
+      toast.success(t("admin.emp_detail.toast_perm_removed"))
     } else {
       await supabase.from("employee_allowed_locations").insert({ employee_id: employeeId, branch_id: branchId, created_by: user?.employee_id ?? null })
-      toast.success("เพิ่มสิทธิ์แล้ว")
+      toast.success(t("admin.emp_detail.toast_perm_added"))
     }
     setSaving(null); load()
   }
@@ -2909,9 +2917,9 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
   const addCustom = async () => {
     const { name, lat, lng, radius } = customForm
     const latNum = parseFloat(lat), lngNum = parseFloat(lng)
-    if (!lat || !lng || isNaN(latNum) || isNaN(lngNum)) return toast.error("กรุณากรอก Latitude/Longitude ให้ถูกต้อง")
-    if (latNum < -90 || latNum > 90) return toast.error("Latitude ต้องอยู่ระหว่าง -90 ถึง 90")
-    if (lngNum < -180 || lngNum > 180) return toast.error("Longitude ต้องอยู่ระหว่าง -180 ถึง 180")
+    if (!lat || !lng || isNaN(latNum) || isNaN(lngNum)) return toast.error(t("admin.emp_detail.toast_invalid_latlng"))
+    if (latNum < -90 || latNum > 90) return toast.error(t("admin.emp_detail.toast_lat_range"))
+    if (lngNum < -180 || lngNum > 180) return toast.error(t("admin.emp_detail.toast_lng_range"))
     setSavingCustom(true)
     const { error } = await supabase.from("employee_allowed_locations").insert({
       employee_id:       employeeId,
@@ -2924,7 +2932,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
     })
     setSavingCustom(false)
     if (error) { toast.error(error.message); return }
-    toast.success("✓ เพิ่มสถานที่เช็คอินแล้ว")
+    toast.success(t("admin.emp_detail.toast_location_added"))
     setCustomForm({ name:"", lat:"", lng:"", radius:"200" })
     setShowCustom(false); load()
   }
@@ -2936,7 +2944,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
       const latV = parseFloat(parts[0]), lngV = parseFloat(parts[1])
       if (!isNaN(latV) && !isNaN(lngV)) {
         setCustomForm(f => ({ ...f, lat: String(latV), lng: String(lngV) }))
-        toast.success("วาง Lat/Lng สำเร็จ")
+        toast.success(t("admin.emp_detail.toast_latlng_pasted"))
         return
       }
     }
@@ -2945,7 +2953,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
 
   const removeCustom = async (id: string) => {
     await supabase.from("employee_allowed_locations").delete().eq("id", id)
-    toast.success("ลบแล้ว"); load()
+    toast.success(t("admin.emp_detail.toast_deleted_short")); load()
   }
 
   const customRows = allowedRows.filter(r => !r.branch_id)
@@ -2956,7 +2964,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
     const { error } = await supabase.from("employees").update({ checkin_anywhere: newVal }).eq("id", employeeId)
     if (error) { toast.error(error.message) } else {
       setCheckinAnywhere(newVal)
-      toast.success(newVal ? "เปิดเช็คอิน Anywhere แล้ว" : "ปิดเช็คอิน Anywhere แล้ว")
+      toast.success(newVal ? t("admin.emp_detail.toast_anywhere_on") : t("admin.emp_detail.toast_anywhere_off"))
     }
     setSavingAnywhere(false)
   }
@@ -2967,7 +2975,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
     const { error } = await supabase.from("employees").update({ can_self_schedule: newVal }).eq("id", employeeId)
     if (error) { toast.error(error.message) } else {
       setCanSelfSchedule(newVal)
-      toast.success(newVal ? "เปิดวางกะเองแล้ว" : "ปิดวางกะเองแล้ว")
+      toast.success(newVal ? t("admin.emp_detail.toast_selfsched_on") : t("admin.emp_detail.toast_selfsched_off"))
     }
     setSavingSelfSched(false)
   }
@@ -2976,16 +2984,16 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
     <div>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="font-bold text-slate-800">สิทธิ์เช็คอิน</h3>
+          <h3 className="font-bold text-slate-800">{t("admin.emp_detail.tab_checkin")}</h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            กำหนดสาขาหรือพิกัด GPS ที่พนักงานสามารถเช็คอินได้
-            <span className="ml-1.5 font-bold text-indigo-600">{allowedRows.length} สถานที่</span>
+            {t("admin.emp_detail.checkin_subtitle")}
+            <span className="ml-1.5 font-bold text-indigo-600">{t("admin.emp_detail.checkin_location_count", { n: allowedRows.length })}</span>
           </p>
         </div>
         <button onClick={() => setShowCustom(v => !v)}
           className={`flex items-center gap-1.5 text-xs font-bold px-3.5 py-2.5 rounded-xl transition-all ${showCustom ? "bg-slate-100 text-slate-600" : "bg-pink-600 text-white shadow-sm shadow-pink-200"}`}>
           {showCustom ? <X size={12}/> : <Plus size={12}/>}
-          {showCustom ? "ยกเลิก" : "เพิ่มพิกัด"}
+          {showCustom ? t("admin.emp_detail.common_cancel") : t("admin.emp_detail.checkin_add_coord")}
         </button>
       </div>
 
@@ -2997,11 +3005,11 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
               <Globe size={18} className={checkinAnywhere ? "text-emerald-600" : "text-slate-400"} />
             </div>
             <div>
-              <p className="font-bold text-sm text-slate-800">เช็คอิน Anywhere</p>
+              <p className="font-bold text-sm text-slate-800">{t("admin.emp_detail.checkin_anywhere_title")}</p>
               <p className="text-xs text-slate-400 mt-0.5">
                 {checkinAnywhere
-                  ? "พนักงานเช็คอิน/เช็คเอ้าท์ที่ไหนก็ได้ ไม่ตรวจสอบพิกัด GPS"
-                  : "เช็คอินได้เฉพาะสาขาหรือพิกัดที่กำหนดเท่านั้น"
+                  ? t("admin.emp_detail.checkin_anywhere_on")
+                  : t("admin.emp_detail.checkin_anywhere_off")
                 }
               </p>
             </div>
@@ -3021,11 +3029,11 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
               <CalendarClock size={18} className={canSelfSchedule ? "text-violet-600" : "text-slate-400"} />
             </div>
             <div>
-              <p className="font-bold text-sm text-slate-800">วางกะเอง (Self-Schedule)</p>
+              <p className="font-bold text-sm text-slate-800">{t("admin.emp_detail.checkin_selfsched_title")}</p>
               <p className="text-xs text-slate-400 mt-0.5">
                 {canSelfSchedule
-                  ? "พนักงานสามารถวางกะการทำงานด้วยตัวเองได้ — เปลี่ยนกะต้องอนุมัติ"
-                  : "พนักงานไม่สามารถวางกะเอง — หัวหน้าหรือ Admin กำหนดให้เท่านั้น"
+                  ? t("admin.emp_detail.checkin_selfsched_on")
+                  : t("admin.emp_detail.checkin_selfsched_off")
                 }
               </p>
             </div>
@@ -3042,12 +3050,12 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
         <div className="bg-pink-50 border border-pink-100 rounded-2xl p-5 mb-5 space-y-3">
           <div className="flex items-center gap-2 mb-1">
             <MapPin size={14} className="text-pink-500"/>
-            <p className="text-xs font-bold text-pink-700 uppercase tracking-wide">เพิ่มพิกัด GPS</p>
+            <p className="text-xs font-bold text-pink-700 uppercase tracking-wide">{t("admin.emp_detail.checkin_add_gps")}</p>
           </div>
 
           {/* Paste lat,lng single field */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">วางพิกัด (lat, lng)</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">{t("admin.emp_detail.checkin_paste_coord")}</label>
             <input
               className={inp}
               placeholder="เช่น 13.726932874684474, 100.49304284696417"
@@ -3055,7 +3063,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
               onBlur={e => { if (e.target.value.includes(",")) pasteLatLng(e.target.value) }}
               onChange={e => e.target.value.includes(",") && pasteLatLng(e.target.value)}
             />
-            <p className="text-[10px] text-slate-400 mt-1">วางค่าจาก Google Maps แล้วระบบจะแยก Lat/Lng ให้อัตโนมัติ</p>
+            <p className="text-[10px] text-slate-400 mt-1">{t("admin.emp_detail.checkin_paste_hint")}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -3071,20 +3079,20 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">ชื่อสถานที่ (ไม่บังคับ)</label>
-              <input value={customForm.name} onChange={e => setCustomForm(f => ({ ...f, name:e.target.value }))} className={inp} placeholder="เช่น ออฟฟิศลาดพร้าว"/>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">{t("admin.emp_detail.checkin_place_name")}</label>
+              <input value={customForm.name} onChange={e => setCustomForm(f => ({ ...f, name:e.target.value }))} className={inp} placeholder={t("admin.emp_detail.checkin_place_name_ph")}/>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">รัศมี (เมตร)</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">{t("admin.emp_detail.checkin_radius_label")}</label>
               <div className="flex items-center gap-2">
                 <input type="number" value={customForm.radius} onChange={e => setCustomForm(f => ({ ...f, radius:e.target.value }))} className={inp} min="50" max="2000"/>
-                <span className="text-xs text-slate-400 flex-shrink-0">ม.</span>
+                <span className="text-xs text-slate-400 flex-shrink-0">{t("admin.emp_detail.checkin_meter_unit")}</span>
               </div>
               <input type="range" min="50" max="500" step="50" value={customForm.radius}
                 onChange={e => setCustomForm(f => ({ ...f, radius:e.target.value }))}
                 className="w-full mt-1.5 accent-pink-500"/>
               <div className="flex justify-between text-[9px] text-slate-300 -mt-0.5">
-                <span>50</span><span>200</span><span>500ม.</span>
+                <span>50</span><span>200</span><span>{t("admin.emp_detail.checkin_500m")}</span>
               </div>
             </div>
           </div>
@@ -3093,14 +3101,14 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
           {customForm.lat && customForm.lng && !isNaN(parseFloat(customForm.lat)) && (
             <a href={`https://www.google.com/maps?q=${customForm.lat},${customForm.lng}`} target="_blank" rel="noreferrer"
               className="flex items-center gap-2 text-xs text-blue-600 font-bold hover:underline">
-              <MapPin size={11}/> เปิดใน Google Maps เพื่อตรวจสอบ →
+              <MapPin size={11}/> {t("admin.emp_detail.checkin_open_gmaps")}
             </a>
           )}
 
           <button onClick={addCustom} disabled={savingCustom}
             className="bg-pink-600 text-white text-sm font-bold px-5 py-2.5 rounded-xl flex items-center gap-2 hover:bg-pink-700 disabled:opacity-50 transition-all">
             {savingCustom ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>}
-            เพิ่มพิกัดนี้
+            {t("admin.emp_detail.checkin_add_this_coord")}
           </button>
         </div>
       )}
@@ -3108,7 +3116,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
       {/* ── Custom locations ── */}
       {customRows.length > 0 && (
         <div className="mb-4">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">สถานที่ GPS กำหนดเอง ({customRows.length})</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">{t("admin.emp_detail.checkin_custom_locations", { n: customRows.length })}</p>
           <div className="space-y-2">
             {customRows.map(row => (
               <div key={row.id} className="flex items-center gap-3 p-4 rounded-xl border-2 border-pink-200 bg-pink-50">
@@ -3116,10 +3124,10 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
                   <MapPin size={14} className="text-pink-600"/>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-sm text-pink-800">{row.custom_name || "ไม่มีชื่อ"}</p>
+                  <p className="font-bold text-sm text-pink-800">{row.custom_name || t("admin.emp_detail.checkin_no_name")}</p>
                   <p className="text-[10px] text-pink-500 font-mono mt-0.5">
                     {Number(row.custom_lat).toFixed(6)}, {Number(row.custom_lng).toFixed(6)}
-                    <span className="ml-2 not-italic font-sans">· รัศมี {row.custom_radius_m} ม.</span>
+                    <span className="ml-2 not-italic font-sans">· {t("admin.emp_detail.checkin_radius", { n: row.custom_radius_m })}</span>
                   </p>
                 </div>
                 <a href={`https://www.google.com/maps?q=${row.custom_lat},${row.custom_lng}`} target="_blank" rel="noreferrer"
@@ -3138,10 +3146,10 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
       {/* ── Branch list (จัดกลุ่มตามบริษัท) ── */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">สาขาทั้งหมด ({allBranches.length})</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{t("admin.emp_detail.checkin_all_branches", { n: allBranches.length })}</p>
           <div className="flex gap-2">
-            <button onClick={async () => { const missing = allBranches.filter(b => !branchAllowedIds.has(b.id)); if (!missing.length) return; await supabase.from("employee_allowed_locations").insert(missing.map(b => ({ employee_id: employeeId, branch_id: b.id, created_by: user?.employee_id??null }))); toast.success(`เพิ่ม ${missing.length} สาขา`); load() }} className="text-[10px] font-bold px-2.5 py-1 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100">✓ ทั้งหมด</button>
-            <button onClick={async () => { if (!confirm("ยกเลิกสาขาทั้งหมด?")) return; const ids = allowedRows.filter(r=>r.branch_id).map(r=>r.id); for (const id of ids) await supabase.from("employee_allowed_locations").delete().eq("id",id); toast.success("ยกเลิกแล้ว"); load() }} className="text-[10px] font-bold px-2.5 py-1 bg-red-50 text-red-500 rounded-lg hover:bg-red-100">✗ ล้าง</button>
+            <button onClick={async () => { const missing = allBranches.filter(b => !branchAllowedIds.has(b.id)); if (!missing.length) return; await supabase.from("employee_allowed_locations").insert(missing.map(b => ({ employee_id: employeeId, branch_id: b.id, created_by: user?.employee_id??null }))); toast.success(t("admin.emp_detail.checkin_added_n_branches", { n: missing.length })); load() }} className="text-[10px] font-bold px-2.5 py-1 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100">{t("admin.emp_detail.checkin_select_all")}</button>
+            <button onClick={async () => { if (!confirm(t("admin.emp_detail.checkin_confirm_clear_all"))) return; const ids = allowedRows.filter(r=>r.branch_id).map(r=>r.id); for (const id of ids) await supabase.from("employee_allowed_locations").delete().eq("id",id); toast.success(t("admin.emp_detail.toast_cancelled")); load() }} className="text-[10px] font-bold px-2.5 py-1 bg-red-50 text-red-500 rounded-lg hover:bg-red-100">{t("admin.emp_detail.checkin_clear")}</button>
           </div>
         </div>
 
@@ -3155,22 +3163,22 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
                 <p className="text-xs font-bold text-blue-700 flex items-center gap-1.5">
                   <Building2 size={12}/>
                   {company.code ? `[${company.code}] ` : ""}{company.name_th}
-                  <span className="text-[10px] font-normal text-slate-400 ml-1">({compBranches.length} สาขา · เลือกแล้ว {compAllowedCount})</span>
+                  <span className="text-[10px] font-normal text-slate-400 ml-1">{t("admin.emp_detail.checkin_branch_summary", { n: compBranches.length, m: compAllowedCount })}</span>
                 </p>
                 <div className="flex gap-1.5">
                   <button onClick={async () => {
                     const missing = compBranches.filter(b => !branchAllowedIds.has(b.id))
                     if (!missing.length) return
                     await supabase.from("employee_allowed_locations").insert(missing.map(b => ({ employee_id: employeeId, branch_id: b.id, created_by: user?.employee_id??null })))
-                    toast.success(`เพิ่ม ${missing.length} สาขาของ ${company.code||company.name_th}`)
+                    toast.success(t("admin.emp_detail.checkin_added_company_branches", { n: missing.length, company: company.code||company.name_th }))
                     load()
-                  }} className="text-[9px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">✓ ทั้งหมด</button>
+                  }} className="text-[9px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">{t("admin.emp_detail.checkin_select_all")}</button>
                   <button onClick={async () => {
                     const ids = allowedRows.filter(r => r.branch_id && compBranches.some(b => b.id === r.branch_id)).map(r => r.id)
                     if (!ids.length) return
                     for (const rid of ids) await supabase.from("employee_allowed_locations").delete().eq("id", rid)
-                    toast.success("ยกเลิกแล้ว"); load()
-                  }} className="text-[9px] font-bold px-2 py-0.5 bg-red-50 text-red-500 rounded hover:bg-red-100">✗ ล้าง</button>
+                    toast.success(t("admin.emp_detail.toast_cancelled")); load()
+                  }} className="text-[9px] font-bold px-2 py-0.5 bg-red-50 text-red-500 rounded hover:bg-red-100">{t("admin.emp_detail.checkin_clear")}</button>
                 </div>
               </div>
               <div className="space-y-2">
@@ -3186,8 +3194,8 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
                         <p className={`font-bold text-sm ${allowed?"text-green-800":"text-slate-700"}`}>{b.name}</p>
                         <p className="text-[10px] text-slate-400 truncate">
                           {b.address && b.address+" · "}
-                          {b.latitude ? `${Number(b.latitude).toFixed(5)}, ${Number(b.longitude).toFixed(5)}` : "ไม่มีพิกัด"}
-                          {b.geo_radius_m ? ` · รัศมี ${b.geo_radius_m} ม.` : ""}
+                          {b.latitude ? `${Number(b.latitude).toFixed(5)}, ${Number(b.longitude).toFixed(5)}` : t("admin.emp_detail.checkin_no_coord")}
+                          {b.geo_radius_m ? ` · ${t("admin.emp_detail.checkin_radius", { n: b.geo_radius_m })}` : ""}
                         </p>
                       </div>
                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${allowed?"bg-green-500 text-white":"bg-white border-2 border-slate-200 text-slate-300"}`}>
@@ -3204,7 +3212,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
         {/* สาขาที่ไม่มี company (ถ้ามี) */}
         {allBranches.filter(b => !b.company_id || !branchCompanies.some((c: any) => c.id === b.company_id)).length > 0 && (
           <div className="mb-4">
-            <p className="text-xs font-bold text-slate-500 mb-2">สาขาอื่นๆ</p>
+            <p className="text-xs font-bold text-slate-500 mb-2">{t("admin.emp_detail.checkin_other_branches")}</p>
             <div className="space-y-2">
               {allBranches.filter(b => !b.company_id || !branchCompanies.some((c: any) => c.id === b.company_id)).map(b => {
                 const allowed = branchAllowedIds.has(b.id)
@@ -3218,8 +3226,8 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
                       <p className={`font-bold text-sm ${allowed?"text-green-800":"text-slate-700"}`}>{b.name}</p>
                       <p className="text-[10px] text-slate-400 truncate">
                         {b.address && b.address+" · "}
-                        {b.latitude ? `${Number(b.latitude).toFixed(5)}, ${Number(b.longitude).toFixed(5)}` : "ไม่มีพิกัด"}
-                        {b.geo_radius_m ? ` · รัศมี ${b.geo_radius_m} ม.` : ""}
+                        {b.latitude ? `${Number(b.latitude).toFixed(5)}, ${Number(b.longitude).toFixed(5)}` : t("admin.emp_detail.checkin_no_coord")}
+                        {b.geo_radius_m ? ` · ${t("admin.emp_detail.checkin_radius", { n: b.geo_radius_m })}` : ""}
                       </p>
                     </div>
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${allowed?"bg-green-500 text-white":"bg-white border-2 border-slate-200 text-slate-300"}`}>
@@ -3232,7 +3240,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
           </div>
         )}
 
-        {allBranches.length === 0 && <p className="text-center text-slate-300 py-6 text-sm">ยังไม่มีสาขา</p>}
+        {allBranches.length === 0 && <p className="text-center text-slate-300 py-6 text-sm">{t("admin.emp_detail.checkin_no_branches_yet")}</p>}
       </div>
     </div>
   )
@@ -3240,6 +3248,7 @@ function CheckinLocationsTab({ employeeId, companyId }: { employeeId: string; co
 
 // ─── RoleManagementTab ───────────────────────────────────────────────────────
 function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employeeId: string; employeeName: string; employeeEmail: string }) {
+  const { t } = useLanguage()
   const [currentRole, setCurrentRole] = useState<string | null>(null)
   const [selectedRole, setSelectedRole] = useState("")
   const [loading, setLoading] = useState(true)
@@ -3262,11 +3271,11 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
   const [emailResult, setEmailResult] = useState<{ old_email: string; new_email: string } | null>(null)
 
   const ROLES = [
-    { value: "employee",        label: "พนักงาน",         desc: "เข้าถึงได้เฉพาะหน้าพนักงาน (เช็คอิน, ดูตาราง, ลา)",                        color: "bg-slate-100 text-slate-700 border-slate-200",    icon: "👤" },
-    { value: "manager",         label: "หัวหน้าทีม",       desc: "อนุมัติคำขอ, จัดกะ, ดูข้อมูลลูกทีม + สิทธิ์พนักงาน",                        color: "bg-violet-100 text-violet-700 border-violet-200", icon: "👥" },
-    { value: "equipment_admin", label: "ผู้ดูแลอุปกรณ์",   desc: "จัดการอุปกรณ์, สต๊อก, อนุมัติคำขอยืม-คืนอุปกรณ์",                           color: "bg-cyan-100 text-cyan-700 border-cyan-200",       icon: "📦" },
-    { value: "hr_admin",        label: "HR Admin",         desc: "จัดการพนักงาน, เงินเดือน, รายงาน, ตั้งค่าทั้งหมดในบริษัท",                   color: "bg-blue-100 text-blue-700 border-blue-200",       icon: "🛡️" },
-    { value: "super_admin",     label: "Super Admin",      desc: "สิทธิ์สูงสุด — จัดการทุกบริษัท, ดูข้อมูลข้ามบริษัท",                         color: "bg-amber-100 text-amber-700 border-amber-200",    icon: "⚡" },
+    { value: "employee",        label: t("admin.emp_detail.role_employee_label"),         desc: t("admin.emp_detail.role_employee_desc"),                        color: "bg-slate-100 text-slate-700 border-slate-200",    icon: "👤" },
+    { value: "manager",         label: t("admin.emp_detail.role_manager_label"),       desc: t("admin.emp_detail.role_manager_desc"),                        color: "bg-violet-100 text-violet-700 border-violet-200", icon: "👥" },
+    { value: "equipment_admin", label: t("admin.emp_detail.role_equip_label"),   desc: t("admin.emp_detail.role_equip_desc"),                           color: "bg-cyan-100 text-cyan-700 border-cyan-200",       icon: "📦" },
+    { value: "hr_admin",        label: "HR Admin",         desc: t("admin.emp_detail.role_hr_desc"),                   color: "bg-blue-100 text-blue-700 border-blue-200",       icon: "🛡️" },
+    { value: "super_admin",     label: "Super Admin",      desc: t("admin.emp_detail.role_super_desc"),                         color: "bg-amber-100 text-amber-700 border-amber-200",    icon: "⚡" },
   ]
 
   useEffect(() => {
@@ -3320,8 +3329,8 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
               <AlertTriangle size={20} className="text-amber-500" />
             </div>
             <div>
-              <p className="font-bold text-amber-800">พนักงานนี้ยังไม่มีบัญชีล็อกอิน</p>
-              <p className="text-xs text-amber-600">สร้างบัญชีด้านล่างเพื่อให้พนักงานเข้าสู่ระบบได้</p>
+              <p className="font-bold text-amber-800">{t("admin.emp_detail.role_no_account_title")}</p>
+              <p className="text-xs text-amber-600">{t("admin.emp_detail.role_no_account_note")}</p>
             </div>
           </div>
         </div>
@@ -3329,12 +3338,12 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
         <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
             <UserCheck size={18} className="text-indigo-500" />
-            สร้างบัญชีล็อกอิน
+            {t("admin.emp_detail.role_create_account")}
           </h3>
 
           {/* อีเมล */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">อีเมล (ใช้เข้าสู่ระบบ)</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.personal_email_login")}</label>
             <input
               type="email"
               value={createEmail}
@@ -3346,13 +3355,13 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
 
           {/* รหัสผ่าน */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">รหัสผ่าน</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.role_password")}</label>
             <div className="relative">
               <input
                 type={showCreatePw ? "text" : "password"}
                 value={createPassword}
                 onChange={e => setCreatePassword(e.target.value)}
-                placeholder="อย่างน้อย 6 ตัวอักษร"
+                placeholder={t("admin.emp_detail.role_pw_min_ph")}
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none pr-20"
               />
               <button
@@ -3360,25 +3369,25 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
                 onClick={() => setShowCreatePw(!showCreatePw)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
               >
-                {showCreatePw ? "ซ่อน" : "แสดง"}
+                {showCreatePw ? t("admin.emp_detail.common_hide") : t("admin.emp_detail.common_show")}
               </button>
             </div>
             {createPassword.length > 0 && createPassword.length < 6 && (
-              <p className="text-xs text-red-500 mt-1">รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร</p>
+              <p className="text-xs text-red-500 mt-1">{t("admin.emp_detail.role_pw_min")}</p>
             )}
           </div>
 
           {/* บทบาท */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">บทบาท</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.role_label")}</label>
             <select
               value={createRole}
               onChange={e => setCreateRole(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none"
             >
-              <option value="employee">👤 พนักงาน</option>
-              <option value="manager">👥 หัวหน้าทีม</option>
-              <option value="equipment_admin">📦 ผู้ดูแลอุปกรณ์</option>
+              <option value="employee">👤 {t("admin.emp_detail.role_employee_label")}</option>
+              <option value="manager">👥 {t("admin.emp_detail.role_manager_label")}</option>
+              <option value="equipment_admin">📦 {t("admin.emp_detail.role_equip_label")}</option>
               <option value="hr_admin">🛡️ HR Admin</option>
               <option value="super_admin">⚡ Super Admin</option>
             </select>
@@ -3387,8 +3396,8 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
           {/* ปุ่มสร้าง */}
           <button
             onClick={async () => {
-              if (!createEmail.trim()) { toast.error("กรุณากรอกอีเมล"); return }
-              if (createPassword.length < 6) { toast.error("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร"); return }
+              if (!createEmail.trim()) { toast.error(t("admin.emp_detail.toast_enter_email")); return }
+              if (createPassword.length < 6) { toast.error(t("admin.emp_detail.role_pw_min")); return }
               setCreating(true)
               try {
                 const res = await fetch("/api/auth/create-account", {
@@ -3409,10 +3418,10 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
                   setSelectedRole(createRole)
                   setCurrentEmail(createEmail.trim().toLowerCase())
                 } else {
-                  toast.error(data.error || "เกิดข้อผิดพลาด")
+                  toast.error(data.error || t("admin.emp_detail.toast_error"))
                 }
               } catch {
-                toast.error("เกิดข้อผิดพลาดในการเชื่อมต่อ")
+                toast.error(t("admin.emp_detail.toast_connection_error"))
               }
               setCreating(false)
             }}
@@ -3420,9 +3429,9 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
             className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
           >
             {creating ? (
-              <><Loader2 size={16} className="animate-spin" /> กำลังสร้างบัญชี...</>
+              <><Loader2 size={16} className="animate-spin" /> {t("admin.emp_detail.role_creating_account")}</>
             ) : (
-              <><UserCheck size={16} /> สร้างบัญชีล็อกอิน</>
+              <><UserCheck size={16} /> {t("admin.emp_detail.role_create_account")}</>
             )}
           </button>
         </div>
@@ -3434,12 +3443,12 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h3 className="font-bold text-slate-800">บทบาทและสิทธิ์การเข้าถึง</h3>
-          <p className="text-xs text-slate-400 mt-0.5">กำหนดระดับการเข้าถึงระบบของ {employeeName}</p>
+          <h3 className="font-bold text-slate-800">{t("admin.emp_detail.role_title")}</h3>
+          <p className="text-xs text-slate-400 mt-0.5">{t("admin.emp_detail.role_subtitle", { name: employeeName })}</p>
         </div>
         {currentRole && (
           <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border ${ROLES.find(r => r.value === currentRole)?.color ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
-            {ROLES.find(r => r.value === currentRole)?.icon} ปัจจุบัน: {ROLES.find(r => r.value === currentRole)?.label ?? currentRole}
+            {ROLES.find(r => r.value === currentRole)?.icon} {t("admin.emp_detail.role_current", { label: ROLES.find(r => r.value === currentRole)?.label ?? currentRole })}
           </span>
         )}
       </div>
@@ -3466,7 +3475,7 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
                   <div className="flex items-center gap-2">
                     <p className={`font-bold text-sm ${isSelected ? "text-indigo-800" : "text-slate-700"}`}>{role.label}</p>
                     {isCurrent && (
-                      <span className="text-[9px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full">ปัจจุบัน</span>
+                      <span className="text-[9px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full">{t("admin.emp_detail.common_current")}</span>
                     )}
                   </div>
                   <p className={`text-xs mt-0.5 ${isSelected ? "text-indigo-600" : "text-slate-400"}`}>{role.desc}</p>
@@ -3490,16 +3499,16 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
             className="flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-indigo-700 transition-colors disabled:opacity-50"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            บันทึกบทบาท
+            {t("admin.emp_detail.role_save")}
           </button>
           <button
             onClick={() => setSelectedRole(currentRole ?? "")}
             className="text-sm text-slate-400 hover:text-slate-600"
           >
-            ยกเลิก
+            {t("admin.emp_detail.common_cancel")}
           </button>
           <p className="text-xs text-amber-600 flex items-center gap-1">
-            <AlertTriangle size={12} /> เปลี่ยนจาก {ROLES.find(r => r.value === currentRole)?.label} → {ROLES.find(r => r.value === selectedRole)?.label}
+            <AlertTriangle size={12} /> {t("admin.emp_detail.role_change_hint", { from: ROLES.find(r => r.value === currentRole)?.label, to: ROLES.find(r => r.value === selectedRole)?.label })}
           </p>
         </div>
       )}
@@ -3508,12 +3517,12 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
       <div className="mt-8 pt-6 border-t border-slate-100">
         <div className="flex items-center gap-2 mb-3">
           <Globe size={16} className="text-blue-500" />
-          <h3 className="font-bold text-slate-800 text-sm">อีเมลล็อกอิน</h3>
+          <h3 className="font-bold text-slate-800 text-sm">{t("admin.emp_detail.role_login_email")}</h3>
         </div>
 
         {currentEmail && (
           <div className="bg-slate-50 rounded-xl px-4 py-3 mb-4">
-            <p className="text-xs text-slate-400 mb-0.5">อีเมลปัจจุบัน</p>
+            <p className="text-xs text-slate-400 mb-0.5">{t("admin.emp_detail.role_current_email")}</p>
             <p className="text-sm font-semibold text-slate-700 select-all">{currentEmail}</p>
           </div>
         )}
@@ -3522,13 +3531,13 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
           <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-3">
             <div className="flex items-center gap-2 mb-2">
               <CheckCircle2 size={16} className="text-green-500" />
-              <p className="text-sm font-bold text-green-800">เปลี่ยนอีเมลสำเร็จ</p>
+              <p className="text-sm font-bold text-green-800">{t("admin.emp_detail.role_email_changed")}</p>
             </div>
             <p className="text-xs text-slate-600">
               {emailResult.old_email} → <span className="font-bold text-green-700">{emailResult.new_email}</span>
             </p>
             <button onClick={() => { setEmailResult(null); setNewEmail("") }}
-              className="mt-2 text-xs text-slate-400 hover:text-slate-600 underline">ซ่อน</button>
+              className="mt-2 text-xs text-slate-400 hover:text-slate-600 underline">{t("admin.emp_detail.common_hide")}</button>
           </div>
         ) : (
           <div className="flex items-center gap-2">
@@ -3536,13 +3545,13 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
               type="email"
               value={newEmail}
               onChange={e => setNewEmail(e.target.value)}
-              placeholder="อีเมลใหม่..."
+              placeholder={t("admin.emp_detail.role_new_email_ph")}
               className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
             />
             <button
               onClick={async () => {
-                if (!newEmail.trim()) { toast.error("กรุณากรอกอีเมลใหม่"); return }
-                if (!confirm(`เปลี่ยนอีเมลล็อกอินของ ${employeeName}\nจาก: ${currentEmail}\nเป็น: ${newEmail.trim()} ?`)) return
+                if (!newEmail.trim()) { toast.error(t("admin.emp_detail.toast_enter_new_email")); return }
+                if (!confirm(t("admin.emp_detail.role_confirm_change_email", { name: employeeName, from: currentEmail, to: newEmail.trim() }))) return
                 setChangingEmail(true)
                 try {
                   const res = await fetch("/api/auth/change-email", {
@@ -3551,7 +3560,7 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
                     body: JSON.stringify({ employee_id: employeeId, new_email: newEmail.trim() }),
                   })
                   const data = await res.json()
-                  if (!res.ok) throw new Error(data.error || "เปลี่ยนอีเมลไม่สำเร็จ")
+                  if (!res.ok) throw new Error(data.error || t("admin.emp_detail.role_email_change_fail"))
                   setEmailResult({ old_email: data.old_email, new_email: data.new_email })
                   setCurrentEmail(data.new_email)
                   toast.success(data.message)
@@ -3565,7 +3574,7 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
               className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 whitespace-nowrap"
             >
               {changingEmail ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />}
-              {changingEmail ? "กำลังเปลี่ยน..." : "เปลี่ยนอีเมล"}
+              {changingEmail ? t("admin.emp_detail.role_changing") : t("admin.emp_detail.role_change_email")}
             </button>
           </div>
         )}
@@ -3575,27 +3584,27 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
       <div className="mt-6 pt-6 border-t border-slate-100">
         <div className="flex items-center gap-2 mb-3">
           <ShieldAlert size={16} className="text-amber-500" />
-          <h3 className="font-bold text-slate-800 text-sm">รีเซ็ตรหัสผ่าน</h3>
+          <h3 className="font-bold text-slate-800 text-sm">{t("admin.emp_detail.role_reset_pw")}</h3>
         </div>
         <p className="text-xs text-slate-400 mb-4">
-          กรอกรหัสผ่านใหม่เอง หรือเว้นว่างเพื่อให้ระบบสุ่มรหัสอัตโนมัติ
+          {t("admin.emp_detail.role_reset_pw_note")}
         </p>
 
         {resetResult ? (
           <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-3">
             <div className="flex items-center gap-2 mb-2">
               <CheckCircle2 size={16} className="text-green-500" />
-              <p className="text-sm font-bold text-green-800">รีเซ็ตรหัสผ่านสำเร็จ</p>
+              <p className="text-sm font-bold text-green-800">{t("admin.emp_detail.role_reset_success")}</p>
             </div>
             <div className="bg-white rounded-lg px-3 py-2 border border-green-100 mb-2">
-              <p className="text-xs text-slate-400">รหัสผ่านใหม่</p>
+              <p className="text-xs text-slate-400">{t("admin.emp_detail.role_new_pw")}</p>
               <p className="text-lg font-mono font-bold text-slate-800 tracking-wider select-all">{resetResult.password}</p>
             </div>
             <p className="text-xs text-green-600">
-              {resetResult.email_sent ? "ส่งอีเมลแจ้งพนักงานแล้ว" : "ไม่สามารถส่งอีเมลได้ กรุณาแจ้งรหัสผ่านให้พนักงานด้วยตนเอง"}
+              {resetResult.email_sent ? t("admin.emp_detail.role_email_sent") : t("admin.emp_detail.role_email_not_sent")}
             </p>
             <button onClick={() => { setResetResult(null); setCustomPassword("") }}
-              className="mt-2 text-xs text-slate-400 hover:text-slate-600 underline">ซ่อน</button>
+              className="mt-2 text-xs text-slate-400 hover:text-slate-600 underline">{t("admin.emp_detail.common_hide")}</button>
           </div>
         ) : (
           <div className="space-y-3">
@@ -3604,7 +3613,7 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
                 type={showPassword ? "text" : "password"}
                 value={customPassword}
                 onChange={e => setCustomPassword(e.target.value)}
-                placeholder="กรอกรหัสผ่านใหม่ (เว้นว่าง = สุ่มอัตโนมัติ)"
+                placeholder={t("admin.emp_detail.role_reset_pw_ph")}
                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm pr-10 focus:ring-2 focus:ring-amber-200 focus:border-amber-400 outline-none font-mono"
               />
               <button
@@ -3619,10 +3628,10 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
               <button
                 onClick={async () => {
                   const pw = customPassword.trim()
-                  if (pw && pw.length < 6) { toast.error("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร"); return }
+                  if (pw && pw.length < 6) { toast.error(t("admin.emp_detail.role_pw_min")); return }
                   const msg = pw
-                    ? `ตั้งรหัสผ่านใหม่ของ ${employeeName} เป็น "${pw}" ?`
-                    : `สุ่มรหัสผ่านใหม่ให้ ${employeeName} ?`
+                    ? t("admin.emp_detail.role_confirm_set_pw", { name: employeeName, pw })
+                    : t("admin.emp_detail.role_confirm_random_pw", { name: employeeName })
                   if (!confirm(msg)) return
                   setResetting(true)
                   try {
@@ -3634,7 +3643,7 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
                       body: JSON.stringify(body),
                     })
                     const data = await res.json()
-                    if (!res.ok) throw new Error(data.error || "รีเซ็ตไม่สำเร็จ")
+                    if (!res.ok) throw new Error(data.error || t("admin.emp_detail.role_reset_fail"))
                     setResetResult({ password: data.password, email_sent: data.email_sent })
                     toast.success(data.message)
                   } catch (e: any) {
@@ -3647,13 +3656,13 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
                 className="flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 transition-colors disabled:opacity-50"
               >
                 {resetting ? <Loader2 size={14} className="animate-spin" /> : <ShieldAlert size={14} />}
-                {resetting ? "กำลังรีเซ็ต..." : customPassword.trim() ? "ตั้งรหัสผ่านนี้" : "สุ่มรหัสผ่านใหม่"}
+                {resetting ? t("admin.emp_detail.role_resetting") : customPassword.trim() ? t("admin.emp_detail.role_set_this_pw") : t("admin.emp_detail.role_random_pw")}
               </button>
               {customPassword.trim() && (
-                <p className="text-xs text-slate-400">จะตั้งเป็นรหัสที่กรอก</p>
+                <p className="text-xs text-slate-400">{t("admin.emp_detail.role_will_set_entered")}</p>
               )}
               {!customPassword.trim() && (
-                <p className="text-xs text-slate-400">ระบบจะสุ่มรหัสให้อัตโนมัติ</p>
+                <p className="text-xs text-slate-400">{t("admin.emp_detail.role_will_random")}</p>
               )}
             </div>
           </div>
@@ -3665,6 +3674,7 @@ function RoleManagementTab({ employeeId, employeeName, employeeEmail }: { employ
 
 // ─── Leave Quota Tab ──────────────────────────────────────────────────────────
 function LeaveQuotaTab({ employeeId, companyId }: { employeeId: string; companyId?: string }) {
+  const { t } = useLanguage()
   const [balances, setBalances] = useState<any[]>([])
   const [leaveHistory, setLeaveHistory] = useState<any[]>([])
   const [loading, setLoading]   = useState(true)
@@ -3696,12 +3706,12 @@ function LeaveQuotaTab({ employeeId, companyId }: { employeeId: string; companyI
       .catch(() => setLoading(false))
   }, [employeeId, year, companyId])
 
-  if (loading) return <div className="flex items-center justify-center py-16 gap-2 text-slate-400"><Loader2 size={16} className="animate-spin"/>กำลังโหลด...</div>
+  if (loading) return <div className="flex items-center justify-center py-16 gap-2 text-slate-400"><Loader2 size={16} className="animate-spin"/>{t("admin.emp_detail.common_loading")}</div>
 
   if (balances.length === 0) return (
     <div className="py-16 text-center">
       <Calendar size={24} className="mx-auto text-slate-200 mb-2"/>
-      <p className="text-slate-400 text-sm">ยังไม่มีโควต้าการลาสำหรับปี {year}</p>
+      <p className="text-slate-400 text-sm">{t("admin.emp_detail.quota_no_quota", { year })}</p>
     </div>
   )
 
@@ -3710,23 +3720,23 @@ function LeaveQuotaTab({ employeeId, companyId }: { employeeId: string; companyI
       <div className="flex items-center justify-between">
         <h3 className="font-bold text-slate-800 flex items-center gap-2">
           <Calendar size={16} className="text-indigo-500"/>
-          โควต้าการลา {year}
+          {t("admin.emp_detail.quota_title", { year })}
         </h3>
-        <span className="text-xs text-slate-400">{balances.length} ประเภท</span>
+        <span className="text-xs text-slate-400">{t("admin.emp_detail.quota_types_count", { n: balances.length })}</span>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-3">
         <div className="rounded-xl bg-blue-50 p-3 text-center">
-          <p className="text-[10px] font-bold text-blue-400 uppercase">โควต้ารวม</p>
+          <p className="text-[10px] font-bold text-blue-400 uppercase">{t("admin.emp_detail.quota_total")}</p>
           <p className="text-xl font-black text-blue-700">{balances.reduce((s, b) => s + (b.entitled_days || 0), 0).toFixed(1)}</p>
         </div>
         <div className="rounded-xl bg-amber-50 p-3 text-center">
-          <p className="text-[10px] font-bold text-amber-400 uppercase">ใช้ไปรวม</p>
+          <p className="text-[10px] font-bold text-amber-400 uppercase">{t("admin.emp_detail.quota_used_total")}</p>
           <p className="text-xl font-black text-amber-700">{balances.reduce((s, b) => s + (b.used_days || 0), 0).toFixed(1)}</p>
         </div>
         <div className="rounded-xl bg-emerald-50 p-3 text-center">
-          <p className="text-[10px] font-bold text-emerald-400 uppercase">คงเหลือรวม</p>
+          <p className="text-[10px] font-bold text-emerald-400 uppercase">{t("admin.emp_detail.quota_remaining_total")}</p>
           <p className="text-xl font-black text-emerald-700">{balances.reduce((s, b) => s + (b.remaining_days || 0), 0).toFixed(1)}</p>
         </div>
       </div>
@@ -3736,12 +3746,12 @@ function LeaveQuotaTab({ employeeId, companyId }: { employeeId: string; companyI
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-100">
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-slate-500 uppercase">ประเภทการลา</th>
-              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">โควต้า</th>
-              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">ใช้ไป</th>
-              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">รอ</th>
-              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">คงเหลือ</th>
-              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase w-[120px]">สัดส่วน</th>
+              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-slate-500 uppercase">{t("admin.emp_detail.quota_leave_type")}</th>
+              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">{t("admin.emp_detail.quota_quota")}</th>
+              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">{t("admin.emp_detail.quota_used")}</th>
+              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">{t("admin.emp_detail.quota_pending")}</th>
+              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">{t("admin.emp_detail.quota_remaining")}</th>
+              <th className="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase w-[120px]">{t("admin.emp_detail.quota_proportion")}</th>
             </tr>
           </thead>
           <tbody>
@@ -3757,7 +3767,7 @@ function LeaveQuotaTab({ employeeId, companyId }: { employeeId: string; companyI
                       <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: hex }}/>
                       <div>
                         <p className="font-bold text-slate-700 text-xs">{lt?.name || "—"}</p>
-                        <p className="text-[10px] text-slate-400">{lt?.is_paid ? "ได้รับเงิน" : "ไม่ได้รับเงิน"}</p>
+                        <p className="text-[10px] text-slate-400">{lt?.is_paid ? t("admin.emp_detail.quota_paid") : t("admin.emp_detail.quota_unpaid")}</p>
                       </div>
                     </div>
                   </td>
@@ -3782,10 +3792,10 @@ function LeaveQuotaTab({ employeeId, companyId }: { employeeId: string; companyI
       <div className="mt-4">
         <h4 className="font-bold text-slate-700 text-sm mb-3 flex items-center gap-2">
           <Calendar size={14} className="text-sky-500"/>
-          ประวัติการลา {year}
+          {t("admin.emp_detail.quota_leave_history", { year })}
         </h4>
         {leaveHistory.length === 0 ? (
-          <p className="text-xs text-slate-300 text-center py-4">ยังไม่มีประวัติการลาในปีนี้</p>
+          <p className="text-xs text-slate-300 text-center py-4">{t("admin.emp_detail.quota_no_leave_history")}</p>
         ) : (
           <div className="space-y-1.5">
             {leaveHistory.map((lr: any) => {
@@ -3793,13 +3803,13 @@ function LeaveQuotaTab({ employeeId, companyId }: { employeeId: string; companyI
               return (
                 <div key={lr.id} className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 text-xs">
                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: lr.leave_type?.color_hex || "#94a3b8" }} />
-                  <span className="font-bold text-slate-600 min-w-[80px]">{lr.leave_type?.name || "ลา"}</span>
+                  <span className="font-bold text-slate-600 min-w-[80px]">{lr.leave_type?.name || t("admin.emp_detail.quota_leave_default")}</span>
                   <span className="text-slate-500">
                     {new Date(lr.start_date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
                     {!isSameDay && ` – ${new Date(lr.end_date + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })}`}
                   </span>
-                  <span className="text-slate-400">{lr.total_days} วัน</span>
-                  {lr.is_half_day && <span className="text-blue-500 text-[10px]">(ครึ่งวัน)</span>}
+                  <span className="text-slate-400">{lr.total_days} {t("admin.emp_detail.stat_unit_day")}</span>
+                  {lr.is_half_day && <span className="text-blue-500 text-[10px]">{t("admin.emp_detail.paysum_half_day")}</span>}
                   {lr.reason && <span className="text-slate-300 truncate max-w-[150px] ml-auto" title={lr.reason}>{lr.reason}</span>}
                 </div>
               )

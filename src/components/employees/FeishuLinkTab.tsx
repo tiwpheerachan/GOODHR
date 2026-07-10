@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { format } from "date-fns"
+import { useLanguage } from "@/lib/i18n"
 
 // ── Brand parser + color (เหมือนกับหน้า /admin/feishu-users) ──
 function parseBrands(raw: string | null): string[] {
@@ -34,6 +35,7 @@ function brandColor(brand: string): string {
 }
 
 export default function FeishuLinkTab({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
+  const { t } = useLanguage()
   const [feishuUser, setFeishuUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -50,13 +52,13 @@ export default function FeishuLinkTab({ employeeId, employeeName }: { employeeId
 
   const unlink = async () => {
     if (!feishuUser) return
-    if (!confirm(`ยกเลิกการเชื่อม "${feishuUser.name_cn || feishuUser.name}" ออกจาก ${employeeName}?`)) return
+    if (!confirm(t("admin.emp_detail.feishu_unlink_confirm", { name: feishuUser.name_cn || feishuUser.name, employee: employeeName }))) return
     const res = await fetch("/api/feishu-users", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ feishu_user_id: feishuUser.feishu_user_id, goodhr_employee_id: null }),
     })
-    if (res.ok) { toast.success("ยกเลิกแล้ว"); load() }
-    else toast.error("ไม่สำเร็จ")
+    if (res.ok) { toast.success(t("admin.emp_detail.feishu_unlinked")); load() }
+    else toast.error(t("admin.emp_detail.feishu_failed"))
   }
 
   if (loading) return <div className="text-center py-8"><Loader2 size={20} className="animate-spin mx-auto text-slate-300"/></div>
@@ -74,13 +76,13 @@ export default function FeishuLinkTab({ employeeId, employeeName }: { employeeId
             <div className="w-20 h-20 mx-auto bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl flex items-center justify-center mb-4">
               <Link2 size={32} className="text-indigo-300"/>
             </div>
-            <h3 className="font-black text-slate-800 text-base">ยังไม่ได้เชื่อมกับ Feishu</h3>
+            <h3 className="font-black text-slate-800 text-base">{t("admin.emp_detail.feishu_not_linked_title")}</h3>
             <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              เชื่อมพนักงานคนนี้กับบัญชี Feishu เพื่อให้ระบบรู้ว่าเป็นคนเดียวกัน — ใช้สำหรับ sync ข้อมูลและการแจ้งเตือนข้ามระบบ
+              {t("admin.emp_detail.feishu_not_linked_desc")}
             </p>
             <button onClick={() => setSearchOpen(true)}
               className="mt-5 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white text-sm font-black rounded-xl inline-flex items-center gap-1.5 shadow">
-              <Link2 size={14}/> เชื่อมกับ Feishu User
+              <Link2 size={14}/> {t("admin.emp_detail.feishu_link_button")}
             </button>
           </div>
         )}
@@ -106,25 +108,25 @@ export default function FeishuLinkTab({ employeeId, employeeName }: { employeeId
               <p className="font-black text-base text-slate-800">{f.name_cn || f.name}</p>
               {f.nickname && <span className="text-rose-500 text-sm font-bold">({f.nickname})</span>}
               {f.manually_verified
-                ? <span className="text-[9px] font-black bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><ShieldCheck size={9}/> Verified</span>
+                ? <span className="text-[9px] font-black bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><ShieldCheck size={9}/> {t("admin.emp_detail.feishu_verified")}</span>
                 : <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{f.match_confidence}% · {f.match_method}</span>}
             </div>
             <p className="text-[10px] text-slate-500 font-mono mt-0.5">
               Feishu ID: <span className="text-indigo-600">{f.feishu_user_id}</span>
-              {f.matched_at && <span className="ml-2 text-slate-400">· เชื่อมเมื่อ {format(new Date(f.matched_at), "d MMM yyyy HH:mm")}</span>}
+              {f.matched_at && <span className="ml-2 text-slate-400">· {t("admin.emp_detail.feishu_linked_at", { date: format(new Date(f.matched_at), "d MMM yyyy HH:mm") })}</span>}
             </p>
           </div>
           <button onClick={unlink}
             className="px-2.5 py-1.5 bg-white hover:bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-black rounded-lg flex items-center gap-1 flex-shrink-0">
-            <Unlink size={11}/> ยกเลิก
+            <Unlink size={11}/> {t("admin.emp_detail.feishu_unlink")}
           </button>
         </div>
       </div>
 
       {/* Identity */}
-      <Section icon={<User size={14}/>} title="ชื่อ (Multi-language)">
+      <Section icon={<User size={14}/>} title={t("admin.emp_detail.feishu_section_name")}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <Field label="ชื่อ Default" value={f.name}/>
+          <Field label={t("admin.emp_detail.feishu_name_default")} value={f.name}/>
           {f.name_cn && <Field label="中文" value={f.name_cn}/>}
           {f.name_en && <Field label="English" value={f.name_en}/>}
           {f.name_jp && <Field label="日本語" value={f.name_jp}/>}
@@ -134,21 +136,21 @@ export default function FeishuLinkTab({ employeeId, employeeName }: { employeeId
       </Section>
 
       {/* Employee info */}
-      <Section icon={<Briefcase size={14}/>} title="ข้อมูลพนักงาน">
+      <Section icon={<Briefcase size={14}/>} title={t("admin.emp_detail.feishu_section_employee")}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {f.employee_number && <Field label="รหัสพนักงาน Feishu" value={f.employee_number} mono/>}
-          {f.job_title && <Field label="ตำแหน่ง" value={f.job_title}/>}
-          {f.workforce_type && <Field label="ประเภทการจ้าง" value={f.workforce_type}/>}
-          {f.start_date && <Field label="วันเริ่มงาน" value={f.start_date}/>}
-          {f.gender && <Field label="เพศ" value={f.gender}/>}
-          {f.city && <Field label="เมือง" value={f.city}/>}
-          {f.status && <Field label="สถานะ" value={f.status}/>}
+          {f.employee_number && <Field label={t("admin.emp_detail.feishu_employee_number")} value={f.employee_number} mono/>}
+          {f.job_title && <Field label={t("admin.emp_detail.feishu_job_title")} value={f.job_title}/>}
+          {f.workforce_type && <Field label={t("admin.emp_detail.feishu_workforce_type")} value={f.workforce_type}/>}
+          {f.start_date && <Field label={t("admin.emp_detail.feishu_start_date")} value={f.start_date}/>}
+          {f.gender && <Field label={t("admin.emp_detail.feishu_gender")} value={f.gender}/>}
+          {f.city && <Field label={t("admin.emp_detail.feishu_city")} value={f.city}/>}
+          {f.status && <Field label={t("admin.emp_detail.feishu_status")} value={f.status}/>}
         </div>
       </Section>
 
       {/* Department */}
       {deptParts.length > 0 && (
-        <Section icon={<Building2 size={14}/>} title="แผนก (Department Path)">
+        <Section icon={<Building2 size={14}/>} title={t("admin.emp_detail.feishu_section_department")}>
           <div className="flex flex-wrap items-center gap-1 text-xs">
             {deptParts.map((p: string, i: number) => (
               <span key={i} className="flex items-center gap-1">
@@ -167,7 +169,7 @@ export default function FeishuLinkTab({ employeeId, employeeName }: { employeeId
 
       {/* Brands */}
       {brands.length > 0 && (
-        <Section icon={<Tag size={14}/>} title={`แบรนด์ที่ดูแล (${brands.length})`}>
+        <Section icon={<Tag size={14}/>} title={t("admin.emp_detail.feishu_section_brands", { n: brands.length })}>
           <div className="flex flex-wrap gap-1.5">
             {brands.map((b, i) => (
               <span key={i} className={"text-xs font-black px-2.5 py-1 rounded-lg " + brandColor(b)}>{b}</span>
@@ -177,32 +179,32 @@ export default function FeishuLinkTab({ employeeId, employeeName }: { employeeId
       )}
 
       {/* Contact */}
-      <Section icon={<Phone size={14}/>} title="ติดต่อ">
+      <Section icon={<Phone size={14}/>} title={t("admin.emp_detail.feishu_section_contact")}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {f.email && <Field label="Email" value={f.email} icon={<Mail size={10}/>}/>}
           {f.email_work && f.email_work !== f.email && <Field label="Work Email" value={f.email_work}/>}
-          {f.phone && <Field label="โทรศัพท์" value={f.phone} icon={<Phone size={10}/>}/>}
+          {f.phone && <Field label={t("admin.emp_detail.feishu_phone")} value={f.phone} icon={<Phone size={10}/>}/>}
         </div>
       </Section>
 
       {/* Mentor */}
       {(f.mentor || f.direct_manager_raw) && (
-        <Section icon={<GraduationCap size={14}/>} title="ลำดับการบริหาร">
+        <Section icon={<GraduationCap size={14}/>} title={t("admin.emp_detail.feishu_section_management")}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {f.direct_manager_raw && <Field label="หัวหน้างานตรง" value={f.direct_manager_raw}/>}
-            {f.mentor && <Field label="พี่เลี้ยง (导师)" value={f.mentor}/>}
+            {f.direct_manager_raw && <Field label={t("admin.emp_detail.feishu_direct_manager")} value={f.direct_manager_raw}/>}
+            {f.mentor && <Field label={t("admin.emp_detail.feishu_mentor")} value={f.mentor}/>}
           </div>
         </Section>
       )}
 
       {/* System */}
-      <Section icon={<Globe size={14}/>} title="ข้อมูลระบบ">
+      <Section icon={<Globe size={14}/>} title={t("admin.emp_detail.feishu_section_system")}>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Feishu User ID" value={f.feishu_user_id} mono/>
-          {f.imported_at && <Field label="Imported" value={format(new Date(f.imported_at), "d MMM yyyy HH:mm")}/>}
+          {f.imported_at && <Field label={t("admin.emp_detail.feishu_imported")} value={format(new Date(f.imported_at), "d MMM yyyy HH:mm")}/>}
         </div>
         {f.match_note && (
-          <p className="text-[10px] text-slate-500 italic mt-2 bg-slate-50 px-2 py-1 rounded">หมายเหตุ: "{f.match_note}"</p>
+          <p className="text-[10px] text-slate-500 italic mt-2 bg-slate-50 px-2 py-1 rounded">{t("admin.emp_detail.feishu_note_label")}: "{f.match_note}"</p>
         )}
       </Section>
     </div>
@@ -211,6 +213,7 @@ export default function FeishuLinkTab({ employeeId, employeeName }: { employeeId
 
 // ─────────────────────────────────────────────────────────────────────
 function SearchPanel({ employeeId, employeeName, onClose, onLinked }: any) {
+  const { t } = useLanguage()
   const [q, setQ] = useState(employeeName || "")
   const [results, setResults] = useState<any[]>([])
   const [selected, setSelected] = useState<any>(null)
@@ -241,8 +244,8 @@ function SearchPanel({ employeeId, employeeName, onClose, onLinked }: any) {
         }),
       })
       const d = await res.json()
-      if (!res.ok) { toast.error(d.error || "ไม่สำเร็จ"); return }
-      toast.success("เชื่อมเรียบร้อย ✓")
+      if (!res.ok) { toast.error(d.error || t("admin.emp_detail.feishu_failed")); return }
+      toast.success(t("admin.emp_detail.feishu_link_success"))
       onLinked()
     } finally { setSaving(false) }
   }
@@ -250,14 +253,14 @@ function SearchPanel({ employeeId, employeeName, onClose, onLinked }: any) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="font-black text-slate-800 text-sm">ค้นบัญชี Feishu ที่ยังไม่ได้ map</p>
-        <button onClick={onClose} className="text-xs text-slate-400 hover:text-slate-700">ยกเลิก</button>
+        <p className="font-black text-slate-800 text-sm">{t("admin.emp_detail.feishu_search_title")}</p>
+        <button onClick={onClose} className="text-xs text-slate-400 hover:text-slate-700">{t("admin.emp_detail.feishu_cancel")}</button>
       </div>
 
       <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
         <Search size={13} className="text-slate-400"/>
         <input value={q} onChange={e => setQ(e.target.value)} autoFocus
-          placeholder="ค้นชื่อจีน / nickname / Feishu User ID / email..."
+          placeholder={t("admin.emp_detail.feishu_search_placeholder")}
           className="flex-1 bg-transparent outline-none text-sm"/>
         {q && <button onClick={() => setQ("")}><X size={12} className="text-slate-400"/></button>}
       </div>
@@ -275,19 +278,19 @@ function SearchPanel({ employeeId, employeeName, onClose, onLinked }: any) {
             <button onClick={() => setSelected(null)} className="p-1 hover:bg-white rounded"><X size={12}/></button>
           </div>
           <input value={note} onChange={e => setNote(e.target.value)}
-            placeholder="หมายเหตุ (ไม่บังคับ)..."
+            placeholder={t("admin.emp_detail.feishu_note_placeholder")}
             className="w-full mt-2 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-emerald-400"/>
           <button onClick={link} disabled={saving}
             className="w-full mt-2 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 text-white text-sm font-black rounded-lg flex items-center justify-center gap-1">
             {saving ? <Loader2 size={13} className="animate-spin"/> : <BadgeCheck size={13}/>}
-            ยืนยันการเชื่อม (Verified)
+            {t("admin.emp_detail.feishu_confirm_link")}
           </button>
         </div>
       )}
 
       <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 border border-slate-100 rounded-xl">
         {results.length === 0 ? (
-          <p className="text-center py-6 text-xs text-slate-400">{q ? "ไม่พบ" : "พิมพ์ค้น..."}</p>
+          <p className="text-center py-6 text-xs text-slate-400">{q ? t("admin.emp_detail.feishu_no_results") : t("admin.emp_detail.feishu_type_to_search")}</p>
         ) : results.map((u: any) => (
           <button key={u.id} onClick={() => setSelected(u)}
             disabled={selected?.id === u.id}
