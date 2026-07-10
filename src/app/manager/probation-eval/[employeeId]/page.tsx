@@ -412,7 +412,7 @@ export default function ProbationEvalFormPage() {
         })}
       </div>
 
-      {!isSubmitted && items.length < 7 && (
+      {!isSubmitted && (
         <button onClick={addItem} className="w-full py-3 rounded-2xl border-2 border-dashed border-slate-200 text-sm font-bold text-slate-400 flex items-center justify-center gap-2 hover:border-rose-300 hover:text-rose-500">
           <Plus size={16} /> {t("probation.add_item")}
         </button>

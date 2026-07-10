@@ -772,7 +772,7 @@ export default function KpiFormPage() {
       </div>}
 
       {/* Add Button — ซ่อนใน money_only */}
-      {!isMoneyOnly && !isSubmitted && items.length < 15 && (
+      {!isMoneyOnly && !isSubmitted && (
         <button onClick={addItem}
           className="w-full card flex items-center justify-center gap-2 py-4 text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors border-dashed border-2 border-indigo-200 bg-transparent shadow-none active:scale-[0.98]">
           <Plus size={16} /> {t("kpi.add_item")}
