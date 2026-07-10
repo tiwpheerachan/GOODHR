@@ -1,8 +1,8 @@
 "use client"
 import { useEffect, useState } from "react"
-import { Shield, Plus, X, Loader2, UserCheck, CheckCircle2, Clock, FilePlus2, AlertCircle, CalendarClock } from "lucide-react"
+import { Shield, Plus, X, Loader2, UserCheck, CheckCircle2, Clock, FilePlus2, AlertCircle, CalendarClock, Network } from "lucide-react"
 import toast from "react-hot-toast"
-import { useLanguage } from "@/lib/i18n"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 type Assignment = {
   id: string
@@ -10,6 +10,7 @@ type Assignment = {
   label?: string | null
   due_days?: number | null
   evaluator_id: string
+  evaluator_is_direct?: boolean | null
   evaluator?: { first_name_th: string; last_name_th: string; nickname?: string; employee_code: string; avatar_url?: string }
   form?: { id: string; status: string; grade?: string; total_score?: number; is_passed?: boolean } | null
 }
@@ -46,10 +47,14 @@ export default function ProbationAssignmentsSection({
   loadAllEmps: () => void
 }) {
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   const [list, setList] = useState<Assignment[]>([])
+  const [useCustomPlan, setUseCustomPlan] = useState(false)
+  const [togglingPlan, setTogglingPlan] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [search, setSearch] = useState("")
+  const [evaluatorMode, setEvaluatorMode] = useState<"direct" | "pick">("direct")
   const [pickEvalId, setPickEvalId] = useState<string | null>(null)
   const [round, setRound] = useState<number>(2)
   const [customLabel, setCustomLabel] = useState("")
@@ -62,20 +67,42 @@ export default function ProbationAssignmentsSection({
       const res = await fetch(`/api/probation-evaluation/assignments?employee_id=${employeeId}`)
       const data = await res.json()
       setList(data.assignments ?? [])
+      setUseCustomPlan(!!data.use_custom_plan)
     } catch {}
     setLoading(false)
   }
   useEffect(() => { load() }, [employeeId])
 
+  async function togglePlan(next: boolean) {
+    setTogglingPlan(true)
+    try {
+      const res = await fetch("/api/probation-evaluation/assignments", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_id: employeeId, use_custom_plan: next }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || t("admin.emp_detail.probassign_toast_plan_failed"))
+      setUseCustomPlan(next)
+      toast.success(t("admin.emp_detail.probassign_toast_plan_updated"))
+    } catch (e: any) { toast.error(e.message) }
+    setTogglingPlan(false)
+  }
+
+  function resetForm() {
+    setShowAdd(false); setEvaluatorMode("direct"); setPickEvalId(null); setSearch("")
+    setRound(2); setCustomLabel(""); setCustomDays("")
+  }
+
   async function handleAdd() {
-    if (!pickEvalId) { toast.error(t("admin.emp_detail.probassign_toast_select_evaluator")); return }
+    if (evaluatorMode === "pick" && !pickEvalId) { toast.error(t("admin.emp_detail.probassign_toast_select_evaluator")); return }
     if (round === 99 && (!customLabel.trim() || !Number(customDays))) { toast.error(t("admin.emp_detail.probassign_toast_fill_custom")); return }
     setSaving(true)
     try {
       const res = await fetch("/api/probation-evaluation/assignments", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          employee_id: employeeId, evaluator_id: pickEvalId, round,
+          employee_id: employeeId, round,
+          ...(evaluatorMode === "direct" ? { evaluator_mode: "direct_manager" } : { evaluator_id: pickEvalId }),
           label: round === 99 ? customLabel.trim() : undefined,
           due_days: round === 99 ? Number(customDays) : undefined,
         }),
@@ -83,7 +110,7 @@ export default function ProbationAssignmentsSection({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || t("admin.emp_detail.probassign_toast_add_failed"))
       toast.success(t("admin.emp_detail.probassign_toast_add_success"))
-      setShowAdd(false); setPickEvalId(null); setSearch(""); setRound(2); setCustomLabel(""); setCustomDays("")
+      resetForm()
       load()
     } catch (e: any) { toast.error(e.message) }
     setSaving(false)
@@ -125,6 +152,37 @@ export default function ProbationAssignmentsSection({
       </div>
       <p className="text-xs text-slate-400 mb-3">{t("admin.emp_detail.probassign_description")}</p>
 
+      {/* ── Toggle: กำหนดรอบเอง (แทนที่ 45/90) ── */}
+      <div className="flex items-start gap-3 bg-white rounded-xl border border-violet-200 px-3 py-2.5 mb-3">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={useCustomPlan}
+          disabled={togglingPlan}
+          onClick={() => togglePlan(!useCustomPlan)}
+          className={`mt-0.5 relative w-10 h-6 rounded-full shrink-0 transition-colors ${useCustomPlan ? "bg-violet-600" : "bg-slate-200"} disabled:opacity-60`}>
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${useCustomPlan ? "translate-x-4" : ""}`}/>
+        </button>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            {t("admin.emp_detail.probassign_plan_toggle_label")}
+            {togglingPlan && <Loader2 size={11} className="animate-spin text-violet-400"/>}
+          </p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{t("admin.emp_detail.probassign_plan_toggle_desc")}</p>
+        </div>
+      </div>
+
+      {/* ── Info / warning ตามโหมด ── */}
+      {!useCustomPlan ? (
+        <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 mb-3 flex items-start gap-1.5">
+          <CalendarClock size={12} className="text-slate-400 mt-0.5 shrink-0"/> {t("admin.emp_detail.probassign_default_info")}
+        </p>
+      ) : list.length === 0 && !loading ? (
+        <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3 flex items-start gap-1.5">
+          <AlertCircle size={12} className="text-amber-500 mt-0.5 shrink-0"/> {t("admin.emp_detail.probassign_plan_empty_warn")}
+        </p>
+      ) : null}
+
       {/* List */}
       {loading ? (
         <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-slate-300"/></div>
@@ -143,8 +201,12 @@ export default function ProbationAssignmentsSection({
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-slate-800 truncate flex items-center gap-1">
-                    <UserCheck size={12} className="text-violet-400 shrink-0"/> {e?.first_name_th} {e?.last_name_th}
-                    {e?.nickname && <span className="text-xs text-violet-500 font-normal">({e.nickname})</span>}
+                    <UserCheck size={12} className="text-violet-400 shrink-0"/> {empName(e)}
+                    {a.evaluator_is_direct && (
+                      <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                        <Network size={8}/> {t("admin.emp_detail.probassign_badge_direct")}
+                      </span>
+                    )}
                   </p>
                   <p className="text-[11px] text-slate-400 truncate flex items-center gap-1">
                     <span className="font-bold text-violet-600">{roundText(a, t)}</span>
@@ -168,7 +230,7 @@ export default function ProbationAssignmentsSection({
         <div className="bg-white rounded-xl border border-violet-200 p-3 space-y-2 mt-2">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold text-slate-700">{t("admin.emp_detail.probassign_form_title")}</p>
-            <button onClick={() => { setShowAdd(false); setPickEvalId(null); setSearch("") }} className="w-6 h-6 rounded-md hover:bg-slate-100 flex items-center justify-center">
+            <button onClick={resetForm} className="w-6 h-6 rounded-md hover:bg-slate-100 flex items-center justify-center">
               <X size={11} className="text-slate-400"/>
             </button>
           </div>
@@ -195,33 +257,45 @@ export default function ProbationAssignmentsSection({
             </div>
           )}
 
-          {/* Evaluator picker */}
+          {/* Evaluator: หัวหน้าตรง (อัตโนมัติ) หรือ เลือกเอง */}
           <p className="text-xs font-bold text-slate-700 mt-1">{t("admin.emp_detail.probassign_evaluator_label")}</p>
-          {!pickEmp ? (
-            <div>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("admin.emp_detail.probassign_search_placeholder")}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-400"/>
-              <div className="mt-2 max-h-[180px] overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-50">
-                {filtered.slice(0, 30).map(e => (
-                  <button key={e.id} onClick={() => setPickEvalId(e.id)}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 flex items-center gap-2">
-                    <span className="font-bold text-slate-800">{e.first_name_th} {e.last_name_th}</span>
-                    {e.nickname && <span className="text-xs text-violet-500">({e.nickname})</span>}
-                    <span className="text-xs text-slate-400">{e.employee_code}</span>
-                  </button>
-                ))}
-                {filtered.length === 0 && <p className="px-3 py-3 text-xs text-slate-400 text-center">{t("admin.emp_detail.probassign_not_found")}</p>}
+          <div className="grid grid-cols-2 gap-1.5">
+            <button onClick={() => { setEvaluatorMode("direct"); setPickEvalId(null) }}
+              className={`text-xs font-bold border rounded-lg px-2 py-1.5 flex items-center justify-center gap-1 ${evaluatorMode === "direct" ? "bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200" : "bg-slate-50 text-slate-500 border-slate-200"}`}>
+              <Network size={11}/> {t("admin.emp_detail.probassign_evaluator_direct")}
+            </button>
+            <button onClick={() => setEvaluatorMode("pick")}
+              className={`text-xs font-bold border rounded-lg px-2 py-1.5 ${evaluatorMode === "pick" ? "bg-violet-50 text-violet-700 border-violet-300 ring-2 ring-violet-200" : "bg-slate-50 text-slate-500 border-slate-200"}`}>
+              {t("admin.emp_detail.probassign_evaluator_pick_other")}
+            </button>
+          </div>
+
+          {evaluatorMode === "pick" && (
+            !pickEmp ? (
+              <div>
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("admin.emp_detail.probassign_search_placeholder")}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-400"/>
+                <div className="mt-2 max-h-[180px] overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-50">
+                  {filtered.slice(0, 30).map(e => (
+                    <button key={e.id} onClick={() => setPickEvalId(e.id)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 flex items-center gap-2">
+                      <span className="font-bold text-slate-800">{empName(e)}</span>
+                      <span className="text-xs text-slate-400">{e.employee_code}</span>
+                    </button>
+                  ))}
+                  {filtered.length === 0 && <p className="px-3 py-3 text-xs text-slate-400 text-center">{t("admin.emp_detail.probassign_not_found")}</p>}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 bg-violet-50 rounded-lg px-3 py-2">
-              <span className="font-bold text-sm text-slate-800">{pickEmp.first_name_th} {pickEmp.last_name_th}</span>
-              <span className="text-xs text-slate-500">{pickEmp.employee_code}</span>
-              <button onClick={() => setPickEvalId(null)} className="ml-auto text-xs text-violet-600 hover:underline">{t("admin.emp_detail.probassign_change")}</button>
-            </div>
+            ) : (
+              <div className="flex items-center gap-2 bg-violet-50 rounded-lg px-3 py-2">
+                <span className="font-bold text-sm text-slate-800">{empName(pickEmp)}</span>
+                <span className="text-xs text-slate-500">{pickEmp.employee_code}</span>
+                <button onClick={() => setPickEvalId(null)} className="ml-auto text-xs text-violet-600 hover:underline">{t("admin.emp_detail.probassign_change")}</button>
+              </div>
+            )
           )}
 
-          <button onClick={handleAdd} disabled={saving || !pickEvalId}
+          <button onClick={handleAdd} disabled={saving || (evaluatorMode === "pick" && !pickEvalId)}
             className="w-full mt-2 bg-violet-600 text-white text-sm font-bold py-2 rounded-xl hover:bg-violet-700 disabled:opacity-50 flex items-center justify-center gap-2">
             {saving ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>}
             {t("admin.emp_detail.probassign_submit")}

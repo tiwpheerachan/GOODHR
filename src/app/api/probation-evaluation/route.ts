@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   if (mode === "single" && formId) {
     const { data: form } = await svc
       .from("probation_evaluations")
-      .select("*, employee:employees!probation_evaluations_employee_id_fkey(*, position:positions(name), department:departments(name)), evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th), items:probation_evaluation_items(*)")
+      .select("*, employee:employees!probation_evaluations_employee_id_fkey(*, position:positions(name), department:departments(name)), evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en), items:probation_evaluation_items(*)")
       .eq("id", formId).single()
     return NextResponse.json({ form })
   }
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
 
     // เอาเฉพาะพนักงานที่ยังอยู่ในช่วงทดลองงาน
     const today = new Date()
-    const members = allManageable.filter((m: any) => {
+    let members = allManageable.filter((m: any) => {
       // นับทดลองงานจาก phase2_start (พนักงาน 2 เฟส) หรือ hire_date
       const startStr = effectiveEmploymentStart(m)
       if (!startStr) return false
@@ -62,12 +62,22 @@ export async function GET(req: NextRequest) {
       return daysSinceHire <= 150
     })
 
+    // ── ตัดคนที่ใช้ "แผนกำหนดเอง" ออกจาก grid 45/90 (รอบของเขาไปแสดงในส่วน "งานที่ได้รับมอบหมาย") ──
+    if (members.length > 0) {
+      const { data: customRows } = await svc.from("employees")
+        .select("id")
+        .in("id", members.map((m: any) => m.id))
+        .eq("probation_use_custom_plan", true)
+      const customSet = new Set((customRows ?? []).map((r: any) => r.id))
+      if (customSet.size > 0) members = members.filter((m: any) => !customSet.has(m.id))
+    }
+
     // ดึง evaluations ที่มีอยู่
     const memberIds = members.map((m: any) => m.id)
     let forms: any[] = []
     if (memberIds.length > 0) {
       const { data } = await svc.from("probation_evaluations")
-        .select("id, employee_id, round, assignment_id, due_date, total_score, grade, status, evaluator_id, evaluator_role, submitted_at, rejection_note, evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th)")
+        .select("id, employee_id, round, assignment_id, due_date, total_score, grade, status, evaluator_id, evaluator_role, submitted_at, rejection_note, evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en)")
         .in("employee_id", memberIds)
       forms = data ?? []
     }
@@ -75,7 +85,7 @@ export async function GET(req: NextRequest) {
     // ── งานที่ "ฉัน" ถูกมอบหมายให้ประเมิน (assignment) — พนักงานอาจไม่อยู่ในสายก็ได้ ──
     let assignments: any[] = []
     const { data: myAssign } = await svc.from("probation_evaluation_assignments")
-      .select("*, employee:employees!probation_evaluation_assignments_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, hire_date, phase2_start_date, position:positions(name), department:departments(name))")
+      .select("*, employee:employees!probation_evaluation_assignments_employee_id_fkey(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, employee_code, avatar_url, hire_date, phase2_start_date, position:positions(name), department:departments(name))")
       .eq("evaluator_id", managerId)
       .order("created_at", { ascending: true })
     const assignIds = (myAssign ?? []).map((x: any) => x.id)
@@ -115,7 +125,7 @@ export async function GET(req: NextRequest) {
     if (!empId) return NextResponse.json({ forms: [] })
 
     const { data: forms } = await svc.from("probation_evaluations")
-      .select("*, evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th), items:probation_evaluation_items(*)")
+      .select("*, evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en), items:probation_evaluation_items(*)")
       .eq("employee_id", empId)
       .in("status", ["approved"])
       .order("round")
@@ -139,7 +149,7 @@ export async function GET(req: NextRequest) {
       .is("effective_to", null)
     const teamIds = Array.from(new Set((subRows ?? []).map((r: any) => r.employee_id).filter(Boolean)))
 
-    const SELECT = "id, employee_id, round, total_score, grade, status, evaluator_note, attachments, evaluator_id, submitted_at, items:probation_evaluation_items(*), evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th), employee:employees!probation_evaluations_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, position:positions(name))"
+    const SELECT = "id, employee_id, round, total_score, grade, status, evaluator_note, attachments, evaluator_id, submitted_at, items:probation_evaluation_items(*), evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en), employee:employees!probation_evaluations_employee_id_fkey(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, employee_code, avatar_url, position:positions(name))"
 
     // ฟอร์มทั้งหมดของพนักงานคนนี้ (ใครเคยประเมินก็ได้)
     let sameQuery: any = null
@@ -192,7 +202,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
     }
     let eq = svc.from("employees")
-      .select("id, first_name_th, last_name_th, nickname, employee_code, avatar_url, hire_date, phase2_start_date, company_id, position:positions(name), department:departments(name)")
+      .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, phase2_start_date, company_id, probation_use_custom_plan, position:positions(name), department:departments(name)")
       .eq("employment_status", "probation")
       .eq("is_active", true)
       .is("deleted_at", null)
@@ -201,16 +211,31 @@ export async function GET(req: NextRequest) {
     const empIds = (emps ?? []).map((e: any) => e.id)
     if (empIds.length === 0) return NextResponse.json({ items: [] })
 
-    // รอบที่ประเมินแล้ว (submitted/approved)
+    // ใบประเมินที่ทำแล้ว (submitted/approved) — แยกรอบปกติ (assignment_id null) กับ assignment
     const { data: evals } = await svc.from("probation_evaluations")
-      .select("employee_id, round, status")
+      .select("employee_id, round, status, assignment_id")
       .in("employee_id", empIds)
       .in("status", ["submitted", "approved"])
-    const done = new Set<string>((evals ?? []).map((ev: any) => `${ev.employee_id}:${ev.round}`))
+    const doneRounds = new Set<string>()          // `${employee_id}:${round}` — รอบเริ่มต้น
+    const doneAssign = new Set<string>()           // assignment_id — รอบกำหนดเอง
+    for (const ev of (evals ?? [])) {
+      if (ev.assignment_id) doneAssign.add(ev.assignment_id)
+      else doneRounds.add(`${ev.employee_id}:${ev.round}`)
+    }
+
+    // assignment (แผนกำหนดเอง) ของทุกคน — ใช้เฉพาะคนที่เปิด custom plan
+    const { data: assignRows } = await svc.from("probation_evaluation_assignments")
+      .select("id, employee_id, round, label, due_days, due_date")
+      .in("employee_id", empIds)
+    const assignByEmp = new Map<string, any[]>()
+    for (const a of (assignRows ?? [])) {
+      if (!assignByEmp.has(a.employee_id)) assignByEmp.set(a.employee_id, [])
+      assignByEmp.get(a.employee_id)!.push(a)
+    }
 
     // หัวหน้าตรงของแต่ละคน
     const { data: mgrRows } = await svc.from("employee_manager_history")
-      .select("employee_id, manager:employees!manager_id(first_name_th, last_name_th, nickname)")
+      .select("employee_id, manager:employees!manager_id(first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en)")
       .in("employee_id", empIds)
       .is("effective_to", null)
     const mgrByEmp = new Map<string, any>()
@@ -222,18 +247,45 @@ export async function GET(req: NextRequest) {
       const start = e.phase2_start_date || e.hire_date
       if (!start) continue
       const daysFromStart = Math.ceil((today.getTime() - new Date(start).getTime()) / 86400000)
-      for (const round of PROBATION_ROUNDS) {
-        if (done.has(`${e.id}:${round}`)) continue          // ประเมินแล้ว
-        const dueDays = ROUND_DAYS[round]
-        if (daysFromStart < dueDays - 14) continue           // ยังไม่ถึงช่วงเปิดประเมิน (เปิด 14 วันก่อนกำหนด)
-        items.push({
-          employee: e,
-          round,
-          due_date: addDaysToDate(start, dueDays),
-          days_from_start: daysFromStart,
-          days_overdue: daysFromStart - dueDays,             // >0 = เลยกำหนด, <=0 = ถึง/ใกล้กำหนด
-          direct_manager: mgrByEmp.get(e.id) ?? null,
-        })
+      const directMgr = mgrByEmp.get(e.id) ?? null
+
+      if (e.probation_use_custom_plan) {
+        // ── แผนกำหนดเอง: วนรอบจาก assignment ที่ยังไม่ถูกประเมิน ──
+        for (const a of (assignByEmp.get(e.id) ?? [])) {
+          if (doneAssign.has(a.id)) continue                 // ประเมินแล้ว
+          const dueDays: number | null = a.due_days ?? ROUND_DAYS[a.round] ?? null
+          const dueDateStr: string | null = a.due_date ?? (dueDays != null ? addDaysToDate(start, dueDays) : null)
+          if (!dueDateStr) continue                          // ไม่มีข้อมูลกำหนด — ข้าม
+          const daysOverdue = Math.ceil((today.getTime() - new Date(dueDateStr + "T00:00:00").getTime()) / 86400000)
+          if (daysOverdue < -14) continue                    // ยังไม่ถึงช่วงเปิดประเมิน (เปิด 14 วันก่อนกำหนด)
+          items.push({
+            employee: e,
+            round: a.round,
+            label: a.label ?? null,
+            assignment_id: a.id,
+            due_date: dueDateStr,
+            days_from_start: daysFromStart,
+            days_overdue: daysOverdue,
+            direct_manager: directMgr,
+          })
+        }
+      } else {
+        // ── รอบเริ่มต้น 45/90 ──
+        for (const round of PROBATION_ROUNDS) {
+          if (doneRounds.has(`${e.id}:${round}`)) continue    // ประเมินแล้ว
+          const dueDays = ROUND_DAYS[round]
+          if (daysFromStart < dueDays - 14) continue          // ยังไม่ถึงช่วงเปิดประเมิน (เปิด 14 วันก่อนกำหนด)
+          items.push({
+            employee: e,
+            round,
+            label: null,
+            assignment_id: null,
+            due_date: addDaysToDate(start, dueDays),
+            days_from_start: daysFromStart,
+            days_overdue: daysFromStart - dueDays,             // >0 = เลยกำหนด, <=0 = ถึง/ใกล้กำหนด
+            direct_manager: directMgr,
+          })
+        }
       }
     }
     items.sort((a, b) => b.days_overdue - a.days_overdue)     // เลยกำหนดมากสุดก่อน
@@ -243,7 +295,7 @@ export async function GET(req: NextRequest) {
   // Admin: ดูทั้งบริษัท (super_admin เห็นทุกบริษัท)
   if (mode === "admin") {
     let q = svc.from("probation_evaluations")
-      .select("*, employee:employees!probation_evaluations_employee_id_fkey(first_name_th, last_name_th, employee_code, avatar_url, hire_date, position:positions(name), department:departments(name)), evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th)")
+      .select("*, employee:employees!probation_evaluations_employee_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, employee_code, avatar_url, hire_date, position:positions(name), department:departments(name)), evaluator:employees!probation_evaluations_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en)")
       .order("created_at", { ascending: false })
     if (dbUser.role !== "super_admin") q = q.eq("company_id", companyId)
     const { data: forms } = await q
@@ -287,7 +339,7 @@ export async function POST(req: NextRequest) {
       approved_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).eq("id", form_id)
 
-    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", form.employee_id).single()
+    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", form.employee_id).single()
     const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : "พนักงาน"
 
     // แจ้งพนักงาน
@@ -312,7 +364,7 @@ export async function POST(req: NextRequest) {
 
     // ดึงชื่อ actor
     const { data: actorEmpApprove } = dbUser.employee_id
-      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      ? await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", dbUser.employee_id).single()
       : { data: null }
     const actorNameApprove = actorEmpApprove ? `${actorEmpApprove.first_name_th} ${actorEmpApprove.last_name_th}` : "Admin"
 
@@ -347,7 +399,7 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     }).eq("id", form_id)
 
-    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", form.employee_id).single()
+    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", form.employee_id).single()
     const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : "พนักงาน"
 
     if (form.evaluator_id) {
@@ -361,7 +413,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { data: actorEmpReject } = dbUser.employee_id
-      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      ? await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", dbUser.employee_id).single()
       : { data: null }
     const actorNameReject = actorEmpReject ? `${actorEmpReject.first_name_th} ${actorEmpReject.last_name_th}` : "Admin"
 
@@ -525,9 +577,9 @@ export async function POST(req: NextRequest) {
 
   // Notifications on submit → HR only
   if (action === "submit") {
-    const { data: evalEmp } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+    const { data: evalEmp } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", dbUser.employee_id).single()
     const evalName = evalEmp ? `${evalEmp.first_name_th} ${evalEmp.last_name_th}` : "หัวหน้า"
-    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", employee_id).single()
+    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", employee_id).single()
     const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : "พนักงาน"
 
     const { data: hrUsers } = await svc.from("users")
@@ -594,10 +646,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "submit") {
-    const { data: empInfo2 } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", employee_id).single()
+    const { data: empInfo2 } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", employee_id).single()
     const empN = empInfo2 ? `${empInfo2.first_name_th} ${empInfo2.last_name_th}` : "พนักงาน"
     const { data: actorEmpSubmit } = dbUser.employee_id
-      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      ? await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", dbUser.employee_id).single()
       : { data: null }
     const actorNameSubmit = actorEmpSubmit ? `${actorEmpSubmit.first_name_th} ${actorEmpSubmit.last_name_th}` : "หัวหน้า"
 

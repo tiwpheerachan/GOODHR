@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react"
 import { Users, Plus, X, Loader2, Eye, BarChart2, Shield } from "lucide-react"
 import toast from "react-hot-toast"
-import { useLanguage } from "@/lib/i18n"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 type Evaluator = {
   id: string
@@ -34,6 +34,7 @@ export default function AdditionalEvaluatorsSection({
   loadAllEmps: () => void
 }) {
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   const [list, setList] = useState<Evaluator[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -128,7 +129,7 @@ export default function AdditionalEvaluatorsSection({
                   <span className="text-indigo-600 font-bold text-sm">{e?.first_name_th?.[0] ?? "?"}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-800 truncate">{e?.first_name_th} {e?.last_name_th}</p>
+                  <p className="text-sm font-bold text-slate-800 truncate">{empName(e)}</p>
                   <p className="text-[11px] text-slate-400 truncate">{e?.employee_code} · {e?.position?.name ?? "—"}</p>
                 </div>
                 <span className={`text-[10px] font-bold border px-2 py-1 rounded-md flex items-center gap-1 ${meta.color}`}>
@@ -166,7 +167,7 @@ export default function AdditionalEvaluatorsSection({
                 {filtered.slice(0, 30).map(e => (
                   <button key={e.id} onClick={() => setPickEvalId(e.id)}
                     className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex items-center gap-2">
-                    <span className="font-bold text-slate-800">{e.first_name_th} {e.last_name_th}</span>
+                    <span className="font-bold text-slate-800">{empName(e)}</span>
                     <span className="text-xs text-slate-400">{e.employee_code}</span>
                   </button>
                 ))}
@@ -175,7 +176,7 @@ export default function AdditionalEvaluatorsSection({
             </div>
           ) : (
             <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-3 py-2">
-              <span className="font-bold text-sm text-slate-800">{pickEmp.first_name_th} {pickEmp.last_name_th}</span>
+              <span className="font-bold text-sm text-slate-800">{empName(pickEmp)}</span>
               <span className="text-xs text-slate-500">{pickEmp.employee_code}</span>
               <button onClick={() => setPickEvalId(null)} className="ml-auto text-xs text-indigo-600 hover:underline">{t("admin.emp_detail.addeval_change")}</button>
             </div>

@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   while (true) {
     let empQ = supa.from("employees")
       .select(`
-        id, employee_code, first_name_th, last_name_th, nickname, avatar_url, brand,
+        id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, avatar_url, brand,
         hire_date, resign_date, employment_status, is_active,
         position:positions(id, name),
         department:departments(id, name),

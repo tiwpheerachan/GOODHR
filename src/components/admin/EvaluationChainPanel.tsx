@@ -4,7 +4,7 @@ import {
   Loader2, ArrowUp, ArrowDown, Users, Network, Eye, BarChart2, Shield,
   ChevronDown, User, Plus, AlertTriangle,
 } from "lucide-react"
-import { useLanguage } from "@/lib/i18n"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 type Person = {
   id: string
@@ -50,6 +50,7 @@ const SCOPE_LABEL: Record<string, { labelKey: string; color: string }> = {
 
 function PersonRow({ p, badge, sub, dim, showVisibility }: { p: Person; badge?: { label: string; color: string }; sub?: string; dim?: boolean; showVisibility?: boolean }) {
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   const hasIssue = showVisibility && (p._kpi_visible === false || p._probation_visible === false)
   return (
     <div className={`flex flex-col gap-1.5 px-3 py-2 bg-white rounded-xl border ${hasIssue ? "border-amber-200" : "border-slate-100"} ${dim ? "opacity-60" : ""}`}>
@@ -61,8 +62,7 @@ function PersonRow({ p, badge, sub, dim, showVisibility }: { p: Person; badge?: 
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-bold text-slate-800 truncate">{p.first_name_th} {p.last_name_th}</p>
-            {p.nickname && <span className="text-[10px] text-slate-400">({p.nickname})</span>}
+            <p className="text-sm font-bold text-slate-800 truncate">{empName(p)}</p>
             {p.is_active === false && (
               <span className="text-[9px] font-bold bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full">inactive</span>
             )}
@@ -102,6 +102,7 @@ function PersonRow({ p, badge, sub, dim, showVisibility }: { p: Person; badge?: 
 
 export default function EvaluationChainPanel({ employeeId, employeeName }: { employeeId: string; employeeName?: string }) {
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   const [data, setData] = useState<ChainData | null>(null)
   const [loading, setLoading] = useState(true)
   const [showSkip, setShowSkip] = useState(false)
@@ -225,7 +226,7 @@ export default function EvaluationChainPanel({ employeeId, employeeName }: { emp
               <PersonRow
                 key={p.id}
                 p={p}
-                sub={p.direct_manager ? t("admin.emp_detail.evalchain_direct_manager_of", { name: `${p.direct_manager.first_name_th} ${p.direct_manager.last_name_th}` }) : undefined}
+                sub={p.direct_manager ? t("admin.emp_detail.evalchain_direct_manager_of", { name: empName(p.direct_manager) }) : undefined}
                 badge={{ label: "skip-1", color: "bg-indigo-50 text-indigo-700" }}
                 showVisibility
               />

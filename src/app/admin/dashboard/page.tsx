@@ -13,16 +13,17 @@ import Link from "next/link"
 import { format, subDays, startOfMonth, differenceInDays } from "date-fns"
 import { th } from "date-fns/locale"
 import PayrollAnalyticsTab from "@/components/admin/PayrollAnalyticsTab"
-import { useLanguage } from "@/lib/i18n"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface DayData    { date:string; present:number; late:number; absent:number; leave:number; total:number }
 interface DeptData   { name:string; present:number; total:number }
-interface LatePerson { id:string; name:string; avatar_url?:string; position?:string; count:number; totalMin:number }
-interface ProbPerson { id:string; name:string; avatar_url?:string; position?:string; dept?:string; probation_end_date:string; daysLeft:number }
-interface PendLeave  { id:string; name:string; avatar_url?:string; leave_type:string; color:string; start_date:string; days:number }
+interface EmpName    { first_name_th?:string; last_name_th?:string; first_name_en?:string; last_name_en?:string; nickname?:string; nickname_en?:string }
+interface LatePerson extends EmpName { id:string; avatar_url?:string; position?:string; count:number; totalMin:number }
+interface ProbPerson extends EmpName { id:string; avatar_url?:string; position?:string; dept?:string; probation_end_date:string; daysLeft:number }
+interface PendLeave  extends EmpName { id:string; avatar_url?:string; leave_type:string; color:string; start_date:string; days:number }
 interface CoStat     { id:string; name_th:string; code:string; total:number; present:number; pending:number }
 
 const COMPANY_COLORS = ["#6366f1","#10b981","#8b5cf6","#f43f5e"]
@@ -231,6 +232,7 @@ function SmartInsights({ kpi, weekData, probList }: {
 // ── Probation Alert Banner ─────────────────────────────────────────────────
 function ProbationBanner({ list }: { list: ProbPerson[] }) {
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [expanded,  setExpanded]  = useState(false)
   const visible = list.filter(p => !dismissed.has(p.id))
@@ -279,11 +281,11 @@ function ProbationBanner({ list }: { list: ProbPerson[] }) {
           return (
             <div key={p.id} className={`flex items-center gap-3 px-5 py-3.5 border-l-4 ${c.border} ${c.bg}`}>
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-sm font-black overflow-hidden ${c.badge}`}>
-                {p.avatar_url ? <img src={p.avatar_url} alt="" className="w-full h-full object-cover"/> : p.name[0]}
+                {p.avatar_url ? <img src={p.avatar_url} alt="" className="w-full h-full object-cover"/> : p.first_name_th?.[0]}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className={`font-black text-[13px] leading-none ${c.text}`}>{p.name}</p>
+                  <p className={`font-black text-[13px] leading-none ${c.text}`}>{empName(p)}</p>
                   <span className={`text-[10px] font-black px-2 py-0.5 rounded-full text-white ${c.tagBg}`}>{c.tag}</span>
                 </div>
                 {p.dept && <p className="text-[11px] text-slate-400 mt-0.5">{p.dept}</p>}
@@ -319,6 +321,7 @@ function ProbationBanner({ list }: { list: ProbPerson[] }) {
 // ── Main dashboard ─────────────────────────────────────────────────────────
 export default function AdminDashboard() {
   const { t, T } = useLanguage()
+  const empName  = useEmployeeName()
   const {user}   = useAuth()
   const supabase = createClient()
   const isSA     = user?.role==="super_admin" || user?.role==="hr_admin"
@@ -338,11 +341,11 @@ export default function AdminDashboard() {
   const [probList,    setProbList]    = useState<ProbPerson[]>([])
   const [pendLeaves,  setPendLeaves]  = useState<PendLeave[]>([])
   const [checkins,    setCheckins]    = useState<any[]>([])
-  const [kpiStats,    setKpiStats]    = useState<{total:number;avg:number;grades:Record<string,number>;topDepts:{name:string;avg:number;count:number}[];topEmployees:{name:string;avatar_url?:string;position?:string;score:number;grade:string}[];monthlyAvg:{month:number;avg:number;count:number}[]}>({total:0,avg:0,grades:{A:0,B:0,C:0,D:0},topDepts:[],topEmployees:[],monthlyAvg:[]})
+  const [kpiStats,    setKpiStats]    = useState<{total:number;avg:number;grades:Record<string,number>;topDepts:{name:string;avg:number;count:number}[];topEmployees:(EmpName&{avatar_url?:string;position?:string;score:number;grade:string})[];monthlyAvg:{month:number;avg:number;count:number}[]}>({total:0,avg:0,grades:{A:0,B:0,C:0,D:0},topDepts:[],topEmployees:[],monthlyAvg:[]})
   // ── New: Payroll + OT + Headcount ──
   const [payrollOverview, setPayrollOverview] = useState<{totalGross:number;totalNet:number;totalOT:number;totalSSO:number;totalTax:number;totalDeductLate:number;totalDeductAbsent:number;count:number;avgSalary:number;prevGross:number;prevNet:number}>({totalGross:0,totalNet:0,totalOT:0,totalSSO:0,totalTax:0,totalDeductLate:0,totalDeductAbsent:0,count:0,avgSalary:0,prevGross:0,prevNet:0})
   const [resignedCount, setResignedCount] = useState(0)
-  const [otTop5, setOtTop5] = useState<{name:string;avatar_url?:string;dept?:string;totalOT:number;totalMin:number}[]>([])
+  const [otTop5, setOtTop5] = useState<(EmpName&{avatar_url?:string;dept?:string;totalOT:number;totalMin:number})[]>([])
 
   const myCompanyId:string|undefined = user?.employee?.company_id??(user as any)?.company_id??undefined
   const companyId:string|undefined   = isSA?(selectedCo||undefined):myCompanyId
@@ -393,7 +396,7 @@ export default function AdminDashboard() {
         supabase.from("attendance_records")
           .select(`work_date,clock_in,status,late_minutes,
             employee:employees!attendance_records_employee_id_fkey(
-              id,first_name_th,last_name_th,avatar_url,
+              id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,avatar_url,
               position:positions(name),department:departments(name))`)
           .eq("work_date",today).order("clock_in",{ascending:false}).limit(8)
       )
@@ -417,13 +420,13 @@ export default function AdminDashboard() {
       // late leaderboard
       const {data:lateRaw}=await fc(
         supabase.from("attendance_records")
-          .select(`late_minutes,employee_id,employee:employees!attendance_records_employee_id_fkey(id,first_name_th,last_name_th,avatar_url,position:positions(name))`)
+          .select(`late_minutes,employee_id,employee:employees!attendance_records_employee_id_fkey(id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,avatar_url,position:positions(name))`)
           .eq("status","late").gte("work_date",monthStart).gt("late_minutes",0)
       )
       const lm:Record<string,LatePerson>={}
       ;(lateRaw??[]).forEach((r:any)=>{
         const e=r.employee; if(!e)return
-        if(!lm[e.id]) lm[e.id]={id:e.id,name:`${e.first_name_th} ${e.last_name_th}`,avatar_url:e.avatar_url,position:e.position?.name,count:0,totalMin:0}
+        if(!lm[e.id]) lm[e.id]={id:e.id,first_name_th:e.first_name_th,last_name_th:e.last_name_th,first_name_en:e.first_name_en,last_name_en:e.last_name_en,nickname:e.nickname,nickname_en:e.nickname_en,avatar_url:e.avatar_url,position:e.position?.name,count:0,totalMin:0}
         lm[e.id].count++; lm[e.id].totalMin+=r.late_minutes
       })
       setLateList(Object.values(lm).sort((a,b)=>b.count-a.count).slice(0,5))
@@ -431,7 +434,7 @@ export default function AdminDashboard() {
       // probation
       const {data:probRaw}=await fe(
         supabase.from("employees")
-          .select(`id,first_name_th,last_name_th,avatar_url,probation_end_date,
+          .select(`id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,avatar_url,probation_end_date,
             position:positions(name),department:departments(name)`)
           .eq("is_active",true)
           .eq("employment_status","probation")
@@ -442,7 +445,9 @@ export default function AdminDashboard() {
       )
       setProbList((probRaw??[]).map((e:any)=>({
         id:e.id,
-        name:`${e.first_name_th} ${e.last_name_th}`,
+        first_name_th:e.first_name_th,last_name_th:e.last_name_th,
+        first_name_en:e.first_name_en,last_name_en:e.last_name_en,
+        nickname:e.nickname,nickname_en:e.nickname_en,
         avatar_url:e.avatar_url,
         position:e.position?.name,
         dept:e.department?.name,
@@ -454,19 +459,19 @@ export default function AdminDashboard() {
       const {data:plRaw}=await fc(
         supabase.from("leave_requests")
           .select(`id,start_date,end_date,total_days,
-            employee:employees!leave_requests_employee_id_fkey(first_name_th,last_name_th,avatar_url),
+            employee:employees!leave_requests_employee_id_fkey(first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,avatar_url),
             leave_type:leave_types(name,color_hex)`)
           .eq("status","pending").order("created_at",{ascending:false}).limit(5)
       )
-      setPendLeaves((plRaw??[]).map((r:any)=>({id:r.id,name:`${r.employee?.first_name_th} ${r.employee?.last_name_th}`,avatar_url:r.employee?.avatar_url,leave_type:r.leave_type?.name||"ลา",color:r.leave_type?.color_hex||"#6366f1",start_date:r.start_date,days:r.total_days})))
+      setPendLeaves((plRaw??[]).map((r:any)=>({id:r.id,first_name_th:r.employee?.first_name_th,last_name_th:r.employee?.last_name_th,first_name_en:r.employee?.first_name_en,last_name_en:r.employee?.last_name_en,nickname:r.employee?.nickname,nickname_en:r.employee?.nickname_en,avatar_url:r.employee?.avatar_url,leave_type:r.leave_type?.name||"ลา",color:r.leave_type?.color_hex||"#6366f1",start_date:r.start_date,days:r.total_days})))
 
       // KPI stats
       const kpiYear = new Date().getFullYear()
       const kpiQuery = companyId
-        ? supabase.from("kpi_forms" as any).select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("company_id",companyId).eq("year",kpiYear).eq("status","submitted")
+        ? supabase.from("kpi_forms" as any).select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,avatar_url,position:positions(name),department:departments(name))").eq("company_id",companyId).eq("year",kpiYear).eq("status","submitted")
         : isSA
-          ? supabase.from("kpi_forms" as any).select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("year",kpiYear).eq("status","submitted")
-          : supabase.from("kpi_forms" as any).select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,avatar_url,position:positions(name),department:departments(name))").eq("company_id",myCompanyId!).eq("year",kpiYear).eq("status","submitted")
+          ? supabase.from("kpi_forms" as any).select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,avatar_url,position:positions(name),department:departments(name))").eq("year",kpiYear).eq("status","submitted")
+          : supabase.from("kpi_forms" as any).select("employee_id,month,total_score,grade,employee:employees!kpi_forms_employee_id_fkey(first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,avatar_url,position:positions(name),department:departments(name))").eq("company_id",myCompanyId!).eq("year",kpiYear).eq("status","submitted")
       const {data:kpiForms} = await kpiQuery as any
       if(kpiForms && kpiForms.length > 0) {
         const grades:Record<string,number> = {A:0,B:0,C:0,D:0}
@@ -484,7 +489,9 @@ export default function AdminDashboard() {
         })
         const topDepts = Object.entries(deptMap).map(([name,d])=>({name,avg:d.sum/d.count,count:d.count})).sort((a,b)=>b.avg-a.avg).slice(0,5)
         const topEmployees = [...kpiForms].sort((a:any,b:any)=>b.total_score-a.total_score).slice(0,5).map((f:any)=>({
-          name:`${f.employee?.first_name_th||""} ${f.employee?.last_name_th||""}`,
+          first_name_th:f.employee?.first_name_th,last_name_th:f.employee?.last_name_th,
+          first_name_en:f.employee?.first_name_en,last_name_en:f.employee?.last_name_en,
+          nickname:f.employee?.nickname,nickname_en:f.employee?.nickname_en,
           avatar_url:f.employee?.avatar_url,
           position:f.employee?.position?.name,
           score:f.total_score,grade:f.grade
@@ -550,11 +557,16 @@ export default function AdminDashboard() {
       const otEntries = Object.entries(otMap).sort((a, b) => b[1].totalOT - a[1].totalOT).slice(0, 5)
       if (otEntries.length > 0) {
         const otEmpIds = otEntries.map(([id]) => id)
-        const { data: otEmps } = await supabase.from("employees").select("id, first_name_th, last_name_th, avatar_url, department:departments(name)").in("id", otEmpIds)
+        const { data: otEmps } = await supabase.from("employees").select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, department:departments(name)").in("id", otEmpIds)
         const oem: Record<string, any> = {}
         for (const e of otEmps ?? []) oem[e.id] = e
         setOtTop5(otEntries.map(([id, info]) => ({
-          name: oem[id] ? `${oem[id].first_name_th} ${oem[id].last_name_th}` : id.slice(0, 8),
+          first_name_th: oem[id]?.first_name_th ?? id.slice(0, 8),
+          last_name_th: oem[id]?.last_name_th,
+          first_name_en: oem[id]?.first_name_en,
+          last_name_en: oem[id]?.last_name_en,
+          nickname: oem[id]?.nickname,
+          nickname_en: oem[id]?.nickname_en,
           avatar_url: oem[id]?.avatar_url,
           dept: oem[id]?.department?.name,
           totalOT: info.totalOT,
@@ -782,9 +794,9 @@ export default function AdminDashboard() {
                         <div className="flex justify-between text-[11px] mb-1">
                           <div className="flex items-center gap-2 min-w-0">
                             <div className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-600 text-[10px] flex-shrink-0 overflow-hidden">
-                              {p.avatar_url?<img src={p.avatar_url} alt="" className="w-full h-full object-cover"/>:p.name[0]}
+                              {p.avatar_url?<img src={p.avatar_url} alt="" className="w-full h-full object-cover"/>:p.first_name_th?.[0]}
                             </div>
-                            <span className="font-bold text-slate-700 truncate">{p.name}</span>
+                            <span className="font-bold text-slate-700 truncate">{empName(p)}</span>
                             {p.dept && <span className="text-slate-400 truncate hidden md:block">· {p.dept}</span>}
                           </div>
                           <span className={`font-black flex-shrink-0 ml-2 ${textCol}`}>{t("admin.overview.count_days",{count:p.daysLeft})}</span>
@@ -838,7 +850,7 @@ export default function AdminDashboard() {
                     {a.employee?.avatar_url?<img src={a.employee.avatar_url} alt="" className="w-full h-full object-cover"/>:a.employee?.first_name_th?.[0]}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-700 truncate">{a.employee?.first_name_th} {a.employee?.last_name_th}</p>
+                    <p className="text-sm font-bold text-slate-700 truncate">{empName(a.employee)}</p>
                     <p className="text-xs text-slate-400 truncate">{a.employee?.department?.name} · {a.employee?.position?.name}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
@@ -893,10 +905,10 @@ export default function AdminDashboard() {
               {pendLeaves.map(r=>(
                 <div key={r.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50">
                   <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center font-black text-indigo-600 text-xs flex-shrink-0 overflow-hidden">
-                    {r.avatar_url?<img src={r.avatar_url} alt="" className="w-full h-full object-cover"/>:r.name[0]}
+                    {r.avatar_url?<img src={r.avatar_url} alt="" className="w-full h-full object-cover"/>:r.first_name_th?.[0]}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-700 truncate">{r.name}</p>
+                    <p className="text-sm font-bold text-slate-700 truncate">{empName(r)}</p>
                     <div className="flex items-center gap-1 mt-0.5">
                       <div className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor:r.color}}/>
                       <p className="text-xs text-slate-400">{r.leave_type}</p>
@@ -926,10 +938,10 @@ export default function AdminDashboard() {
                 <div key={emp.id} className="flex items-center gap-3 px-5 py-3">
                   <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black flex-shrink-0 ${i===0?"bg-amber-100 text-amber-700":i===1?"bg-slate-100 text-slate-600":i===2?"bg-orange-100 text-orange-600":"bg-slate-50 text-slate-400"}`}>{i+1}</div>
                   <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center font-black text-indigo-600 text-xs flex-shrink-0 overflow-hidden">
-                    {emp.avatar_url?<img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>:emp.name[0]}
+                    {emp.avatar_url?<img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>:emp.first_name_th?.[0]}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-700 truncate">{emp.name}</p>
+                    <p className="text-sm font-bold text-slate-700 truncate">{empName(emp)}</p>
                     <p className="text-xs text-slate-400 truncate">{emp.position}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
@@ -957,10 +969,10 @@ export default function AdminDashboard() {
                 <Link key={emp.id} href={`/admin/employees/${emp.id}`}
                   className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
                   <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center font-black text-rose-600 text-xs flex-shrink-0 overflow-hidden">
-                    {emp.avatar_url?<img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>:emp.name[0]}
+                    {emp.avatar_url?<img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>:emp.first_name_th?.[0]}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-700 truncate">{emp.name}</p>
+                    <p className="text-sm font-bold text-slate-700 truncate">{empName(emp)}</p>
                     <p className="text-xs text-slate-400 truncate">{emp.dept}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
@@ -1086,10 +1098,10 @@ export default function AdminDashboard() {
                       <div key={i} className="flex items-center gap-3 px-5 py-3">
                         <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black flex-shrink-0 ${i===0?"bg-amber-100 text-amber-700":"bg-slate-100 text-slate-500"}`}>{i+1}</div>
                         <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center font-black text-indigo-600 text-xs flex-shrink-0 overflow-hidden">
-                          {emp.avatar_url?<img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>:emp.name[0]}
+                          {emp.avatar_url?<img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>:emp.first_name_th?.[0]}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-slate-700 truncate">{emp.name}</p>
+                          <p className="text-sm font-bold text-slate-700 truncate">{empName(emp)}</p>
                           <p className="text-xs text-slate-400 truncate">{emp.position}</p>
                         </div>
                         <span className={`text-xs font-black px-1.5 py-0.5 rounded-md ${gc[emp.grade as keyof typeof gc]||"bg-slate-100 text-slate-600"}`}>{emp.grade}</span>
@@ -1201,10 +1213,10 @@ export default function AdminDashboard() {
                   <div key={i} className="flex items-center gap-3 px-5 py-3">
                     <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black flex-shrink-0 ${i === 0 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{i + 1}</div>
                     <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center font-black text-amber-600 text-xs flex-shrink-0 overflow-hidden">
-                      {emp.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/> : emp.name[0]}
+                      {emp.avatar_url ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/> : emp.first_name_th?.[0]}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-slate-700 truncate">{emp.name}</p>
+                      <p className="text-sm font-bold text-slate-700 truncate">{empName(emp)}</p>
                       {emp.dept && <p className="text-xs text-slate-400 truncate">{emp.dept}</p>}
                     </div>
                     <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden flex-shrink-0">

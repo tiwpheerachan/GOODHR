@@ -259,7 +259,7 @@ export async function GET(req: NextRequest) {
     if (missing.length === 0) return
     const ids = Array.from(new Set(missing.map(r => r.employee_id)))
     const { data: emps } = await supa.from("employees")
-      .select("id,employee_code,first_name_th,last_name_th,nickname,avatar_url,department:departments(name),position:positions(name),company:companies(code)")
+      .select("id,employee_code,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,avatar_url,department:departments(name),position:positions(name),company:companies(code)")
       .in("id", ids)
     const empMap = new Map((emps ?? []).map(e => [e.id, e]))
     for (const r of missing) {

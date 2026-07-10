@@ -1,6 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import { createClient } from "@/lib/supabase/client"
 import {
   Check, X, Clock, Calendar, Timer, FileEdit, Search, Filter,
@@ -14,38 +15,40 @@ import Link from "next/link"
 import ApprovalsExportModal from "./ExportModal"
 
 const TYPE_CFG: Record<string, { label: string; icon: any; color: string; bg: string }> = {
-  leave:        { label: "ลางาน",      icon: Calendar,       color: "text-sky-700",     bg: "bg-sky-100" },
-  adjustment:   { label: "แก้ไขเวลา",  icon: FileEdit,       color: "text-violet-700",  bg: "bg-violet-100" },
-  overtime:     { label: "โอที",       icon: Timer,          color: "text-amber-700",   bg: "bg-amber-100" },
-  shift_change: { label: "เปลี่ยนกะ",  icon: ArrowRightLeft, color: "text-emerald-700", bg: "bg-emerald-100" },
+  leave:        { label: "admin.requests.type_leave",        icon: Calendar,       color: "text-sky-700",     bg: "bg-sky-100" },
+  adjustment:   { label: "admin.requests.type_adjustment",   icon: FileEdit,       color: "text-violet-700",  bg: "bg-violet-100" },
+  overtime:     { label: "admin.requests.type_overtime",     icon: Timer,          color: "text-amber-700",   bg: "bg-amber-100" },
+  shift_change: { label: "admin.requests.type_shift_change", icon: ArrowRightLeft, color: "text-emerald-700", bg: "bg-emerald-100" },
 }
 
 const STATUS_CFG: Record<string, { label: string; color: string; bg: string }> = {
-  pending:          { label: "รออนุมัติ",      color: "text-amber-700",  bg: "bg-amber-100" },
-  approved:         { label: "อนุมัติแล้ว",    color: "text-green-700",  bg: "bg-green-100" },
-  rejected:         { label: "ปฏิเสธ",         color: "text-red-700",    bg: "bg-red-100" },
-  cancelled:        { label: "ยกเลิกแล้ว",     color: "text-slate-500",  bg: "bg-slate-100" },
-  cancel_requested: { label: "ขอยกเลิก",      color: "text-orange-700", bg: "bg-orange-100" },
+  pending:          { label: "admin.requests.status_pending",          color: "text-amber-700",  bg: "bg-amber-100" },
+  approved:         { label: "admin.requests.status_approved",         color: "text-green-700",  bg: "bg-green-100" },
+  rejected:         { label: "admin.requests.status_rejected",         color: "text-red-700",    bg: "bg-red-100" },
+  cancelled:        { label: "admin.requests.status_cancelled",        color: "text-slate-500",  bg: "bg-slate-100" },
+  cancel_requested: { label: "admin.requests.status_cancel_requested", color: "text-orange-700", bg: "bg-orange-100" },
 }
 
 const STATUS_TABS = [
-  { key: "pending",          label: "รออนุมัติ",   icon: Clock },
-  { key: "cancel_requested", label: "ขอยกเลิก",   icon: Ban },
-  { key: "approved",         label: "อนุมัติแล้ว", icon: Check },
-  { key: "rejected",         label: "ปฏิเสธ",      icon: X },
-  { key: "all",              label: "ทั้งหมด",     icon: Filter },
+  { key: "pending",          label: "admin.requests.status_pending",          icon: Clock },
+  { key: "cancel_requested", label: "admin.requests.status_cancel_requested", icon: Ban },
+  { key: "approved",         label: "admin.requests.status_approved",         icon: Check },
+  { key: "rejected",         label: "admin.requests.status_rejected",         icon: X },
+  { key: "all",              label: "admin.requests.status_all",              icon: Filter },
 ]
 
 const TYPE_TABS = [
-  { key: "all",          label: "ทั้งหมด" },
-  { key: "leave",        label: "ลางาน" },
-  { key: "adjustment",   label: "แก้ไขเวลา" },
-  { key: "overtime",     label: "โอที" },
-  { key: "shift_change", label: "เปลี่ยนกะ" },
+  { key: "all",          label: "admin.requests.type_all" },
+  { key: "leave",        label: "admin.requests.type_leave" },
+  { key: "adjustment",   label: "admin.requests.type_adjustment" },
+  { key: "overtime",     label: "admin.requests.type_overtime" },
+  { key: "shift_change", label: "admin.requests.type_shift_change" },
 ]
 
 export default function AdminApprovalsPage() {
   const { user } = useAuth()
+  const { t } = useLanguage()
+  const empName = useEmployeeName()
   const supabase = createClient()
 
   const [requests, setRequests] = useState<any[]>([])
@@ -100,7 +103,7 @@ export default function AdminApprovalsPage() {
       setCounts(data.counts ?? {})
     } catch (e: any) {
       console.error("Load approvals error:", e)
-      toast.error("โหลดข้อมูลไม่สำเร็จ กรุณาลองใหม่")
+      toast.error(t("admin.requests.toast_load_error"))
       setRequests([])
       setCounts({})
     } finally {
@@ -127,11 +130,11 @@ export default function AdminApprovalsPage() {
       const data = await res.json()
       if (data.success || data.status === "approved" || data.status === "rejected") {
         toast.success(
-          action === "approve" ? "อนุมัติแล้ว" :
-          action === "reject" ? "ปฏิเสธแล้ว" :
-          action === "approve_cancel" ? "อนุมัติยกเลิกแล้ว" :
-          action === "reject_cancel" ? "คงอนุมัติเดิม" :
-          action === "force_cancel" ? "ยกเลิกแล้ว" : "สำเร็จ"
+          action === "approve" ? t("admin.requests.toast_approved") :
+          action === "reject" ? t("admin.requests.toast_rejected") :
+          action === "approve_cancel" ? t("admin.requests.toast_approve_cancel") :
+          action === "reject_cancel" ? t("admin.requests.toast_keep_approved") :
+          action === "force_cancel" ? t("admin.requests.toast_force_cancelled") : t("admin.requests.toast_success")
         )
         setRejectItem(null)
         setRejectNote("")
@@ -139,11 +142,11 @@ export default function AdminApprovalsPage() {
         // แจ้ง sidebar ให้ refresh badge ทันที
         window.dispatchEvent(new Event("approvals-changed"))
       } else {
-        toast.error(data.error || "เกิดข้อผิดพลาด")
+        toast.error(data.error || t("admin.requests.toast_error"))
       }
     } catch (e: any) {
       console.error("Action error:", e)
-      toast.error("ดำเนินการไม่สำเร็จ กรุณาลองใหม่")
+      toast.error(t("admin.requests.toast_action_error"))
     } finally {
       setProcessing(null)
     }
@@ -198,11 +201,11 @@ export default function AdminApprovalsPage() {
     setBulkRunning(false)
     setShowBulkConfirm(false)
     if (failed === 0) {
-      toast.success(`อนุมัติสำเร็จ ${done} รายการ`)
+      toast.success(t("admin.requests.toast_bulk_success", { count: done }))
     } else if (done === 0) {
-      toast.error(`อนุมัติไม่สำเร็จทั้งหมด (${failed} รายการ)`)
+      toast.error(t("admin.requests.toast_bulk_all_failed", { count: failed }))
     } else {
-      toast(`สำเร็จ ${done} · ล้มเหลว ${failed}`, { icon: "⚠️" })
+      toast(t("admin.requests.toast_bulk_partial", { done, failed }), { icon: "⚠️" })
     }
     load()
     window.dispatchEvent(new Event("approvals-changed"))
@@ -214,28 +217,28 @@ export default function AdminApprovalsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-black text-slate-800">คำร้องทั้งหมด</h2>
-          <p className="text-xs text-slate-400">รวมคำขอลา · แก้ไขเวลา · โอที · ขอยกเลิก ในที่เดียว</p>
+          <h2 className="text-xl font-black text-slate-800">{t("admin.requests.title")}</h2>
+          <p className="text-xs text-slate-400">{t("admin.requests.subtitle")}</p>
         </div>
         <div className="flex items-center gap-3">
           <Link href="/admin/approvals/supervisors"
             className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-50 text-indigo-700 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">
-            <Users size={13}/> ภาพรวมหัวหน้า-ลูกน้อง
+            <Users size={13}/> {t("admin.requests.supervisors_overview")}
           </Link>
           <div className="flex items-center gap-2 text-xs text-slate-500">
-            <Users size={13}/> <b className="text-slate-800">{requests.length}</b> รายการ
+            <Users size={13}/> <b className="text-slate-800">{requests.length}</b> {t("admin.requests.items_unit")}
           </div>
           {bulkMode && bulkItems.length > 0 && (
             <button onClick={() => setShowBulkConfirm(true)}
               className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white rounded-xl text-xs font-bold hover:bg-green-700 transition-colors shadow-sm shadow-green-200">
               <CheckCheck size={13}/>
-              {bulkMode === "approve_cancel" ? "อนุมัติยกเลิกทั้งหมด" : "อนุมัติทั้งหมด"}
+              {bulkMode === "approve_cancel" ? t("admin.requests.approve_all_cancel") : t("admin.requests.approve_all")}
               <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/20 text-[10px]">{bulkItems.length}</span>
             </button>
           )}
           <button onClick={() => setShowExport(true)}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-200">
-            <Download size={13}/> Export Excel
+            <Download size={13}/> {t("admin.requests.export_excel")}
           </button>
         </div>
       </div>
@@ -245,18 +248,18 @@ export default function AdminApprovalsPage() {
         {/* Company */}
         <select value={filterCo} onChange={e => setFilterCo(e.target.value)}
           className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold shadow-sm outline-none">
-          <option value="all">ทุกบริษัท</option>
+          <option value="all">{t("admin.requests.all_companies")}</option>
           {companies.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}
         </select>
 
         {/* Type tabs */}
         <div className="flex rounded-xl border border-slate-200 bg-white p-0.5 shadow-sm">
-          {TYPE_TABS.map(t => (
-            <button key={t.key} onClick={() => setFilterType(t.key)}
+          {TYPE_TABS.map(tab => (
+            <button key={tab.key} onClick={() => setFilterType(tab.key)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                filterType === t.key ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-50"
+                filterType === tab.key ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-50"
               }`}>
-              {t.label}
+              {t(tab.label)}
             </button>
           ))}
         </div>
@@ -275,28 +278,28 @@ export default function AdminApprovalsPage() {
         {/* Search */}
         <div className="relative">
           <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"/>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาชื่อ/รหัส..."
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("admin.requests.search_placeholder")}
             className="bg-white border border-slate-200 rounded-xl pl-8 pr-3 py-2 text-xs shadow-sm outline-none w-44"/>
         </div>
       </div>
 
       {/* Status tabs with counts */}
       <div className="flex gap-1.5">
-        {STATUS_TABS.map(t => {
-          const cnt = t.key === "all" ? counts.all : counts[t.key]
-          const Icon = t.icon
+        {STATUS_TABS.map(tab => {
+          const cnt = tab.key === "all" ? counts.all : counts[tab.key]
+          const Icon = tab.icon
           return (
-            <button key={t.key} onClick={() => setFilterStatus(t.key)}
+            <button key={tab.key} onClick={() => setFilterStatus(tab.key)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
-                filterStatus === t.key
+                filterStatus === tab.key
                   ? "bg-indigo-600 text-white shadow-md"
                   : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-50"
               }`}>
               <Icon size={12}/>
-              {t.label}
+              {t(tab.label)}
               {(cnt ?? 0) > 0 && (
                 <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                  filterStatus === t.key ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
+                  filterStatus === tab.key ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
                 }`}>{cnt}</span>
               )}
             </button>
@@ -310,7 +313,7 @@ export default function AdminApprovalsPage() {
       ) : requests.length === 0 ? (
         <div className="text-center py-20 text-slate-400">
           <Calendar size={40} className="mx-auto mb-2 opacity-30"/>
-          <p className="font-medium">ไม่พบคำร้อง</p>
+          <p className="font-medium">{t("admin.requests.empty")}</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -318,14 +321,14 @@ export default function AdminApprovalsPage() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-left font-bold text-slate-600">พนักงาน</th>
-                  <th className="px-3 py-3 text-left font-bold text-slate-600">ประเภท</th>
-                  <th className="px-3 py-3 text-left font-bold text-slate-600">รายละเอียด</th>
-                  <th className="px-3 py-3 text-left font-bold text-slate-600">วันที่</th>
-                  <th className="px-3 py-3 text-left font-bold text-slate-600">เหตุผล</th>
-                  <th className="px-3 py-3 text-center font-bold text-slate-600">สถานะ</th>
-                  <th className="px-3 py-3 text-left font-bold text-slate-600">ส่งเมื่อ</th>
-                  <th className="px-4 py-3 text-center font-bold text-slate-600">จัดการ</th>
+                  <th className="px-4 py-3 text-left font-bold text-slate-600">{t("admin.requests.th_employee")}</th>
+                  <th className="px-3 py-3 text-left font-bold text-slate-600">{t("admin.requests.th_type")}</th>
+                  <th className="px-3 py-3 text-left font-bold text-slate-600">{t("admin.requests.th_detail")}</th>
+                  <th className="px-3 py-3 text-left font-bold text-slate-600">{t("admin.requests.th_date")}</th>
+                  <th className="px-3 py-3 text-left font-bold text-slate-600">{t("admin.requests.th_reason")}</th>
+                  <th className="px-3 py-3 text-center font-bold text-slate-600">{t("admin.requests.th_status")}</th>
+                  <th className="px-3 py-3 text-left font-bold text-slate-600">{t("admin.requests.th_submitted")}</th>
+                  <th className="px-4 py-3 text-center font-bold text-slate-600">{t("admin.requests.th_actions")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -347,7 +350,7 @@ export default function AdminApprovalsPage() {
                             {emp?.avatar_url ? <img src={emp.avatar_url} className="w-full h-full object-cover"/> : emp?.first_name_th?.[0]}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-bold text-slate-800 truncate">{emp?.first_name_th} {emp?.last_name_th}</p>
+                            <p className="font-bold text-slate-800 truncate">{empName(emp)}</p>
                             <p className="text-[9px] text-slate-400 truncate">{emp?.employee_code} · {emp?.department?.name} · {emp?.company?.code}</p>
                           </div>
                         </div>
@@ -356,7 +359,7 @@ export default function AdminApprovalsPage() {
                       {/* Type */}
                       <td className="px-3 py-3">
                         <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold ${tc.bg} ${tc.color}`}>
-                          <TypeIcon size={10}/> {tc.label}
+                          <TypeIcon size={10}/> {t(tc.label)}
                         </span>
                       </td>
 
@@ -377,7 +380,7 @@ export default function AdminApprovalsPage() {
                             return (
                               <a href={urls[0]} target="_blank" rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 mt-1 text-[10px] text-blue-500 hover:text-blue-700 font-semibold">
-                                <Paperclip size={10}/> {names[0] || "ไฟล์แนบ"}
+                                <Paperclip size={10}/> {names[0] || t("admin.requests.attachment")}
                               </a>
                             )
                           }
@@ -385,12 +388,12 @@ export default function AdminApprovalsPage() {
                             <div className="mt-1 flex flex-wrap gap-1">
                               {urls.map((u: string, i: number) => (
                                 <a key={i} href={u} target="_blank" rel="noopener noreferrer"
-                                  title={names[i] || `ไฟล์ ${i + 1}`}
+                                  title={names[i] || t("admin.requests.file_n", { n: i + 1 })}
                                   className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-50 border border-blue-100 rounded-md text-[10px] text-blue-600 hover:bg-blue-100 font-bold">
                                   <Paperclip size={9}/> {i + 1}
                                 </a>
                               ))}
-                              <span className="text-[9px] text-slate-400 font-bold self-center ml-0.5">({urls.length} ไฟล์)</span>
+                              <span className="text-[9px] text-slate-400 font-bold self-center ml-0.5">{t("admin.requests.files_count", { count: urls.length })}</span>
                             </div>
                           )
                         })()}
@@ -399,7 +402,7 @@ export default function AdminApprovalsPage() {
                       {/* Status */}
                       <td className="px-3 py-3 text-center">
                         <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold ${sc.bg} ${sc.color}`}>
-                          {sc.label}
+                          {t(sc.label)}
                         </span>
                       </td>
 
@@ -414,7 +417,7 @@ export default function AdminApprovalsPage() {
                               <button onClick={() => { setRejectItem(r); setRejectNote("") }}
                                 disabled={isProc}
                                 className="px-2.5 py-1.5 bg-red-50 text-red-600 rounded-lg text-[10px] font-bold hover:bg-red-100 disabled:opacity-50">
-                                <X size={10} className="inline mr-0.5"/> ปฏิเสธ
+                                <X size={10} className="inline mr-0.5"/> {t("admin.requests.reject")}
                               </button>
                               {r.request_type === "adjustment" && (
                                 <button onClick={() => {
@@ -425,14 +428,14 @@ export default function AdminApprovalsPage() {
                                   setEditAdj({ ...r, edit_clock_in: ci, edit_clock_out: co, edit_clock_in_date: ciDate, edit_clock_out_date: coDate })
                                 }}
                                   className="px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold hover:bg-indigo-100 disabled:opacity-50">
-                                  <Pencil size={10} className="inline mr-0.5"/> แก้ไข
+                                  <Pencil size={10} className="inline mr-0.5"/> {t("admin.requests.edit")}
                                 </button>
                               )}
                               <button onClick={() => handleAction("approve", r)}
                                 disabled={isProc}
                                 className="px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[10px] font-bold hover:bg-green-700 disabled:opacity-50">
                                 {isProc ? <Loader2 size={10} className="inline animate-spin"/> : <Check size={10} className="inline mr-0.5"/>}
-                                อนุมัติ
+                                {t("admin.requests.approve")}
                               </button>
                             </>
                           )}
@@ -441,13 +444,13 @@ export default function AdminApprovalsPage() {
                               <button onClick={() => handleAction("reject_cancel", r)}
                                 disabled={isProc}
                                 className="px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold hover:bg-slate-200 disabled:opacity-50">
-                                คงอนุมัติ
+                                {t("admin.requests.keep_approved")}
                               </button>
                               <button onClick={() => handleAction("approve_cancel", r)}
                                 disabled={isProc}
                                 className="px-2.5 py-1.5 bg-orange-500 text-white rounded-lg text-[10px] font-bold hover:bg-orange-600 disabled:opacity-50">
                                 {isProc ? <Loader2 size={10} className="inline animate-spin"/> : <Check size={10} className="inline mr-0.5"/>}
-                                อนุมัติยกเลิก
+                                {t("admin.requests.approve_cancel")}
                               </button>
                             </>
                           )}
@@ -455,7 +458,7 @@ export default function AdminApprovalsPage() {
                             <button onClick={() => handleAction("force_cancel", r)}
                               disabled={isProc}
                               className="px-2.5 py-1.5 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-bold hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
-                              ยกเลิก
+                              {t("admin.requests.force_cancel")}
                             </button>
                           )}
                           {r.status === "rejected" && !isCancel && (
@@ -470,14 +473,14 @@ export default function AdminApprovalsPage() {
                                 }}
                                   disabled={isProc}
                                   className="px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold hover:bg-indigo-100 disabled:opacity-50">
-                                  <Pencil size={10} className="inline mr-0.5"/> แก้ไข
+                                  <Pencil size={10} className="inline mr-0.5"/> {t("admin.requests.edit")}
                                 </button>
                               )}
                               <button onClick={() => handleAction("approve", r)}
                                 disabled={isProc}
                                 className="px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[10px] font-bold hover:bg-green-700 disabled:opacity-50">
                                 {isProc ? <Loader2 size={10} className="inline animate-spin"/> : <Check size={10} className="inline mr-0.5"/>}
-                                เปลี่ยนเป็นอนุมัติ
+                                {t("admin.requests.change_to_approved")}
                               </button>
                             </>
                           )}
@@ -517,25 +520,25 @@ export default function AdminApprovalsPage() {
                 <X size={18} className="text-red-500"/>
               </div>
               <div>
-                <h3 className="font-black text-slate-800">ปฏิเสธคำร้อง</h3>
+                <h3 className="font-black text-slate-800">{t("admin.requests.reject_title")}</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {rejectItem.employee?.first_name_th} · {TYPE_CFG[rejectItem.request_type]?.label} · {rejectItem.detail}
+                  {empName(rejectItem.employee)} · {t(TYPE_CFG[rejectItem.request_type]?.label)} · {rejectItem.detail}
                 </p>
               </div>
             </div>
             <textarea value={rejectNote} onChange={e => setRejectNote(e.target.value)}
-              placeholder="เหตุผลที่ปฏิเสธ (ไม่บังคับ)..."
+              placeholder={t("admin.requests.reject_note_placeholder")}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-indigo-400 h-20 resize-none"/>
             <div className="flex gap-2">
               <button onClick={() => setRejectItem(null)}
                 className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50">
-                ยกเลิก
+                {t("admin.requests.cancel")}
               </button>
               <button onClick={() => handleAction("reject", rejectItem, rejectNote)}
                 disabled={processing === rejectItem.id}
                 className="flex-1 py-2.5 bg-red-500 text-white rounded-xl text-sm font-bold hover:bg-red-600 disabled:opacity-50">
                 {processing === rejectItem.id ? <Loader2 size={14} className="inline animate-spin mr-1"/> : null}
-                ปฏิเสธ
+                {t("admin.requests.reject")}
               </button>
             </div>
           </div>
@@ -556,10 +559,10 @@ export default function AdminApprovalsPage() {
               </div>
               <div className="flex-1">
                 <h3 className="font-black text-slate-800">
-                  ยืนยัน{bulkMode === "approve_cancel" ? "อนุมัติยกเลิก" : "อนุมัติ"}ทั้งหมด
+                  {bulkMode === "approve_cancel" ? t("admin.requests.bulk_title_cancel") : t("admin.requests.bulk_title_approve")}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  จะ{bulkMode === "approve_cancel" ? "อนุมัติยกเลิก" : "อนุมัติ"}คำร้องที่แสดงในตารางทั้งหมด <b className="text-slate-800">{bulkItems.length}</b> รายการ
+                  {bulkMode === "approve_cancel" ? t("admin.requests.bulk_desc_cancel_pre") : t("admin.requests.bulk_desc_approve_pre")}<b className="text-slate-800">{bulkItems.length}</b> {t("admin.requests.items_unit")}
                 </p>
               </div>
             </div>
@@ -569,22 +572,22 @@ export default function AdminApprovalsPage() {
                 const tc = TYPE_CFG[r.request_type] || TYPE_CFG.leave
                 return (
                   <div key={`${r.request_type}-${r.id}`} className="flex items-center gap-2 text-[11px]">
-                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${tc.bg} ${tc.color}`}>{tc.label}</span>
-                    <span className="font-bold text-slate-700 truncate">{r.employee?.first_name_th} {r.employee?.last_name_th}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${tc.bg} ${tc.color}`}>{t(tc.label)}</span>
+                    <span className="font-bold text-slate-700 truncate">{empName(r.employee)}</span>
                     <span className="text-slate-400 truncate">· {r.detail}</span>
                   </div>
                 )
               })}
               {bulkItems.length > 50 && (
-                <p className="text-[10px] text-slate-400 text-center pt-1">...และอีก {bulkItems.length - 50} รายการ</p>
+                <p className="text-[10px] text-slate-400 text-center pt-1">{t("admin.requests.and_more", { count: bulkItems.length - 50 })}</p>
               )}
             </div>
 
             {bulkRunning && (
               <div>
                 <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 mb-1">
-                  <span>กำลังดำเนินการ...</span>
-                  <span>{bulkProgress.done}/{bulkProgress.total}{bulkProgress.failed > 0 && ` · ล้มเหลว ${bulkProgress.failed}`}</span>
+                  <span>{t("admin.requests.processing")}</span>
+                  <span>{bulkProgress.done}/{bulkProgress.total}{bulkProgress.failed > 0 && ` · ${t("admin.requests.bulk_failed", { count: bulkProgress.failed })}`}</span>
                 </div>
                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div className="h-full bg-green-500 transition-all"
@@ -596,13 +599,13 @@ export default function AdminApprovalsPage() {
             <div className="flex gap-2">
               <button onClick={() => setShowBulkConfirm(false)} disabled={bulkRunning}
                 className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-                ยกเลิก
+                {t("admin.requests.cancel")}
               </button>
               <button onClick={handleBulkApprove} disabled={bulkRunning}
                 className={`flex-1 py-2.5 text-white rounded-xl text-sm font-bold disabled:opacity-50 ${
                   bulkMode === "approve_cancel" ? "bg-orange-500 hover:bg-orange-600" : "bg-green-600 hover:bg-green-700"
                 }`}>
-                {bulkRunning ? <><Loader2 size={14} className="inline animate-spin mr-1"/> กำลังอนุมัติ</> : <>ยืนยัน{bulkMode === "approve_cancel" ? "อนุมัติยกเลิก" : "อนุมัติ"}</>}
+                {bulkRunning ? <><Loader2 size={14} className="inline animate-spin mr-1"/> {t("admin.requests.bulk_running")}</> : <>{bulkMode === "approve_cancel" ? t("admin.requests.bulk_confirm_cancel") : t("admin.requests.bulk_confirm_approve")}</>}
               </button>
             </div>
           </div>
@@ -614,12 +617,12 @@ export default function AdminApprovalsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditAdj(null)}>
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="bg-indigo-600 px-5 py-4">
-              <h3 className="text-white font-bold">แก้ไขเวลาก่อนอนุมัติ</h3>
-              <p className="text-indigo-200 text-xs mt-0.5">{editAdj.employee_name} · {editAdj.work_date || editAdj.date_label}</p>
+              <h3 className="text-white font-bold">{t("admin.requests.edit_adj_title")}</h3>
+              <p className="text-indigo-200 text-xs mt-0.5">{empName(editAdj.employee)} · {editAdj.work_date || editAdj.date_label}</p>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1.5">วันที่ + เวลาเข้างาน</label>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">{t("admin.requests.label_clockin")}</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input type="date" value={editAdj.edit_clock_in_date}
                     onChange={e => setEditAdj((p: any) => ({ ...p, edit_clock_in_date: e.target.value }))}
@@ -630,7 +633,7 @@ export default function AdminApprovalsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1.5">วันที่ + เวลาออกงาน</label>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">{t("admin.requests.label_clockout")}</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input type="date" value={editAdj.edit_clock_out_date}
                     onChange={e => setEditAdj((p: any) => ({ ...p, edit_clock_out_date: e.target.value }))}
@@ -640,13 +643,13 @@ export default function AdminApprovalsPage() {
                     className="px-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400 font-semibold" />
                 </div>
                 {editAdj.edit_clock_out_date && editAdj.edit_clock_out_date !== editAdj.edit_clock_in_date && (
-                  <p className="text-[10px] text-amber-600 font-bold mt-1">กะข้ามคืน — ออกงานคนละวัน</p>
+                  <p className="text-[10px] text-amber-600 font-bold mt-1">{t("admin.requests.overnight_note")}</p>
                 )}
               </div>
             </div>
             <div className="px-5 pb-5 flex gap-3">
               <button onClick={() => setEditAdj(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">{t("admin.requests.cancel")}</button>
               <button onClick={async () => {
                 setEditAdjSaving(true)
                 try {
@@ -660,12 +663,12 @@ export default function AdminApprovalsPage() {
                   // แล้ว approve เลย
                   await handleAction("approve", editAdj)
                   setEditAdj(null)
-                  toast.success("แก้ไขและอนุมัติสำเร็จ")
-                } catch { toast.error("เกิดข้อผิดพลาด") }
+                  toast.success(t("admin.requests.toast_edit_approved"))
+                } catch { toast.error(t("admin.requests.toast_error")) }
                 setEditAdjSaving(false)
               }} disabled={editAdjSaving}
                 className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 disabled:opacity-50">
-                {editAdjSaving ? "กำลังบันทึก..." : "แก้ไขและอนุมัติ"}
+                {editAdjSaving ? t("admin.requests.edit_adj_saving") : t("admin.requests.edit_adj_save")}
               </button>
             </div>
           </div>

@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   let skipLevel1: any = null
   if (directRow?.manager_id) {
     const { data: dm } = await svc.from("employees")
-      .select("id, employee_code, first_name_th, last_name_th, nickname, avatar_url, position:positions(name)")
+      .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, avatar_url, position:positions(name)")
       .eq("id", directRow.manager_id).maybeSingle()
     directManager = dm
 
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       .maybeSingle()
     if (skipRow?.manager_id) {
       const { data: sm } = await svc.from("employees")
-        .select("id, employee_code, first_name_th, last_name_th, nickname, avatar_url, position:positions(name)")
+        .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, avatar_url, position:positions(name)")
         .eq("id", skipRow.manager_id).maybeSingle()
       skipLevel1 = sm
     }
@@ -49,14 +49,14 @@ export async function GET(req: NextRequest) {
   let additionalEvaluators: any[] = []
   try {
     const { data: addRows } = await svc.from("employee_evaluators")
-      .select("id, scope, note, evaluator:employees!evaluator_id(id, employee_code, first_name_th, last_name_th, nickname, avatar_url, position:positions(name))")
+      .select("id, scope, note, evaluator:employees!evaluator_id(id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, avatar_url, position:positions(name))")
       .eq("employee_id", empId)
     additionalEvaluators = addRows ?? []
   } catch {}
 
   // ── (B) คนนี้เป็นหัวหน้าใครบ้าง — DOWN the chain ────────────────────────
   // 1) direct subordinates — เพิ่ม fields สำหรับ diagnostic
-  const SUB_SELECT = "id, employee_code, first_name_th, last_name_th, nickname, avatar_url, employment_status, hire_date, probation_end_date, is_active, deleted_at, kpi_evaluator_id, position:positions(name)"
+  const SUB_SELECT = "id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, avatar_url, employment_status, hire_date, probation_end_date, is_active, deleted_at, kpi_evaluator_id, position:positions(name)"
   const { data: directSubsRows } = await svc
     .from("employee_manager_history")
     .select(`employee_id, employee:employees!employee_id(${SUB_SELECT})`)

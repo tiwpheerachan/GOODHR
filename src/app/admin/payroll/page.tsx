@@ -17,7 +17,7 @@ import * as XLSX from "xlsx"
 import { BRAND_OPTIONS, normalizeBrands } from "@/lib/utils/brands"
 import { calcSSO, calcMonthlyTax, recomputePayroll } from "@/lib/utils/payroll"
 import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
-import { useLanguage } from "@/lib/i18n"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 // ── helpers ────────────────────────────────────────────────────────────
 // ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น) — ไม่แสดงทศนิยม
@@ -459,6 +459,7 @@ function FullRegisterTable({ records, onEdit, onView }: { records: any[]; onEdit
 // ── Compact Table (original view) ───────────────────────────────────────
 function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; totalNet: number; onEdit: (r:any)=>void; onView: (r:any)=>void }) {
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -488,7 +489,7 @@ function CompactTable({ records, totalNet, onEdit, onView }: { records: any[]; t
                       {r.employee?.avatar_url ? <img src={r.employee.avatar_url} alt="" className="w-full h-full object-cover"/> : r.employee?.first_name_th?.[0]}
                     </div>
                     <div>
-                      <p className="font-bold text-slate-800 whitespace-nowrap">{r.employee?.first_name_th} {r.employee?.last_name_th} {r.is_manual_override && <span className="text-amber-500">✎</span>}</p>
+                      <p className="font-bold text-slate-800 whitespace-nowrap">{empName(r.employee)} {r.is_manual_override && <span className="text-amber-500">✎</span>}</p>
                       <p className="text-[10px] text-slate-400">{r.employee?.employee_code}</p>
                     </div>
                   </div>
@@ -920,6 +921,7 @@ function EditModal({
   record, period, onClose, onSaved,
 }: { record: any; period?: any; onClose: () => void; onSaved: (updated: any) => void }) {
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   const supabase = createClient()
   const emp = record.employee
   const ie = record.income_extras ?? {}
@@ -1279,7 +1281,7 @@ function EditModal({
     if (!res.ok) return toast.error(t("admin.payroll.toast_recalc_fail"))
     toast.success(t("admin.payroll.toast_reset_success"))
     const { data } = await supabase.from("payroll_records")
-      .select(`*, employee:employees!payroll_records_employee_id_fkey(id,employee_code,first_name_th,last_name_th,nickname,avatar_url,brand,position:positions(name),department:departments(id,name),company:companies(id,code,name_th))`)
+      .select(`*, employee:employees!payroll_records_employee_id_fkey(id,employee_code,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,avatar_url,brand,position:positions(name),department:departments(id,name),company:companies(id,code,name_th))`)
       .eq("id", record.id).single()
     if (data) onSaved(data)
     onClose()
@@ -1312,7 +1314,7 @@ function EditModal({
               {emp?.avatar_url ? <img src={emp.avatar_url} className="w-full h-full object-cover"/> : emp?.first_name_th?.[0]}
             </div>
             <div>
-              <p className="font-black text-slate-800">{emp?.first_name_th} {emp?.last_name_th} {emp?.nickname ? `(${emp.nickname})` : ""}</p>
+              <p className="font-black text-slate-800">{empName(emp)}</p>
               <p className="text-xs text-slate-400">
                 {emp?.employee_code} · {emp?.position?.name || "-"} · {emp?.department?.name || "-"} · {emp?.company?.code || "-"}
                 {Array.isArray(emp?.brand) && emp.brand.length > 0 ? ` · ${emp.brand.join(", ")}` : ""}
@@ -1954,6 +1956,7 @@ async function loadActiveEmployeesPaged(supabase: any, companyId: string, select
 // ── Main Page ──────────────────────────────────────────────────────────
 export default function PayrollPage() {
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   const { user }  = useAuth()
   const supabase  = createClient()
   const isSA      = user?.role === "super_admin" || user?.role === "hr_admin"
@@ -2719,8 +2722,7 @@ export default function PayrollPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <p className="text-sm font-bold text-slate-700 truncate">
-                              {e.first_name_th} {e.last_name_th}
-                              {e.nickname && <span className="text-slate-400 font-normal ml-1">({e.nickname})</span>}
+                              {empName(e)}
                             </p>
                             <span className="text-[10px] text-slate-400 font-normal">{e.employee_code}</span>
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-200">
@@ -2784,8 +2786,7 @@ export default function PayrollPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <p className="text-sm font-bold text-slate-700 truncate">
-                          {e.first_name_th} {e.last_name_th}
-                          {e.nickname && <span className="text-slate-400 font-normal ml-1">({e.nickname})</span>}
+                          {empName(e)}
                         </p>
                         <span className="text-[10px] text-slate-400 font-normal">{e.employee_code}</span>
                         <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-200">
@@ -3069,7 +3070,7 @@ export default function PayrollPage() {
                           })
                         }}
                         className="w-4 h-4 rounded border-slate-300 text-blue-600" />
-                      <span className="text-xs font-bold text-slate-700 flex-1 truncate">{emp.first_name_th} {emp.last_name_th}</span>
+                      <span className="text-xs font-bold text-slate-700 flex-1 truncate">{empName(emp)}</span>
                       <span className="text-[10px] text-slate-400">{emp.employee_code}</span>
                       <span className="text-[10px] text-slate-400">{emp.department?.name || ""}</span>
                       <span className="text-xs font-bold text-blue-700 min-w-[70px] text-right">฿{Math.round(recomputePayroll(applyAutoProrate(r)).net).toLocaleString()}</span>
@@ -3280,8 +3281,7 @@ export default function PayrollPage() {
                         }}
                         className="w-4 h-4 rounded border-slate-300 text-emerald-600" />
                       <span className="text-[11.5px] font-bold text-slate-700 flex-1 truncate">
-                        {emp.first_name_th} {emp.last_name_th}
-                        {emp.nickname && <span className="text-slate-400 font-normal ml-1">({emp.nickname})</span>}
+                        {empName(emp)}
                       </span>
                       <span className="text-[10px] text-slate-400 hidden sm:inline">{emp.employee_code}</span>
                       <span className="text-[10px] text-slate-400 hidden md:inline max-w-[120px] truncate">{emp.department?.name || ""}</span>

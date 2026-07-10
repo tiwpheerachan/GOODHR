@@ -13,6 +13,7 @@ import Link from "next/link"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
 import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 const MONTHS = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
 
@@ -48,6 +49,8 @@ function GradeDonut({ counts, total }: { counts: Record<string, number>; total: 
 
 export default function AdminKpiPage() {
   const { user } = useAuth()
+  const { t } = useLanguage()
+  const empName = useEmployeeName()
   const supabase = createClient()
 
   const [year, setYear] = useState(new Date().getFullYear())
@@ -128,7 +131,7 @@ export default function AdminKpiPage() {
 
   // ── Approve / Reject handlers ──
   const handleApprove = async (formId: string) => {
-    if (!confirm("ยืนยันอนุมัติผลประเมิน KPI นี้?")) return
+    if (!confirm(t("admin.kpi.confirm_approve"))) return
     setActionLoading(true)
     try {
       const res = await fetch("/api/kpi", {
@@ -137,20 +140,20 @@ export default function AdminKpiPage() {
       })
       const data = await res.json()
       if (data.success) {
-        toast.success("อนุมัติสำเร็จ")
+        toast.success(t("admin.kpi.toast_approved"))
         load()
         setExpanded(null)
       } else {
-        toast.error(data.error || "เกิดข้อผิดพลาด")
+        toast.error(data.error || t("admin.kpi.err_generic"))
       }
-    } catch { toast.error("เกิดข้อผิดพลาด") }
+    } catch { toast.error(t("admin.kpi.err_generic")) }
     setActionLoading(false)
   }
 
   // ── Revert (ย้อนสถานะ): approved/rejected → submitted (รออนุมัติ) ──
   const handleRevert = async (formId: string, targetStatus: "submitted" | "draft" = "submitted") => {
-    const targetLabel = targetStatus === "draft" ? "ฉบับร่าง" : "รออนุมัติ"
-    if (!confirm(`ย้อนสถานะฟอร์มนี้กลับเป็น "${targetLabel}"?\n\nหัวหน้าจะแก้ไขและส่งใหม่ได้`)) return
+    const targetLabel = targetStatus === "draft" ? t("admin.kpi.status_draft_pending") : t("admin.kpi.revert_pending")
+    if (!confirm(t("admin.kpi.confirm_revert", { label: targetLabel }))) return
     setActionLoading(true)
     try {
       const res = await fetch("/api/kpi", {
@@ -159,13 +162,13 @@ export default function AdminKpiPage() {
       })
       const data = await res.json()
       if (data.success) {
-        toast.success(`ย้อนสถานะเป็น "${targetLabel}" สำเร็จ`)
+        toast.success(t("admin.kpi.toast_reverted", { label: targetLabel }))
         load()
         setExpanded(null)
       } else {
-        toast.error(data.error || "เกิดข้อผิดพลาด")
+        toast.error(data.error || t("admin.kpi.err_generic"))
       }
-    } catch { toast.error("เกิดข้อผิดพลาด") }
+    } catch { toast.error(t("admin.kpi.err_generic")) }
     setActionLoading(false)
   }
 
@@ -179,15 +182,15 @@ export default function AdminKpiPage() {
       })
       const data = await res.json()
       if (data.success) {
-        toast.success("ส่งคืนสำเร็จ")
+        toast.success(t("admin.kpi.toast_rejected"))
         setShowRejectModal(null)
         setRejectNote("")
         load()
         setExpanded(null)
       } else {
-        toast.error(data.error || "เกิดข้อผิดพลาด")
+        toast.error(data.error || t("admin.kpi.err_generic"))
       }
-    } catch { toast.error("เกิดข้อผิดพลาด") }
+    } catch { toast.error(t("admin.kpi.err_generic")) }
     setActionLoading(false)
   }
 
@@ -240,9 +243,9 @@ export default function AdminKpiPage() {
   const [exportProgress, setExportProgress] = useState(0)
 
   const exportXlsx = async () => {
-    if (filtered.length === 0) { toast.error("ไม่มีข้อมูลให้ export"); return }
+    if (filtered.length === 0) { toast.error(t("admin.kpi.no_data_export")); return }
     setExporting(true); setExportProgress(0)
-    const t = toast.loading(`กำลังโหลดรายละเอียด 0/${filtered.length}...`)
+    const tid = toast.loading(t("admin.kpi.loading_details", { done: 0, total: filtered.length }))
     try {
       // ── โหลด detail ของทุกฟอร์ม (ทีละ 5 พร้อมกัน) เพื่อได้ items ──
       const details: any[] = []
@@ -258,7 +261,7 @@ export default function AdminKpiPage() {
         }))
         details.push(...got)
         setExportProgress(details.length)
-        toast.loading(`กำลังโหลดรายละเอียด ${details.length}/${filtered.length}...`, { id: t })
+        toast.loading(t("admin.kpi.loading_details", { done: details.length, total: filtered.length }), { id: tid })
       }
 
       const XLSX = await import("xlsx")
@@ -351,9 +354,9 @@ export default function AdminKpiPage() {
 
       const fname = `kpi_${year}${month ? `_${String(month).padStart(2, "0")}` : ""}_${format(new Date(), "yyyyMMdd_HHmm")}.xlsx`
       XLSX.writeFile(wb, fname)
-      toast.success(`Export สำเร็จ ${summary.length} คน (${itemRows.length} หัวข้อ)`, { id: t })
+      toast.success(t("admin.kpi.export_success", { n: summary.length, items: itemRows.length }), { id: tid })
     } catch (e: any) {
-      toast.error(e.message || "Export ไม่สำเร็จ", { id: t })
+      toast.error(e.message || t("admin.kpi.export_failed"), { id: tid })
     } finally {
       setExporting(false); setExportProgress(0)
     }
@@ -366,23 +369,23 @@ export default function AdminKpiPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Target size={20} className="text-indigo-600" />
-            <h1 className="text-xl font-black text-slate-800">ผลประเมิน KPI</h1>
+            <h1 className="text-xl font-black text-slate-800">{t("admin.kpi.title")}</h1>
           </div>
-          <p className="text-sm text-slate-400">ดูและวิเคราะห์ผลประเมินพนักงานทุกคน</p>
+          <p className="text-sm text-slate-400">{t("admin.kpi.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <FeishuSyncButton dataset="kpi" variant="subtle"/>
           {activeFilters > 0 && (
             <button onClick={() => { setSearch(""); setGradeFilter(""); setDeptFilter(""); setEvaluatorFilter(""); setStatusFilter("") }}
               className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl hover:bg-indigo-100 transition-colors">
-              ล้างตัวกรอง ({activeFilters})
+              {t("admin.kpi.clear_filters", { n: activeFilters })}
             </button>
           )}
           <button onClick={exportXlsx} disabled={exporting || filtered.length === 0}
-            title={filtered.length === 0 ? "ไม่มีข้อมูลให้ export" : `Export ${filtered.length} คน เป็น xlsx`}
+            title={filtered.length === 0 ? t("admin.kpi.no_data_export") : t("admin.kpi.export_title", { n: filtered.length })}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 shadow-sm transition-all">
             {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-            {exporting ? `กำลัง Export ${exportProgress}/${filtered.length}` : `Export Excel (${filtered.length})`}
+            {exporting ? t("admin.kpi.exporting_progress", { done: exportProgress, total: filtered.length }) : t("admin.kpi.export_excel", { n: filtered.length })}
           </button>
         </div>
       </div>
@@ -393,7 +396,7 @@ export default function AdminKpiPage() {
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
             mainTab === "evaluated" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
           }`}>
-          <Target size={14} /> ผลประเมิน
+          <Target size={14} /> {t("admin.kpi.tab_evaluated")}
           {forms.length > 0 && (
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${mainTab === "evaluated" ? "bg-indigo-100 text-indigo-700" : "bg-slate-200 text-slate-500"}`}>
               {forms.length}
@@ -404,7 +407,7 @@ export default function AdminKpiPage() {
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
             mainTab === "pending" ? "bg-white text-amber-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
           }`}>
-          <AlertCircle size={14} /> ยังไม่ได้ประเมิน
+          <AlertCircle size={14} /> {t("admin.kpi.tab_pending")}
           {pendingEmps.length > 0 && (
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${mainTab === "pending" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-600"}`}>
               {pendingEmps.length}
@@ -419,35 +422,35 @@ export default function AdminKpiPage() {
           {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
         </select>
         <select value={month ?? ""} onChange={e => setMonth(e.target.value ? Number(e.target.value) : null)} className={inp}>
-          <option value="">ทุกเดือน</option>
+          <option value="">{t("admin.kpi.all_months")}</option>
           {MONTHS.slice(1).map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
         </select>
         {companies.length > 1 && (
           <select value={companyFilter} onChange={e => setCompanyFilter(e.target.value)} className={inp}>
-            <option value="">ทุกบริษัท</option>
+            <option value="">{t("admin.kpi.all_companies")}</option>
             {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
           </select>
         )}
         {departments.length > 0 && (
           <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} className={inp}>
-            <option value="">ทุกแผนก</option>
+            <option value="">{t("admin.kpi.all_departments")}</option>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
         )}
         <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)} className={inp}>
-          <option value="">ทุกเกรด</option>
-          {["A", "B", "C", "D"].map(g => <option key={g} value={g}>เกรด {g}</option>)}
+          <option value="">{t("admin.kpi.all_grades")}</option>
+          {["A", "B", "C", "D"].map(g => <option key={g} value={g}>{t("admin.kpi.grade_label", { g })}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={inp}>
-          <option value="">ทุกสถานะ</option>
-          <option value="submitted">รอ HR อนุมัติ</option>
-          <option value="approved">อนุมัติแล้ว</option>
-          <option value="rejected">ส่งคืน</option>
-          <option value="draft">แบบร่าง</option>
+          <option value="">{t("admin.kpi.all_statuses")}</option>
+          <option value="submitted">{t("admin.kpi.status_submitted")}</option>
+          <option value="approved">{t("admin.kpi.status_approved")}</option>
+          <option value="rejected">{t("admin.kpi.status_rejected")}</option>
+          <option value="draft">{t("admin.kpi.status_draft")}</option>
         </select>
         {evaluators.length > 0 && (
           <select value={evaluatorFilter} onChange={e => setEvaluatorFilter(e.target.value)} className={inp}>
-            <option value="">ทุกผู้ประเมิน</option>
+            <option value="">{t("admin.kpi.all_evaluators")}</option>
             {evaluators.map(ev => <option key={ev} value={ev!}>{ev}</option>)}
           </select>
         )}
@@ -455,7 +458,7 @@ export default function AdminKpiPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="ค้นหาชื่อ / รหัส..."
+            placeholder={t("admin.kpi.search_placeholder")}
             className={`${inp} pl-9 w-full`}
           />
         </div>
@@ -466,7 +469,7 @@ export default function AdminKpiPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Grade Overview */}
         <div className="bg-white rounded-2xl border border-slate-100 p-5">
-          <p className="text-xs font-bold text-slate-400 mb-3">สัดส่วนเกรด</p>
+          <p className="text-xs font-bold text-slate-400 mb-3">{t("admin.kpi.grade_ratio")}</p>
           <div className="flex items-center gap-4">
             <GradeDonut counts={gradeCount} total={filtered.length} />
             <div className="flex-1 space-y-1.5">
@@ -489,30 +492,30 @@ export default function AdminKpiPage() {
 
         {/* Score Summary */}
         <div className="bg-white rounded-2xl border border-slate-100 p-5">
-          <p className="text-xs font-bold text-slate-400 mb-3">สรุปคะแนน</p>
+          <p className="text-xs font-bold text-slate-400 mb-3">{t("admin.kpi.score_summary")}</p>
           <div className="space-y-3">
             <div className="flex items-baseline justify-between">
-              <span className="text-sm text-slate-500">คะแนนเฉลี่ย</span>
+              <span className="text-sm text-slate-500">{t("admin.kpi.avg_score")}</span>
               <span className="text-2xl font-black text-slate-800">{avgScore.toFixed(1)}%</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">ทั้งหมด</span>
-              <span className="text-sm font-black text-slate-700">{filtered.length} ฟอร์ม</span>
+              <span className="text-sm text-slate-500">{t("admin.kpi.total")}</span>
+              <span className="text-sm font-black text-slate-700">{t("admin.kpi.forms_count", { n: filtered.length })}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">รอ HR อนุมัติ</span>
+              <span className="text-sm text-slate-500">{t("admin.kpi.status_submitted")}</span>
               <span className="text-sm font-bold text-amber-600">{pendingCount}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">อนุมัติแล้ว</span>
+              <span className="text-sm text-slate-500">{t("admin.kpi.status_approved")}</span>
               <span className="text-sm font-bold text-emerald-600">{approvedCount}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">ส่งคืน</span>
+              <span className="text-sm text-slate-500">{t("admin.kpi.status_rejected")}</span>
               <span className="text-sm font-bold text-red-500">{rejectedCount}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">แบบร่าง</span>
+              <span className="text-sm text-slate-500">{t("admin.kpi.status_draft")}</span>
               <span className="text-sm font-bold text-slate-400">{draftCount}</span>
             </div>
           </div>
@@ -522,10 +525,10 @@ export default function AdminKpiPage() {
         <div className="bg-white rounded-2xl border border-slate-100 p-5">
           <p className="text-xs font-bold text-slate-400 mb-3">
             <Building2 size={12} className="inline mr-1" />
-            คะแนนเฉลี่ยตามแผนก
+            {t("admin.kpi.dept_avg_title")}
           </p>
           {deptAvgList.length === 0 ? (
-            <p className="text-xs text-slate-300 py-6 text-center">ยังไม่มีข้อมูล</p>
+            <p className="text-xs text-slate-300 py-6 text-center">{t("admin.kpi.no_data_yet")}</p>
           ) : (
             <div className="space-y-2.5">
               {deptAvgList.slice(0, 5).map((d, i) => (
@@ -534,7 +537,7 @@ export default function AdminKpiPage() {
                     i === 0 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"
                   }`}>{i + 1}</span>
                   <span className="flex-1 text-sm text-slate-700 truncate">{d.name}</span>
-                  <span className="text-xs text-slate-400">{d.count} คน</span>
+                  <span className="text-xs text-slate-400">{d.count} {t("admin.kpi.people_unit")}</span>
                   <span className={`text-sm font-black ${d.avg >= 81 ? "text-emerald-600" : d.avg >= 71 ? "text-amber-600" : "text-red-500"}`}>
                     {d.avg.toFixed(1)}%
                   </span>
@@ -554,9 +557,9 @@ export default function AdminKpiPage() {
             <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex items-start gap-2.5">
               <AlertCircle size={16} className="text-indigo-600 mt-0.5 flex-shrink-0" />
               <div>
-                <p className="text-sm font-bold text-indigo-800">เลือก "เดือน" ก่อน</p>
+                <p className="text-sm font-bold text-indigo-800">{t("admin.kpi.pick_month_title")}</p>
                 <p className="text-xs text-indigo-700 mt-0.5">
-                  เลือกเดือนจากตัวกรองด้านบน (ในแท็บ "ผลประเมิน") เพื่อดูพนักงานที่ยังไม่ได้รับการประเมิน KPI ในรอบนั้น
+                  {t("admin.kpi.pick_month_desc")}
                 </p>
               </div>
             </div>
@@ -597,7 +600,7 @@ export default function AdminKpiPage() {
         const pActiveFilters = pStatusFilter.size + (pDeptFilter ? 1 : 0) + (pPosFilter ? 1 : 0) + (pMgrFilter ? 1 : 0) + (pSearch ? 1 : 0) + (pCompanyFilter ? 1 : 0)
 
         const exportPending = async () => {
-          if (pFiltered.length === 0) { toast.error("ไม่มีข้อมูลให้ export"); return }
+          if (pFiltered.length === 0) { toast.error(t("admin.kpi.no_data_export")); return }
           try {
             const XLSX = await import("xlsx")
             const rows = pFiltered.map((p: any, idx: number) => ({
@@ -619,8 +622,8 @@ export default function AdminKpiPage() {
             XLSX.utils.book_append_sheet(wb, ws, "ยังไม่ได้ประเมิน")
             const fname = `kpi_pending_${MONTHS[month]}${year + 543}_${format(new Date(), "yyyyMMdd_HHmm")}.xlsx`
             XLSX.writeFile(wb, fname)
-            toast.success(`Export สำเร็จ ${rows.length} คน`)
-          } catch (e: any) { toast.error(e.message || "Export ไม่สำเร็จ") }
+            toast.success(t("admin.kpi.export_success_people", { n: rows.length }))
+          } catch (e: any) { toast.error(e.message || t("admin.kpi.export_failed")) }
         }
 
         return (
@@ -628,19 +631,19 @@ export default function AdminKpiPage() {
             {/* Summary cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="bg-white rounded-2xl border border-slate-100 p-4">
-                <p className="text-xs font-bold text-slate-400">ทั้งหมดที่ค้าง</p>
-                <p className="text-2xl font-black text-slate-800 mt-1">{pendingEmps.length} <span className="text-xs font-bold text-slate-400">คน</span></p>
+                <p className="text-xs font-bold text-slate-400">{t("admin.kpi.pending_total")}</p>
+                <p className="text-2xl font-black text-slate-800 mt-1">{pendingEmps.length} <span className="text-xs font-bold text-slate-400">{t("admin.kpi.people_unit")}</span></p>
               </div>
               <div className="bg-white rounded-2xl border-2 border-rose-100 p-4">
-                <p className="text-xs font-bold text-rose-600">ยังไม่เริ่ม</p>
+                <p className="text-xs font-bold text-rose-600">{t("admin.kpi.status_not_started")}</p>
                 <p className="text-2xl font-black text-rose-700 mt-1">{ns}</p>
               </div>
               <div className="bg-white rounded-2xl border-2 border-slate-200 p-4">
-                <p className="text-xs font-bold text-slate-500">ฉบับร่าง</p>
+                <p className="text-xs font-bold text-slate-500">{t("admin.kpi.status_draft_pending")}</p>
                 <p className="text-2xl font-black text-slate-700 mt-1">{dr}</p>
               </div>
               <div className="bg-white rounded-2xl border-2 border-orange-100 p-4">
-                <p className="text-xs font-bold text-orange-600">ถูกส่งคืน</p>
+                <p className="text-xs font-bold text-orange-600">{t("admin.kpi.status_returned")}</p>
                 <p className="text-2xl font-black text-orange-700 mt-1">{rj}</p>
               </div>
             </div>
@@ -649,18 +652,18 @@ export default function AdminKpiPage() {
             <div className="bg-white rounded-2xl border border-slate-100 p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-bold text-slate-500 flex items-center gap-1">
-                  <Filter size={12} /> ตัวกรอง · รอบ {MONTHS[month]} {year + 543}
+                  <Filter size={12} /> {t("admin.kpi.filters_round", { month: MONTHS[month], year: year + 543 })}
                 </p>
                 <div className="flex items-center gap-2">
                   {pActiveFilters > 0 && (
                     <button onClick={() => {
                       setPStatusFilter(new Set()); setPDeptFilter(""); setPPosFilter("")
                       setPMgrFilter(""); setPSearch(""); setPCompanyFilter("")
-                    }} className="text-[11px] font-bold text-indigo-600 hover:underline">ล้าง ({pActiveFilters})</button>
+                    }} className="text-[11px] font-bold text-indigo-600 hover:underline">{t("admin.kpi.clear_short", { n: pActiveFilters })}</button>
                   )}
                   <button onClick={exportPending} disabled={pFiltered.length === 0}
                     className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold hover:bg-emerald-100 disabled:opacity-50">
-                    <Download size={11} /> Export ({pFiltered.length})
+                    <Download size={11} /> {t("admin.kpi.export_short", { n: pFiltered.length })}
                   </button>
                 </div>
               </div>
@@ -668,9 +671,9 @@ export default function AdminKpiPage() {
               {/* Status pills (multi-select) */}
               <div className="flex flex-wrap gap-1.5">
                 {([
-                  { k: "not_started", l: "ยังไม่เริ่ม", c: "rose",   n: ns },
-                  { k: "draft",       l: "ฉบับร่าง",   c: "slate",  n: dr },
-                  { k: "rejected",    l: "ถูกส่งคืน",  c: "orange", n: rj },
+                  { k: "not_started", l: t("admin.kpi.status_not_started"), c: "rose",   n: ns },
+                  { k: "draft",       l: t("admin.kpi.status_draft_pending"), c: "slate",  n: dr },
+                  { k: "rejected",    l: t("admin.kpi.status_returned"),  c: "orange", n: rj },
                 ] as const).map(s => {
                   const on = pStatusFilter.has(s.k)
                   const colorOn = s.c === "rose" ? "bg-rose-500 border-rose-500 text-white"
@@ -689,31 +692,31 @@ export default function AdminKpiPage() {
               <div className="flex flex-wrap gap-2">
                 {companies.length > 1 && (
                   <select value={pCompanyFilter} onChange={e => setPCompanyFilter(e.target.value)} className={inp}>
-                    <option value="">ทุกบริษัท</option>
+                    <option value="">{t("admin.kpi.all_companies")}</option>
                     {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
                   </select>
                 )}
                 <select value={pDeptFilter} onChange={e => setPDeptFilter(e.target.value)} className={inp}>
-                  <option value="">ทุกแผนก</option>
+                  <option value="">{t("admin.kpi.all_departments")}</option>
                   {pDepts.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
                 <select value={pPosFilter} onChange={e => setPPosFilter(e.target.value)} className={inp}>
-                  <option value="">ทุกตำแหน่ง</option>
+                  <option value="">{t("admin.kpi.all_positions")}</option>
                   {pPositions.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
                 <select value={pMgrFilter} onChange={e => setPMgrFilter(e.target.value)} className={inp}>
-                  <option value="">ทุกหัวหน้า</option>
+                  <option value="">{t("admin.kpi.all_managers")}</option>
                   {pMgrs.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
                 <div className="relative flex-1 min-w-[200px]">
                   <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input value={pSearch} onChange={e => setPSearch(e.target.value)}
-                    placeholder="ค้นหาชื่อ / รหัส / ชื่อเล่น..."
+                    placeholder={t("admin.kpi.search_placeholder_nick")}
                     className={`${inp} pl-9 w-full`} />
                 </div>
               </div>
               <p className="text-[11px] text-slate-400">
-                แสดง <span className="font-bold text-slate-700">{pFiltered.length}</span> จาก <span className="font-bold">{pendingEmps.length}</span> คน
+                {t("admin.kpi.showing_count", { shown: pFiltered.length, total: pendingEmps.length })}
               </p>
             </div>
 
@@ -724,19 +727,19 @@ export default function AdminKpiPage() {
               <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center">
                 <CheckCircle2 size={36} className="text-emerald-300 mx-auto mb-3" />
                 <p className="text-sm font-bold text-slate-600">
-                  {pendingEmps.length === 0 ? `ไม่มีคนค้างประเมิน KPI ในรอบ ${MONTHS[month]} ${year + 543}` : "ไม่พบจากตัวกรอง"}
+                  {pendingEmps.length === 0 ? t("admin.kpi.no_pending_round", { month: MONTHS[month], year: year + 543 }) : t("admin.kpi.no_match_filter")}
                 </p>
                 {pendingEmps.length === 0 && (
-                  <p className="text-xs text-slate-400 mt-1">หัวหน้าทุกคนได้ประเมินครบและส่งให้ HR แล้ว</p>
+                  <p className="text-xs text-slate-400 mt-1">{t("admin.kpi.all_evaluated_desc")}</p>
                 )}
               </div>
             ) : (
               <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden divide-y divide-slate-50">
                 {pFiltered.map((p: any) => {
                   const stCfg =
-                    p.pending_status === "not_started" ? { label: "ยังไม่เริ่ม",   cls: "bg-rose-50 text-rose-700 border-rose-200",   icon: <XCircle size={11} /> } :
-                    p.pending_status === "draft"       ? { label: "ฉบับร่าง",      cls: "bg-slate-50 text-slate-600 border-slate-200", icon: <FileText size={11} /> } :
-                    p.pending_status === "rejected"    ? { label: "ถูกส่งคืน",     cls: "bg-orange-50 text-orange-700 border-orange-200", icon: <AlertCircle size={11} /> } :
+                    p.pending_status === "not_started" ? { label: t("admin.kpi.status_not_started"),   cls: "bg-rose-50 text-rose-700 border-rose-200",   icon: <XCircle size={11} /> } :
+                    p.pending_status === "draft"       ? { label: t("admin.kpi.status_draft_pending"),      cls: "bg-slate-50 text-slate-600 border-slate-200", icon: <FileText size={11} /> } :
+                    p.pending_status === "rejected"    ? { label: t("admin.kpi.status_returned"),     cls: "bg-orange-50 text-orange-700 border-orange-200", icon: <AlertCircle size={11} /> } :
                                                          { label: p.pending_status, cls: "bg-slate-50 text-slate-500 border-slate-200", icon: <Clock size={11} /> }
                   return (
                     <div key={p.id} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50/60 transition-colors">
@@ -749,18 +752,16 @@ export default function AdminKpiPage() {
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-slate-800 truncate">
-                          {p.first_name_th} {p.last_name_th}
-                          {p.nickname && <span className="text-slate-400 font-normal ml-1">({p.nickname})</span>}
+                          {empName(p)}
                           <span className="text-[10px] text-slate-400 font-normal ml-1.5">{p.employee_code}</span>
                         </p>
                         <p className="text-[11px] text-slate-500 truncate">
                           {p.position?.name || "—"} · {p.department?.name || "—"}
                           {p.direct_manager && (
                             <span className="text-slate-400">
-                              {" · หัวหน้า: "}
+                              {" · " + t("admin.kpi.manager_label") + ": "}
                               <span className="text-indigo-600 font-semibold">
-                                {p.direct_manager.first_name_th} {p.direct_manager.last_name_th}
-                                {p.direct_manager.nickname && ` (${p.direct_manager.nickname})`}
+                                {empName(p.direct_manager)}
                               </span>
                             </span>
                           )}
@@ -768,7 +769,7 @@ export default function AdminKpiPage() {
                       </div>
                       {p.standard_amount > 0 && (
                         <div className="text-right shrink-0 hidden md:block">
-                          <p className="text-[10px] text-slate-400">ฐาน KPI</p>
+                          <p className="text-[10px] text-slate-400">{t("admin.kpi.kpi_base")}</p>
                           <p className="text-xs font-bold text-slate-700">฿{p.standard_amount.toLocaleString()}</p>
                         </div>
                       )}
@@ -792,16 +793,16 @@ export default function AdminKpiPage() {
       ) : filtered.length === 0 ? (
         <div className="text-center py-12">
           <Award size={32} className="text-slate-200 mx-auto mb-3" />
-          <p className="text-slate-400 text-sm">ไม่พบข้อมูล KPI</p>
+          <p className="text-slate-400 text-sm">{t("admin.kpi.no_kpi_data")}</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
           {/* Bulk approve bar */}
           {pendingCount > 0 && (
             <div className="flex items-center justify-between px-4 py-3 bg-amber-50 border-b border-amber-100">
-              <p className="text-sm font-bold text-amber-700">มี {pendingCount} รายการรอ HR อนุมัติ</p>
+              <p className="text-sm font-bold text-amber-700">{t("admin.kpi.bulk_pending", { n: pendingCount })}</p>
               <button onClick={async () => {
-                if (!confirm(`อนุมัติทั้งหมด ${pendingCount} รายการ?`)) return
+                if (!confirm(t("admin.kpi.confirm_approve_all", { n: pendingCount }))) return
                 setActionLoading(true)
                 const pending = filtered.filter(f => f.status === "submitted")
                 let ok = 0
@@ -812,25 +813,25 @@ export default function AdminKpiPage() {
                     if (d.success) ok++
                   } catch {}
                 }
-                toast.success(`อนุมัติสำเร็จ ${ok} รายการ`)
+                toast.success(t("admin.kpi.toast_approved_n", { n: ok }))
                 setActionLoading(false)
                 load()
               }} disabled={actionLoading}
                 className="text-xs font-bold bg-emerald-600 text-white px-4 py-2 rounded-xl hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5">
-                <CheckCircle2 size={14} /> อนุมัติทั้งหมด
+                <CheckCircle2 size={14} /> {t("admin.kpi.approve_all")}
               </button>
             </div>
           )}
 
           {/* Table header */}
           <div className="hidden lg:grid grid-cols-[2fr_1fr_0.7fr_0.7fr_0.5fr_0.7fr_320px_40px] gap-3 px-4 pr-6 py-3 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500">
-            <span>พนักงาน</span>
-            <span>แผนก</span>
-            <span>เดือน</span>
-            <span>คะแนน</span>
-            <span>เกรด</span>
-            <span>ผู้ประเมิน</span>
-            <span>สถานะ</span>
+            <span>{t("admin.kpi.col_employee")}</span>
+            <span>{t("admin.kpi.col_department")}</span>
+            <span>{t("admin.kpi.col_month")}</span>
+            <span>{t("admin.kpi.col_score")}</span>
+            <span>{t("admin.kpi.col_grade")}</span>
+            <span>{t("admin.kpi.col_evaluator")}</span>
+            <span>{t("admin.kpi.col_status")}</span>
             <span></span>
           </div>
 
@@ -851,7 +852,7 @@ export default function AdminKpiPage() {
                         : <span className="text-indigo-600 text-sm font-bold">{emp?.first_name_th?.[0]}</span>}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-800 truncate">{emp?.first_name_th} {emp?.last_name_th}</p>
+                      <p className="text-sm font-bold text-slate-800 truncate">{empName(emp)}</p>
                       <p className="text-xs text-slate-400">{emp?.employee_code} · {emp?.position?.name}</p>
                     </div>
                   </div>
@@ -865,10 +866,10 @@ export default function AdminKpiPage() {
                       {form.evaluation_type === "money_only" ? "฿" : (form.grade ?? "-")}
                     </span>
                     {form.evaluation_type === "money_only" && (
-                      <span className="text-[9px] font-bold text-emerald-600 whitespace-nowrap">หัวหน้าใส่เงิน</span>
+                      <span className="text-[9px] font-bold text-emerald-600 whitespace-nowrap">{t("admin.kpi.tag_money_manual")}</span>
                     )}
                     {form.evaluation_type === "grade_incentive" && (
-                      <span className="text-[9px] font-bold text-amber-600 whitespace-nowrap">เกรด→เงิน</span>
+                      <span className="text-[9px] font-bold text-amber-600 whitespace-nowrap">{t("admin.kpi.tag_grade_money")}</span>
                     )}
                     {((Number(form.incentive_amount) || 0) + (Number(form.bonus_amount) || 0)) > 0 && (
                       <span className="text-[10px] font-bold text-indigo-600 whitespace-nowrap">
@@ -878,23 +879,23 @@ export default function AdminKpiPage() {
                   </div>
                   <div className="text-xs hidden lg:block min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
-                      <span className="text-slate-700 font-medium truncate">{form.evaluator?.first_name_th} {form.evaluator?.last_name_th}</span>
+                      <span className="text-slate-700 font-medium truncate">{empName(form.evaluator)}</span>
                       {form.evaluator_role === "skip_level" && (
-                        <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded whitespace-nowrap">ระดับสูง</span>
+                        <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded whitespace-nowrap">{t("admin.kpi.role_skip_level_short")}</span>
                       )}
                       {form.evaluator_role === "additional" && (
-                        <span className="text-[9px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded whitespace-nowrap">เพิ่มเติม</span>
+                        <span className="text-[9px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded whitespace-nowrap">{t("admin.kpi.role_additional_short")}</span>
                       )}
                       {form.evaluator_role === "hr_admin" && (
                         <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded whitespace-nowrap">HR</span>
                       )}
                       {form.evaluator_role === "direct_manager" && (
-                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded whitespace-nowrap">หัวหน้าตรง</span>
+                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded whitespace-nowrap">{t("admin.kpi.role_direct_manager")}</span>
                       )}
                     </div>
                     {form.direct_manager && form.evaluator?.first_name_th !== form.direct_manager?.first_name_th && (
                       <div className="text-[10px] text-slate-400 mt-0.5 truncate">
-                        หัวหน้าตรง: {form.direct_manager.first_name_th} {form.direct_manager.last_name_th}
+                        {t("admin.kpi.role_direct_manager")}: {empName(form.direct_manager)}
                       </div>
                     )}
                     {form.submitted_at && (
@@ -907,25 +908,25 @@ export default function AdminKpiPage() {
                   <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
                     {/* ── ปุ่ม "ดูฟอร์ม" — เปิดดูได้ทุก status (read-only) ── */}
                     <button onClick={() => loadDetail(form.id)}
-                      title="เปิด/ปิด ดูฟอร์มเต็มที่หัวหน้าประเมิน"
+                      title={t("admin.kpi.btn_view_form_title")}
                       className="text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg border border-slate-200 flex items-center gap-1">
-                      <Eye size={11} /> {isOpen ? "ซ่อน" : "ดูฟอร์ม"}
+                      <Eye size={11} /> {isOpen ? t("admin.kpi.btn_hide") : t("admin.kpi.btn_view_form")}
                     </button>
 
                     {form.status === "submitted" ? (
                       <>
                         <button onClick={() => handleApprove(form.id)} disabled={actionLoading}
                           className="text-[11px] font-bold bg-emerald-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-emerald-700 disabled:opacity-50">
-                          ✓ อนุมัติ
+                          ✓ {t("admin.kpi.approve")}
                         </button>
                         <button onClick={() => { setShowRejectModal(form.id); setRejectNote("") }} disabled={actionLoading}
                           className="text-[11px] font-bold text-red-600 bg-red-50 px-2.5 py-1.5 rounded-lg hover:bg-red-100 border border-red-200 disabled:opacity-50">
-                          ส่งคืน
+                          {t("admin.kpi.status_rejected")}
                         </button>
                         <Link href={`/manager/kpi/${form.employee_id}?year=${form.year}&month=${form.month}`}
-                          title="แก้ไขคะแนน/หัวข้อ"
+                          title={t("admin.kpi.btn_edit_title")}
                           className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 border border-indigo-200 flex items-center gap-1">
-                          <Pencil size={10} /> แก้ไข
+                          <Pencil size={10} /> {t("admin.kpi.btn_edit")}
                         </Link>
                       </>
                     ) : (form.status === "approved" || form.status === "rejected" || form.status === "acknowledged") ? (
@@ -935,32 +936,32 @@ export default function AdminKpiPage() {
                           form.status === "acknowledged" ? "text-emerald-600" :
                           "text-red-500"
                         }`}>
-                          {form.status === "approved" ? "✓ อนุมัติแล้ว" :
-                           form.status === "acknowledged" ? "✓ รับทราบแล้ว" : "✗ ส่งคืน"}
+                          {form.status === "approved" ? `✓ ${t("admin.kpi.status_approved")}` :
+                           form.status === "acknowledged" ? `✓ ${t("admin.kpi.status_acknowledged")}` : `✗ ${t("admin.kpi.status_rejected")}`}
                         </span>
                         <button onClick={() => handleRevert(form.id, "submitted")} disabled={actionLoading}
-                          title="ย้อนกลับเป็น 'รออนุมัติ' เพื่อให้หัวหน้าแก้ไขและส่งใหม่"
+                          title={t("admin.kpi.btn_revert_title")}
                           className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg hover:bg-amber-100 border border-amber-200 disabled:opacity-50 flex items-center gap-1">
-                          ↶ ย้อนสถานะ
+                          ↶ {t("admin.kpi.btn_revert")}
                         </button>
                         <Link href={`/manager/kpi/${form.employee_id}?year=${form.year}&month=${form.month}`}
-                          title="แก้ไขคะแนน/หัวข้อ — หลังแก้แล้วต้องอนุมัติใหม่"
+                          title={t("admin.kpi.btn_edit_title2")}
                           className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 border border-indigo-200 flex items-center gap-1">
-                          <Pencil size={10} /> แก้ไข
+                          <Pencil size={10} /> {t("admin.kpi.btn_edit")}
                         </Link>
                       </>
                     ) : (
                       <>
-                        <span className="text-xs font-bold text-slate-400">📝 ร่าง</span>
+                        <span className="text-xs font-bold text-slate-400">📝 {t("admin.kpi.draft_short")}</span>
                         <Link href={`/manager/kpi/${form.employee_id}?year=${form.year}&month=${form.month}`}
-                          title="แก้ไขฉบับร่าง"
+                          title={t("admin.kpi.btn_edit_draft_title")}
                           className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 border border-indigo-200 flex items-center gap-1">
-                          <Pencil size={10} /> แก้ไข
+                          <Pencil size={10} /> {t("admin.kpi.btn_edit")}
                         </Link>
                       </>
                     )}
                   </div>
-                  <button onClick={() => loadDetail(form.id)} className="shrink-0" title="กดเพื่อขยาย/ย่อ">
+                  <button onClick={() => loadDetail(form.id)} className="shrink-0" title={t("admin.kpi.btn_expand_title")}>
                     {isOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
                   </button>
                 </div>
@@ -974,32 +975,32 @@ export default function AdminKpiPage() {
                       <div className="bg-slate-50 rounded-xl p-4 space-y-3">
                         {/* ── สรุปสายผู้ประเมิน ── */}
                         <div className="bg-white rounded-xl p-3 space-y-1.5 border border-slate-100">
-                          <p className="text-[10px] font-bold text-slate-500 mb-1">สายผู้ประเมิน</p>
+                          <p className="text-[10px] font-bold text-slate-500 mb-1">{t("admin.kpi.eval_chain")}</p>
                           <div className="flex items-center gap-2 flex-wrap text-xs">
                             <Eye size={12} className="text-slate-400"/>
-                            <span className="text-slate-500">ประเมินโดย</span>
-                            <span className="font-bold text-slate-800">{detail?.evaluator?.first_name_th} {detail?.evaluator?.last_name_th}</span>
+                            <span className="text-slate-500">{t("admin.kpi.evaluated_by")}</span>
+                            <span className="font-bold text-slate-800">{empName(detail?.evaluator)}</span>
                             {form.evaluator_role === "skip_level" && (
-                              <span className="text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded">หัวหน้าระดับสูง (skip-level)</span>
+                              <span className="text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded">{t("admin.kpi.role_skip_level_full")}</span>
                             )}
                             {form.evaluator_role === "additional" && (
-                              <span className="text-[9px] font-bold text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded">ผู้ประเมินเพิ่มเติม</span>
+                              <span className="text-[9px] font-bold text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded">{t("admin.kpi.role_additional_full")}</span>
                             )}
                             {form.evaluator_role === "hr_admin" && (
                               <span className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded">HR</span>
                             )}
                             {form.evaluator_role === "direct_manager" && (
-                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">หัวหน้าตรง</span>
+                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">{t("admin.kpi.role_direct_manager")}</span>
                             )}
                           </div>
                           {detail?.submitted_at && (
                             <p className="text-[11px] text-slate-400">
-                              ส่งประเมินเมื่อ: {format(new Date(detail.submitted_at), "d MMM yyyy HH:mm", { locale: th })} น.
+                              {t("admin.kpi.submitted_at", { date: format(new Date(detail.submitted_at), "d MMM yyyy HH:mm", { locale: th }) })}
                             </p>
                           )}
                           {detail?.approved_at && (
                             <p className="text-[11px] text-emerald-600">
-                              HR อนุมัติเมื่อ: {format(new Date(detail.approved_at), "d MMM yyyy HH:mm", { locale: th })} น.
+                              {t("admin.kpi.approved_at", { date: format(new Date(detail.approved_at), "d MMM yyyy HH:mm", { locale: th }) })}
                             </p>
                           )}
                           {/* หัวหน้าตรงปัจจุบัน (ถ้าต่างจากผู้ประเมิน — แสดงให้ตรวจสอบ) */}
@@ -1008,8 +1009,8 @@ export default function AdminKpiPage() {
                             form.direct_manager.last_name_th !== detail?.evaluator?.last_name_th
                           ) && (
                             <p className="text-[11px] text-slate-500">
-                              <span className="font-bold">หัวหน้าตรงปัจจุบัน:</span> {form.direct_manager.first_name_th} {form.direct_manager.last_name_th}
-                              <span className="text-amber-600 ml-1">⚠️ (ไม่ใช่คนเดียวกับผู้ประเมิน)</span>
+                              <span className="font-bold">{t("admin.kpi.current_direct_manager")}</span> {empName(form.direct_manager)}
+                              <span className="text-amber-600 ml-1">{t("admin.kpi.not_same_evaluator")}</span>
                             </p>
                           )}
                         </div>
@@ -1020,13 +1021,13 @@ export default function AdminKpiPage() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                   <p className="text-sm font-bold text-slate-800">{item.category}</p>
-                                  {item.is_mandatory && <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">บังคับ</span>}
+                                  {item.is_mandatory && <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{t("admin.kpi.mandatory")}</span>}
                                 </div>
                                 {item.description && <ExpandableText text={item.description} />}
                                 <div className="flex items-center gap-2 mt-2 flex-wrap">
-                                  <span className="text-[10px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-md">น้ำหนัก {item.weight_pct}%</span>
-                                  <span className="text-[10px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-md">คะแนน {item.actual_score}/100</span>
-                                  <span className="text-[10px] bg-indigo-50 text-indigo-600 font-bold px-2 py-0.5 rounded-md">ได้ {item.weighted_score?.toFixed(1)}</span>
+                                  <span className="text-[10px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-md">{t("admin.kpi.weight_pct", { n: item.weight_pct })}</span>
+                                  <span className="text-[10px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-md">{t("admin.kpi.score_of_100", { n: item.actual_score })}</span>
+                                  <span className="text-[10px] bg-indigo-50 text-indigo-600 font-bold px-2 py-0.5 rounded-md">{t("admin.kpi.weighted_got", { n: item.weighted_score?.toFixed(1) })}</span>
                                 </div>
                                 {item.comment && (
                                   <p className="text-xs text-slate-400 italic mt-1.5 flex items-start gap-1">
@@ -1040,26 +1041,26 @@ export default function AdminKpiPage() {
                         {/* ── เงินรางวัล + ค่าผลงาน (ถ้ามี) ── */}
                         {(detail?.evaluation_type === "money_only" || detail?.evaluation_type === "grade_incentive" || (Number(detail?.bonus_amount) || 0) > 0) && (
                           <div className="bg-white rounded-xl p-3 space-y-1.5">
-                            <p className="text-xs font-bold text-slate-500 mb-1">เงินรางวัล KPI</p>
+                            <p className="text-xs font-bold text-slate-500 mb-1">{t("admin.kpi.kpi_incentive_title")}</p>
                             <div className="grid grid-cols-2 gap-2 text-sm">
                               {Number(detail?.incentive_amount) > 0 && (
                                 <div className="bg-emerald-50 rounded-lg px-3 py-2">
                                   <p className="text-[10px] text-emerald-600 font-bold">
-                                    {detail?.evaluation_type === "money_only" ? "หัวหน้าใส่เงินเอง" : "ตามเกรด"}
+                                    {detail?.evaluation_type === "money_only" ? t("admin.kpi.money_manual_full") : t("admin.kpi.by_grade")}
                                   </p>
                                   <p className="text-lg font-black text-emerald-700">{Number(detail.incentive_amount).toLocaleString()} ฿</p>
                                 </div>
                               )}
                               {Number(detail?.bonus_amount) > 0 && (
                                 <div className="bg-amber-50 rounded-lg px-3 py-2">
-                                  <p className="text-[10px] text-amber-600 font-bold">ค่าผลงานพิเศษ</p>
+                                  <p className="text-[10px] text-amber-600 font-bold">{t("admin.kpi.special_bonus")}</p>
                                   <p className="text-lg font-black text-amber-700">{Number(detail.bonus_amount).toLocaleString()} ฿</p>
                                   {detail.bonus_reason && <p className="text-[10px] text-amber-600 italic mt-1">{detail.bonus_reason}</p>}
                                 </div>
                               )}
                             </div>
                             {detail?.money_reason && (
-                              <p className="text-[11px] text-slate-500 italic">หมายเหตุ: {detail.money_reason}</p>
+                              <p className="text-[11px] text-slate-500 italic">{t("admin.kpi.note_prefix")}: {detail.money_reason}</p>
                             )}
 
                             {/* ── HR verification: attachments จากหัวหน้า ── */}
@@ -1068,7 +1069,7 @@ export default function AdminKpiPage() {
                                 <div className="flex items-center gap-1.5">
                                   <Paperclip size={12} className="text-emerald-600" />
                                   <p className="text-xs font-black text-emerald-700">
-                                    หลักฐานประกอบจำนวนเงิน ({detail.money_reason_attachments.length} ไฟล์)
+                                    {t("admin.kpi.evidence_files", { n: detail.money_reason_attachments.length })}
                                   </p>
                                 </div>
                                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
@@ -1102,7 +1103,7 @@ export default function AdminKpiPage() {
 
                         {detail?.evaluator_note && (
                           <div className="bg-white rounded-xl p-3">
-                            <p className="text-xs font-bold text-slate-500 mb-1">ความเห็นภาพรวม</p>
+                            <p className="text-xs font-bold text-slate-500 mb-1">{t("admin.kpi.overall_comment")}</p>
                             <p className="text-sm text-slate-600">{detail.evaluator_note}</p>
                           </div>
                         )}
@@ -1110,7 +1111,7 @@ export default function AdminKpiPage() {
                         {/* Rejection note (if rejected) */}
                         {detail?.rejection_note && detail?.status === "rejected" && (
                           <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                            <p className="text-xs font-bold text-red-600 mb-1">เหตุผลที่ส่งคืน</p>
+                            <p className="text-xs font-bold text-red-600 mb-1">{t("admin.kpi.rejection_reason")}</p>
                             <p className="text-sm text-red-700">{detail.rejection_note}</p>
                           </div>
                         )}
@@ -1120,15 +1121,15 @@ export default function AdminKpiPage() {
                           <div className="flex items-center gap-3 pt-2">
                             <button onClick={() => handleApprove(form.id)} disabled={actionLoading}
                               className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 text-white font-bold text-sm py-2.5 rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50">
-                              <CheckCircle2 size={16} /> อนุมัติ
+                              <CheckCircle2 size={16} /> {t("admin.kpi.approve")}
                             </button>
                             <button onClick={() => { setShowRejectModal(form.id); setRejectNote("") }} disabled={actionLoading}
                               className="flex-1 flex items-center justify-center gap-2 bg-red-50 text-red-600 font-bold text-sm py-2.5 rounded-xl hover:bg-red-100 transition-colors border border-red-200 disabled:opacity-50">
-                              <XCircle size={16} /> ส่งคืน
+                              <XCircle size={16} /> {t("admin.kpi.status_rejected")}
                             </button>
                             <Link href={`/manager/kpi/${form.employee_id}?year=${form.year}&month=${form.month}`}
                               className="flex items-center justify-center gap-2 bg-slate-100 text-slate-700 font-bold text-sm py-2.5 px-4 rounded-xl hover:bg-slate-200 transition-colors">
-                              <Pencil size={14} /> แก้ไข
+                              <Pencil size={14} /> {t("admin.kpi.btn_edit")}
                             </Link>
                           </div>
                         )}
@@ -1138,7 +1139,7 @@ export default function AdminKpiPage() {
                           <div className="flex items-center justify-between pt-2">
                             <div className="flex items-center gap-2 text-emerald-600">
                               <CheckCircle2 size={16} />
-                              <span className="text-sm font-bold">อนุมัติแล้ว</span>
+                              <span className="text-sm font-bold">{t("admin.kpi.status_approved")}</span>
                               {detail?.approved_at && (
                                 <span className="text-xs text-slate-400">
                                   · {format(new Date(detail.approved_at), "d MMM yyyy HH:mm", { locale: th })}
@@ -1147,7 +1148,7 @@ export default function AdminKpiPage() {
                             </div>
                             <Link href={`/manager/kpi/${form.employee_id}?year=${form.year}&month=${form.month}`}
                               className="flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 font-bold px-3 py-1.5 rounded-lg hover:bg-slate-200 transition-colors">
-                              <Pencil size={12} /> แก้ไข
+                              <Pencil size={12} /> {t("admin.kpi.btn_edit")}
                             </Link>
                           </div>
                         )}
@@ -1169,23 +1170,23 @@ export default function AdminKpiPage() {
           <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-2 text-red-600">
               <XCircle size={20} />
-              <h3 className="text-lg font-black">ส่งคืนผลประเมิน KPI</h3>
+              <h3 className="text-lg font-black">{t("admin.kpi.reject_modal_title")}</h3>
             </div>
-            <p className="text-sm text-slate-500">กรุณาระบุเหตุผลที่ส่งคืน เพื่อให้หัวหน้าแก้ไขและส่งใหม่</p>
+            <p className="text-sm text-slate-500">{t("admin.kpi.reject_modal_desc")}</p>
             <textarea
               value={rejectNote} onChange={e => setRejectNote(e.target.value)}
-              placeholder="เหตุผลที่ส่งคืน..."
+              placeholder={t("admin.kpi.reject_placeholder")}
               className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm min-h-[80px] outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/10"
               rows={3}
             />
             <div className="flex gap-3">
               <button onClick={() => setShowRejectModal(null)}
                 className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">
-                ยกเลิก
+                {t("admin.kpi.cancel")}
               </button>
               <button onClick={handleReject} disabled={actionLoading}
                 className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 disabled:opacity-50">
-                {actionLoading ? "กำลังส่ง..." : "ยืนยันส่งคืน"}
+                {actionLoading ? t("admin.kpi.sending") : t("admin.kpi.confirm_reject")}
               </button>
             </div>
           </div>
@@ -1199,6 +1200,7 @@ export default function AdminKpiPage() {
 // Reusable: long-text แสดงแบบ truncate + toggle "ดูเพิ่ม / ย่อ"
 // ─────────────────────────────────────────────────────────────
 function ExpandableText({ text }: { text: string }) {
+  const { t } = useLanguage()
   const [expanded, setExpanded] = useState(false)
   // เกณฑ์ตัด: เกิน 120 ตัวอักษร หรือ มีบรรทัดเกิน 2 บรรทัด
   const lineCount = text.split(/\r?\n/).length
@@ -1214,7 +1216,7 @@ function ExpandableText({ text }: { text: string }) {
           onClick={() => setExpanded(v => !v)}
           className="text-[11px] text-indigo-600 hover:text-indigo-700 font-bold mt-0.5 inline-flex items-center gap-0.5"
         >
-          {expanded ? <>ย่อ <ChevronUp size={11} /></> : <>ดูเพิ่ม <ChevronDown size={11} /></>}
+          {expanded ? <>{t("admin.kpi.collapse")} <ChevronUp size={11} /></> : <>{t("admin.kpi.show_more")} <ChevronDown size={11} /></>}
         </button>
       )}
     </div>

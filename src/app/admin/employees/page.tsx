@@ -9,7 +9,7 @@ import { th } from "date-fns/locale"
 import ImportModal from "./ImportModal"
 import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
 import { useBrands } from "@/lib/hooks/useBrands"
-import { useLanguage } from "@/lib/i18n"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 const STATUS: Record<string, { l: string; c: string }> = {
   active:     { l: "ปกติ",       c: "bg-green-100 text-green-700"   },
@@ -88,6 +88,7 @@ function payrollRange(ym: string): { start: string; end: string } {
 
 export default function EmployeesPage() {
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   const { user } = useAuth()
   const supabase = createClient()
   const isSuperAdmin = user?.role === "super_admin" || user?.role === "hr_admin"
@@ -183,7 +184,7 @@ export default function EmployeesPage() {
       let q = supabase
         .from("employees")
         .select(
-          `id, employee_code, first_name_th, last_name_th, nickname, avatar_url,
+          `id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url,
            hire_date, resign_date, employment_status, employment_type, company_id, brand,
            feishu_user_id,
            position:positions(name),
@@ -267,7 +268,7 @@ export default function EmployeesPage() {
         const { data: fData } = await supabase.from("feishu_users")
           .select(`feishu_user_id,
             employee:employees!feishu_users_goodhr_employee_id_fkey(
-              id, employee_code, first_name_th, last_name_th, nickname, avatar_url,
+              id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url,
               hire_date, resign_date, employment_status, employment_type, company_id, brand,
               feishu_user_id, deleted_at, is_active,
               position:positions(name), department:departments(name),
@@ -758,8 +759,7 @@ export default function EmployeesPage() {
                         </div>
                         <div>
                           <p className="font-bold text-slate-800 whitespace-nowrap flex items-center gap-1.5">
-                            {emp.first_name_th} {emp.last_name_th}
-                            {emp.nickname && <span className="text-xs text-slate-400">({emp.nickname})</span>}
+                            {empName(emp)}
                             {feishu?.name_cn && (
                               <span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-md border border-indigo-100" title={t("admin.employees.feishu_name_title")}>
                                 {feishu.name_cn}

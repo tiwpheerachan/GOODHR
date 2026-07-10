@@ -52,7 +52,7 @@ export async function GET(req: Request) {
   const empSelect = `
     *,
     employee:employees(
-      id, employee_code, first_name_th, last_name_th, nickname,
+      id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname,
       avatar_url, brand, updated_at, hire_date, resign_date, employment_status,
       position:positions(id, name),
       department:departments(id, name),
@@ -181,7 +181,7 @@ export async function PATCH(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // Audit log
-  const { data: actorData } = await supa.from("users").select("employee_id, employee:employees(first_name_th, last_name_th)").eq("id", user.id).single()
+  const { data: actorData } = await supa.from("users").select("employee_id, employee:employees(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en)").eq("id", user.id).single()
   const actorEmp = actorData?.employee as any
   logPayroll(supa, {
     actorId: actorData?.employee_id || user.id,

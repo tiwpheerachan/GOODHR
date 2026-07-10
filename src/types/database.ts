@@ -20,6 +20,7 @@ export interface Employee {
   emergency_contact_name?: string; emergency_contact_phone?: string; emergency_contact_relation?: string
   employment_status: EmploymentStatus; employment_type: string
   hire_date: string; probation_end_date?: string; resign_date?: string
+  probation_use_custom_plan?: boolean  // true = ใช้แผนประเมินทดลองงานกำหนดเอง (assignment) แทนรอบ 45/90
   // ── จ้างงาน 2 เฟส (PC / Pre-Employee) ──
   pre_employment_enabled?: boolean
   pre_employment_from?: string; pre_employment_to?: string

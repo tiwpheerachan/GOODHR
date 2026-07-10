@@ -23,7 +23,7 @@ import FeishuLinkTab from "@/components/employees/FeishuLinkTab"
 import BrandsTab from "@/components/employees/BrandsTab"
 import EmployeeBorrowingTab from "@/components/employees/EmployeeBorrowingTab"
 import EmployeeShaderBg from "@/components/ui/employee-shader-bg"
-import { useLanguage } from "@/lib/i18n"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 const TAB_KEYS = ["tab_summary","tab_personal","tab_employment","tab_salary","tab_payroll_summary","tab_schedule","tab_checkin","tab_mgr_history","tab_roles","tab_leave_quota","tab_eval_chain","tab_brands","tab_feishu","tab_borrow","tab_resign"]
 const inp = "input-field"
@@ -43,6 +43,7 @@ export default function EmployeeDetailPage() {
   const { id } = useParams()
   const { user } = useAuth()
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   const supabase = createClient()
 
   const [emp,        setEmp]        = useState<any>(null)
@@ -152,7 +153,7 @@ export default function EmployeeDetailPage() {
     Promise.all([
       supabase.from("employees").select("*, position:positions(name), department:departments(name), branch:branches(name), feishu:feishu_users!feishu_users_goodhr_employee_id_fkey(brand, name_cn, name_en, nickname)").eq("id",id as string).single(),
       supabase.from("salary_structures").select("*").eq("employee_id",id as string).is("effective_to",null).order("effective_from",{ascending:false}).order("created_at",{ascending:false}).limit(1).maybeSingle(),
-      supabase.from("employee_manager_history").select("*, manager:employees!manager_id(id,first_name_th,last_name_th)").eq("employee_id",id as string).order("effective_from",{ascending:false}),
+      supabase.from("employee_manager_history").select("*, manager:employees!manager_id(id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en)").eq("employee_id",id as string).order("effective_from",{ascending:false}),
       supabase.from("kpi_bonus_settings").select("*").eq("employee_id",id as string).eq("is_active",true).maybeSingle(),
       supabase.from("resignation_history").select("*").eq("employee_id",id as string).order("created_at",{ascending:false}),
       supabase.from("employee_probation_promotions").select("*, new_position:positions(name)").eq("employee_id",id as string).eq("is_applied",false).order("created_at",{ascending:false}).limit(1).maybeSingle(),
@@ -164,18 +165,18 @@ export default function EmployeeDetailPage() {
         setResignAttach(Array.isArray(e.data.resign_attachments) ? e.data.resign_attachments : [])
         // ── โหลด kpi_evaluator แยก (column อาจยังไม่มีถ้ายังไม่รัน migration) ──
         if (e.data.kpi_evaluator_id) {
-          supabase.from("employees").select("id,first_name_th,last_name_th,employee_code")
+          supabase.from("employees").select("id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,employee_code")
             .eq("id", e.data.kpi_evaluator_id).single()
             .then(({ data: ev }) => {
-              if (ev) setKpiEvalSearch(`${ev.first_name_th} ${ev.last_name_th} (${ev.employee_code})`)
+              if (ev) setKpiEvalSearch(`${empName(ev)} (${ev.employee_code})`)
             })
         }
         // ── โหลด probation_evaluator แยก (column อาจยังไม่มีถ้ายังไม่รัน migration) ──
         if (e.data.probation_evaluator_id) {
-          supabase.from("employees").select("id,first_name_th,last_name_th,employee_code")
+          supabase.from("employees").select("id,first_name_th,last_name_th,first_name_en,last_name_en,nickname,nickname_en,employee_code")
             .eq("id", e.data.probation_evaluator_id).single()
             .then(({ data: ev }) => {
-              if (ev) setProbEvalSearch(`${ev.first_name_th} ${ev.last_name_th} (${ev.employee_code})`)
+              if (ev) setProbEvalSearch(`${empName(ev)} (${ev.employee_code})`)
             })
         }
       }
@@ -195,7 +196,7 @@ export default function EmployeeDetailPage() {
       .order("effective_from", { ascending: false }).order("created_at", { ascending: false })
       .then(({ data }) => setSalaryHistory(data ?? []))
     supabase.from("employee_position_history")
-      .select("*, from_pos:positions!from_position_id(name), to_pos:positions!to_position_id(name), changer:employees!changed_by(first_name_th, last_name_th)")
+      .select("*, from_pos:positions!from_position_id(name), to_pos:positions!to_position_id(name), changer:employees!changed_by(first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en)")
       .eq("employee_id", id as string).order("changed_at", { ascending: false })
       .then(({ data }) => setPositionHistory(data ?? []))
   }, [id, historyTick])
@@ -664,7 +665,7 @@ export default function EmployeeDetailPage() {
                     ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>
                     : emp.first_name_th?.[0]}
                 </div>
-                <h2 className="text-base font-black text-white">{emp.first_name_th} {emp.last_name_th}</h2>
+                <h2 className="text-base font-black text-white">{empName(emp)}</h2>
                 <p className="text-[10px] text-white/80 font-mono mt-0.5">{emp.employee_code}</p>
                 <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-2 ${empStatusColor[emp.employment_status] ?? "bg-slate-100 text-slate-500"}`}>
                   {empStatusMap[emp.employment_status] ?? emp.employment_status}
@@ -678,7 +679,7 @@ export default function EmployeeDetailPage() {
                       ? <img src={emp.avatar_url} alt="" className="w-full h-full object-cover"/>
                       : emp.first_name_th?.[0]}
                   </div>
-                  <h2 className="text-base font-black text-white drop-shadow-md">{emp.first_name_th} {emp.last_name_th}</h2>
+                  <h2 className="text-base font-black text-white drop-shadow-md">{empName(emp)}</h2>
                   <p className="text-[10px] text-white/90 font-mono mt-0.5 drop-shadow">{emp.employee_code}</p>
                   <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-2 ${empStatusColor[emp.employment_status] ?? "bg-slate-100 text-slate-500"}`}>
                     {empStatusMap[emp.employment_status] ?? emp.employment_status}
@@ -1102,10 +1103,9 @@ export default function EmployeeDetailPage() {
                     <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-[240px] overflow-y-auto">
                       {matches.slice(0, 50).map(e => (
                         <button key={e.id} type="button"
-                          onClick={() => { set("kpi_evaluator_id", e.id); setKpiEvalSearch(`${e.first_name_th} ${e.last_name_th} (${e.employee_code})`); setShowKpiEvalDropdown(false) }}
+                          onClick={() => { set("kpi_evaluator_id", e.id); setKpiEvalSearch(`${empName(e)} (${e.employee_code})`); setShowKpiEvalDropdown(false) }}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 flex items-center gap-2 transition-colors">
-                          <span className="font-bold text-slate-800">{e.first_name_th} {e.last_name_th}</span>
-                          {e.nickname && <span className="text-xs text-violet-600">({e.nickname})</span>}
+                          <span className="font-bold text-slate-800">{empName(e)}</span>
                           <span className="text-xs text-slate-400">{e.employee_code}</span>
                         </button>
                       ))}
@@ -1163,10 +1163,9 @@ export default function EmployeeDetailPage() {
                     <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-[240px] overflow-y-auto">
                       {matches.slice(0, 50).map(e => (
                         <button key={e.id} type="button"
-                          onClick={() => { set("probation_evaluator_id", e.id); setProbEvalSearch(`${e.first_name_th} ${e.last_name_th} (${e.employee_code})`); setShowProbEvalDropdown(false) }}
+                          onClick={() => { set("probation_evaluator_id", e.id); setProbEvalSearch(`${empName(e)} (${e.employee_code})`); setShowProbEvalDropdown(false) }}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-rose-50 flex items-center gap-2 transition-colors">
-                          <span className="font-bold text-slate-800">{e.first_name_th} {e.last_name_th}</span>
-                          {e.nickname && <span className="text-xs text-rose-600">({e.nickname})</span>}
+                          <span className="font-bold text-slate-800">{empName(e)}</span>
                           <span className="text-xs text-slate-400">{e.employee_code}</span>
                         </button>
                       ))}
@@ -1187,7 +1186,7 @@ export default function EmployeeDetailPage() {
                 </span>
               ) : currentMgr ? (
                 <span className="font-bold text-slate-700 flex items-center gap-1">
-                  <UserCheck size={12} className="text-slate-400"/> {currentMgr.first_name_th} {currentMgr.last_name_th} <span className="font-normal text-slate-400">{t("admin.emp_detail.emp_direct_manager")}</span>
+                  <UserCheck size={12} className="text-slate-400"/> {empName(currentMgr)} <span className="font-normal text-slate-400">{t("admin.emp_detail.emp_direct_manager")}</span>
                 </span>
               ) : (
                 <span className="text-amber-600 font-medium">{t("admin.emp_detail.emp_no_manager_warning")}</span>
@@ -1219,7 +1218,7 @@ export default function EmployeeDetailPage() {
                     <span className="text-sm font-bold text-violet-700">{h.to_pos?.name ?? "—"}</span>
                     <span className="ml-auto text-[11px] text-slate-400">
                       {h.changed_at ? format(new Date(h.changed_at), "d MMM yyyy HH:mm", { locale: th }) : ""}
-                      {h.changer && <span>{t("admin.emp_detail.emp_by", { name: `${h.changer.first_name_th} ${h.changer.last_name_th}` })}</span>}
+                      {h.changer && <span>{t("admin.emp_detail.emp_by", { name: empName(h.changer) })}</span>}
                     </span>
                   </div>
                 ))}
@@ -1405,7 +1404,7 @@ export default function EmployeeDetailPage() {
               <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.mgr_select_new")}</label>
               <input
                 type="text"
-                value={mgrSearch ?? (newMgr ? allEmps.find(e => e.id === newMgr)?.first_name_th + " " + allEmps.find(e => e.id === newMgr)?.last_name_th : "")}
+                value={mgrSearch ?? (newMgr ? empName(allEmps.find(e => e.id === newMgr)) : "")}
                 onChange={e => { setMgrSearch(e.target.value); setNewMgr(""); setShowMgrDropdown(true); loadAllEmps() }}
                 onFocus={() => { setShowMgrDropdown(true); loadAllEmps() }}
                 placeholder={t("admin.emp_detail.mgr_search_ph")}
@@ -1424,9 +1423,9 @@ export default function EmployeeDetailPage() {
                       .slice(0, 30)
                       .map(e => (
                         <button key={e.id} type="button"
-                          onClick={() => { setNewMgr(e.id); setMgrSearch(`${e.first_name_th} ${e.last_name_th} (${e.employee_code})`); setShowMgrDropdown(false) }}
+                          onClick={() => { setNewMgr(e.id); setMgrSearch(`${empName(e)} (${e.employee_code})`); setShowMgrDropdown(false) }}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex items-center gap-2 transition-colors">
-                          <span className="font-bold text-slate-800">{e.first_name_th} {e.last_name_th}</span>
+                          <span className="font-bold text-slate-800">{empName(e)}</span>
                           <span className="text-xs text-slate-400">{e.employee_code}</span>
                         </button>
                       ))}
@@ -1447,7 +1446,7 @@ export default function EmployeeDetailPage() {
           <div className="space-y-3">
             {mgrHistory.map(h => (
               <div key={h.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                <div className="flex-1"><p className="font-medium text-slate-800 text-sm">{h.manager?.first_name_th} {h.manager?.last_name_th}</p><p className="text-xs text-slate-500">{format(new Date(h.effective_from),"d MMM yyyy",{locale:th})} - {h.effective_to ? format(new Date(h.effective_to),"d MMM yyyy",{locale:th}) : t("admin.emp_detail.common_present")}</p></div>
+                <div className="flex-1"><p className="font-medium text-slate-800 text-sm">{empName(h.manager)}</p><p className="text-xs text-slate-500">{format(new Date(h.effective_from),"d MMM yyyy",{locale:th})} - {h.effective_to ? format(new Date(h.effective_to),"d MMM yyyy",{locale:th}) : t("admin.emp_detail.common_present")}</p></div>
                 {!h.effective_to && <span className="badge bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-bold">{t("admin.emp_detail.common_current")}</span>}
               </div>
             ))}
@@ -1465,7 +1464,7 @@ export default function EmployeeDetailPage() {
         {tab === 10 && (
           <>
             <h3 className="font-bold text-slate-800 mb-4">{t("admin.emp_detail.evalchain_title")}</h3>
-            <EvaluationChainPanel employeeId={id as string} employeeName={`${emp?.first_name_th ?? ""} ${emp?.last_name_th ?? ""}`.trim()} />
+            <EvaluationChainPanel employeeId={id as string} employeeName={empName(emp)} />
           </>
         )}
 
@@ -1616,7 +1615,7 @@ export default function EmployeeDetailPage() {
                 <h3 className="font-black text-slate-800 text-lg">
                   {isEarlyPass ? t("admin.emp_detail.card_confirm_pass_early") : t("admin.emp_detail.card_confirm_pass")}
                 </h3>
-                <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
+                <p className="text-xs text-slate-400">{empName(emp)} ({emp.employee_code})</p>
               </div>
             </div>
 
@@ -1668,7 +1667,7 @@ export default function EmployeeDetailPage() {
               </div>
               <div>
                 <h3 className="font-black text-slate-800 text-lg">{t("admin.emp_detail.hdr_resign")}</h3>
-                <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
+                <p className="text-xs text-slate-400">{empName(emp)} ({emp.employee_code})</p>
               </div>
             </div>
 
@@ -1718,7 +1717,7 @@ export default function EmployeeDetailPage() {
               </div>
               <div>
                 <h3 className="font-black text-slate-800 text-lg">{t("admin.emp_detail.card_reinstate_full")}</h3>
-                <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
+                <p className="text-xs text-slate-400">{empName(emp)} ({emp.employee_code})</p>
               </div>
             </div>
 
@@ -1764,7 +1763,7 @@ export default function EmployeeDetailPage() {
               </div>
               <div>
                 <h3 className="font-black text-slate-800 text-lg">{t("admin.emp_detail.delete_title")}</h3>
-                <p className="text-xs text-slate-400">{emp.first_name_th} {emp.last_name_th} ({emp.employee_code})</p>
+                <p className="text-xs text-slate-400">{empName(emp)} ({emp.employee_code})</p>
               </div>
             </div>
 
@@ -1806,6 +1805,7 @@ export default function EmployeeDetailPage() {
 // ─── SummaryTab ───────────────────────────────────────────────────────────────
 function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: string; emp: any; salary: any; kpiSetting?: any }) {
   const { t } = useLanguage()
+  const empName = useEmployeeName()
   const supabase = createClient()
   const [stats,     setStats]     = useState<any>(null)
   const [schedule,  setSchedule]  = useState<any>(null)
@@ -2100,7 +2100,7 @@ function SummaryTab({ employeeId, emp, salary, kpiSetting }: { employeeId: strin
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="bg-indigo-600 px-5 py-4">
               <h3 className="text-white font-bold">{t("admin.emp_detail.checkin_edit_inout")}</h3>
-              <p className="text-indigo-200 text-xs mt-0.5">{emp?.first_name_th} {emp?.last_name_th} · {editAttRec.work_date}</p>
+              <p className="text-indigo-200 text-xs mt-0.5">{empName(emp)} · {editAttRec.work_date}</p>
             </div>
             <div className="p-5 space-y-4">
               <div>

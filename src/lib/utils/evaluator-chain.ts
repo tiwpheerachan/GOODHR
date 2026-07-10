@@ -167,7 +167,7 @@ export async function getManageableEmployees(
   if (directMgrIds.length > 0) {
     const { data: mgrs } = await svc
       .from("employees")
-      .select("id, first_name_th, last_name_th, nickname")
+      .select("id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en")
       .in("id", directMgrIds)
     mgrDetails = new Map((mgrs ?? []).map((m: any) => [m.id, m]))
   }
@@ -191,7 +191,7 @@ export async function getManageableEmployees(
       depth = 2
       const dmId = skipMgrByEmp.get(id)!
       const dm: any = mgrDetails.get(dmId)
-      if (dm) directMgr = { id: dm.id, first_name_th: dm.first_name_th, last_name_th: dm.last_name_th, nickname: dm.nickname }
+      if (dm) directMgr = { id: dm.id, first_name_th: dm.first_name_th, last_name_th: dm.last_name_th, first_name_en: dm.first_name_en, last_name_en: dm.last_name_en, nickname: dm.nickname, nickname_en: dm.nickname_en }
     } else {
       relation = additionalByScope.get(id) ?? "additional"
       depth = 0

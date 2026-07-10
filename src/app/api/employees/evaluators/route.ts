@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const svc = createServiceClient()
   const { data } = await svc
     .from("employee_evaluators")
-    .select("id, evaluator_id, scope, note, created_at, evaluator:employees!evaluator_id(employee_code, first_name_th, last_name_th, nickname, position:positions(name))")
+    .select("id, evaluator_id, scope, note, created_at, evaluator:employees!evaluator_id(employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, position:positions(name))")
     .eq("employee_id", empId)
     .order("created_at", { ascending: false })
 
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     employee_id, evaluator_id, scope,
     note: note ?? null,
     created_by: dbUser.employee_id,
-  }).select("id, evaluator:employees!evaluator_id(employee_code, first_name_th, last_name_th)").single()
+  }).select("id, evaluator:employees!evaluator_id(employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en)").single()
 
   if (error) {
     if (error.code === "23505") return NextResponse.json({ error: "ผู้ประเมินคนนี้ถูกเพิ่มไว้แล้ว" }, { status: 409 })
@@ -58,12 +58,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Audit log
-  const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th, company_id").eq("id", employee_id).single()
+  const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, company_id").eq("id", employee_id).single()
   const ev: any = data.evaluator
   const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : "พนักงาน"
   const evName = ev ? `${ev.first_name_th} ${ev.last_name_th}` : "ผู้ประเมิน"
   const { data: actorEmp } = dbUser.employee_id
-    ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+    ? await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", dbUser.employee_id).single()
     : { data: null }
   const actorName = actorEmp ? `${actorEmp.first_name_th} ${actorEmp.last_name_th}` : "Admin"
   logAudit(svc, {
@@ -94,7 +94,7 @@ export async function DELETE(req: NextRequest) {
 
   // Fetch for audit
   const { data: row } = await svc.from("employee_evaluators")
-    .select("employee_id, evaluator_id, scope, employee:employees!employee_id(first_name_th, last_name_th, company_id), evaluator:employees!evaluator_id(first_name_th, last_name_th)")
+    .select("employee_id, evaluator_id, scope, employee:employees!employee_id(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, company_id), evaluator:employees!evaluator_id(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en)")
     .eq("id", id).maybeSingle()
 
   const { error } = await svc.from("employee_evaluators").delete().eq("id", id)
@@ -106,7 +106,7 @@ export async function DELETE(req: NextRequest) {
     const empName = emp ? `${emp.first_name_th} ${emp.last_name_th}` : "พนักงาน"
     const evName = ev ? `${ev.first_name_th} ${ev.last_name_th}` : "ผู้ประเมิน"
     const { data: actorEmp } = dbUser.employee_id
-      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      ? await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", dbUser.employee_id).single()
       : { data: null }
     const actorName = actorEmp ? `${actorEmp.first_name_th} ${actorEmp.last_name_th}` : "Admin"
     logAudit(svc, {

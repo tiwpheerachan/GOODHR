@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
   // Employees — if "all", fetch all companies
   let empQuery = supa.from("employees")
-    .select(`id, employee_code, first_name_th, last_name_th, nickname, email, phone,
+    .select(`id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, email, phone,
       avatar_url, supervisor_id, gender, employment_status, hire_date,
       company_id, department_id, position_id, branch_id,
       department:departments(id, name),
@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
 
   // All employees across companies (for supervisor dropdown — some supervisors are in different companies)
   const { data: allEmps } = await supa.from("employees")
-    .select("id, employee_code, first_name_th, last_name_th, nickname, position:positions(name), company:companies(code)")
+    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, position:positions(name), company:companies(code)")
     .eq("is_active", true)
     .order("first_name_th")
 
@@ -100,7 +100,9 @@ export async function GET(req: NextRequest) {
     allEmployees: (allEmps ?? []).map((e: any) => ({
       id: e.id, code: e.employee_code,
       name: `${e.first_name_th} ${e.last_name_th}`,
-      nickname: e.nickname,
+      first_name_th: e.first_name_th, last_name_th: e.last_name_th,
+      first_name_en: e.first_name_en, last_name_en: e.last_name_en,
+      nickname: e.nickname, nickname_en: e.nickname_en,
       position: e.position?.name,
       company: e.company?.code,
     })),

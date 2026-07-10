@@ -1,6 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
 import {
@@ -12,6 +13,7 @@ import toast from "react-hot-toast"
 // ── Types ──
 interface Emp {
   id: string; employee_code: string; first_name_th: string; last_name_th: string
+  first_name_en?: string; last_name_en?: string; nickname_en?: string
   nickname: string; email: string; phone: string; avatar_url: string
   supervisor_id: string | null; department_id: string; position_id: string; branch_id: string
   company_id: string | null
@@ -39,13 +41,19 @@ const shiftLabel = (e: Emp) => {
   const p = Array.isArray(e.schedule_profile) ? e.schedule_profile?.[0] : e.schedule_profile
   if (!p) return null
   const s = p.default_shift
-  return s ? `${s.work_start?.slice(0,5)}-${s.work_end?.slice(0,5)}` : (p.schedule_type === "variable" ? "ไม่แน่นอน" : null)
+  return s ? `${s.work_start?.slice(0,5)}-${s.work_end?.slice(0,5)}` : (p.schedule_type === "variable" ? "__VARIABLE__" : null)
 }
 
 const locNames = (e: Emp) => (e.allowed_locations?.map((l: any) => l.branch?.name).filter(Boolean) || []).join(", ")
 
 export default function OrgMapPage() {
   const { user } = useAuth()
+  const { t, lang } = useLanguage()
+  const empName = useEmployeeName()
+  const useEn = lang === "en" || lang === "cn"
+  const displayFirst = (e: any) => ((useEn ? (e?.first_name_en || e?.first_name_th) : e?.first_name_th) || "")
+  const displayLast = (e: any) => ((useEn ? (e?.last_name_en || e?.last_name_th) : e?.last_name_th) || "")
+  const displayNick = (e: any) => ((useEn ? (e?.nickname_en || e?.nickname) : e?.nickname) || "")
   const supabase = createClient()
   const isSA = user?.role === "super_admin" || user?.role === "hr_admin"
 
@@ -87,7 +95,7 @@ export default function OrgMapPage() {
       setAllEmpsForSup(data.allEmployees ?? [])
     } catch (e: any) {
       console.error("Load org error:", e)
-      toast.error("โหลดข้อมูลไม่สำเร็จ")
+      toast.error(t("admin.structure.toast_load_error"))
     } finally {
       setLoading(false)
     }
@@ -195,11 +203,11 @@ export default function OrgMapPage() {
         body: JSON.stringify({ employee_id: selected.id, updates: editForm }),
       })
       const data = await res.json()
-      if (data.success) { toast.success("บันทึกแล้ว"); setEditing(false); load() }
+      if (data.success) { toast.success(t("admin.structure.toast_saved")); setEditing(false); load() }
       else toast.error(data.error)
     } catch (e: any) {
       console.error("Save error:", e)
-      toast.error("บันทึกไม่สำเร็จ")
+      toast.error(t("admin.structure.toast_save_error"))
     } finally {
       setSaving(false)
     }
@@ -228,7 +236,7 @@ export default function OrgMapPage() {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-[11px] font-bold text-slate-800 truncate leading-tight">
-            {e.first_name_th} {e.last_name_th?.slice(0,1)}.
+            {displayFirst(e)} {displayLast(e)?.slice(0,1)}.
             {isManager && <Shield size={9} className="inline ml-1 text-amber-500"/>}
           </p>
           <p className="text-[9px] text-slate-400 truncate">{e.position?.name || e.employee_code}</p>
@@ -259,8 +267,8 @@ export default function OrgMapPage() {
             <Shield size={10} className="text-white"/>
           </div>
           <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider">
-            {manager.first_name_th} {manager.nickname ? `(${manager.nickname})` : ""}
-            <span className="text-slate-400 font-normal ml-1">· {subordinates.length} คน</span>
+            {displayFirst(manager)} {displayNick(manager) ? `(${displayNick(manager)})` : ""}
+            <span className="text-slate-400 font-normal ml-1">· {subordinates.length} {t("admin.structure.people_unit")}</span>
           </p>
         </div>
 
@@ -283,35 +291,35 @@ export default function OrgMapPage() {
     setSaving(true)
     try {
       const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { supervisor_id: newSupId || null } })
-      if (r.success) { toast.success("เปลี่ยนหัวหน้าแล้ว"); load() } else toast.error(r.error)
-    } catch { toast.error("ดำเนินการไม่สำเร็จ") } finally { setSaving(false) }
+      if (r.success) { toast.success(t("admin.structure.toast_sup_changed")); load() } else toast.error(r.error)
+    } catch { toast.error(t("admin.structure.toast_action_error")) } finally { setSaving(false) }
   }
 
   const changeDepartment = async (empId: string, newDeptId: string | null) => {
     setSaving(true)
     try {
       const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { department_id: newDeptId || null } })
-      if (r.success) { toast.success("ย้ายแผนกแล้ว"); load() } else toast.error(r.error)
-    } catch { toast.error("ดำเนินการไม่สำเร็จ") } finally { setSaving(false) }
+      if (r.success) { toast.success(t("admin.structure.toast_dept_changed")); load() } else toast.error(r.error)
+    } catch { toast.error(t("admin.structure.toast_action_error")) } finally { setSaving(false) }
   }
 
   const changePosition = async (empId: string, newPosId: string | null) => {
     setSaving(true)
     try {
       const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { position_id: newPosId || null } })
-      if (r.success) { toast.success("เปลี่ยนตำแหน่งแล้ว"); load() } else toast.error(r.error)
-    } catch { toast.error("ดำเนินการไม่สำเร็จ") } finally { setSaving(false) }
+      if (r.success) { toast.success(t("admin.structure.toast_pos_changed")); load() } else toast.error(r.error)
+    } catch { toast.error(t("admin.structure.toast_action_error")) } finally { setSaving(false) }
   }
 
   const changeCompany = async (empId: string, newCompanyId: string) => {
     if (!newCompanyId) return
-    if (!confirm("เปลี่ยนบริษัทที่สังกัด?\nระบบจะล้างแผนก/ตำแหน่ง/สาขาเดิม (เป็นของบริษัทเดิม) ให้เลือกใหม่ของบริษัทนั้น")) return
+    if (!confirm(t("admin.structure.confirm_change_company"))) return
     setSaving(true)
     try {
       const r = await apiOrg({ action: "update_employee", employee_id: empId, updates: { company_id: newCompanyId } })
-      if (r.success) { toast.success("ย้ายบริษัทแล้ว — กรุณาเลือกแผนก/ตำแหน่งใหม่"); setSelected(null); load() }
+      if (r.success) { toast.success(t("admin.structure.toast_company_moved")); setSelected(null); load() }
       else toast.error(r.error)
-    } catch { toast.error("ดำเนินการไม่สำเร็จ") } finally { setSaving(false) }
+    } catch { toast.error(t("admin.structure.toast_action_error")) } finally { setSaving(false) }
   }
 
   // Assign multiple subordinates to a manager
@@ -323,15 +331,15 @@ export default function OrgMapPage() {
       if (r.success) ok++
     }
     setSaving(false)
-    toast.success(`กำหนดลูกน้อง ${ok} คน สำเร็จ`)
+    toast.success(t("admin.structure.toast_assign_success", { count: ok }))
     load()
   }
 
   // Transfer all subordinates from old manager to new
   const transferTeam = async (fromMgrId: string, toMgrId: string) => {
     const subs = employees.filter(e => e.supervisor_id === fromMgrId)
-    if (!subs.length) { toast.error("ไม่มีลูกน้องให้ย้าย"); return }
-    if (!confirm(`ย้ายลูกน้อง ${subs.length} คน จากหัวหน้าเดิมไปยังหัวหน้าใหม่?`)) return
+    if (!subs.length) { toast.error(t("admin.structure.toast_no_subs")); return }
+    if (!confirm(t("admin.structure.confirm_transfer_team", { count: subs.length }))) return
     await assignSubordinates(toMgrId, subs.map(s => s.id))
   }
 
@@ -350,7 +358,7 @@ export default function OrgMapPage() {
       const deptId = target.slice(5)
       if (emp.department_id === deptId) { onDragEnd(); return }
       const deptName = departments.find(d => d.id === deptId)?.name
-      if (confirm(`ย้าย ${emp.first_name_th} ไปแผนก "${deptName}"?`)) {
+      if (confirm(t("admin.structure.confirm_move_dept", { name: displayFirst(emp), dept: deptName || "" }))) {
         await changeDepartment(emp.id, deptId)
       }
     } else if (target.startsWith("mgr:")) {
@@ -358,7 +366,7 @@ export default function OrgMapPage() {
       const mgrId = target.slice(4)
       if (emp.supervisor_id === mgrId || emp.id === mgrId) { onDragEnd(); return }
       const mgr = employees.find(e => e.id === mgrId)
-      if (confirm(`ตั้ง ${mgr?.first_name_th || ""} เป็นหัวหน้าของ ${emp.first_name_th}?`)) {
+      if (confirm(t("admin.structure.confirm_set_supervisor", { manager: displayFirst(mgr), name: displayFirst(emp) }))) {
         await changeSupervisor(emp.id, mgrId)
         // Also move to same department if different
         if (mgr && mgr.department_id && mgr.department_id !== emp.department_id) {
@@ -373,15 +381,15 @@ export default function OrgMapPage() {
     setSaving(true)
     const r = await apiOrg({ action: "add_location", employee_id: empId, branch_id: branchId })
     setSaving(false)
-    if (r.success) { toast.success("เพิ่มที่เช็คอินแล้ว"); load() } else toast.error(r.error)
+    if (r.success) { toast.success(t("admin.structure.toast_loc_added")); load() } else toast.error(r.error)
   }
 
   const removeLocation = async (empId: string, branchId: string) => {
-    if (!confirm("ลบสถานที่เช็คอินนี้?")) return
+    if (!confirm(t("admin.structure.confirm_remove_location"))) return
     setSaving(true)
     const r = await apiOrg({ action: "remove_location", employee_id: empId, branch_id: branchId })
     setSaving(false)
-    if (r.success) { toast.success("ลบที่เช็คอินแล้ว"); load() } else toast.error(r.error)
+    if (r.success) { toast.success(t("admin.structure.toast_loc_removed")); load() } else toast.error(r.error)
   }
 
   // ── Subordinate Picker Modal (ค้นหา + เลือกหลายคน) ──
@@ -417,8 +425,8 @@ export default function OrgMapPage() {
 
     const handleConfirm = async () => {
       if (picked.size === 0) return
-      const names = Array.from(picked).map(id => employees.find(x => x.id === id)?.first_name_th || "").join(", ")
-      if (!confirm(`เพิ่ม ${picked.size} คน (${names}) เป็นลูกน้องของ ${e.first_name_th}?`)) return
+      const names = Array.from(picked).map(id => displayFirst(employees.find(x => x.id === id))).join(", ")
+      if (!confirm(t("admin.structure.confirm_add_subordinates", { count: picked.size, names, name: displayFirst(e) }))) return
       setSubmitting(true)
       await assignSubordinates(e.id, Array.from(picked))
       setSubmitting(false)
@@ -432,8 +440,8 @@ export default function OrgMapPage() {
           <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-4 text-white">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-black text-base">เพิ่มลูกน้อง</p>
-                <p className="text-xs text-white/70 mt-0.5">เลือกพนักงานเข้าทีมของ {e.first_name_th} {e.nickname ? `(${e.nickname})` : ""}</p>
+                <p className="font-black text-base">{t("admin.structure.add_subordinate_title")}</p>
+                <p className="text-xs text-white/70 mt-0.5">{t("admin.structure.add_subordinate_subtitle", { name: `${displayFirst(e)} ${displayNick(e) ? `(${displayNick(e)})` : ""}`.trim() })}</p>
               </div>
               <button onClick={() => setShowSubModal(false)} className="p-1.5 hover:bg-white/20 rounded-lg"><X size={18}/></button>
             </div>
@@ -447,19 +455,19 @@ export default function OrgMapPage() {
                 autoFocus
                 value={subSearch}
                 onChange={ev => setSubSearch(ev.target.value)}
-                placeholder="ค้นหาชื่อ, นามสกุล, ชื่อเล่น, รหัส, ตำแหน่ง..."
+                placeholder={t("admin.structure.search_placeholder2")}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10"
               />
             </div>
             {picked.size > 0 && (
-              <p className="text-xs font-bold text-indigo-600 mt-2">เลือกแล้ว {picked.size} คน</p>
+              <p className="text-xs font-bold text-indigo-600 mt-2">{t("admin.structure.selected_count", { count: picked.size })}</p>
             )}
           </div>
 
           {/* List */}
           <div className="px-5 pb-2 max-h-[50vh] overflow-y-auto">
             {filtered.length === 0 ? (
-              <p className="text-center text-sm text-slate-400 py-8">ไม่พบพนักงาน</p>
+              <p className="text-center text-sm text-slate-400 py-8">{t("admin.structure.no_employee_found")}</p>
             ) : (
               <div className="space-y-1">
                 {filtered.map(m => {
@@ -489,18 +497,17 @@ export default function OrgMapPage() {
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-slate-800 truncate">
-                          {m.first_name_th} {m.last_name_th}
-                          {m.nickname ? <span className="text-slate-400 font-normal ml-1">({m.nickname})</span> : ""}
+                          {empName(m)}
                         </p>
                         <p className="text-[10px] text-slate-400 truncate">
-                          {m.position?.name || m.employee_code} · {m.department?.name || "ไม่ระบุแผนก"}
+                          {m.position?.name || m.employee_code} · {m.department?.name || t("admin.structure.no_department")}
                         </p>
                       </div>
 
                       {/* Current supervisor badge */}
                       {m.supervisor_id && (
                         <span className="text-[8px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md flex-shrink-0">
-                          หน.{employees.find(x => x.id === m.supervisor_id)?.first_name_th || "?"}
+                          {t("admin.structure.sup_badge_prefix")}{displayFirst(employees.find(x => x.id === m.supervisor_id)) || "?"}
                         </span>
                       )}
                     </div>
@@ -512,11 +519,11 @@ export default function OrgMapPage() {
 
           {/* Footer */}
           <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between gap-3">
-            <p className="text-xs text-slate-400">{filtered.length} คน จากทั้งหมด {candidates.length} คน</p>
+            <p className="text-xs text-slate-400">{t("admin.structure.footer_count", { filtered: filtered.length, total: candidates.length })}</p>
             <div className="flex gap-2">
               <button onClick={() => setShowSubModal(false)}
                 className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50">
-                ยกเลิก
+                {t("admin.structure.cancel")}
               </button>
               <button
                 onClick={handleConfirm}
@@ -524,7 +531,7 @@ export default function OrgMapPage() {
                 className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 disabled:opacity-40 hover:bg-indigo-700 transition-all flex items-center gap-1.5"
               >
                 {submitting ? <Loader2 size={14} className="animate-spin"/> : <Check size={14}/>}
-                เพิ่ม {picked.size > 0 ? `${picked.size} คน` : ""}
+                {t("admin.structure.add_btn")} {picked.size > 0 ? `${picked.size} ${t("admin.structure.people_unit")}` : ""}
               </button>
             </div>
           </div>
@@ -552,8 +559,8 @@ export default function OrgMapPage() {
                 {e.avatar_url ? <img src={e.avatar_url} className="w-full h-full object-cover"/> : e.first_name_th?.[0]}
               </div>
               <div>
-                <p className="font-black text-sm">{e.first_name_th} {e.last_name_th}</p>
-                <p className="text-[10px] text-white/70">{e.employee_code} {e.nickname ? `· ${e.nickname}` : ""}</p>
+                <p className="font-black text-sm">{displayFirst(e)} {displayLast(e)}</p>
+                <p className="text-[10px] text-white/70">{e.employee_code} {displayNick(e) ? `· ${displayNick(e)}` : ""}</p>
               </div>
             </div>
             <button onClick={() => setSelected(null)} className="p-1 hover:bg-white/20 rounded-lg"><X size={16}/></button>
@@ -566,7 +573,7 @@ export default function OrgMapPage() {
           {/* ── 1. หัวหน้างาน (ทุกคนเปลี่ยนได้) ── */}
           <div>
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-              <Shield size={10}/> หัวหน้างาน
+              <Shield size={10}/> {t("admin.structure.supervisor")}
             </p>
             <select
               value={e.supervisor_id || ""}
@@ -574,10 +581,10 @@ export default function OrgMapPage() {
               disabled={saving}
               className="w-full bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 text-xs font-bold text-amber-800 outline-none focus:border-amber-400"
             >
-              <option value="">— ไม่มีหัวหน้า —</option>
+              <option value="">{t("admin.structure.no_supervisor")}</option>
               {allEmpsForSup.filter(m => m.id !== e.id).map(m => (
                 <option key={m.id} value={m.id}>
-                  {m.name} {m.nickname ? `(${m.nickname})` : ""} · {m.position || ""} [{m.company}]
+                  {empName(m)} · {m.position || ""} [{m.company}]
                 </option>
               ))}
             </select>
@@ -587,7 +594,7 @@ export default function OrgMapPage() {
           {companies.length > 0 && (
             <div>
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                <Building2 size={10}/> บริษัทที่สังกัด
+                <Building2 size={10}/> {t("admin.structure.company_affiliation")}
               </p>
               <select
                 value={e.company_id || ""}
@@ -595,10 +602,10 @@ export default function OrgMapPage() {
                 disabled={saving}
                 className="w-full bg-indigo-50 border border-indigo-200 rounded-lg px-2.5 py-2 text-xs font-bold text-indigo-800 outline-none focus:border-indigo-400"
               >
-                <option value="">— เลือกบริษัท —</option>
+                <option value="">{t("admin.structure.select_company")}</option>
                 {companies.map((c: any) => <option key={c.id} value={c.id}>{c.code ? `[${c.code}] ` : ""}{c.name_th}</option>)}
               </select>
-              <p className="text-[9px] text-slate-400 mt-1">เปลี่ยนบริษัทจะล้างแผนก/ตำแหน่ง/สาขา ให้เลือกใหม่ของบริษัทนั้น</p>
+              <p className="text-[9px] text-slate-400 mt-1">{t("admin.structure.company_change_note")}</p>
             </div>
           )}
 
@@ -606,13 +613,13 @@ export default function OrgMapPage() {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <Building2 size={9}/> แผนก
+                <Building2 size={9}/> {t("admin.structure.department")}
               </p>
               <select
                 value={e.department_id || ""}
                 onChange={async ev => {
                   if (ev.target.value === "__new_dept__") {
-                    const name = prompt("ชื่อแผนกใหม่:")
+                    const name = prompt(t("admin.structure.prompt_new_dept"))
                     if (!name) { ev.target.value = e.department_id || ""; return }
                     setSaving(true)
                     const res = await fetch("/api/org", {
@@ -625,7 +632,7 @@ export default function OrgMapPage() {
                     if (data.department_id) {
                       await changeDepartment(e.id, data.department_id)
                     } else {
-                      toast.error(data.error || "สร้างแผนกไม่สำเร็จ")
+                      toast.error(data.error || t("admin.structure.toast_dept_create_failed"))
                     }
                   } else {
                     changeDepartment(e.id, ev.target.value)
@@ -634,20 +641,20 @@ export default function OrgMapPage() {
                 disabled={saving}
                 className="w-full bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 text-[10px] font-bold text-blue-800 outline-none focus:border-blue-400"
               >
-                <option value="">— ไม่ระบุ —</option>
+                <option value="">{t("admin.structure.not_specified")}</option>
                 {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                <option value="__new_dept__">+ เพิ่มแผนกใหม่...</option>
+                <option value="__new_dept__">{t("admin.structure.add_department")}</option>
               </select>
             </div>
             <div>
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <User size={9}/> ตำแหน่ง
+                <User size={9}/> {t("admin.structure.position")}
               </p>
               <select
                 value={e.position_id || ""}
                 onChange={async ev => {
                   if (ev.target.value === "__new__") {
-                    const name = prompt("ชื่อตำแหน่งใหม่:")
+                    const name = prompt(t("admin.structure.prompt_new_position"))
                     if (!name) { ev.target.value = e.position_id || ""; return }
                     setSaving(true)
                     const res = await fetch("/api/org", {
@@ -660,7 +667,7 @@ export default function OrgMapPage() {
                     if (data.position_id) {
                       await changePosition(e.id, data.position_id)
                     } else {
-                      toast.error(data.error || "สร้างตำแหน่งไม่สำเร็จ")
+                      toast.error(data.error || t("admin.structure.toast_pos_create_failed"))
                     }
                   } else {
                     changePosition(e.id, ev.target.value)
@@ -669,9 +676,9 @@ export default function OrgMapPage() {
                 disabled={saving}
                 className="w-full bg-violet-50 border border-violet-200 rounded-lg px-2 py-1.5 text-[10px] font-bold text-violet-800 outline-none focus:border-violet-400"
               >
-                <option value="">— ไม่ระบุ —</option>
+                <option value="">{t("admin.structure.not_specified")}</option>
                 {allPositions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                <option value="__new__">+ เพิ่มตำแหน่งใหม่...</option>
+                <option value="__new__">{t("admin.structure.add_position")}</option>
               </select>
             </div>
           </div>
@@ -679,7 +686,7 @@ export default function OrgMapPage() {
           {/* ── 2. ที่เช็คอิน (เพิ่ม/ลบได้) ── */}
           <div>
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-              <MapPin size={10}/> สถานที่เช็คอิน ({empLocs.length})
+              <MapPin size={10}/> {t("admin.structure.checkin_locations", { count: empLocs.length })}
             </p>
             <div className="space-y-1">
               {empLocs.map((loc: any) => (
@@ -697,7 +704,7 @@ export default function OrgMapPage() {
             <div className="flex gap-1.5 mt-1.5">
               <select value={addLocBranch} onChange={ev => setAddLocBranch(ev.target.value)}
                 className="flex-1 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] outline-none">
-                <option value="">เลือกสาขาเพิ่ม...</option>
+                <option value="">{t("admin.structure.add_branch")}</option>
                 {allBranches
                   .filter(b => !empLocs.some((l: any) => l.branch_id === b.id))
                   .map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -713,13 +720,13 @@ export default function OrgMapPage() {
           {/* ── 3. กะการทำงาน (ลิงก์ไปหน้ากะ) ── */}
           <div>
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-              <Clock size={10}/> กะการทำงาน
+              <Clock size={10}/> {t("admin.structure.work_shift")}
             </p>
             <div className="flex items-center gap-2 bg-blue-50 rounded-lg px-2.5 py-2">
               <Clock size={12} className="text-blue-600"/>
-              <p className="text-xs font-bold text-blue-800 flex-1">{shift || "ยังไม่กำหนด"}</p>
+              <p className="text-xs font-bold text-blue-800 flex-1">{shift === "__VARIABLE__" ? t("admin.structure.variable") : (shift || t("admin.structure.shift_not_set"))}</p>
               <Link href="/admin/shifts" className="flex items-center gap-1 text-[9px] font-bold text-blue-600 hover:text-blue-800">
-                จัดกะ <ExternalLink size={9}/>
+                {t("admin.structure.manage_shift")} <ExternalLink size={9}/>
               </Link>
             </div>
           </div>
@@ -729,19 +736,19 @@ export default function OrgMapPage() {
             <div className="grid grid-cols-2 gap-1.5">
               {e.base_salary && (
                 <div className="bg-emerald-50 rounded-lg px-2 py-1.5">
-                  <p className="text-[8px] font-bold text-emerald-500 flex items-center gap-0.5"><DollarSign size={8}/>รายได้</p>
+                  <p className="text-[8px] font-bold text-emerald-500 flex items-center gap-0.5"><DollarSign size={8}/>{t("admin.structure.income")}</p>
                   <p className="text-[10px] font-black text-emerald-700">฿{Number(e.base_salary).toLocaleString()}</p>
                 </div>
               )}
               {e.hire_date && (
                 <div className="bg-blue-50 rounded-lg px-2 py-1.5">
-                  <p className="text-[8px] font-bold text-blue-500 flex items-center gap-0.5"><CalendarDays size={8}/>อายุงาน</p>
+                  <p className="text-[8px] font-bold text-blue-500 flex items-center gap-0.5"><CalendarDays size={8}/>{t("admin.structure.tenure")}</p>
                   <p className="text-[10px] font-black text-blue-700">
                     {(() => {
                       const days = Math.floor((Date.now() - new Date(e.hire_date).getTime()) / 86400000)
-                      if (days < 30) return `${days} วัน`
-                      if (days < 365) return `${Math.floor(days / 30)} เดือน ${days % 30} วัน`
-                      return `${Math.floor(days / 365)} ปี ${Math.floor((days % 365) / 30)} เดือน`
+                      if (days < 30) return `${days} ${t("admin.structure.day_unit")}`
+                      if (days < 365) return `${Math.floor(days / 30)} ${t("admin.structure.month_unit")} ${days % 30} ${t("admin.structure.day_unit")}`
+                      return `${Math.floor(days / 365)} ${t("admin.structure.year_unit")} ${Math.floor((days % 365) / 30)} ${t("admin.structure.month_unit")}`
                     })()}
                   </p>
                 </div>
@@ -751,12 +758,12 @@ export default function OrgMapPage() {
 
           {/* ── 5. ข้อมูลติดต่อ ── */}
           <div>
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5">ข้อมูลติดต่อ</p>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5">{t("admin.structure.contact_info")}</p>
             <div className="grid grid-cols-2 gap-1.5">
               {[
-                { icon: Mail, l: "อีเมล", v: e.email },
-                { icon: Phone, l: "เบอร์", v: e.phone },
-                { icon: Building2, l: "สาขา", v: e.branch?.name },
+                { icon: Mail, l: t("admin.structure.email"), v: e.email },
+                { icon: Phone, l: t("admin.structure.phone_short"), v: e.phone },
+                { icon: Building2, l: t("admin.structure.branch"), v: e.branch?.name },
               ].filter(i => i.v).map(i => (
                 <div key={i.l} className="bg-slate-50 rounded-lg px-2 py-1.5">
                   <p className="text-[8px] font-bold text-slate-400 flex items-center gap-0.5"><i.icon size={8}/>{i.l}</p>
@@ -769,7 +776,7 @@ export default function OrgMapPage() {
           {/* ── 5. ลูกน้อง ── */}
           {subs.length > 0 && (
             <div>
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">ลูกน้อง ({subs.length})</p>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">{t("admin.structure.subordinates", { count: subs.length })}</p>
               <div className="space-y-1 max-h-28 overflow-y-auto">
                 {subs.map(s => (
                   <div key={s.id} onClick={() => { setSelected(s); setEditing(false) }}
@@ -777,7 +784,7 @@ export default function OrgMapPage() {
                     <div className="w-6 h-6 rounded-md bg-gradient-to-br from-slate-500 to-slate-700 text-white flex items-center justify-center text-[8px] font-black overflow-hidden">
                       {s.avatar_url ? <img src={s.avatar_url} className="w-full h-full object-cover"/> : s.first_name_th?.[0]}
                     </div>
-                    <p className="text-[10px] font-bold text-slate-600 truncate flex-1">{s.first_name_th} {s.last_name_th}</p>
+                    <p className="text-[10px] font-bold text-slate-600 truncate flex-1">{empName(s)}</p>
                     <p className="text-[8px] text-slate-400">{s.position?.name}</p>
                   </div>
                 ))}
@@ -788,14 +795,14 @@ export default function OrgMapPage() {
           {/* ── 6. กำหนดลูกน้อง (เพิ่มคนเข้าทีม) ── */}
           <div>
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-              <Users size={10}/> กำหนดลูกน้อง (เพิ่มคนเข้าทีมของ {e.first_name_th})
+              <Users size={10}/> {t("admin.structure.assign_subordinates_title", { name: displayFirst(e) })}
             </p>
             <button
               onClick={() => setShowSubModal(true)}
               disabled={saving}
               className="w-full bg-indigo-50 border border-indigo-200 border-dashed rounded-lg px-3 py-2.5 text-xs font-bold text-indigo-600 hover:bg-indigo-100 hover:border-indigo-400 transition-all flex items-center justify-center gap-1.5"
             >
-              <Plus size={14}/> เลือกพนักงานเพิ่มเป็นลูกน้อง...
+              <Plus size={14}/> {t("admin.structure.pick_subordinates_btn")}
             </button>
 
             {/* Quick: รับทีมจากหัวหน้าอื่น */}
@@ -815,12 +822,12 @@ export default function OrgMapPage() {
                     disabled={saving}
                     className="w-full bg-rose-50 border border-rose-200 rounded-lg px-2 py-1.5 text-[10px] font-bold text-rose-800 outline-none"
                   >
-                    <option value="">รับทีมทั้งหมดจากหัวหน้าอื่น...</option>
+                    <option value="">{t("admin.structure.receive_team_placeholder")}</option>
                     {otherManagers.map(m => {
                       const cnt = employees.filter(s => s.supervisor_id === m.id).length
                       return (
                         <option key={m.id} value={m.id}>
-                          {m.first_name_th} {m.nickname ? `(${m.nickname})` : ""} · {cnt} ลูกน้อง [{m.department?.name || ""}]
+                          {displayFirst(m)} {displayNick(m) ? `(${displayNick(m)})` : ""} · {cnt} {t("admin.structure.subordinate_unit")} [{m.department?.name || ""}]
                         </option>
                       )
                     })}
@@ -834,12 +841,12 @@ export default function OrgMapPage() {
           <button
             onClick={() => { setEditing(!editing); setEditForm({ nickname: e.nickname, email: e.email, phone: e.phone }) }}
             className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-100 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200">
-            <Edit2 size={11}/> {editing ? "ปิดการแก้ไข" : "แก้ไขข้อมูลพื้นฐาน"}
+            <Edit2 size={11}/> {editing ? t("admin.structure.close_edit") : t("admin.structure.edit_basic")}
           </button>
 
           {editing && (
             <div className="bg-slate-50 rounded-xl p-3 space-y-2">
-              {[{ k: "nickname", l: "ชื่อเล่น" }, { k: "email", l: "อีเมล" }, { k: "phone", l: "เบอร์โทร" }].map(({ k, l }) => (
+              {[{ k: "nickname", l: t("admin.structure.nickname") }, { k: "email", l: t("admin.structure.email") }, { k: "phone", l: t("admin.structure.phone") }].map(({ k, l }) => (
                 <div key={k} className="flex items-center gap-2">
                   <label className="text-[10px] font-bold text-slate-500 w-14">{l}</label>
                   <input value={editForm[k] || ""} onChange={ev => setEditForm(f => ({ ...f, [k]: ev.target.value }))}
@@ -847,10 +854,10 @@ export default function OrgMapPage() {
                 </div>
               ))}
               <div className="flex gap-2">
-                <button onClick={() => setEditing(false)} className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] font-bold">ยกเลิก</button>
+                <button onClick={() => setEditing(false)} className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] font-bold">{t("admin.structure.cancel")}</button>
                 <button onClick={saveEdit} disabled={saving}
                   className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-bold">
-                  {saving ? <Loader2 size={10} className="animate-spin"/> : <Check size={10}/>} บันทึก
+                  {saving ? <Loader2 size={10} className="animate-spin"/> : <Check size={10}/>} {t("admin.structure.save")}
                 </button>
               </div>
             </div>
@@ -868,30 +875,30 @@ export default function OrgMapPage() {
       <div className="flex items-center gap-3 flex-wrap">
         <div>
           <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-            <Network size={20} className="text-indigo-600"/> Organization Map
+            <Network size={20} className="text-indigo-600"/> {t("admin.structure.title")}
           </h2>
-          <p className="text-[11px] text-slate-400">โครงสร้างองค์กร แบ่งตามฝ่าย → หัวหน้า → ลูกน้อง · คลิกดูรายละเอียด</p>
+          <p className="text-[11px] text-slate-400">{t("admin.structure.subtitle")}</p>
         </div>
         <div className="flex-1"/>
         {isSA && companies.length > 0 && (
           <select value={selectedCo} onChange={e => setSelectedCo(e.target.value)}
             className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold shadow-sm">
-            <option value="all">ทุกบริษัท ({companies.length})</option>
+            <option value="all">{t("admin.structure.all_companies", { count: companies.length })}</option>
             {companies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name_th}</option>)}
           </select>
         )}
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
           <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="ค้นหาชื่อ / รหัส..."
+            placeholder={t("admin.structure.search_placeholder")}
             className="bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm shadow-sm outline-none focus:border-indigo-400 w-52"/>
         </div>
       </div>
 
       {/* Stats bar */}
       <div className="flex items-center gap-3 text-xs">
-        <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-bold">{selectedCoName} · {employees.length} คน</span>
-        <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-bold">{deptData.length} แผนก</span>
+        <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-bold">{selectedCoName} · {employees.length} {t("admin.structure.people_unit")}</span>
+        <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-bold">{deptData.length} {t("admin.structure.dept_unit")}</span>
         {deptData.map(d => (
           <span key={d.dept.id} className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${d.color.badge}`}>
             {d.dept.name} ({d.members.length})
@@ -921,7 +928,7 @@ export default function OrgMapPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-black text-sm">{dept.name} {(dept as any).company?.code ? `[${(dept as any).company.code}]` : ""}</p>
-                      <p className="text-[10px] text-white/70">{members.length} คน · {groups.length} หัวหน้า</p>
+                      <p className="text-[10px] text-white/70">{members.length} {t("admin.structure.people_unit")} · {groups.length} {t("admin.structure.manager_unit")}</p>
                     </div>
                     <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center text-lg font-black">
                       {members.length}
@@ -938,7 +945,7 @@ export default function OrgMapPage() {
                   {/* Unassigned (no manager) */}
                   {unassigned.filter(matchSearch).length > 0 && (
                     <div className="rounded-xl border border-slate-200 bg-white/50 p-2.5 space-y-1.5">
-                      <p className="text-[10px] font-bold text-slate-400 px-1">ไม่มีหัวหน้า ({unassigned.filter(matchSearch).length})</p>
+                      <p className="text-[10px] font-bold text-slate-400 px-1">{t("admin.structure.no_manager", { count: unassigned.filter(matchSearch).length })}</p>
                       {unassigned.filter(matchSearch).map(e => <MiniCard key={e.id} e={e}/>)}
                     </div>
                   )}
@@ -951,8 +958,8 @@ export default function OrgMapPage() {
             {noDepMembers.filter(matchSearch).length > 0 && (
               <div className="w-[320px] flex-shrink-0 rounded-2xl bg-slate-50 border border-dashed border-slate-300 overflow-hidden">
                 <div className="bg-slate-500 px-4 py-3 text-white">
-                  <p className="font-black text-sm">ไม่ระบุแผนก</p>
-                  <p className="text-[10px] text-white/70">{noDepMembers.length} คน</p>
+                  <p className="font-black text-sm">{t("admin.structure.no_department")}</p>
+                  <p className="text-[10px] text-white/70">{noDepMembers.length} {t("admin.structure.people_unit")}</p>
                 </div>
                 <div className="p-3 space-y-1.5 max-h-[70vh] overflow-y-auto">
                   {noDepMembers.filter(matchSearch).map(e => <MiniCard key={e.id} e={e}/>)}

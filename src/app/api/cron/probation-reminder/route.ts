@@ -31,14 +31,16 @@ async function run(req: NextRequest) {
   // พนักงานที่ยังทดลองงานอยู่
   const { data: emps, error: empErr } = await supa
     .from("employees")
-    .select("id, first_name_th, last_name_th, hire_date, phase2_start_date, company_id, employment_status, is_active, deleted_at")
+    .select("id, first_name_th, last_name_th, hire_date, phase2_start_date, company_id, employment_status, is_active, deleted_at, probation_use_custom_plan")
     .eq("employment_status", "probation")
     .eq("is_active", true)
     .is("deleted_at", null)
   if (empErr) return NextResponse.json({ error: empErr.message }, { status: 500 })
 
   // กรองคนที่ครบ 90 วัน "ในอีก 3 วัน"
+  //   ข้ามคนที่ใช้แผนกำหนดเอง (ไม่ผูกกับรอบ 90 มาตรฐาน — เตือนตามแผนเองแยกต่างหาก)
   const due = (emps ?? []).filter((e: any) => {
+    if (e.probation_use_custom_plan) return false
     const start = effectiveEmploymentStart(e)
     if (!start) return false
     return addDaysStr(start, ROUND_DAYS[REMIND_ROUND]) === targetDueDate

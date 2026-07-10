@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   if (mode === "single" && formId) {
     const { data: form } = await svc
       .from("kpi_forms")
-      .select("*, employee:employees!kpi_forms_employee_id_fkey(*, position:positions(name), department:departments(name)), evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th), items:kpi_items(*)").eq("id", formId).single()
+      .select("*, employee:employees!kpi_forms_employee_id_fkey(*, position:positions(name), department:departments(name)), evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en), items:kpi_items(*)").eq("id", formId).single()
     return NextResponse.json({ form })
   }
 
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
     if (adminOverride) {
       // Admin เปิดฟอร์มคนใดคนหนึ่ง → ดึงเฉพาะคนนั้น (ปลดล็อก permission)
       const { data: emp } = await svc.from("employees")
-        .select("id, employee_code, first_name_th, last_name_th, nickname, avatar_url, employment_status, department:departments(name), position:positions(name)")
+        .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, avatar_url, employment_status, department:departments(name), position:positions(name)")
         .eq("id", targetEmployeeId).maybeSingle()
       if (emp) {
         members = [{
@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
     let forms: any[] = []
     if (memberIds.length > 0) {
       let query = svc.from("kpi_forms")
-        .select("id, employee_id, year, month, total_score, grade, status, evaluator_id, evaluator_role, submitted_at, rejection_note, evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th)")
+        .select("id, employee_id, year, month, total_score, grade, status, evaluator_id, evaluator_role, submitted_at, rejection_note, evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en)")
         .in("employee_id", memberIds)
         .eq("year", year)
       if (month) query = query.eq("month", month)
@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
     if (!empId) return NextResponse.json({ forms: [] })
 
     let query = svc.from("kpi_forms")
-      .select("*, evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th), items:kpi_items(*)")
+      .select("*, evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en), items:kpi_items(*)")
       .eq("employee_id", empId).eq("year", year)
       .in("status", ["approved", "acknowledged"])
       .order("month", { ascending: false })
@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
     const filterCompany = url.get("company") || (dbUser.role === "super_admin" ? null : companyId)
 
     let query = svc.from("kpi_forms")
-      .select("*, employee:employees!kpi_forms_employee_id_fkey(first_name_th, last_name_th, employee_code, avatar_url, position:positions(name), department:departments(name)), evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th)")
+      .select("*, employee:employees!kpi_forms_employee_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, employee_code, avatar_url, position:positions(name), department:departments(name)), evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en)")
       .eq("year", year).order("month", { ascending: false })
     if (filterCompany) query = query.eq("company_id", filterCompany)
     if (month) query = query.eq("month", month)
@@ -123,7 +123,7 @@ export async function GET(req: NextRequest) {
     let mgrMap = new Map<string, any>()
     if (empIds.length > 0) {
       const { data: histRows } = await svc.from("employee_manager_history")
-        .select("employee_id, manager_id, manager:employees!manager_id(first_name_th, last_name_th, nickname)")
+        .select("employee_id, manager_id, manager:employees!manager_id(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname)")
         .in("employee_id", empIds)
         .is("effective_to", null)
       for (const r of (histRows ?? [])) {
@@ -141,7 +141,7 @@ export async function GET(req: NextRequest) {
     if (month) {
       // 1) ดึงพนักงาน active ที่มี kpi_bonus_settings active (= มีฐาน KPI)
       let evalQ = svc.from("kpi_bonus_settings")
-        .select("employee_id, standard_amount, employee:employees!kpi_bonus_settings_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, employment_status, company_id, department:departments(name), position:positions(name))")
+        .select("employee_id, standard_amount, employee:employees!kpi_bonus_settings_employee_id_fkey(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, employee_code, avatar_url, employment_status, company_id, department:departments(name), position:positions(name))")
         .eq("is_active", true)
         .gt("standard_amount", 0)
       const { data: settings } = await evalQ
@@ -157,7 +157,7 @@ export async function GET(req: NextRequest) {
       let evaluatedMap = new Map<string, any>()
       if (eligibleIds.length > 0) {
         let formQ = svc.from("kpi_forms")
-          .select("id, employee_id, status, evaluator_id, total_score, grade, submitted_at, evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th, nickname)")
+          .select("id, employee_id, status, evaluator_id, total_score, grade, submitted_at, evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname)")
           .in("employee_id", eligibleIds)
           .eq("year", year)
           .eq("month", month)
@@ -172,7 +172,7 @@ export async function GET(req: NextRequest) {
       let mgr2Map = new Map<string, any>()
       if (mgrIds.length > 0) {
         const { data: histRows2 } = await svc.from("employee_manager_history")
-          .select("employee_id, manager_id, manager:employees!manager_id(first_name_th, last_name_th, nickname)")
+          .select("employee_id, manager_id, manager:employees!manager_id(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname)")
           .in("employee_id", mgrIds)
           .is("effective_to", null)
         for (const r of (histRows2 ?? [])) {
@@ -194,7 +194,10 @@ export async function GET(req: NextRequest) {
             id: emp.id,
             first_name_th: emp.first_name_th,
             last_name_th: emp.last_name_th,
+            first_name_en: emp.first_name_en,
+            last_name_en: emp.last_name_en,
             nickname: emp.nickname,
+            nickname_en: emp.nickname_en,
             employee_code: emp.employee_code,
             avatar_url: emp.avatar_url,
             department: emp.department,
@@ -230,7 +233,7 @@ export async function GET(req: NextRequest) {
       .is("effective_to", null)
     const teamIds = Array.from(new Set((subRows ?? []).map((r: any) => r.employee_id).filter(Boolean)))
 
-    const SELECT = "id, employee_id, year, month, total_score, grade, status, evaluator_note, evaluator_id, evaluation_type, incentive_amount, bonus_amount, bonus_reason, money_reason, money_reason_attachments, attachments, submitted_at, items:kpi_items(*), evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th), employee:employees!kpi_forms_employee_id_fkey(id, first_name_th, last_name_th, nickname, employee_code, avatar_url, position:positions(name))"
+    const SELECT = "id, employee_id, year, month, total_score, grade, status, evaluator_note, evaluator_id, evaluation_type, incentive_amount, bonus_amount, bonus_reason, money_reason, money_reason_attachments, attachments, submitted_at, items:kpi_items(*), evaluator:employees!kpi_forms_evaluator_id_fkey(first_name_th, last_name_th, first_name_en, last_name_en, nickname_en), employee:employees!kpi_forms_employee_id_fkey(id, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, employee_code, avatar_url, position:positions(name))"
 
     // ฟอร์มทั้งหมดของพนักงานคนนี้ (ใครเคยประเมินก็ได้)
     let sameQuery: any = null
@@ -321,7 +324,7 @@ export async function POST(req: NextRequest) {
     }).eq("id", form_id)
 
     // ── Notifications ──
-    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", form.employee_id).single()
+    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", form.employee_id).single()
     const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : "พนักงาน"
 
     // แจ้งพนักงาน: ผล KPI ได้รับอนุมัติ
@@ -345,7 +348,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { data: actorEmpKpiA } = dbUser.employee_id
-      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      ? await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", dbUser.employee_id).single()
       : { data: null }
     const actorNameKpiA = actorEmpKpiA ? `${actorEmpKpiA.first_name_th} ${actorEmpKpiA.last_name_th}` : "Admin"
 
@@ -382,7 +385,7 @@ export async function POST(req: NextRequest) {
     }).eq("id", form_id)
 
     // แจ้งหัวหน้า: HR ส่งคืน
-    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", form.employee_id).single()
+    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", form.employee_id).single()
     const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : "พนักงาน"
 
     if (form.evaluator_id) {
@@ -396,7 +399,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { data: actorEmpKpiR } = dbUser.employee_id
-      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      ? await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", dbUser.employee_id).single()
       : { data: null }
     const actorNameKpiR = actorEmpKpiR ? `${actorEmpKpiR.first_name_th} ${actorEmpKpiR.last_name_th}` : "Admin"
 
@@ -438,7 +441,7 @@ export async function POST(req: NextRequest) {
     }).eq("id", form_id)
 
     // ── Notifications + audit ──
-    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", form.employee_id).single()
+    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", form.employee_id).single()
     const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : "พนักงาน"
 
     if (form.evaluator_id) {
@@ -452,7 +455,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { data: actorEmpRev } = dbUser.employee_id
-      ? await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+      ? await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", dbUser.employee_id).single()
       : { data: null }
     const actorNameRev = actorEmpRev ? `${actorEmpRev.first_name_th} ${actorEmpRev.last_name_th}` : "Admin"
 
@@ -641,10 +644,10 @@ export async function POST(req: NextRequest) {
 
   // ── Notifications on submit: แจ้ง HR เท่านั้น (ไม่แจ้งพนักงาน) ──
   if (action === "submit") {
-    const { data: evalEmp } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", dbUser.employee_id).single()
+    const { data: evalEmp } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", dbUser.employee_id).single()
     const evalName = evalEmp ? `${evalEmp.first_name_th} ${evalEmp.last_name_th}` : "หัวหน้า"
 
-    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th").eq("id", employee_id).single()
+    const { data: empInfo } = await svc.from("employees").select("first_name_th, last_name_th, first_name_en, last_name_en, nickname_en").eq("id", employee_id).single()
     const empName = empInfo ? `${empInfo.first_name_th} ${empInfo.last_name_th}` : "พนักงาน"
 
     // แจ้ง HR (ทุก hr_admin + super_admin ในบริษัท)
