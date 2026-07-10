@@ -13,6 +13,9 @@ import Link from "next/link"
 import { format, subDays, startOfMonth, differenceInDays } from "date-fns"
 import { th } from "date-fns/locale"
 import PayrollAnalyticsTab from "@/components/admin/PayrollAnalyticsTab"
+import { useLanguage } from "@/lib/i18n"
+
+type TFn = (key: string, vars?: Record<string, string | number>) => string
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface DayData    { date:string; present:number; late:number; absent:number; leave:number; total:number }
@@ -25,10 +28,11 @@ interface CoStat     { id:string; name_th:string; code:string; total:number; pre
 const COMPANY_COLORS = ["#6366f1","#10b981","#8b5cf6","#f43f5e"]
 
 function statusBadge(s:string){ return ({present:"bg-green-100 text-green-700",late:"bg-amber-100 text-amber-700",absent:"bg-red-100 text-red-600",leave:"bg-blue-100 text-blue-700",wfh:"bg-teal-100 text-teal-700"}as any)[s]??"bg-slate-100 text-slate-500" }
-function statusTH(s:string){ return ({present:"มาทำงาน",late:"มาสาย",absent:"ขาดงาน",leave:"ลา",wfh:"WFH"}as any)[s]??s }
+function statusTH(s:string, t:TFn){ return ({present:t("admin.overview.status_present"),late:t("admin.overview.status_late"),absent:t("admin.overview.status_absent"),leave:t("admin.overview.status_leave"),wfh:"WFH"}as any)[s]??s }
 
 // ── Donut ──────────────────────────────────────────────────────────────────
 function DonutChart({present,late,absent,leave,total}:{present:number;late:number;absent:number;leave:number;total:number}) {
+  const { t } = useLanguage()
   const r=52, circ=2*Math.PI*r
   const pct=total>0?Math.round(((present+late)/total)*100):0
   const segs=[{val:present,color:"#22c55e"},{val:late,color:"#f59e0b"},{val:leave,color:"#3b82f6"},{val:absent,color:"#ef4444"}]
@@ -49,7 +53,7 @@ function DonutChart({present,late,absent,leave,total}:{present:number;late:numbe
       </svg>
       <div className="absolute text-center">
         <p className="text-3xl font-black text-slate-800">{pct}%</p>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">มาทำงาน</p>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{t("admin.overview.status_present")}</p>
       </div>
     </div>
   )
@@ -57,6 +61,7 @@ function DonutChart({present,late,absent,leave,total}:{present:number;late:numbe
 
 // ── Probation Donut ────────────────────────────────────────────────────────
 function ProbationDonut({ critical, warning, notice }: { critical:number; warning:number; notice:number }) {
+  const { t } = useLanguage()
   const total = critical + warning + notice
   const r = 44, circ = 2*Math.PI*r
   const segs = [
@@ -81,7 +86,7 @@ function ProbationDonut({ critical, warning, notice }: { critical:number; warnin
       </svg>
       <div className="absolute text-center">
         <p className="text-2xl font-black text-slate-800">{total}</p>
-        <p className="text-[9px] font-bold text-slate-400 uppercase">คน</p>
+        <p className="text-[9px] font-bold text-slate-400 uppercase">{t("admin.overview.unit_people")}</p>
       </div>
     </div>
   )
@@ -89,6 +94,7 @@ function ProbationDonut({ critical, warning, notice }: { critical:number; warnin
 
 // ── Weekly bar ─────────────────────────────────────────────────────────────
 function WeeklyChart({data}:{data:DayData[]}) {
+  const { t } = useLanguage()
   const maxVal=Math.max(...data.map(d=>d.total),1), H=100
   return (
     <div className="flex items-end justify-between gap-1.5 h-28 px-1">
@@ -100,8 +106,8 @@ function WeeklyChart({data}:{data:DayData[]}) {
           <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
             <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] rounded-lg px-2 py-1.5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none shadow-lg">
               <p className="font-bold">{format(new Date(d.date),"d MMM",{locale:th})}</p>
-              <p className="text-green-300">มา {d.present}</p><p className="text-amber-300">สาย {d.late}</p>
-              <p className="text-blue-300">ลา {d.leave}</p><p className="text-red-300">ขาด {d.absent}</p>
+              <p className="text-green-300">{t("admin.overview.wk_present")} {d.present}</p><p className="text-amber-300">{t("admin.overview.wk_late")} {d.late}</p>
+              <p className="text-blue-300">{t("admin.overview.wk_leave")} {d.leave}</p><p className="text-red-300">{t("admin.overview.wk_absent")} {d.absent}</p>
             </div>
             <div className="w-full flex flex-col justify-end rounded-xl overflow-hidden" style={{height:H}}>
               {lvH>0&&<div className="w-full bg-blue-300" style={{height:lvH}}/>}
@@ -126,6 +132,7 @@ function SmartInsights({ kpi, weekData, probList }: {
   weekData: DayData[]
   probList: ProbPerson[]
 }) {
+  const { t } = useLanguage()
   const insights: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string; level: "good"|"warn"|"danger" }[] = []
 
   const totalToday = kpi.presentToday + kpi.lateToday + kpi.absentToday
@@ -149,37 +156,37 @@ function SmartInsights({ kpi, weekData, probList }: {
 
   // Insight 1: Attendance rate
   if (attendRate >= 90) {
-    insights.push({ icon:<TrendingUp size={14}/>, color:"text-emerald-700", bg:"bg-emerald-50", title:`เข้างานวันนี้ ${attendRate}%`, desc:"อัตราการเข้างานดีเยี่ยม สูงกว่าเกณฑ์มาตรฐาน 90%", level:"good" })
+    insights.push({ icon:<TrendingUp size={14}/>, color:"text-emerald-700", bg:"bg-emerald-50", title:t("admin.overview.insight_attend_title",{pct:attendRate}), desc:t("admin.overview.insight_attend_good_desc"), level:"good" })
   } else if (attendRate >= 75) {
-    insights.push({ icon:<Minus size={14}/>, color:"text-amber-700", bg:"bg-amber-50", title:`เข้างานวันนี้ ${attendRate}%`, desc:"อัตราการเข้างานอยู่ในระดับปานกลาง ควรติดตาม", level:"warn" })
+    insights.push({ icon:<Minus size={14}/>, color:"text-amber-700", bg:"bg-amber-50", title:t("admin.overview.insight_attend_title",{pct:attendRate}), desc:t("admin.overview.insight_attend_mid_desc"), level:"warn" })
   } else if (totalToday > 0) {
-    insights.push({ icon:<TrendingDown size={14}/>, color:"text-rose-700", bg:"bg-rose-50", title:`เข้างานวันนี้ ${attendRate}%`, desc:`พนักงานขาดงานสูงผิดปกติ ${kpi.absentToday} คน ควรตรวจสอบด่วน`, level:"danger" })
+    insights.push({ icon:<TrendingDown size={14}/>, color:"text-rose-700", bg:"bg-rose-50", title:t("admin.overview.insight_attend_title",{pct:attendRate}), desc:t("admin.overview.insight_attend_low_desc",{count:kpi.absentToday}), level:"danger" })
   }
 
   // Insight 2: Late rate
   if (lateRate > 20 && totalToday > 0) {
-    insights.push({ icon:<Clock size={14}/>, color:"text-amber-700", bg:"bg-amber-50", title:`มาสายสูงวันนี้ ${lateRate}%`, desc:`${kpi.lateToday} คนมาสาย คิดเป็น ${lateRate}% ของผู้เข้างาน — ควรตรวจสอบสาเหตุ`, level:"warn" })
+    insights.push({ icon:<Clock size={14}/>, color:"text-amber-700", bg:"bg-amber-50", title:t("admin.overview.insight_late_title",{pct:lateRate}), desc:t("admin.overview.insight_late_desc",{count:kpi.lateToday,pct:lateRate}), level:"warn" })
   } else if (kpi.lateToday === 0 && totalToday > 0) {
-    insights.push({ icon:<CheckCircle size={14}/>, color:"text-emerald-700", bg:"bg-emerald-50", title:"ไม่มีพนักงานมาสายวันนี้", desc:"ทุกคนมาตรงเวลา ดีเยี่ยม!", level:"good" })
+    insights.push({ icon:<CheckCircle size={14}/>, color:"text-emerald-700", bg:"bg-emerald-50", title:t("admin.overview.insight_nolate_title"), desc:t("admin.overview.insight_nolate_desc"), level:"good" })
   }
 
   // Insight 3: Trend
   if (trendDir === "up") {
-    insights.push({ icon:<TrendingUp size={14}/>, color:"text-emerald-700", bg:"bg-emerald-50", title:"แนวโน้มเข้างานดีขึ้น", desc:"อัตราเข้างานสัปดาห์นี้สูงกว่าช่วงต้นสัปดาห์", level:"good" })
+    insights.push({ icon:<TrendingUp size={14}/>, color:"text-emerald-700", bg:"bg-emerald-50", title:t("admin.overview.insight_trend_up_title"), desc:t("admin.overview.insight_trend_up_desc"), level:"good" })
   } else if (trendDir === "down") {
-    insights.push({ icon:<TrendingDown size={14}/>, color:"text-rose-700", bg:"bg-rose-50", title:"แนวโน้มเข้างานลดลง", desc:"อัตราเข้างานลดลงต่อเนื่อง 7 วัน — ควรวิเคราะห์สาเหตุ", level:"warn" })
+    insights.push({ icon:<TrendingDown size={14}/>, color:"text-rose-700", bg:"bg-rose-50", title:t("admin.overview.insight_trend_down_title"), desc:t("admin.overview.insight_trend_down_desc"), level:"warn" })
   }
 
   // Insight 4: Probation urgent
   if (warnProb > 0) {
-    insights.push({ icon:<AlertTriangle size={14}/>, color:"text-rose-700", bg:"bg-rose-50", title:`ทดลองงานหมดใน 7 วัน ${warnProb} คน`, desc:"ต้องตัดสินใจผ่านทดลองงานด่วน ก่อนครบกำหนด", level:"danger" })
+    insights.push({ icon:<AlertTriangle size={14}/>, color:"text-rose-700", bg:"bg-rose-50", title:t("admin.overview.insight_prob_warn_title",{count:warnProb}), desc:t("admin.overview.insight_prob_warn_desc"), level:"danger" })
   } else if (critProb > 0) {
-    insights.push({ icon:<Bell size={14}/>, color:"text-amber-700", bg:"bg-amber-50", title:`ทดลองงานหมดใน 30 วัน ${critProb} คน`, desc:"ควรเริ่มประเมินผลพนักงานทดลองงานในกลุ่มนี้", level:"warn" })
+    insights.push({ icon:<Bell size={14}/>, color:"text-amber-700", bg:"bg-amber-50", title:t("admin.overview.insight_prob_crit_title",{count:critProb}), desc:t("admin.overview.insight_prob_crit_desc"), level:"warn" })
   }
 
   // Insight 5: Pending approvals
   if (kpi.pendingLeave + kpi.pendingAdj > 10) {
-    insights.push({ icon:<AlertCircle size={14}/>, color:"text-orange-700", bg:"bg-orange-50", title:`รออนุมัติ ${kpi.pendingLeave + kpi.pendingAdj} รายการ`, desc:"มีรายการรออนุมัติค้างมาก กรุณาดำเนินการ", level:"warn" })
+    insights.push({ icon:<AlertCircle size={14}/>, color:"text-orange-700", bg:"bg-orange-50", title:t("admin.overview.insight_pending_title",{count:kpi.pendingLeave + kpi.pendingAdj}), desc:t("admin.overview.insight_pending_desc"), level:"warn" })
   }
 
   if (insights.length === 0) return null
@@ -190,8 +197,8 @@ function SmartInsights({ kpi, weekData, probList }: {
         <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0">
           <Brain size={14} className="text-indigo-600"/>
         </div>
-        <p className="font-black text-sm text-slate-800">Smart Insights</p>
-        <span className="text-[10px] text-slate-400 ml-1">วิเคราะห์อัตโนมัติ</span>
+        <p className="font-black text-sm text-slate-800">{t("admin.overview.smart_insights_title")}</p>
+        <span className="text-[10px] text-slate-400 ml-1">{t("admin.overview.smart_insights_subtitle")}</span>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 divide-y md:divide-y-0 md:divide-x divide-slate-50">
         {insights.slice(0,3).map((ins, i) => (
@@ -223,6 +230,7 @@ function SmartInsights({ kpi, weekData, probList }: {
 
 // ── Probation Alert Banner ─────────────────────────────────────────────────
 function ProbationBanner({ list }: { list: ProbPerson[] }) {
+  const { t } = useLanguage()
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [expanded,  setExpanded]  = useState(false)
   const visible = list.filter(p => !dismissed.has(p.id))
@@ -233,9 +241,9 @@ function ProbationBanner({ list }: { list: ProbPerson[] }) {
   const notice   = visible.filter(p => p.daysLeft > 90 && p.daysLeft <= 119)
 
   const cfg = {
-    critical:{ border:"border-l-rose-500",  bg:"bg-rose-50",   text:"text-rose-700",  badge:"bg-rose-100 text-rose-700",  dot:"bg-rose-500",  tag:"ด่วน!",          tagBg:"bg-rose-500"  },
-    warning: { border:"border-l-amber-500", bg:"bg-amber-50",  text:"text-amber-800", badge:"bg-amber-100 text-amber-700",dot:"bg-amber-500", tag:"แจ้งเตือน 90 วัน",tagBg:"bg-amber-500" },
-    notice:  { border:"border-l-blue-400",  bg:"bg-blue-50",   text:"text-blue-800",  badge:"bg-blue-100 text-blue-700",  dot:"bg-blue-400",  tag:"119 วัน",        tagBg:"bg-blue-400"  },
+    critical:{ border:"border-l-rose-500",  bg:"bg-rose-50",   text:"text-rose-700",  badge:"bg-rose-100 text-rose-700",  dot:"bg-rose-500",  tag:t("admin.overview.prob_tag_urgent"),          tagBg:"bg-rose-500"  },
+    warning: { border:"border-l-amber-500", bg:"bg-amber-50",  text:"text-amber-800", badge:"bg-amber-100 text-amber-700",dot:"bg-amber-500", tag:t("admin.overview.prob_tag_90"),tagBg:"bg-amber-500" },
+    notice:  { border:"border-l-blue-400",  bg:"bg-blue-50",   text:"text-blue-800",  badge:"bg-blue-100 text-blue-700",  dot:"bg-blue-400",  tag:t("admin.overview.prob_tag_119"),        tagBg:"bg-blue-400"  },
   }
   const levelOf = (p:ProbPerson): keyof typeof cfg =>
     p.daysLeft <= 30 ? "critical" : p.daysLeft <= 90 ? "warning" : "notice"
@@ -249,17 +257,17 @@ function ProbationBanner({ list }: { list: ProbPerson[] }) {
           <Bell size={15} className="text-amber-500"/>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-black text-sm text-slate-800 leading-none">การแจ้งเตือนทดลองงาน</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">ใกล้สิ้นสุดระยะทดลองงาน 119 วัน</p>
+          <p className="font-black text-sm text-slate-800 leading-none">{t("admin.overview.prob_banner_title")}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{t("admin.overview.prob_banner_subtitle")}</p>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {critical.length > 0 && <span className="text-[10px] font-black bg-rose-500 text-white px-2 py-0.5 rounded-full">{critical.length} ด่วน</span>}
-          {warning.length  > 0 && <span className="text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded-full">{warning.length} 90 วัน</span>}
-          {notice.length   > 0 && <span className="text-[10px] font-black bg-blue-400 text-white px-2 py-0.5 rounded-full">{notice.length} 119 วัน</span>}
+          {critical.length > 0 && <span className="text-[10px] font-black bg-rose-500 text-white px-2 py-0.5 rounded-full">{t("admin.overview.prob_badge_urgent",{count:critical.length})}</span>}
+          {warning.length  > 0 && <span className="text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded-full">{t("admin.overview.prob_badge_90",{count:warning.length})}</span>}
+          {notice.length   > 0 && <span className="text-[10px] font-black bg-blue-400 text-white px-2 py-0.5 rounded-full">{t("admin.overview.prob_badge_119",{count:notice.length})}</span>}
         </div>
       </div>
       <div className="flex items-center gap-5 px-5 py-2 border-b border-slate-50 bg-slate-50/60">
-        {[{c:"bg-rose-500",l:"≤ 30 วัน (ด่วน)"},{c:"bg-amber-500",l:"31–90 วัน"},{c:"bg-blue-400",l:"91–119 วัน"}].map(x=>(
+        {[{c:"bg-rose-500",l:t("admin.overview.prob_legend_critical")},{c:"bg-amber-500",l:t("admin.overview.prob_legend_warning")},{c:"bg-blue-400",l:t("admin.overview.prob_legend_notice")}].map(x=>(
           <div key={x.l} className="flex items-center gap-1.5">
             <div className={`w-2 h-2 rounded-full ${x.c}`}/><span className="text-[10px] text-slate-400">{x.l}</span>
           </div>
@@ -280,14 +288,14 @@ function ProbationBanner({ list }: { list: ProbPerson[] }) {
                 </div>
                 {p.dept && <p className="text-[11px] text-slate-400 mt-0.5">{p.dept}</p>}
                 <p className={`text-[11px] font-bold mt-0.5 ${c.text}`}>
-                  สิ้นสุด {format(new Date(p.probation_end_date),"d MMMM yyyy",{locale:th})} · เหลืออีก{" "}
-                  <span className="font-black text-[14px]">{p.daysLeft}</span> วัน
+                  {t("admin.overview.prob_ends_prefix",{date:format(new Date(p.probation_end_date),"d MMMM yyyy",{locale:th})})}{" "}
+                  <span className="font-black text-[14px]">{p.daysLeft}</span> {t("admin.overview.prob_days_left_suffix")}
                 </p>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 <Link href={`/admin/employees/${p.id}`}
                   className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-1">
-                  ดูข้อมูล<ChevronRight size={10}/>
+                  {t("admin.overview.btn_view_info")}<ChevronRight size={10}/>
                 </Link>
                 <button onClick={() => setDismissed(s => new Set([...Array.from(s), p.id]))}
                   className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white/80 transition-colors">
@@ -301,7 +309,7 @@ function ProbationBanner({ list }: { list: ProbPerson[] }) {
       {visible.length > 3 && (
         <button onClick={() => setExpanded(e => !e)}
           className="w-full py-2.5 text-[11px] font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors border-t border-slate-100 flex items-center justify-center gap-1">
-          {expanded ? "แสดงน้อยลง ↑" : `ดูอีก ${visible.length - 3} คน ↓`}
+          {expanded ? t("admin.overview.btn_show_less") : t("admin.overview.btn_show_more",{count:visible.length - 3})}
         </button>
       )}
     </div>
@@ -310,6 +318,7 @@ function ProbationBanner({ list }: { list: ProbPerson[] }) {
 
 // ── Main dashboard ─────────────────────────────────────────────────────────
 export default function AdminDashboard() {
+  const { t, T } = useLanguage()
   const {user}   = useAuth()
   const supabase = createClient()
   const isSA     = user?.role==="super_admin" || user?.role==="hr_admin"
@@ -574,14 +583,14 @@ export default function AdminDashboard() {
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-2xl font-black text-slate-800">ภาพรวมระบบ</h2>
+          <h2 className="text-2xl font-black text-slate-800">{t("admin.overview.overview_title")}</h2>
           <p className="text-slate-400 text-sm">{format(new Date(),"EEEE d MMMM yyyy",{locale:th})}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {isSA&&companies.length>0&&(
             <select value={selectedCo} onChange={e=>setSelectedCo(e.target.value)}
               className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-indigo-400 transition-all">
-              <option value="">ทุกบริษัท</option>
+              <option value="">{t("admin.overview.all_companies")}</option>
               {companies.map(c=><option key={c.id} value={c.id}>{c.name_th}</option>)}
             </select>
           )}
@@ -600,7 +609,7 @@ export default function AdminDashboard() {
               ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-sm"
               : "text-slate-500 hover:bg-slate-50"
           }`}>
-          <BarChart3 size={13}/> ภาพรวมระบบ
+          <BarChart3 size={13}/> {t("admin.overview.overview_title")}
         </button>
         <button onClick={() => setActiveTab("payroll")}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
@@ -608,7 +617,7 @@ export default function AdminDashboard() {
               ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm"
               : "text-slate-500 hover:bg-slate-50"
           }`}>
-          <Banknote size={13}/> วิเคราะห์เงินเดือน
+          <Banknote size={13}/> {t("admin.overview.payroll_tab")}
         </button>
       </div>
 
@@ -628,19 +637,19 @@ export default function AdminDashboard() {
       {/* ── ACTION BAR: Report & Export ── (โดดเด่น ด้านบน) ─── */}
       <div className="bg-gradient-to-r from-[#2A505A] to-[#3a6b78] rounded-2xl p-4 flex items-center gap-4 flex-wrap">
         <div className="flex-1 min-w-0">
-          <p className="text-white font-black text-sm">รายงาน & Export</p>
-          <p className="text-[#b3e5fc] text-[11px] mt-0.5">ดูรายงานการเข้างาน สรุปตามแผนก/สาขา และ Export Excel</p>
+          <p className="text-white font-black text-sm">{t("admin.overview.report_export_title")}</p>
+          <p className="text-[#b3e5fc] text-[11px] mt-0.5">{t("admin.overview.report_export_desc")}</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <Link href="/admin/attendance?tab=summary"
             className="flex items-center gap-2 px-4 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 text-white text-sm font-bold rounded-xl transition-colors">
             <FileBarChart2 size={14}/>
-            สรุปรายงาน
+            {t("admin.overview.btn_report_summary")}
           </Link>
           <Link href="/admin/attendance"
             className="flex items-center gap-2 px-4 py-2.5 bg-white text-[#2A505A] text-sm font-black rounded-xl hover:bg-blue-50 transition-colors shadow-sm">
             <ArrowRight size={14}/>
-            ดูการเข้างาน
+            {t("admin.overview.btn_view_attendance")}
           </Link>
         </div>
       </div>
@@ -658,13 +667,13 @@ export default function AdminDashboard() {
                 className="bg-white border border-slate-100 rounded-2xl p-4 text-left hover:border-indigo-200 hover:shadow-md transition-all">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-[10px] font-black px-2 py-0.5 rounded-lg text-white" style={{backgroundColor:COMPANY_COLORS[i%4]}}>{c.code}</span>
-                  {c.pending>0&&<span className="text-[10px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{c.pending} รออนุมัติ</span>}
+                  {c.pending>0&&<span className="text-[10px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{t("admin.overview.co_pending",{count:c.pending})}</span>}
                 </div>
                 <p className="text-2xl font-black text-slate-800">{c.total}</p>
                 <p className="text-xs text-slate-400 truncate mt-0.5">{c.name_th.replace("บริษัท ","").replace(" จำกัด","")}</p>
                 <div className="mt-3">
                   <div className="flex justify-between text-[10px] text-slate-400 mb-1">
-                    <span>มาวันนี้</span>
+                    <span>{t("admin.overview.present_today_short")}</span>
                     <span className="font-black" style={{color:COMPANY_COLORS[i%4]}}>{pct}%</span>
                   </div>
                   <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -680,14 +689,14 @@ export default function AdminDashboard() {
       {/* ── KPI row ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
         {[
-          {l:"พนักงาน",      v:kpi.totalEmp,     icon:Users,         bg:"bg-indigo-50", ic:"text-indigo-500", vc:"text-indigo-700", href:"/admin/employees"},
-          {l:"มาวันนี้",     v:kpi.presentToday, icon:CheckCircle,   bg:"bg-green-50",  ic:"text-green-500",  vc:"text-green-700",  href:"/admin/attendance"},
-          {l:"มาสาย",        v:kpi.lateToday,    icon:Timer,         bg:"bg-amber-50",  ic:"text-amber-500",  vc:"text-amber-700",  href:"/admin/attendance"},
-          {l:"ขาดงาน",       v:kpi.absentToday,  icon:XCircle,       bg:"bg-red-50",    ic:"text-red-500",    vc:"text-red-700",    href:"/admin/attendance"},
-          {l:"รออนุมัติลา", v:kpi.pendingLeave, icon:Calendar,      bg:"bg-orange-50", ic:"text-orange-500", vc:"text-orange-700", href:"/admin/leave"},
-          {l:"รอแก้เวลา",   v:kpi.pendingAdj,   icon:AlertCircle,   bg:"bg-yellow-50", ic:"text-yellow-600", vc:"text-yellow-700", href:"/admin/attendance"},
-          {l:"พนักงานใหม่", v:kpi.newHires,     icon:UserPlus,      bg:"bg-sky-50",    ic:"text-sky-500",    vc:"text-sky-700",    href:"/admin/probation-employees"},
-          {l:"ใกล้หมดทดลอง",v:kpi.probCount,   icon:AlertTriangle, bg:"bg-rose-50",   ic:"text-rose-500",   vc:"text-rose-700",   href:"/admin/probation-employees"},
+          {l:t("admin.overview.kpi_employees"),      v:kpi.totalEmp,     icon:Users,         bg:"bg-indigo-50", ic:"text-indigo-500", vc:"text-indigo-700", href:"/admin/employees"},
+          {l:t("admin.overview.kpi_present"),     v:kpi.presentToday, icon:CheckCircle,   bg:"bg-green-50",  ic:"text-green-500",  vc:"text-green-700",  href:"/admin/attendance"},
+          {l:t("admin.overview.kpi_late"),        v:kpi.lateToday,    icon:Timer,         bg:"bg-amber-50",  ic:"text-amber-500",  vc:"text-amber-700",  href:"/admin/attendance"},
+          {l:t("admin.overview.kpi_absent"),       v:kpi.absentToday,  icon:XCircle,       bg:"bg-red-50",    ic:"text-red-500",    vc:"text-red-700",    href:"/admin/attendance"},
+          {l:t("admin.overview.kpi_pending_leave"), v:kpi.pendingLeave, icon:Calendar,      bg:"bg-orange-50", ic:"text-orange-500", vc:"text-orange-700", href:"/admin/leave"},
+          {l:t("admin.overview.kpi_pending_adj"),   v:kpi.pendingAdj,   icon:AlertCircle,   bg:"bg-yellow-50", ic:"text-yellow-600", vc:"text-yellow-700", href:"/admin/attendance"},
+          {l:t("admin.overview.kpi_new_hires"), v:kpi.newHires,     icon:UserPlus,      bg:"bg-sky-50",    ic:"text-sky-500",    vc:"text-sky-700",    href:"/admin/probation-employees"},
+          {l:t("admin.overview.kpi_prob_soon"),v:kpi.probCount,   icon:AlertTriangle, bg:"bg-rose-50",   ic:"text-rose-500",   vc:"text-rose-700",   href:"/admin/probation-employees"},
         ].map(k=>(
           <Link key={k.l} href={k.href} className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:border-indigo-200 hover:shadow-md transition-all block">
             <div className={`w-8 h-8 ${k.bg} rounded-xl flex items-center justify-center mb-2.5`}>
@@ -702,11 +711,11 @@ export default function AdminDashboard() {
       {/* ── Donut + Weekly ──────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <h3 className="font-black text-slate-700 text-sm mb-4">สถานะวันนี้</h3>
+          <h3 className="font-black text-slate-700 text-sm mb-4">{t("admin.overview.today_status")}</h3>
           <div className="flex flex-col items-center gap-4">
             <DonutChart present={kpi.presentToday} late={kpi.lateToday} absent={kpi.absentToday} leave={0} total={totalToday}/>
             <div className="grid grid-cols-2 gap-x-6 gap-y-2 w-full">
-              {[{l:"มาทำงาน",v:kpi.presentToday,c:"bg-green-500"},{l:"มาสาย",v:kpi.lateToday,c:"bg-amber-400"},{l:"ขาดงาน",v:kpi.absentToday,c:"bg-red-400"},{l:"รออนุมัติ",v:pendTotal,c:"bg-orange-400"}].map(s=>(
+              {[{l:t("admin.overview.status_present"),v:kpi.presentToday,c:"bg-green-500"},{l:t("admin.overview.status_late"),v:kpi.lateToday,c:"bg-amber-400"},{l:t("admin.overview.status_absent"),v:kpi.absentToday,c:"bg-red-400"},{l:t("admin.overview.pending_label"),v:pendTotal,c:"bg-orange-400"}].map(s=>(
                 <div key={s.l} className="flex items-center gap-2 text-xs">
                   <div className={`w-2.5 h-2.5 rounded-full ${s.c} flex-shrink-0`}/>
                   <span className="text-slate-500">{s.l}</span>
@@ -718,14 +727,14 @@ export default function AdminDashboard() {
         </div>
         <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-black text-slate-700 text-sm">การเข้างาน 7 วันล่าสุด</h3>
+            <h3 className="font-black text-slate-700 text-sm">{t("admin.overview.week_attendance_title")}</h3>
             <div className="flex gap-3">
-              {[["bg-indigo-500","มา"],["bg-amber-400","สาย"],["bg-blue-300","ลา"],["bg-red-400","ขาด"]].map(([c,l])=>(
+              {[["bg-indigo-500",t("admin.overview.wk_present")],["bg-amber-400",t("admin.overview.wk_late")],["bg-blue-300",t("admin.overview.wk_leave")],["bg-red-400",t("admin.overview.wk_absent")]].map(([c,l])=>(
                 <div key={l} className="flex items-center gap-1 text-[10px] text-slate-400"><div className={`w-2 h-2 rounded-sm ${c}`}/>{l}</div>
               ))}
             </div>
           </div>
-          {weekData.length>0?<WeeklyChart data={weekData}/>:<div className="h-28 flex items-center justify-center text-slate-300 text-sm">ยังไม่มีข้อมูล</div>}
+          {weekData.length>0?<WeeklyChart data={weekData}/>:<div className="h-28 flex items-center justify-center text-slate-300 text-sm">{t("admin.overview.no_data")}</div>}
         </div>
       </div>
 
@@ -736,9 +745,9 @@ export default function AdminDashboard() {
             <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center flex-shrink-0">
               <Shield size={14} className="text-rose-500"/>
             </div>
-            <p className="font-black text-sm text-slate-800">สถิติพนักงานทดลองงาน</p>
-            <span className="ml-1 text-[10px] bg-rose-100 text-rose-700 font-black px-2 py-0.5 rounded-full">{probList.length} คน</span>
-            <Link href="/admin/employees" className="ml-auto text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">จัดการ<ChevronRight size={12}/></Link>
+            <p className="font-black text-sm text-slate-800">{t("admin.overview.prob_stats_title")}</p>
+            <span className="ml-1 text-[10px] bg-rose-100 text-rose-700 font-black px-2 py-0.5 rounded-full">{t("admin.overview.count_people",{count:probList.length})}</span>
+            <Link href="/admin/employees" className="ml-auto text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">{t("admin.overview.btn_manage")}<ChevronRight size={12}/></Link>
           </div>
           <div className="p-5">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -747,14 +756,14 @@ export default function AdminDashboard() {
                 <ProbationDonut critical={critProb} warning={warnProb} notice={noticeProb}/>
                 <div className="flex flex-col gap-1.5 w-full">
                   {[
-                    {color:"bg-rose-500", label:"≤ 30 วัน (ด่วน)", val:critProb},
-                    {color:"bg-amber-500",label:"31–90 วัน",        val:warnProb},
-                    {color:"bg-blue-400", label:"91–119 วัน",       val:noticeProb},
+                    {color:"bg-rose-500", label:t("admin.overview.prob_legend_critical"), val:critProb},
+                    {color:"bg-amber-500",label:t("admin.overview.prob_legend_warning"),        val:warnProb},
+                    {color:"bg-blue-400", label:t("admin.overview.prob_legend_notice"),       val:noticeProb},
                   ].map(s=>(
                     <div key={s.label} className="flex items-center gap-2 text-xs">
                       <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${s.color}`}/>
                       <span className="text-slate-500 flex-1">{s.label}</span>
-                      <span className="font-black text-slate-700">{s.val} คน</span>
+                      <span className="font-black text-slate-700">{t("admin.overview.count_people",{count:s.val})}</span>
                     </div>
                   ))}
                 </div>
@@ -762,7 +771,7 @@ export default function AdminDashboard() {
 
               {/* Bar chart by days remaining */}
               <div className="md:col-span-2">
-                <p className="text-[11px] font-black text-slate-400 uppercase tracking-wide mb-3">จำนวนวันที่เหลือ</p>
+                <p className="text-[11px] font-black text-slate-400 uppercase tracking-wide mb-3">{t("admin.overview.days_remaining_label")}</p>
                 <div className="space-y-2.5">
                   {probList.slice(0,6).map(p=>{
                     const pct = Math.max(5, Math.round((p.daysLeft / 119)*100))
@@ -778,7 +787,7 @@ export default function AdminDashboard() {
                             <span className="font-bold text-slate-700 truncate">{p.name}</span>
                             {p.dept && <span className="text-slate-400 truncate hidden md:block">· {p.dept}</span>}
                           </div>
-                          <span className={`font-black flex-shrink-0 ml-2 ${textCol}`}>{p.daysLeft} วัน</span>
+                          <span className={`font-black flex-shrink-0 ml-2 ${textCol}`}>{t("admin.overview.count_days",{count:p.daysLeft})}</span>
                         </div>
                         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                           <div className={`h-full rounded-full ${col} transition-all`} style={{width:`${pct}%`}}/>
@@ -787,16 +796,16 @@ export default function AdminDashboard() {
                     )
                   })}
                   {probList.length>6&&(
-                    <p className="text-[11px] text-slate-400 text-center pt-1">และอีก {probList.length-6} คน — <Link href="/admin/employees" className="text-indigo-500 font-bold hover:underline">ดูทั้งหมด</Link></p>
+                    <p className="text-[11px] text-slate-400 text-center pt-1">{t("admin.overview.and_more_people",{count:probList.length-6})}<Link href="/admin/employees" className="text-indigo-500 font-bold hover:underline">{t("admin.overview.btn_view_all")}</Link></p>
                   )}
                 </div>
 
                 {/* 3-level summary stat bar */}
                 <div className="mt-4 grid grid-cols-3 gap-2">
                   {[
-                    {icon:<ShieldAlert size={13}/>, bg:"bg-rose-50", border:"border-rose-200", ic:"text-rose-500", val:critProb,   label:"ด่วน ≤30 วัน"},
-                    {icon:<Shield size={13}/>,      bg:"bg-amber-50",border:"border-amber-200",ic:"text-amber-500",val:warnProb,  label:"31–90 วัน"},
-                    {icon:<ShieldCheck size={13}/>, bg:"bg-blue-50", border:"border-blue-200", ic:"text-blue-400", val:noticeProb,label:"91–119 วัน"},
+                    {icon:<ShieldAlert size={13}/>, bg:"bg-rose-50", border:"border-rose-200", ic:"text-rose-500", val:critProb,   label:t("admin.overview.prob_stat_critical")},
+                    {icon:<Shield size={13}/>,      bg:"bg-amber-50",border:"border-amber-200",ic:"text-amber-500",val:warnProb,  label:t("admin.overview.prob_legend_warning")},
+                    {icon:<ShieldCheck size={13}/>, bg:"bg-blue-50", border:"border-blue-200", ic:"text-blue-400", val:noticeProb,label:t("admin.overview.prob_legend_notice")},
                   ].map(s=>(
                     <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl px-3 py-2.5 flex items-center gap-2`}>
                       <span className={s.ic}>{s.icon}</span>
@@ -817,11 +826,11 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-50">
-            <h3 className="font-black text-slate-700 text-sm">เช็คอินวันนี้</h3>
-            <Link href="/admin/attendance" className="text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">ดูทั้งหมด<ChevronRight size={12}/></Link>
+            <h3 className="font-black text-slate-700 text-sm">{t("admin.overview.checkin_today_title")}</h3>
+            <Link href="/admin/attendance" className="text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">{t("admin.overview.btn_view_all")}<ChevronRight size={12}/></Link>
           </div>
           {loading?(<div className="px-5 py-10 text-center"><div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mx-auto"/></div>
-          ):checkins.length===0?(<div className="px-5 py-10 text-center text-slate-300 text-sm">ยังไม่มีการเช็คอินวันนี้</div>):(
+          ):checkins.length===0?(<div className="px-5 py-10 text-center text-slate-300 text-sm">{t("admin.overview.no_checkin_today")}</div>):(
             <div className="divide-y divide-slate-50">
               {checkins.map((a,idx)=>(
                 <div key={idx} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
@@ -835,7 +844,7 @@ export default function AdminDashboard() {
                   <div className="text-right flex-shrink-0">
                     <p className="text-sm font-black text-slate-700">{a.clock_in?format(new Date(a.clock_in),"HH:mm"):"--:--"}</p>
                     <span className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBadge(a.status)}`}>
-                      {statusTH(a.status)}{a.late_minutes>0&&` +${a.late_minutes}น.`}
+                      {statusTH(a.status,t)}{a.late_minutes>0&&` ${t("admin.overview.late_min_suffix",{min:a.late_minutes})}`}
                     </span>
                   </div>
                 </div>
@@ -844,8 +853,8 @@ export default function AdminDashboard() {
           )}
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <h3 className="font-black text-slate-700 text-sm mb-4">การมาของแต่ละแผนก</h3>
-          {deptData.length===0?<p className="text-center text-slate-300 text-sm py-6">ยังไม่มีข้อมูล</p>:(
+          <h3 className="font-black text-slate-700 text-sm mb-4">{t("admin.overview.dept_attendance_title")}</h3>
+          {deptData.length===0?<p className="text-center text-slate-300 text-sm py-6">{t("admin.overview.no_data")}</p>:(
             <div className="space-y-3">
               {deptData.map(d=>{
                 const pct=d.total>0?Math.round((d.present/d.total)*100):0
@@ -872,13 +881,13 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-50">
             <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
-              ใบลารออนุมัติ
+              {t("admin.overview.pending_leave_title")}
               {kpi.pendingLeave>0&&<span className="text-[10px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{kpi.pendingLeave}</span>}
             </h3>
-            <Link href="/admin/leave" className="text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">จัดการ<ChevronRight size={12}/></Link>
+            <Link href="/admin/leave" className="text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">{t("admin.overview.btn_manage")}<ChevronRight size={12}/></Link>
           </div>
           {pendLeaves.length===0?(
-            <div className="px-5 py-10 text-center text-slate-300 text-sm">ไม่มีรายการรออนุมัติ ✓</div>
+            <div className="px-5 py-10 text-center text-slate-300 text-sm">{t("admin.overview.no_pending_approval")}</div>
           ):(
             <div className="divide-y divide-slate-50">
               {pendLeaves.map(r=>(
@@ -894,7 +903,7 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="text-xs font-black text-slate-600">{r.days} วัน</p>
+                    <p className="text-xs font-black text-slate-600">{t("admin.overview.count_days",{count:r.days})}</p>
                     <p className="text-[10px] text-slate-400">{format(new Date(r.start_date),"d MMM",{locale:th})}</p>
                   </div>
                 </div>
@@ -906,11 +915,11 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-50">
             <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
-              <Award size={14} className="text-amber-500"/> มาสายสูงสุดเดือนนี้
+              <Award size={14} className="text-amber-500"/> {t("admin.overview.late_top_title")}
             </h3>
           </div>
           {lateList.length===0?(
-            <div className="px-5 py-10 text-center text-slate-300 text-sm">ไม่มีข้อมูลการมาสาย</div>
+            <div className="px-5 py-10 text-center text-slate-300 text-sm">{t("admin.overview.no_late_data")}</div>
           ):(
             <div className="divide-y divide-slate-50">
               {lateList.map((emp,i)=>(
@@ -924,8 +933,8 @@ export default function AdminDashboard() {
                     <p className="text-xs text-slate-400 truncate">{emp.position}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-black text-amber-600">{emp.count} ครั้ง</p>
-                    <p className="text-[10px] text-slate-400">{emp.totalMin} นาที</p>
+                    <p className="text-sm font-black text-amber-600">{t("admin.overview.count_times",{count:emp.count})}</p>
+                    <p className="text-[10px] text-slate-400">{t("admin.overview.count_minutes",{count:emp.totalMin})}</p>
                   </div>
                 </div>
               ))}
@@ -936,12 +945,12 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-50">
             <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
-              <AlertTriangle size={14} className="text-rose-500"/> ใกล้หมดทดลองงาน (30 วัน)
+              <AlertTriangle size={14} className="text-rose-500"/> {t("admin.overview.prob_soon_title")}
               {critProb>0&&(<span className="text-[10px] font-black bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full">{critProb}</span>)}
             </h3>
           </div>
           {probList.filter(p=>p.daysLeft<=30).length===0?(
-            <div className="px-5 py-10 text-center text-slate-300 text-sm">ไม่มีในช่วง 30 วันนี้</div>
+            <div className="px-5 py-10 text-center text-slate-300 text-sm">{t("admin.overview.no_prob_30")}</div>
           ):(
             <div className="divide-y divide-slate-50">
               {probList.filter(p=>p.daysLeft<=30).slice(0,5).map(emp=>(
@@ -955,7 +964,7 @@ export default function AdminDashboard() {
                     <p className="text-xs text-slate-400 truncate">{emp.dept}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className={`text-sm font-black ${emp.daysLeft<=7?"text-red-500":emp.daysLeft<=14?"text-amber-600":"text-slate-600"}`}>{emp.daysLeft} วัน</p>
+                    <p className={`text-sm font-black ${emp.daysLeft<=7?"text-red-500":emp.daysLeft<=14?"text-amber-600":"text-slate-600"}`}>{t("admin.overview.count_days",{count:emp.daysLeft})}</p>
                     <p className="text-[10px] text-slate-400">{format(new Date(emp.probation_end_date),"d MMM",{locale:th})}</p>
                   </div>
                 </Link>
@@ -971,36 +980,36 @@ export default function AdminDashboard() {
           <div className="flex items-center justify-between">
             <h2 className="font-black text-slate-700 flex items-center gap-2">
               <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center"><Target size={14} className="text-indigo-600"/></div>
-              KPI ประจำปี {new Date().getFullYear()}
+              {t("admin.overview.kpi_annual_title",{year:new Date().getFullYear()})}
             </h2>
             <Link href="/admin/kpi" className="text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors">
-              ดูทั้งหมด →
+              {t("admin.overview.btn_view_all")} →
             </Link>
           </div>
 
           {/* KPI Summary Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">ประเมินแล้ว</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase">{t("admin.overview.kpi_evaluated")}</p>
               <p className="text-2xl font-black text-slate-800 mt-1">{kpiStats.total}</p>
-              <p className="text-[10px] text-slate-400">ฟอร์ม</p>
+              <p className="text-[10px] text-slate-400">{t("admin.overview.kpi_forms_unit")}</p>
             </div>
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">คะแนนเฉลี่ย</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase">{t("admin.overview.kpi_avg_score")}</p>
               <p className={`text-2xl font-black mt-1 ${kpiStats.avg>=81?"text-emerald-600":kpiStats.avg>=71?"text-amber-600":"text-red-500"}`}>
                 {kpiStats.avg.toFixed(1)}%
               </p>
-              <p className="text-[10px] text-slate-400">ทั้งบริษัท</p>
+              <p className="text-[10px] text-slate-400">{t("admin.overview.kpi_whole_company")}</p>
             </div>
             <div className="bg-emerald-50 rounded-2xl border border-emerald-100 p-4">
-              <p className="text-[10px] font-bold text-emerald-600 uppercase">เกรด A+B</p>
+              <p className="text-[10px] font-bold text-emerald-600 uppercase">{t("admin.overview.kpi_grade_ab")}</p>
               <p className="text-2xl font-black text-emerald-700 mt-1">{(kpiStats.grades.A||0)+(kpiStats.grades.B||0)}</p>
-              <p className="text-[10px] text-emerald-600">ดี-ดีมาก</p>
+              <p className="text-[10px] text-emerald-600">{t("admin.overview.kpi_grade_ab_desc")}</p>
             </div>
             <div className="bg-red-50 rounded-2xl border border-red-100 p-4">
-              <p className="text-[10px] font-bold text-red-500 uppercase">เกรด C+D</p>
+              <p className="text-[10px] font-bold text-red-500 uppercase">{t("admin.overview.kpi_grade_cd")}</p>
               <p className="text-2xl font-black text-red-600 mt-1">{(kpiStats.grades.C||0)+(kpiStats.grades.D||0)}</p>
-              <p className="text-[10px] text-red-500">ต้องปรับปรุง</p>
+              <p className="text-[10px] text-red-500">{t("admin.overview.kpi_grade_cd_desc")}</p>
             </div>
           </div>
 
@@ -1009,7 +1018,7 @@ export default function AdminDashboard() {
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-50">
                 <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
-                  <BarChart3 size={14} className="text-indigo-500"/> สัดส่วนเกรด
+                  <BarChart3 size={14} className="text-indigo-500"/> {t("admin.overview.kpi_grade_dist")}
                 </h3>
               </div>
               <div className="px-5 py-4 space-y-3">
@@ -1038,14 +1047,14 @@ export default function AdminDashboard() {
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-50">
                   <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
-                    <TrendingUp size={14} className="text-emerald-500"/> คะแนนเฉลี่ยรายเดือน
+                    <TrendingUp size={14} className="text-emerald-500"/> {t("admin.overview.kpi_monthly_avg")}
                   </h3>
                 </div>
                 <div className="px-5 py-4">
                   <div className="flex items-end gap-2 h-32">
                     {kpiStats.monthlyAvg.map(m=>{
                       const h=Math.max((m.avg/100)*100, 8)
-                      const monthNames=["","ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
+                      const monthNames=(T as any).months_short as string[]
                       const barColor=m.avg>=91?"bg-emerald-500":m.avg>=81?"bg-blue-500":m.avg>=71?"bg-amber-500":"bg-red-500"
                       return(
                         <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
@@ -1067,7 +1076,7 @@ export default function AdminDashboard() {
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-50">
                   <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
-                    <Award size={14} className="text-amber-500"/> พนักงานคะแนนสูงสุด
+                    <Award size={14} className="text-amber-500"/> {t("admin.overview.kpi_top_employees")}
                   </h3>
                 </div>
                 <div className="divide-y divide-slate-50">
@@ -1097,7 +1106,7 @@ export default function AdminDashboard() {
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-50">
                   <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
-                    <Building2 size={14} className="text-violet-500"/> แผนกคะแนนเฉลี่ยสูงสุด
+                    <Building2 size={14} className="text-violet-500"/> {t("admin.overview.kpi_top_depts")}
                   </h3>
                 </div>
                 <div className="divide-y divide-slate-50">
@@ -1106,7 +1115,7 @@ export default function AdminDashboard() {
                       <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black flex-shrink-0 ${i===0?"bg-violet-100 text-violet-700":"bg-slate-100 text-slate-500"}`}>{i+1}</div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-slate-700 truncate">{dept.name}</p>
-                        <p className="text-xs text-slate-400">{dept.count} คน</p>
+                        <p className="text-xs text-slate-400">{t("admin.overview.count_people",{count:dept.count})}</p>
                       </div>
                       <div className="w-20 h-2 bg-slate-100 rounded-full overflow-hidden">
                         <div className={`h-full rounded-full transition-all ${dept.avg>=81?"bg-emerald-500":dept.avg>=71?"bg-amber-500":"bg-red-500"}`} style={{width:`${dept.avg}%`}}/>
@@ -1128,18 +1137,18 @@ export default function AdminDashboard() {
             <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
               <FileBarChart2 size={14} className="text-emerald-500"/>
             </div>
-            <p className="font-black text-sm text-slate-800">ภาพรวมเงินเดือนรอบปัจจุบัน</p>
-            <span className="text-[10px] bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded-full">{payrollOverview.count} คน</span>
-            <Link href="/admin/payroll" className="ml-auto text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">จัดการ<ChevronRight size={12}/></Link>
+            <p className="font-black text-sm text-slate-800">{t("admin.overview.payroll_overview_title")}</p>
+            <span className="text-[10px] bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded-full">{t("admin.overview.count_people",{count:payrollOverview.count})}</span>
+            <Link href="/admin/payroll" className="ml-auto text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">{t("admin.overview.btn_manage")}<ChevronRight size={12}/></Link>
           </div>
           <div className="p-5">
             {/* Main numbers */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
               {[
-                { label: "Gross รวม", value: payrollOverview.totalGross, color: "text-slate-800", prev: payrollOverview.prevGross },
-                { label: "Net จ่ายจริง", value: payrollOverview.totalNet, color: "text-emerald-700", prev: payrollOverview.prevNet },
-                { label: "OT รวม", value: payrollOverview.totalOT, color: "text-amber-700", prev: 0 },
-                { label: "เฉลี่ย/คน", value: payrollOverview.avgSalary, color: "text-indigo-700", prev: 0 },
+                { label: t("admin.overview.payroll_gross"), value: payrollOverview.totalGross, color: "text-slate-800", prev: payrollOverview.prevGross },
+                { label: t("admin.overview.payroll_net"), value: payrollOverview.totalNet, color: "text-emerald-700", prev: payrollOverview.prevNet },
+                { label: t("admin.overview.payroll_ot"), value: payrollOverview.totalOT, color: "text-amber-700", prev: 0 },
+                { label: t("admin.overview.payroll_avg"), value: payrollOverview.avgSalary, color: "text-indigo-700", prev: 0 },
               ].map(item => {
                 const diff = item.prev > 0 ? ((item.value - item.prev) / item.prev * 100) : 0
                 return (
@@ -1149,7 +1158,7 @@ export default function AdminDashboard() {
                     {diff !== 0 && (
                       <div className={`flex items-center gap-1 mt-1 text-[10px] font-bold ${diff > 0 ? "text-red-500" : "text-emerald-500"}`}>
                         {diff > 0 ? <TrendingUp size={10}/> : <TrendingDown size={10}/>}
-                        <span>{diff > 0 ? "+" : ""}{diff.toFixed(1)}% จากเดือนก่อน</span>
+                        <span>{t("admin.overview.payroll_vs_last",{val:`${diff > 0 ? "+" : ""}${diff.toFixed(1)}`})}</span>
                       </div>
                     )}
                   </div>
@@ -1159,10 +1168,10 @@ export default function AdminDashboard() {
             {/* Deduction breakdown */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
-                { label: "ประกันสังคม", value: payrollOverview.totalSSO, bg: "bg-blue-50", tc: "text-blue-600" },
-                { label: "ภาษี", value: payrollOverview.totalTax, bg: "bg-purple-50", tc: "text-purple-600" },
-                { label: "หักมาสาย", value: payrollOverview.totalDeductLate, bg: "bg-amber-50", tc: "text-amber-600" },
-                { label: "หักขาดงาน", value: payrollOverview.totalDeductAbsent, bg: "bg-red-50", tc: "text-red-600" },
+                { label: t("admin.overview.deduct_sso"), value: payrollOverview.totalSSO, bg: "bg-blue-50", tc: "text-blue-600" },
+                { label: t("admin.overview.deduct_tax"), value: payrollOverview.totalTax, bg: "bg-purple-50", tc: "text-purple-600" },
+                { label: t("admin.overview.deduct_late"), value: payrollOverview.totalDeductLate, bg: "bg-amber-50", tc: "text-amber-600" },
+                { label: t("admin.overview.deduct_absent"), value: payrollOverview.totalDeductAbsent, bg: "bg-red-50", tc: "text-red-600" },
               ].map(d => (
                 <div key={d.label} className={`${d.bg} rounded-xl px-3 py-2.5 flex items-center justify-between`}>
                   <span className="text-[10px] font-bold text-slate-500">{d.label}</span>
@@ -1181,7 +1190,7 @@ export default function AdminDashboard() {
           <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-50">
               <h3 className="font-black text-slate-700 text-sm flex items-center gap-2">
-                <Clock size={14} className="text-amber-500"/> OT สูงสุดรอบนี้
+                <Clock size={14} className="text-amber-500"/> {t("admin.overview.ot_top_title")}
               </h3>
             </div>
             <div className="divide-y divide-slate-50">
@@ -1212,19 +1221,19 @@ export default function AdminDashboard() {
         {/* Headcount Summary */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
           <h3 className="font-black text-slate-700 text-sm mb-4 flex items-center gap-2">
-            <Users size={14} className="text-indigo-500"/> สรุปกำลังคน
+            <Users size={14} className="text-indigo-500"/> {t("admin.overview.headcount_title")}
           </h3>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">พนักงานทั้งหมด</span>
+              <span className="text-sm text-slate-500">{t("admin.overview.headcount_total")}</span>
               <span className="text-2xl font-black text-indigo-700">{kpi.totalEmp}</span>
             </div>
             <div className="h-px bg-slate-100"/>
             <div className="space-y-2.5">
               {[
-                { label: "ทดลองงาน", value: kpi.probCount, icon: Shield, color: "text-amber-600", bg: "bg-amber-50" },
-                { label: "พนักงานใหม่ (เดือนนี้)", value: kpi.newHires, icon: UserPlus, color: "text-sky-600", bg: "bg-sky-50" },
-                { label: "ลาออก (ปีนี้)", value: resignedCount, icon: XCircle, color: "text-red-500", bg: "bg-red-50" },
+                { label: t("admin.overview.hc_probation"), value: kpi.probCount, icon: Shield, color: "text-amber-600", bg: "bg-amber-50" },
+                { label: t("admin.overview.hc_new_month"), value: kpi.newHires, icon: UserPlus, color: "text-sky-600", bg: "bg-sky-50" },
+                { label: t("admin.overview.hc_resigned_year"), value: resignedCount, icon: XCircle, color: "text-red-500", bg: "bg-red-50" },
               ].map(item => (
                 <div key={item.label} className="flex items-center gap-3">
                   <div className={`w-7 h-7 ${item.bg} rounded-lg flex items-center justify-center flex-shrink-0`}>
@@ -1238,7 +1247,7 @@ export default function AdminDashboard() {
             {kpi.totalEmp > 0 && resignedCount > 0 && (
               <div className="mt-2 bg-slate-50 rounded-xl px-3 py-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-slate-400">Turnover Rate (ปีนี้)</span>
+                  <span className="text-[10px] font-bold text-slate-400">{t("admin.overview.turnover_rate")}</span>
                   <span className={`text-sm font-black ${(resignedCount / kpi.totalEmp * 100) > 15 ? "text-red-500" : "text-emerald-600"}`}>
                     {(resignedCount / kpi.totalEmp * 100).toFixed(1)}%
                   </span>
@@ -1252,10 +1261,10 @@ export default function AdminDashboard() {
       {/* ── Quick Actions ───────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: "คำนวณเงินเดือน", desc: "รอบปัจจุบัน", href: "/admin/payroll", icon: FileBarChart2, bg: "bg-emerald-500" },
-          { label: "จัดกะทำงาน", desc: "เดือนนี้", href: "/admin/shifts", icon: Calendar, bg: "bg-indigo-500" },
-          { label: "อนุมัติคำร้อง", desc: `${kpi.pendingLeave + kpi.pendingAdj} รายการ`, href: "/admin/approvals", icon: CheckCircle, bg: "bg-amber-500" },
-          { label: "ดูสูตรคำนวณ", desc: "กฎเงินเดือน", href: "/admin/payroll-rules", icon: Brain, bg: "bg-violet-500" },
+          { label: t("admin.overview.qa_payroll_label"), desc: t("admin.overview.qa_payroll_desc"), href: "/admin/payroll", icon: FileBarChart2, bg: "bg-emerald-500" },
+          { label: t("admin.overview.qa_shifts_label"), desc: t("admin.overview.qa_shifts_desc"), href: "/admin/shifts", icon: Calendar, bg: "bg-indigo-500" },
+          { label: t("admin.overview.qa_approvals_label"), desc: t("admin.overview.qa_items",{count:kpi.pendingLeave + kpi.pendingAdj}), href: "/admin/approvals", icon: CheckCircle, bg: "bg-amber-500" },
+          { label: t("admin.overview.qa_rules_label"), desc: t("admin.overview.qa_rules_desc"), href: "/admin/payroll-rules", icon: Brain, bg: "bg-violet-500" },
         ].map(a => (
           <Link key={a.label} href={a.href}
             className="group flex items-center gap-3 bg-white rounded-2xl border border-slate-100 p-4 hover:border-indigo-200 hover:shadow-md transition-all">
