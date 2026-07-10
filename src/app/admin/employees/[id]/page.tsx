@@ -22,10 +22,11 @@ import { systemEffectivePassedDate, probationEvalDeadline, nextPayrollCycleEnd }
 import FeishuLinkTab from "@/components/employees/FeishuLinkTab"
 import BrandsTab from "@/components/employees/BrandsTab"
 import EmployeeBorrowingTab from "@/components/employees/EmployeeBorrowingTab"
+import DisciplineTab from "@/components/employees/DisciplineTab"
 import EmployeeShaderBg from "@/components/ui/employee-shader-bg"
 import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
-const TAB_KEYS = ["tab_summary","tab_personal","tab_employment","tab_salary","tab_payroll_summary","tab_schedule","tab_checkin","tab_mgr_history","tab_roles","tab_leave_quota","tab_eval_chain","tab_brands","tab_feishu","tab_borrow","tab_resign"]
+const TAB_KEYS = ["tab_summary","tab_personal","tab_employment","tab_salary","tab_payroll_summary","tab_schedule","tab_checkin","tab_mgr_history","tab_roles","tab_leave_quota","tab_eval_chain","tab_brands","tab_feishu","tab_borrow","tab_resign","tab_discipline"]
 const inp = "input-field"
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -1567,6 +1568,9 @@ export default function EmployeeDetailPage() {
             </div>
           )}
         </>}
+
+        {/* ── Tab 15: โทษทางวินัย / ใบเตือน ── */}
+        {tab === 15 && <DisciplineTab employeeId={id as string}/>}
 
         </div>  {/* end main content */}
       </div>  {/* end grid 2-column */}
