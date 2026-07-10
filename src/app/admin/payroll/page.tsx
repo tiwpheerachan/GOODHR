@@ -316,7 +316,7 @@ function FullRegisterTable({ records, onEdit, onView }: { records: any[]; onEdit
                   }`}
                   style={{ left: infoLeft[ci], width: INFO_WIDTHS[col.key], minWidth: INFO_WIDTHS[col.key], zIndex: 40 }}>
                   <span className="flex items-center gap-1">
-                    {col.label}
+                    {t("admin.payroll.reg_" + col.key)}
                     {copied === `col-${col.key}` && <ClipboardCheck size={9} className="text-green-600"/>}
                   </span>
                 </th>
@@ -333,7 +333,7 @@ function FullRegisterTable({ records, onEdit, onView }: { records: any[]; onEdit
                       selCol === col.key ? "ring-2 ring-inset ring-indigo-400" : ""
                     }`}>
                     <span className="flex items-center justify-end gap-1">
-                      {col.label}
+                      {t("admin.payroll.reg_" + col.key)}
                       {copied === `col-${col.key}` && <ClipboardCheck size={9} className="text-green-600"/>}
                     </span>
                   </th>
