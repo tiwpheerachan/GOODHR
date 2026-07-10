@@ -264,7 +264,7 @@ export default function KpiFormPage() {
   }, [])
 
   const addItem = () => {
-    if (items.length >= 15) { toast.error(t("kpi.max_items_15")); return }
+    // เพิ่มหัวข้อได้ไม่จำกัด
     setItems(prev => [...prev, { category: "", description: "", is_mandatory: false, weight_pct: 0, actual_score: 0, comment: "" }])
   }
 

@@ -188,7 +188,7 @@ export default function ProbationEvalFormPage() {
   }
 
   const addItem = () => {
-    if (items.length >= 7) { toast.error(t("probation.max_items_error")); return }
+    // เพิ่มหัวข้อได้ไม่จำกัด
     setItems(prev => [...prev, { category: "", description: "", is_mandatory: false, weight_pct: 0, actual_score: 0, comment: "" }])
   }
 
