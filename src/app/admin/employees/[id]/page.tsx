@@ -8,6 +8,7 @@ import {
   Clock, Calendar, DollarSign, BarChart2, User2, ChevronRight, CalendarClock,
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History, Globe, ShieldAlert, Pencil,
   Briefcase, Layers, Store, Mail, Phone, Shield,
+  LayoutDashboard, Receipt, Network, Tag, Link2, Package, DoorOpen, Gavel, CalendarDays,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -27,6 +28,25 @@ import EmployeeShaderBg from "@/components/ui/employee-shader-bg"
 import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 const TAB_KEYS = ["tab_summary","tab_personal","tab_employment","tab_salary","tab_payroll_summary","tab_schedule","tab_checkin","tab_mgr_history","tab_roles","tab_leave_quota","tab_eval_chain","tab_brands","tab_feishu","tab_borrow","tab_resign","tab_discipline"]
+
+const TAB_ICONS: Record<string, any> = {
+  tab_summary: LayoutDashboard,
+  tab_personal: User2,
+  tab_employment: Briefcase,
+  tab_salary: DollarSign,
+  tab_payroll_summary: Receipt,
+  tab_schedule: CalendarDays,
+  tab_checkin: MapPin,
+  tab_mgr_history: History,
+  tab_roles: Shield,
+  tab_leave_quota: CalendarClock,
+  tab_eval_chain: Network,
+  tab_brands: Tag,
+  tab_feishu: Link2,
+  tab_borrow: Package,
+  tab_resign: DoorOpen,
+  tab_discipline: Gavel,
+}
 const inp = "input-field"
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -724,7 +744,9 @@ export default function EmployeeDetailPage() {
 
           {/* Tab navigation — vertical on desktop */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-2 space-y-0.5">
-            {TAB_KEYS.map((key,i) => (
+            {TAB_KEYS.map((key,i) => {
+              const Icon = TAB_ICONS[key] ?? ChevronRight
+              return (
               <button key={key} onClick={() => setTab(i)}
                 className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-left transition-all ${
                   tab===i
@@ -732,9 +754,10 @@ export default function EmployeeDetailPage() {
                     : "text-slate-600 hover:bg-slate-50"
                 }`}>
                 <span className={`w-1 h-4 rounded-full ${tab === i ? "bg-white/80" : "bg-transparent"}`}/>
+                <Icon size={15} className={`shrink-0 ${tab === i ? "text-white" : "text-slate-400"}`}/>
                 <span className="flex-1 truncate">{t(`admin.emp_detail.${key}`)}</span>
               </button>
-            ))}
+            )})}
           </div>
         </aside>
 
