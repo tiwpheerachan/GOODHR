@@ -25,10 +25,4 @@ SET employee_code = '69000118',
     updated_at = now()
 WHERE employee_code = '4270537019';
 
--- ═══ 4) Verify ═══
-SELECT
-  id, employee_code, first_name_th, last_name_th, nickname,
-  updated_at
-FROM employees
-WHERE employee_code IN ('4270537019', '69000118');
--- ควรเห็นแค่ row เดียวที่ code = '69000118'
+-- ═══ 3) UPDATE: เปลี่ยน employee_code ═══ 

@@ -4,6 +4,8 @@ import Link from "next/link"
 import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { createClient } from "@/lib/supabase/client"
+import { LanguageProvider, useLanguage } from "@/lib/i18n"
+import LanguageSwitcher from "@/components/LanguageSwitcher"
 import AIChatWidget from "@/components/admin/AIChatWidget"
 import BirthdayCelebration from "@/components/BirthdayCelebration"
 import {
@@ -13,48 +15,57 @@ import {
   UserPlus, Store, Briefcase, ScanLine, Link2, ShieldCheck,
 } from "lucide-react"
 
+// key = slug ใน i18n (admin.nav.<key>)
 const SIDEBAR = [
-  { href: "/admin/dashboard",            icon: LayoutDashboard, label: "ภาพรวม",        badge: null as string|null },
-  { href: "/admin/org",                  icon: Network,         label: "โครงสร้าง",      badge: null as string|null },
-  { href: "/admin/org-chart",            icon: Network,         label: "ผังองค์กร",      badge: null as string|null },
-  { href: "/admin/employees",            icon: Users,           label: "พนักงาน",       badge: null as string|null },
-  { href: "/admin/brands",                icon: Store,           label: "แบรนด์",         badge: null as string|null },
-  { href: "/admin/permissions",          icon: ShieldCheck,     label: "บทบาท / สิทธิ์",  badge: null as string|null },
-  { href: "/admin/feishu-users",         icon: Link2,           label: "Feishu Mapping", badge: null as string|null },
-  { href: "/admin/probation-employees",  icon: Briefcase,       label: "พนักงานทดลองงาน", badge: null as string|null },
-  { href: "/admin/approvals",            icon: ClipboardCheck,  label: "คำร้อง",         badge: null as string|null },
-  { href: "/admin/announcements",        icon: Megaphone,       label: "ประกาศ",         badge: null as string|null },
-  { href: "/admin/chat",                 icon: MessageCircle,   label: "แชท",            badge: null as string|null },
-  { href: "/admin/attendance",           icon: Clock,           label: "การเข้างาน",    badge: null as string|null },
-  { href: "/admin/attendance/offsite",   icon: Camera,          label: "นอกสถานที่",    badge: null as string|null },
-  { href: "/admin/attendance/with-photo", icon: ScanLine,       label: "เช็คอินแนบรูป",   badge: null as string|null },
-  { href: "/admin/work-log",            icon: Table2,          label: "บันทึกเข้างาน",  badge: null as string|null },
-  { href: "/admin/work-record",         icon: Sparkles,        label: "บันทึกการเข้างาน Pro Max", badge: null as string|null },
-  { href: "/admin/shifts",              icon: CalendarClock,   label: "จัดกะ",          badge: null as string|null },
-  { href: "/admin/leave",                icon: Calendar,        label: "การลา",          badge: null as string|null },
-  { href: "/admin/leave-calendar",       icon: CalendarDays,    label: "ปฏิทินการลา",    badge: null as string|null },
-  { href: "/admin/leave-quota",          icon: PieChart,        label: "โควต้าการลา",    badge: null as string|null },
-  { href: "/admin/kpi",                  icon: Target,          label: "KPI",            badge: null as string|null },
-  { href: "/admin/probation-eval",       icon: Shield,          label: "ประเมินทดลองงาน", badge: null as string|null },
-  { href: "/equipment/dashboard",       icon: Package,         label: "อุปกรณ์",        badge: null as string|null },
-  { href: "/admin/training",            icon: GraduationCap,   label: "ระบบเรียนรู้",   badge: null as string|null },
-  { href: "/admin/branch-eval",         icon: Store,           label: "ประเมินสาขา",    badge: null as string|null },
-  { href: "/admin/sales",               icon: ScanLine,        label: "ขายสินค้า PC",    badge: null as string|null },
-  { href: "https://careers.shd-technology.co.th/admin", icon: UserPlus, label: "รับสมัครงาน", badge: null as string|null, external: true as boolean | undefined },
-  { href: "/admin/payroll",              icon: CreditCard,      label: "เงินเดือน",      badge: null as string|null },
-  { href: "/admin/payroll-rules",        icon: BookOpen,        label: "สูตรคำนวณ",     badge: null as string|null },
-  { href: "/admin/audit-logs",            icon: ScrollText,      label: "บันทึกกิจกรรม",  badge: null as string|null },
-  { href: "/admin/settings",             icon: Settings,        label: "ตั้งค่า",        badge: null as string|null },
+  { href: "/admin/dashboard",            icon: LayoutDashboard, key: "overview",            badge: null as string|null },
+  { href: "/admin/org",                  icon: Network,         key: "structure",           badge: null as string|null },
+  { href: "/admin/org-chart",            icon: Network,         key: "org_chart",           badge: null as string|null },
+  { href: "/admin/employees",            icon: Users,           key: "employees",           badge: null as string|null },
+  { href: "/admin/brands",                icon: Store,          key: "brands",              badge: null as string|null },
+  { href: "/admin/permissions",          icon: ShieldCheck,     key: "roles",               badge: null as string|null },
+  { href: "/admin/feishu-users",         icon: Link2,           key: "feishu",              badge: null as string|null },
+  { href: "/admin/probation-employees",  icon: Briefcase,       key: "probation_employees", badge: null as string|null },
+  { href: "/admin/approvals",            icon: ClipboardCheck,  key: "requests",            badge: null as string|null },
+  { href: "/admin/announcements",        icon: Megaphone,       key: "announcements",       badge: null as string|null },
+  { href: "/admin/chat",                 icon: MessageCircle,   key: "chat",                badge: null as string|null },
+  { href: "/admin/attendance",           icon: Clock,           key: "attendance",          badge: null as string|null },
+  { href: "/admin/attendance/offsite",   icon: Camera,          key: "offsite",             badge: null as string|null },
+  { href: "/admin/attendance/with-photo", icon: ScanLine,       key: "photo_checkin",       badge: null as string|null },
+  { href: "/admin/work-log",            icon: Table2,          key: "work_log",            badge: null as string|null },
+  { href: "/admin/work-record",         icon: Sparkles,        key: "work_record",         badge: null as string|null },
+  { href: "/admin/shifts",              icon: CalendarClock,   key: "shifts",              badge: null as string|null },
+  { href: "/admin/leave",                icon: Calendar,       key: "leave",               badge: null as string|null },
+  { href: "/admin/leave-calendar",       icon: CalendarDays,    key: "leave_calendar",      badge: null as string|null },
+  { href: "/admin/leave-quota",          icon: PieChart,        key: "leave_quota",         badge: null as string|null },
+  { href: "/admin/kpi",                  icon: Target,          key: "kpi",                 badge: null as string|null },
+  { href: "/admin/probation-eval",       icon: Shield,          key: "probation_eval",      badge: null as string|null },
+  { href: "/equipment/dashboard",       icon: Package,         key: "equipment",           badge: null as string|null },
+  { href: "/admin/training",            icon: GraduationCap,   key: "learning",            badge: null as string|null },
+  { href: "/admin/branch-eval",         icon: Store,           key: "branch_eval",         badge: null as string|null },
+  { href: "/admin/sales",               icon: ScanLine,        key: "pc_sales",            badge: null as string|null },
+  { href: "https://careers.shd-technology.co.th/admin", icon: UserPlus, key: "recruitment", badge: null as string|null, external: true as boolean | undefined },
+  { href: "/admin/payroll",              icon: CreditCard,      key: "payroll",             badge: null as string|null },
+  { href: "/admin/payroll-rules",        icon: BookOpen,        key: "payroll_rules",       badge: null as string|null },
+  { href: "/admin/audit-logs",            icon: ScrollText,     key: "audit_logs",          badge: null as string|null },
+  { href: "/admin/settings",             icon: Settings,        key: "settings",            badge: null as string|null },
 ]
 
-const ROLE_LABEL: Record<string, string> = {
-  super_admin: "Super Admin",
-  hr_admin:    "HR Admin",
-  manager:     "ผู้จัดการ",
-  employee:    "พนักงาน",
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <LanguageProvider>
+      <AdminLayoutInner>{children}</AdminLayoutInner>
+    </LanguageProvider>
+  )
 }
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+function AdminLayoutInner({ children }: { children: React.ReactNode }) {
+  const { t } = useLanguage()
+  const ROLE_LABEL: Record<string, string> = {
+    super_admin: t("admin.header.super_admin"),
+    hr_admin:    t("admin.header.hr_admin"),
+    manager:     t("admin.header.manager"),
+    employee:    t("admin.header.employee"),
+  }
   const pathname = usePathname()
   const { user, signOut } = useAuth()
   const [open, setOpen] = useState(false)
@@ -105,9 +116,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     : user?.role === "super_admin" ? "Super Admin" : "Admin"
   const roleLabel   = ROLE_LABEL[user?.role ?? ""] ?? user?.role ?? ""
 
-  const pageLabel =
-    visibleSidebar.slice().sort((a,b) => b.href.length - a.href.length).find(i => pathname.startsWith(i.href))?.label ??
-    (pathname.startsWith("/admin/profile") ? "โปรไฟล์" : "Admin")
+  const matchedNav = visibleSidebar.slice().sort((a,b) => b.href.length - a.href.length).find(i => pathname.startsWith(i.href))
+  const pageLabel = matchedNav ? t("admin.nav." + matchedNav.key)
+    : pathname.startsWith("/admin/profile") ? t("admin.header.profile") : "Admin"
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -131,7 +142,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div>
               <p className="text-sm font-black text-slate-800">GoodHR</p>
               <p className="max-w-36 truncate text-xs text-slate-400">
-                {emp?.company?.name_th?.replace("บริษัท ", "").replace(" จำกัด", "") || "Admin Panel"}
+                {emp?.company?.name_th?.replace("บริษัท ", "").replace(" จำกัด", "") || t("admin.header.admin_panel")}
               </p>
             </div>
           </div>
@@ -142,11 +153,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {!isFullAdmin && (
             <Link href={isManagerRole ? "/manager/dashboard" : "/app/dashboard"} onClick={() => setOpen(false)}
               className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50 mb-2 border border-slate-100">
-              ← กลับ{isManagerRole ? " Manager" : " หน้าหลัก"}
+              ← {isManagerRole ? t("admin.header.back_manager") : t("admin.header.back_home")}
             </Link>
           )}
           {visibleSidebar.map((item) => {
-            const { href, icon: Icon, label } = item
+            const { href, icon: Icon } = item
+            const label = t("admin.nav." + item.key)
             const isExternal = (item as any).external === true
             const active = isExternal ? false
               : href === "/admin/attendance"
@@ -206,7 +218,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </Link>
           <button onClick={signOut}
             className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-red-500 transition-colors hover:bg-red-50">
-            <LogOut size={13}/> ออกจากระบบ
+            <LogOut size={13}/> {t("admin.header.logout")}
           </button>
         </div>
       </aside>
@@ -218,8 +230,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             {open ? <X size={18}/> : <Menu size={18}/>}
           </button>
           <h1 className="flex-1 font-black text-slate-800">{pageLabel}</h1>
-          <Link href="/app/dashboard" className="text-xs font-semibold text-slate-400 transition-colors hover:text-indigo-600">
-            User Mode →
+          <LanguageSwitcher />
+          <Link href="/app/dashboard" className="text-xs font-semibold text-slate-400 transition-colors hover:text-indigo-600 whitespace-nowrap">
+            {t("admin.header.user_mode")} →
           </Link>
         </header>
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
