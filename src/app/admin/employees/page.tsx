@@ -9,6 +9,7 @@ import { th } from "date-fns/locale"
 import ImportModal from "./ImportModal"
 import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
 import { useBrands } from "@/lib/hooks/useBrands"
+import { useLanguage } from "@/lib/i18n"
 
 const STATUS: Record<string, { l: string; c: string }> = {
   active:     { l: "ปกติ",       c: "bg-green-100 text-green-700"   },
@@ -86,6 +87,7 @@ function payrollRange(ym: string): { start: string; end: string } {
 }
 
 export default function EmployeesPage() {
+  const { t } = useLanguage()
   const { user } = useAuth()
   const supabase = createClient()
   const isSuperAdmin = user?.role === "super_admin" || user?.role === "hr_admin"
@@ -436,35 +438,35 @@ export default function EmployeesPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-2xl font-black text-slate-800">พนักงาน</h2>
-          <p className="text-slate-400 text-sm mt-0.5">{total.toLocaleString()} คน</p>
+          <h2 className="text-2xl font-black text-slate-800">{t("admin.employees.title")}</h2>
+          <p className="text-slate-400 text-sm mt-0.5">{t("admin.employees.people_count", { n: total.toLocaleString() })}</p>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
           <FeishuSyncButton dataset="employee"/>
           <button onClick={exportCSV}
             className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
-            <Download size={14} /> Export CSV
+            <Download size={14} /> {t("admin.employees.export_csv")}
           </button>
           {isSuperAdmin && (
             <Link href="/admin/employees/deleted"
               className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
-              <Trash2 size={14} /> ประวัติลบ
+              <Trash2 size={14} /> {t("admin.employees.deleted_history")}
             </Link>
           )}
           {isSuperAdmin && (
             <button onClick={() => setShowImport(true)}
               className="flex items-center gap-2 px-4 py-2.5 border border-emerald-200 bg-emerald-50 rounded-xl text-sm font-bold text-emerald-700 hover:bg-emerald-100 transition-colors">
-              <FileUp size={14} /> Import Excel
+              <FileUp size={14} /> {t("admin.employees.import_excel")}
             </button>
           )}
           <Link href="/admin/employees/new"
             className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm">
-            <Plus size={14} /> เพิ่มพนักงาน
+            <Plus size={14} /> {t("admin.employees.add_employee")}
           </Link>
           {isSuperAdmin && (
             <Link href="/admin/employees/bulk-add"
               className="flex items-center gap-2 px-4 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors">
-              <Users size={14} /> เพิ่มหลายคน
+              <Users size={14} /> {t("admin.employees.add_multiple")}
             </Link>
           )}
         </div>
@@ -474,13 +476,13 @@ export default function EmployeesPage() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
           {([
-            { k: "all",       label: "ทั้งหมด",     Icon: Users },
-            { k: "probation", label: "ทดลองงาน",   Icon: Clock },
-            { k: "resigned",  label: "ลาออกแล้ว",  Icon: X     },
-          ] as const).map(t => (
-            <button key={t.k} onClick={() => setF(() => { setTab(t.k); setRangeMode(t.k === "resigned" ? "month" : "all") })}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${tab === t.k ? "bg-indigo-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}>
-              <t.Icon size={13} /> {t.label}
+            { k: "all",       label: t("admin.employees.tab_all"),       Icon: Users },
+            { k: "probation", label: t("admin.employees.tab_probation"), Icon: Clock },
+            { k: "resigned",  label: t("admin.employees.tab_resigned"),  Icon: X     },
+          ] as const).map(tItem => (
+            <button key={tItem.k} onClick={() => setF(() => { setTab(tItem.k); setRangeMode(tItem.k === "resigned" ? "month" : "all") })}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${tab === tItem.k ? "bg-indigo-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}>
+              <tItem.Icon size={13} /> {tItem.label}
             </button>
           ))}
         </div>
@@ -489,9 +491,9 @@ export default function EmployeesPage() {
             {/* โหมดช่วงเวลา */}
             <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1">
               {([
-                { k: "all",     label: "ทั้งหมด" },
-                { k: "month",   label: "รอบเดือน" },
-                { k: "payroll", label: "รอบเงินเดือน" },
+                { k: "all",     label: t("admin.employees.range_all") },
+                { k: "month",   label: t("admin.employees.range_month") },
+                { k: "payroll", label: t("admin.employees.range_payroll") },
               ] as const).map(m => (
                 <button key={m.k} onClick={() => setF(() => setRangeMode(m.k))}
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${rangeMode === m.k ? "bg-indigo-100 text-indigo-700" : "text-slate-500 hover:bg-slate-50"}`}>
@@ -506,7 +508,7 @@ export default function EmployeesPage() {
             {rangeMode === "payroll" && monthFilter && (
               <span className="text-[11px] text-slate-400">({payrollRange(monthFilter).start} → {payrollRange(monthFilter).end})</span>
             )}
-            <span className="text-[11px] text-slate-400">· {total.toLocaleString()} คน</span>
+            <span className="text-[11px] text-slate-400">· {t("admin.employees.people_count", { n: total.toLocaleString() })}</span>
           </div>
         )}
       </div>
@@ -521,7 +523,7 @@ export default function EmployeesPage() {
             <p className={`text-2xl font-black mt-2 ${selectedCompany === "" ? "text-indigo-700" : "text-slate-800"}`}>
               {Object.values(companyCounts).reduce((a, b) => a + b, 0)}
             </p>
-            <p className="text-xs text-slate-500 font-semibold mt-0.5">ทุกบริษัท</p>
+            <p className="text-xs text-slate-500 font-semibold mt-0.5">{t("admin.employees.all_companies")}</p>
           </button>
 
           {companies.map((c, i) => {
@@ -550,21 +552,21 @@ export default function EmployeesPage() {
           <div className="relative flex-1 min-w-44">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={search} onChange={e => setSearch(e.target.value)}
-              className={inp + " pl-8 w-full"} placeholder="ค้นหาชื่อ (ไทย/อังกฤษ/จีน), รหัส, ชื่อเล่น, Feishu nickname..." />
+              className={inp + " pl-8 w-full"} placeholder={t("admin.employees.search_placeholder")} />
           </div>
           {isSuperAdmin && (
             <select value={selectedCompany} onChange={e => setF(() => setSelectedCompany(e.target.value))} className={inp}>
-              <option value="">ทุกบริษัท</option>
+              <option value="">{t("admin.employees.all_companies")}</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
             </select>
           )}
           <select value={status} onChange={e => setF(() => setStatus(e.target.value))} className={inp}>
-            <option value="">ทุกสถานะ</option>
+            <option value="">{t("admin.employees.all_statuses")}</option>
             {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.l}</option>)}
           </select>
           {depts.length > 0 && (
             <select value={dept} onChange={e => setF(() => setDept(e.target.value))} className={inp}>
-              <option value="">ทุกแผนก</option>
+              <option value="">{t("admin.employees.all_departments")}</option>
               {depts.map(d => <option key={d.id} value={d.id}>{optLabel(d.name, d.company_id)}</option>)}
             </select>
           )}
@@ -573,7 +575,7 @@ export default function EmployeesPage() {
             onClick={() => setShowAdvanced(s => !s)}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${showAdvanced ? "bg-indigo-50 border-indigo-200 text-indigo-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
             <Filter size={12} />
-            ตัวกรองเพิ่มเติม
+            {t("admin.employees.more_filters")}
             {(branch ? 1 : 0) + (position ? 1 : 0) + (empType ? 1 : 0) + (brandFilter.length > 0 ? 1 : 0) + (tenureFilter ? 1 : 0) + (feishuFilter ? 1 : 0) > 0 && (
               <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-black">
                 {(branch ? 1 : 0) + (position ? 1 : 0) + (empType ? 1 : 0) + (brandFilter.length > 0 ? 1 : 0) + (tenureFilter ? 1 : 0) + (feishuFilter ? 1 : 0)}
@@ -582,12 +584,12 @@ export default function EmployeesPage() {
           </button>
           <label className="flex items-center gap-2 cursor-pointer ml-1">
             <input type="checkbox" checked={showInactive} onChange={e => setF(() => setShowInactive(e.target.checked))} className="rounded border-slate-300"/>
-            <span className="text-xs text-slate-500 font-medium whitespace-nowrap">รวมพนักงานลาออก</span>
+            <span className="text-xs text-slate-500 font-medium whitespace-nowrap">{t("admin.employees.include_resigned")}</span>
           </label>
           {activeFilterCount > 0 && (
             <button type="button" onClick={clearFilters}
               className="text-xs font-semibold text-slate-500 hover:text-indigo-600 underline underline-offset-2">
-              ล้างตัวกรอง
+              {t("admin.employees.clear_filters")}
             </button>
           )}
         </div>
@@ -598,33 +600,33 @@ export default function EmployeesPage() {
             <div className="flex flex-wrap gap-3 items-center">
               {branches.length > 0 && (
                 <select value={branch} onChange={e => setF(() => setBranch(e.target.value))} className={inp}>
-                  <option value="">ทุกสาขา</option>
+                  <option value="">{t("admin.employees.all_branches")}</option>
                   {branches.map(b => <option key={b.id} value={b.id}>{optLabel(b.name, b.company_id)}</option>)}
                 </select>
               )}
               {positions.length > 0 && (
                 <select value={position} onChange={e => setF(() => setPosition(e.target.value))} className={inp}>
-                  <option value="">ทุกตำแหน่ง</option>
+                  <option value="">{t("admin.employees.all_positions")}</option>
                   {positions.map(p => <option key={p.id} value={p.id}>{optLabel(p.name, p.company_id)}</option>)}
                 </select>
               )}
               <select value={empType} onChange={e => setF(() => setEmpType(e.target.value))} className={inp}>
-                <option value="">ทุกประเภทการจ้าง</option>
+                <option value="">{t("admin.employees.all_emp_types")}</option>
                 {Object.entries(EMP_TYPE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
               {/* Tenure */}
               <select value={tenureFilter} onChange={e => setF(() => setTenureFilter(e.target.value as any))} className={inp}>
-                <option value="">ทุกอายุงาน</option>
-                <option value="<1y">น้อยกว่า 1 ปี</option>
-                <option value="1-3y">1–3 ปี</option>
-                <option value="3-5y">3–5 ปี</option>
-                <option value="5+y">5 ปีขึ้นไป</option>
+                <option value="">{t("admin.employees.all_tenure")}</option>
+                <option value="<1y">{t("admin.employees.tenure_lt1")}</option>
+                <option value="1-3y">{t("admin.employees.tenure_1_3")}</option>
+                <option value="3-5y">{t("admin.employees.tenure_3_5")}</option>
+                <option value="5+y">{t("admin.employees.tenure_5plus")}</option>
               </select>
               {/* Feishu link */}
               <select value={feishuFilter} onChange={e => setF(() => setFeishuFilter(e.target.value as any))} className={inp}>
-                <option value="">ทุก Feishu</option>
-                <option value="linked">🔗 มี Feishu</option>
-                <option value="unlinked">⛔ ไม่มี Feishu</option>
+                <option value="">{t("admin.employees.all_feishu")}</option>
+                <option value="linked">{t("admin.employees.feishu_linked")}</option>
+                <option value="unlinked">{t("admin.employees.feishu_unlinked")}</option>
               </select>
             </div>
 
@@ -638,8 +640,8 @@ export default function EmployeesPage() {
                 }`}>
                 <Tag size={12}/>
                 {brandFilter.length === 0
-                  ? "เลือกแบรนด์ที่ดูแล..."
-                  : `แบรนด์ที่เลือก ${brandFilter.length}`}
+                  ? t("admin.employees.select_brands")
+                  : t("admin.employees.brands_selected", { n: brandFilter.length })}
                 {brandFilter.length > 0 && (
                   <div className="flex items-center gap-1 flex-wrap">
                     {brandFilter.slice(0, 4).map(b => {
@@ -667,14 +669,14 @@ export default function EmployeesPage() {
               {showBrandPicker && (
                 <div className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg p-3 max-h-[320px] overflow-y-auto">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-[10px] font-black text-slate-500 uppercase">เลือกได้หลายแบรนด์ ({brandFilter.length} เลือก)</p>
+                    <p className="text-[10px] font-black text-slate-500 uppercase">{t("admin.employees.brand_picker_hint", { n: brandFilter.length })}</p>
                     <div className="flex gap-1.5">
                       {brandFilter.length > 0 && (
                         <button onClick={() => setF(() => setBrandFilter([]))}
-                          className="text-[10px] font-bold text-rose-500 hover:text-rose-700">ล้าง</button>
+                          className="text-[10px] font-bold text-rose-500 hover:text-rose-700">{t("admin.employees.clear")}</button>
                       )}
                       <button onClick={() => setShowBrandPicker(false)}
-                        className="text-[10px] font-bold text-slate-500 hover:text-slate-700">ปิด</button>
+                        className="text-[10px] font-bold text-slate-500 hover:text-slate-700">{t("admin.employees.close")}</button>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
@@ -718,12 +720,12 @@ export default function EmployeesPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">พนักงาน</th>
-                {showCompanyCol && <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">บริษัท</th>}
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">แผนก / ตำแหน่ง</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">สาขา</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">วันเริ่มงาน <span className="text-[10px] text-indigo-400 font-medium">(อายุงาน)</span></th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">สถานะ</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.col_employee")}</th>
+                {showCompanyCol && <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.col_company")}</th>}
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.col_dept_position")}</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.col_branch")}</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.col_hire_date")} <span className="text-[10px] text-indigo-400 font-medium">{t("admin.employees.col_tenure_hint")}</span></th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.col_status")}</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -732,13 +734,13 @@ export default function EmployeesPage() {
                 <tr><td colSpan={showCompanyCol ? 7 : 6} className="px-4 py-12 text-center text-slate-400">
                   <div className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-                    กำลังโหลด...
+                    {t("admin.employees.loading")}
                   </div>
                 </td></tr>
               ) : employees.length === 0 ? (
                 <tr><td colSpan={showCompanyCol ? 7 : 6} className="px-4 py-12 text-center text-slate-400">
                   <Users size={32} className="mx-auto mb-2 text-slate-200" />
-                  ไม่พบพนักงาน
+                  {t("admin.employees.no_employees")}
                 </td></tr>
               ) : employees.map(emp => {
                 const compIdx = companies.findIndex(c => c.id === emp.company_id)
@@ -759,7 +761,7 @@ export default function EmployeesPage() {
                             {emp.first_name_th} {emp.last_name_th}
                             {emp.nickname && <span className="text-xs text-slate-400">({emp.nickname})</span>}
                             {feishu?.name_cn && (
-                              <span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-md border border-indigo-100" title="ชื่อใน Feishu">
+                              <span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-md border border-indigo-100" title={t("admin.employees.feishu_name_title")}>
                                 {feishu.name_cn}
                                 {feishu.nickname && feishu.nickname !== emp.nickname && (
                                   <span className="text-indigo-500 ml-0.5">·{feishu.nickname}</span>
@@ -767,7 +769,7 @@ export default function EmployeesPage() {
                               </span>
                             )}
                             {emp._matched_via_feishu && (
-                              <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">เจอผ่าน Feishu</span>
+                              <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">{t("admin.employees.found_via_feishu")}</span>
                             )}
                           </p>
                           <div className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap" style={{ minHeight: 18 }}>
@@ -792,7 +794,7 @@ export default function EmployeesPage() {
                                   {brands.map((b, i) => (
                                     <span key={i}
                                       className={"text-[9px] font-black px-1 py-0 rounded leading-[14px] " + brandMiniColor(b)}
-                                      title={Array.isArray(emp.brand) && emp.brand.includes(b) ? "จากหน้าเงินเดือน" : "จาก Feishu"}>
+                                      title={Array.isArray(emp.brand) && emp.brand.includes(b) ? t("admin.employees.brand_from_payroll") : t("admin.employees.brand_from_feishu")}>
                                       {b}
                                     </span>
                                   ))}
@@ -828,7 +830,7 @@ export default function EmployeesPage() {
                         </>
                       ) : "—"}
                       {emp.resign_date && (
-                        <p className="text-[10px] text-rose-500 font-bold mt-0.5">ออก {format(new Date(emp.resign_date), "d MMM yyyy", { locale: th })}</p>
+                        <p className="text-[10px] text-rose-500 font-bold mt-0.5">{t("admin.employees.resigned_on", { date: format(new Date(emp.resign_date), "d MMM yyyy", { locale: th }) })}</p>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -839,7 +841,7 @@ export default function EmployeesPage() {
                     <td className="px-4 py-3">
                       <Link href={`/admin/employees/${emp.id}`}
                         className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 whitespace-nowrap">
-                        แก้ไข <ChevronRight size={12} />
+                        {t("admin.employees.edit")} <ChevronRight size={12} />
                       </Link>
                     </td>
                   </tr>
@@ -851,15 +853,15 @@ export default function EmployeesPage() {
 
         {total > PER && (
           <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
-            <span className="text-slate-400 text-xs">{page * PER + 1}–{Math.min((page + 1) * PER, total)} จาก {total.toLocaleString()} คน</span>
+            <span className="text-slate-400 text-xs">{t("admin.employees.pagination_range", { from: page * PER + 1, to: Math.min((page + 1) * PER, total), total: total.toLocaleString() })}</span>
             <div className="flex gap-2">
               <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
                 className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold hover:bg-slate-50 disabled:opacity-40">
-                <ChevronLeft size={12} /> ก่อนหน้า
+                <ChevronLeft size={12} /> {t("admin.employees.prev")}
               </button>
               <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PER >= total}
                 className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold hover:bg-slate-50 disabled:opacity-40">
-                ถัดไป <ChevronRight size={12} />
+                {t("admin.employees.next")} <ChevronRight size={12} />
               </button>
             </div>
           </div>

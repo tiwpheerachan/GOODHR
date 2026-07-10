@@ -6,6 +6,7 @@ import {
   AlertTriangle, FileSpreadsheet, RotateCcw, ChevronRight, Info
 } from "lucide-react"
 import toast from "react-hot-toast"
+import { useLanguage } from "@/lib/i18n"
 
 // ─── คอลัมน์ template ───────────────────────────────────────────────
 const COLUMNS = [
@@ -64,22 +65,23 @@ function excelDateToStr(v: any): string {
 }
 
 // ─── validate row ──────────────────────────────────────────────────
-function validateRow(row: any, allEmails: string[], allCodes: string[], rowIdx: number): string[] {
+type TFn = (key: string, vars?: Record<string, string | number>) => string
+function validateRow(row: any, allEmails: string[], allCodes: string[], rowIdx: number, t: TFn): string[] {
   const errs: string[] = []
-  if (!row.employee_code?.trim()) errs.push("ขาด: รหัสพนักงาน")
-  if (!row.first_name_th?.trim()) errs.push("ขาด: ชื่อ (ไทย)")
-  if (!row.last_name_th?.trim())  errs.push("ขาด: นามสกุล (ไทย)")
-  if (!row.email?.trim())         errs.push("ขาด: อีเมล")
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) errs.push("อีเมลไม่ถูกต้อง")
-  if (!row.hire_date?.trim())     errs.push("ขาด: วันเริ่มงาน")
-  else if (!/^\d{4}-\d{2}-\d{2}$/.test(row.hire_date)) errs.push("วันเริ่มงานต้อง YYYY-MM-DD")
-  if (row.national_id && row.national_id.replace(/\D/g,"").length !== 13) errs.push("เลขบัตรประชาชนต้อง 13 หลัก")
+  if (!row.employee_code?.trim()) errs.push(t("admin.employees.err_missing_code"))
+  if (!row.first_name_th?.trim()) errs.push(t("admin.employees.err_missing_first_name"))
+  if (!row.last_name_th?.trim())  errs.push(t("admin.employees.err_missing_last_name"))
+  if (!row.email?.trim())         errs.push(t("admin.employees.err_missing_email"))
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) errs.push(t("admin.employees.err_invalid_email"))
+  if (!row.hire_date?.trim())     errs.push(t("admin.employees.err_missing_hire_date"))
+  else if (!/^\d{4}-\d{2}-\d{2}$/.test(row.hire_date)) errs.push(t("admin.employees.err_hire_date_format"))
+  if (row.national_id && row.national_id.replace(/\D/g,"").length !== 13) errs.push(t("admin.employees.err_national_id"))
 
   // ตรวจ duplicate ในไฟล์
   const emailCount = allEmails.filter(e => e === row.email?.toLowerCase()).length
   const codeCount  = allCodes.filter(c => c === row.employee_code?.trim()).length
-  if (emailCount > 1) errs.push("อีเมลซ้ำกันในไฟล์")
-  if (codeCount  > 1) errs.push("รหัสพนักงานซ้ำกันในไฟล์")
+  if (emailCount > 1) errs.push(t("admin.employees.err_dup_email"))
+  if (codeCount  > 1) errs.push(t("admin.employees.err_dup_code"))
   return errs
 }
 
@@ -93,6 +95,7 @@ interface Props {
 }
 
 export default function ImportModal({ onClose, companies, defaultCompanyId, isSuperAdmin, onImported }: Props) {
+  const { t } = useLanguage()
   const [step, setStep] = useState<"upload" | "preview" | "importing" | "done">("upload")
   const [selectedCompany, setSelectedCompany] = useState(defaultCompanyId || "")
   const [rows,       setRows]       = useState<any[]>([])
@@ -135,7 +138,7 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
     XLSX.utils.book_append_sheet(wb, guide, "คำแนะนำ")
 
     XLSX.writeFile(wb, "employee_import_template.xlsx")
-    toast.success("ดาวโหลด template เรียบร้อย")
+    toast.success(t("admin.employees.toast_template_downloaded"))
   }
 
   // ─── parse file ───────────────────────────────────────────────────
@@ -148,7 +151,7 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
         const ws   = wb.Sheets[wb.SheetNames[0]]
         const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" })
 
-        if (raw.length < 2) { toast.error("ไฟล์ไม่มีข้อมูล"); return }
+        if (raw.length < 2) { toast.error(t("admin.employees.toast_no_data")); return }
 
         // map header → column key (strip asterisk, trim)
         const headerRow = (raw[0] as string[]).map(h => String(h).replace(/\*/g,"").trim())
@@ -191,7 +194,7 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
         const allCodes  = parsed.map(r => r.employee_code?.trim() || "")
         const errors: Record<number, string[]> = {}
         parsed.forEach((row, i) => {
-          const errs = validateRow(row, allEmails, allCodes, i)
+          const errs = validateRow(row, allEmails, allCodes, i, t)
           if (errs.length) errors[i] = errs
         })
 
@@ -199,11 +202,11 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
         setRowErrors(errors)
         setStep("preview")
       } catch (err: any) {
-        toast.error("อ่านไฟล์ไม่ได้: " + err.message)
+        toast.error(t("admin.employees.toast_read_failed", { msg: err.message }))
       }
     }
     reader.readAsArrayBuffer(file)
-  }, [])
+  }, [t])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false)
@@ -213,7 +216,7 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
 
   // ─── import ──────────────────────────────────────────────────────
   const runImport = async () => {
-    if (!selectedCompany) { toast.error("กรุณาเลือกบริษัท"); return }
+    if (!selectedCompany) { toast.error(t("admin.employees.toast_select_company")); return }
     setStep("importing"); setProgress(0)
 
     const BATCH = 5
@@ -282,12 +285,14 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
               <FileSpreadsheet size={18} className="text-indigo-600"/>
             </div>
             <div>
-              <h3 className="font-black text-slate-800 text-base">นำเข้าพนักงานจาก Excel</h3>
+              <h3 className="font-black text-slate-800 text-base">{t("admin.employees.import_title")}</h3>
               <p className="text-xs text-slate-400">
-                {step === "upload"    && "ดาวโหลด template แล้ว upload ไฟล์ที่กรอกข้อมูลแล้ว"}
-                {step === "preview"   && `${rows.length} แถว · ${totalErrors > 0 ? `${totalErrors} มีข้อผิดพลาด` : "พร้อม import"}` }
-                {step === "importing" && `กำลัง import ${validRows.length} คน...`}
-                {step === "done"      && `สำเร็จ ${successCount} · ล้มเหลว ${failCount}`}
+                {step === "upload"    && t("admin.employees.upload_subtitle")}
+                {step === "preview"   && (totalErrors > 0
+                  ? t("admin.employees.preview_subtitle_errors", { rows: rows.length, errors: totalErrors })
+                  : t("admin.employees.preview_subtitle_ready", { rows: rows.length })) }
+                {step === "importing" && t("admin.employees.importing_subtitle", { n: validRows.length })}
+                {step === "done"      && t("admin.employees.done_subtitle", { success: successCount, fail: failCount })}
               </p>
             </div>
           </div>
@@ -305,10 +310,10 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
               {/* Company selector */}
               {(isSuperAdmin) && (
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">บริษัทที่จะ import เข้า *</label>
+                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">{t("admin.employees.company_to_import")}</label>
                   <select value={selectedCompany} onChange={e => setSelectedCompany(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-indigo-400 transition-all">
-                    <option value="">— เลือกบริษัท —</option>
+                    <option value="">{t("admin.employees.select_company_option")}</option>
                     {companies.map(c => <option key={c.id} value={c.id}>[{c.code}] {c.name_th}</option>)}
                   </select>
                 </div>
@@ -317,11 +322,11 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
               {/* Download template */}
               <div className="border-2 border-dashed border-indigo-200 bg-indigo-50/40 rounded-2xl p-5 text-center space-y-3">
                 <FileSpreadsheet size={32} className="mx-auto text-indigo-400"/>
-                <p className="font-bold text-slate-700 text-sm">ขั้นตอนที่ 1: ดาวโหลด Template</p>
-                <p className="text-xs text-slate-400">ไฟล์ Excel พร้อมหัวคอลัมน์และแถวตัวอย่าง</p>
+                <p className="font-bold text-slate-700 text-sm">{t("admin.employees.step1_title")}</p>
+                <p className="text-xs text-slate-400">{t("admin.employees.step1_desc")}</p>
                 <button onClick={downloadTemplate}
                   className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors">
-                  <Download size={14}/> ดาวโหลด Template (.xlsx)
+                  <Download size={14}/> {t("admin.employees.download_template_btn")}
                 </button>
               </div>
 
@@ -335,20 +340,20 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
                   isDragging ? "border-indigo-400 bg-indigo-50" : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
                 }`}>
                 <Upload size={28} className={`mx-auto mb-3 ${isDragging ? "text-indigo-500" : "text-slate-300"}`}/>
-                <p className="font-bold text-slate-600 text-sm mb-1">ขั้นตอนที่ 2: Upload ไฟล์ที่กรอกข้อมูลแล้ว</p>
-                <p className="text-xs text-slate-400">ลากวางหรือคลิกเพื่อเลือกไฟล์ .xlsx หรือ .xls</p>
+                <p className="font-bold text-slate-600 text-sm mb-1">{t("admin.employees.step2_title")}</p>
+                <p className="text-xs text-slate-400">{t("admin.employees.step2_desc")}</p>
                 <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
                   onChange={e => { if (e.target.files?.[0]) parseFile(e.target.files[0]) }} />
               </div>
 
               {/* Tips */}
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-1">
-                <p className="text-xs font-bold text-amber-800 flex items-center gap-1.5"><Info size={12}/>ข้อควรระวัง</p>
+                <p className="text-xs font-bold text-amber-800 flex items-center gap-1.5"><Info size={12}/>{t("admin.employees.tips_title")}</p>
                 <ul className="text-xs text-amber-700 space-y-1 ml-4">
-                  <li>• วันที่ต้องอยู่ในรูปแบบ YYYY-MM-DD (เช่น 2026-01-15)</li>
-                  <li>• ชื่อแผนก/ตำแหน่ง/สาขาต้องตรงกับที่มีในระบบ</li>
-                  <li>• คอลัมน์ที่มี * คือจำเป็นต้องกรอก</li>
-                  <li>• รหัสผ่านเว้นว่างได้ — ระบบจะสร้างให้อัตโนมัติ</li>
+                  <li>{t("admin.employees.tip1")}</li>
+                  <li>{t("admin.employees.tip2")}</li>
+                  <li>{t("admin.employees.tip3")}</li>
+                  <li>{t("admin.employees.tip4")}</li>
                 </ul>
               </div>
             </>
@@ -361,21 +366,21 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
               <div className="flex gap-3">
                 <div className="flex-1 bg-slate-50 rounded-xl p-3 text-center">
                   <p className="text-xl font-black text-slate-800">{rows.length}</p>
-                  <p className="text-xs text-slate-400">แถวทั้งหมด</p>
+                  <p className="text-xs text-slate-400">{t("admin.employees.total_rows")}</p>
                 </div>
                 <div className="flex-1 bg-emerald-50 rounded-xl p-3 text-center">
                   <p className="text-xl font-black text-emerald-700">{rows.length - totalErrors}</p>
-                  <p className="text-xs text-emerald-600">พร้อม import</p>
+                  <p className="text-xs text-emerald-600">{t("admin.employees.ready_import")}</p>
                 </div>
                 <div className={`flex-1 rounded-xl p-3 text-center ${totalErrors > 0 ? "bg-red-50" : "bg-slate-50"}`}>
                   <p className={`text-xl font-black ${totalErrors > 0 ? "text-red-600" : "text-slate-300"}`}>{totalErrors}</p>
-                  <p className={`text-xs ${totalErrors > 0 ? "text-red-500" : "text-slate-400"}`}>มีข้อผิดพลาด</p>
+                  <p className={`text-xs ${totalErrors > 0 ? "text-red-500" : "text-slate-400"}`}>{t("admin.employees.has_errors")}</p>
                 </div>
               </div>
 
               {totalErrors > 0 && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                  <p className="text-xs font-bold text-red-700 mb-1">แถวที่มีข้อผิดพลาดจะถูกข้ามไป — กลับไปแก้ไขแล้ว re-upload เพื่อ import ให้ครบ</p>
+                  <p className="text-xs font-bold text-red-700 mb-1">{t("admin.employees.error_skip_notice")}</p>
                 </div>
               )}
 
@@ -386,13 +391,13 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
                         <th className="px-3 py-2.5 text-left font-bold text-slate-500 w-10">#</th>
-                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">สถานะ</th>
-                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">รหัส</th>
-                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">ชื่อ</th>
-                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">อีเมล</th>
-                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">วันเริ่มงาน</th>
-                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">เงินเดือน</th>
-                        <th className="px-3 py-2.5 text-left font-bold text-slate-500">ข้อผิดพลาด</th>
+                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.col_status")}</th>
+                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.preview_col_code")}</th>
+                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.preview_col_name")}</th>
+                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.preview_col_email")}</th>
+                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.col_hire_date")}</th>
+                        <th className="px-3 py-2.5 text-left font-bold text-slate-500 whitespace-nowrap">{t("admin.employees.preview_col_salary")}</th>
+                        <th className="px-3 py-2.5 text-left font-bold text-slate-500">{t("admin.employees.preview_col_errors")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -434,8 +439,8 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
             <div className="py-8 text-center space-y-5">
               <Loader2 size={40} className="animate-spin mx-auto text-indigo-500"/>
               <div>
-                <p className="font-bold text-slate-800">กำลัง import พนักงาน...</p>
-                <p className="text-xs text-slate-400 mt-1">กรุณาอย่าปิดหน้าต่างนี้</p>
+                <p className="font-bold text-slate-800">{t("admin.employees.importing_title")}</p>
+                <p className="text-xs text-slate-400 mt-1">{t("admin.employees.importing_desc")}</p>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2.5 max-w-sm mx-auto overflow-hidden">
                 <div className="bg-indigo-500 h-full rounded-full transition-all duration-300" style={{ width: `${progress}%` }}/>
@@ -452,12 +457,12 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
                 <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center">
                   <CheckCircle2 size={24} className="mx-auto text-emerald-500 mb-2"/>
                   <p className="text-2xl font-black text-emerald-700">{successCount}</p>
-                  <p className="text-xs text-emerald-600 font-semibold">สำเร็จ</p>
+                  <p className="text-xs text-emerald-600 font-semibold">{t("admin.employees.success")}</p>
                 </div>
                 <div className={`flex-1 border rounded-2xl p-4 text-center ${failCount > 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-100"}`}>
                   {failCount > 0 ? <XCircle size={24} className="mx-auto text-red-500 mb-2"/> : <CheckCircle2 size={24} className="mx-auto text-slate-300 mb-2"/>}
                   <p className={`text-2xl font-black ${failCount > 0 ? "text-red-600" : "text-slate-300"}`}>{failCount}</p>
-                  <p className={`text-xs font-semibold ${failCount > 0 ? "text-red-500" : "text-slate-400"}`}>ล้มเหลว</p>
+                  <p className={`text-xs font-semibold ${failCount > 0 ? "text-red-500" : "text-slate-400"}`}>{t("admin.employees.failed")}</p>
                 </div>
               </div>
 
@@ -481,14 +486,14 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
               {results.some(r => r.success && r.generated_password) && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
                   <AlertTriangle size={14} className="text-amber-600 flex-shrink-0 mt-0.5"/>
-                  <p className="text-xs text-amber-700">รหัสผ่านที่แสดงด้านบนจะไม่สามารถดูได้อีก — กรุณาบันทึกหรือแจ้งพนักงานก่อนปิดหน้าต่างนี้</p>
+                  <p className="text-xs text-amber-700">{t("admin.employees.password_notice")}</p>
                 </div>
               )}
 
               {failCount > 0 && (
                 <button onClick={downloadFailed}
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-red-200 rounded-xl text-sm font-bold text-red-600 hover:bg-red-50 transition-colors">
-                  <Download size={14}/> ดาวโหลดแถวที่ล้มเหลวเพื่อแก้ไขและ re-upload
+                  <Download size={14}/> {t("admin.employees.download_failed_btn")}
                 </button>
               )}
             </div>
@@ -499,25 +504,25 @@ export default function ImportModal({ onClose, companies, defaultCompanyId, isSu
         <div className="px-6 pb-6 pt-4 border-t border-slate-100 flex-shrink-0 flex items-center justify-between gap-3">
           {step === "upload" && (
             <>
-              <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">ยกเลิก</button>
-              <p className="text-xs text-slate-400">Upload ไฟล์เพื่อดำเนินการต่อ</p>
+              <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">{t("admin.employees.cancel")}</button>
+              <p className="text-xs text-slate-400">{t("admin.employees.upload_to_continue")}</p>
             </>
           )}
           {step === "preview" && (
             <>
               <button onClick={() => { setStep("upload"); setRows([]); setRowErrors({}) }}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
-                <RotateCcw size={13}/> Upload ใหม่
+                <RotateCcw size={13}/> {t("admin.employees.reupload")}
               </button>
               <button onClick={runImport} disabled={validRows.length === 0 || !selectedCompany}
                 className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                Import {validRows.length} คน <ChevronRight size={14}/>
+                {t("admin.employees.import_n", { n: validRows.length })} <ChevronRight size={14}/>
               </button>
             </>
           )}
           {step === "done" && (
             <button onClick={onClose} className="w-full px-4 py-3 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-all">
-              เสร็จสิ้น
+              {t("admin.employees.done")}
             </button>
           )}
         </div>
