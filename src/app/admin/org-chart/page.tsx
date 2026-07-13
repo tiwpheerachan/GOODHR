@@ -8,13 +8,17 @@ import {
 import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
 import OrgChartEditDrawer from "@/components/admin/OrgChartEditDrawer"
+import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 type Node = {
   id: string
   employee_code: string
   first_name_th: string
   last_name_th: string
+  first_name_en?: string
+  last_name_en?: string
   nickname?: string
+  nickname_en?: string
   avatar_url?: string
   position?: string
   department?: string
@@ -38,8 +42,6 @@ function getStyle(depth: number) {
   return LEVEL_STYLES[Math.min(depth, LEVEL_STYLES.length - 1)]
 }
 
-const LEVEL_LABELS = ["CEO / Top", "ระดับ 1", "ระดับ 2", "ระดับ 3", "ระดับ 4", "ระดับ 5+"]
-
 // ── Card component (beautified) ──
 function PersonCard({ node, expanded, onToggle, highlight, onClickEdit }: {
   node: Node
@@ -48,6 +50,8 @@ function PersonCard({ node, expanded, onToggle, highlight, onClickEdit }: {
   highlight: boolean
   onClickEdit: () => void
 }) {
+  const { t } = useLanguage()
+  const empName = useEmployeeName()
   const s = getStyle(node.depth)
   const isTop = node.depth === 0
   return (
@@ -71,9 +75,8 @@ function PersonCard({ node, expanded, onToggle, highlight, onClickEdit }: {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-black truncate">
-              {node.first_name_th} {node.last_name_th}
+              {empName(node)}
             </p>
-            {node.nickname && <p className="text-[10px] opacity-70 truncate">({node.nickname})</p>}
             <p className="text-[10px] opacity-80 truncate">{node.position ?? "—"}</p>
           </div>
         </div>
@@ -82,7 +85,7 @@ function PersonCard({ node, expanded, onToggle, highlight, onClickEdit }: {
           <button onClick={onToggle}
             className={`mt-2 w-full flex items-center justify-center gap-1 text-[10px] font-bold ${isTop ? "bg-white/20 hover:bg-white/30 text-white" : "bg-white/70 hover:bg-white text-slate-700"} rounded-md py-1 transition-colors`}>
             {expanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-            <Users size={9} /> {node.subs_count} ลูกน้อง
+            <Users size={9} /> {node.subs_count} {t("admin.org_chart.subs_count")}
           </button>
         )}
       </div>
@@ -91,12 +94,12 @@ function PersonCard({ node, expanded, onToggle, highlight, onClickEdit }: {
       <div className="absolute -top-1 -right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
         <button onClick={onClickEdit}
           className="w-6 h-6 rounded-full bg-indigo-600 text-white shadow-md flex items-center justify-center hover:bg-indigo-700"
-          title="แก้ไขผู้ประเมิน">
+          title={t("admin.org_chart.edit_evaluator")}>
           <Settings2 size={11}/>
         </button>
         <Link href={`/admin/employees/${node.id}`}
           className="w-6 h-6 rounded-full bg-white shadow-md flex items-center justify-center text-slate-500 hover:bg-slate-50 text-[10px] font-bold"
-          title="หน้าพนักงานเต็ม">
+          title={t("admin.org_chart.full_emp_page")}>
           ↗
         </Link>
       </div>
@@ -113,10 +116,11 @@ function TreeNode({ node, expandedSet, onToggle, highlightId, layout, onClickEdi
   layout: "horizontal" | "vertical"
   onClickEdit: (id: string, name: string) => void
 }) {
+  const empName = useEmployeeName()
   const expanded = expandedSet.has(node.id)
   const hasChildren = node.children.length > 0
   const isHorizontal = layout === "horizontal"
-  const name = `${node.first_name_th} ${node.last_name_th}`
+  const name = empName(node)
 
   return (
     <div className="org-node flex flex-col items-center">
@@ -156,6 +160,7 @@ function TreeNode({ node, expandedSet, onToggle, highlightId, layout, onClickEdi
 
 export default function OrgChartPage() {
   const { user } = useAuth()
+  const { t } = useLanguage()
   const supabase = createClient()
   const [companies, setCompanies] = useState<any[]>([])
   const [selectedCompany, setSelectedCompany] = useState<string>("")
@@ -221,7 +226,7 @@ export default function OrgChartPage() {
     const path: string[] = []
     function find(node: Node, parents: string[]): boolean {
       const matches =
-        `${node.first_name_th} ${node.last_name_th} ${node.nickname ?? ""} ${node.employee_code} ${node.position ?? ""}`
+        `${node.first_name_th} ${node.last_name_th} ${node.first_name_en ?? ""} ${node.last_name_en ?? ""} ${node.nickname ?? ""} ${node.nickname_en ?? ""} ${node.employee_code} ${node.position ?? ""}`
           .toLowerCase().includes(q)
       if (matches) {
         path.push(...parents, node.id)
@@ -310,15 +315,15 @@ export default function OrgChartPage() {
         <div>
           <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
             <Network size={22} className="text-indigo-600"/>
-            Organization Chart
+            {t("admin.org_chart.title")}
           </h2>
-          <p className="text-sm text-slate-400 mt-0.5">โครงสร้างหัวหน้า — ใช้สำหรับ KPI / ทดลองงาน</p>
+          <p className="text-sm text-slate-400 mt-0.5">{t("admin.org_chart.subtitle")}</p>
         </div>
         {stats && (
           <div className="flex items-center gap-2 text-xs">
-            <span className="bg-slate-100 px-2 py-1 rounded-lg"><b>{stats.total_employees}</b> พนักงาน</span>
-            <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg"><b>{stats.total_managers}</b> หัวหน้า</span>
-            <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg"><b>{stats.total_top_level}</b> top-level</span>
+            <span className="bg-slate-100 px-2 py-1 rounded-lg"><b>{stats.total_employees}</b> {t("admin.org_chart.stat_employees")}</span>
+            <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg"><b>{stats.total_managers}</b> {t("admin.org_chart.stat_managers")}</span>
+            <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg"><b>{stats.total_top_level}</b> {t("admin.org_chart.stat_top")}</span>
           </div>
         )}
       </div>
@@ -331,7 +336,7 @@ export default function OrgChartPage() {
             <Building2 size={14} className="text-slate-400"/>
             <select value={selectedCompany} onChange={e => setSelectedCompany(e.target.value)}
               className="bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-sm outline-none focus:border-indigo-400">
-              <option value="">ทุกบริษัท (ตามหัวหน้าจริง)</option>
+              <option value="">{t("admin.org_chart.all_companies")}</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
             </select>
           </div>
@@ -343,7 +348,7 @@ export default function OrgChartPage() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="ค้นหาชื่อ / รหัส / ตำแหน่ง..."
+            placeholder={t("admin.org_chart.search_ph")}
             className="w-full pl-8 pr-8 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-400"
           />
           {search && (
@@ -356,29 +361,29 @@ export default function OrgChartPage() {
 
         <div className="flex items-center gap-1">
           {/* Depth quick buttons */}
-          <span className="text-[10px] text-slate-400 font-bold mr-0.5">ขยาย:</span>
+          <span className="text-[10px] text-slate-400 font-bold mr-0.5">{t("admin.org_chart.expand_label")}</span>
           {[2, 3, 4, 5].map(lv => (
             <button key={lv} onClick={() => expandToLevel(lv)}
               className={`text-xs font-bold w-7 h-7 rounded-lg ${autoDepth === lv ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-              title={`ขยาย ${lv} ชั้น`}>
+              title={t("admin.org_chart.expand_n", { n: lv })}>
               {lv}
             </button>
           ))}
           <button onClick={expandAll}
             className="text-xs font-bold px-2 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100"
-            title="ขยายทุกระดับ">
-            ทั้งหมด
+            title={t("admin.org_chart.expand_all_title")}>
+            {t("admin.org_chart.all")}
           </button>
           <button onClick={collapseAll}
             className="text-xs font-bold px-2 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
-            title="ย่อทั้งหมด">
-            ย่อ
+            title={t("admin.org_chart.collapse_all_title")}>
+            {t("admin.org_chart.collapse")}
           </button>
           <button onClick={() => setLayout(l => l === "horizontal" ? "vertical" : "horizontal")}
             className="text-xs font-bold px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 flex items-center gap-1"
-            title="สลับ layout">
+            title={t("admin.org_chart.toggle_layout")}>
             {layout === "horizontal" ? <MoveDown size={12}/> : <MoveRight size={12}/>}
-            {layout === "horizontal" ? "แนวตั้ง" : "แนวนอน"}
+            {layout === "horizontal" ? t("admin.org_chart.vertical") : t("admin.org_chart.horizontal")}
           </button>
         </div>
 
@@ -394,7 +399,7 @@ export default function OrgChartPage() {
             <ZoomIn size={13}/>
           </button>
           <button onClick={() => setZoom(0.8)}
-            className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center" title="รีเซ็ต zoom">
+            className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center" title={t("admin.org_chart.reset_zoom")}>
             <RotateCcw size={11}/>
           </button>
         </div>
@@ -418,7 +423,7 @@ export default function OrgChartPage() {
         ) : trees.length === 0 ? (
           <div className="text-center py-20 text-slate-400">
             <Network size={32} className="mx-auto mb-2 text-slate-300"/>
-            <p>ไม่พบโครงสร้าง</p>
+            <p>{t("admin.org_chart.not_found")}</p>
           </div>
         ) : (
           <div
@@ -445,8 +450,11 @@ export default function OrgChartPage() {
       {/* Legend + Hint */}
       <div className="bg-white rounded-2xl border border-slate-100 p-3 space-y-2">
         <div className="flex items-center gap-2 flex-wrap text-[10px]">
-          <span className="text-slate-500 font-bold">ระดับ:</span>
-          {LEVEL_LABELS.map((label, i) => {
+          <span className="text-slate-500 font-bold">{t("admin.org_chart.level_label")}</span>
+          {[
+            t("admin.org_chart.lv_top"), t("admin.org_chart.lv1"), t("admin.org_chart.lv2"),
+            t("admin.org_chart.lv3"), t("admin.org_chart.lv4"), t("admin.org_chart.lv5"),
+          ].map((label, i) => {
             const s = getStyle(i)
             return (
               <span key={i} className={`${s.badge} px-2 py-0.5 rounded font-bold flex items-center gap-1`}>
@@ -457,9 +465,7 @@ export default function OrgChartPage() {
           })}
         </div>
         <p className="text-[11px] text-slate-400">
-          💡 <b>ลาก</b>เพื่อเลื่อน · <kbd className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">Ctrl + scroll</kbd> เพื่อ zoom · กดที่การ์ดเพื่อขยายทีม
-          · hover แล้วกด <Settings2 size={9} className="inline mx-0.5"/> เพื่อแก้ผู้ประเมิน
-          · กด <span className="font-bold">↗</span> ดูข้อมูลพนักงานเต็ม
+          💡 <b>{t("admin.org_chart.hint_drag")}</b>{t("admin.org_chart.hint_pan")} <kbd className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">Ctrl + scroll</kbd> {t("admin.org_chart.hint_zoom")} {t("admin.org_chart.hint_hover")} <Settings2 size={9} className="inline mx-0.5"/> {t("admin.org_chart.hint_hover2")} {t("admin.org_chart.hint_click")} <span className="font-bold">↗</span> {t("admin.org_chart.hint_full")}
         </p>
       </div>
 

@@ -8,7 +8,7 @@ import {
   Clock, Calendar, DollarSign, BarChart2, User2, ChevronRight, CalendarClock,
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, UserX, UserCheck, History, Globe, ShieldAlert, Pencil,
   Briefcase, Layers, Store, Mail, Phone, Shield,
-  LayoutDashboard, Receipt, Network, Tag, Link2, Package, DoorOpen, Gavel, CalendarDays,
+  LayoutDashboard, Receipt, Network, Tag, Link2, Package, DoorOpen, Gavel, CalendarDays, FileText,
 } from "lucide-react"
 import Link from "next/link"
 import toast from "react-hot-toast"
@@ -24,10 +24,11 @@ import FeishuLinkTab from "@/components/employees/FeishuLinkTab"
 import BrandsTab from "@/components/employees/BrandsTab"
 import EmployeeBorrowingTab from "@/components/employees/EmployeeBorrowingTab"
 import DisciplineTab from "@/components/employees/DisciplineTab"
+import DocumentsTab from "@/components/employees/DocumentsTab"
 import EmployeeShaderBg from "@/components/ui/employee-shader-bg"
 import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
-const TAB_KEYS = ["tab_summary","tab_personal","tab_employment","tab_salary","tab_payroll_summary","tab_schedule","tab_checkin","tab_mgr_history","tab_roles","tab_leave_quota","tab_eval_chain","tab_brands","tab_feishu","tab_borrow","tab_resign","tab_discipline"]
+const TAB_KEYS = ["tab_summary","tab_personal","tab_employment","tab_salary","tab_payroll_summary","tab_schedule","tab_checkin","tab_mgr_history","tab_roles","tab_leave_quota","tab_eval_chain","tab_brands","tab_feishu","tab_borrow","tab_resign","tab_discipline","tab_documents"]
 
 const TAB_ICONS: Record<string, any> = {
   tab_summary: LayoutDashboard,
@@ -46,6 +47,7 @@ const TAB_ICONS: Record<string, any> = {
   tab_borrow: Package,
   tab_resign: DoorOpen,
   tab_discipline: Gavel,
+  tab_documents: FileText,
 }
 const inp = "input-field"
 
@@ -1594,6 +1596,7 @@ export default function EmployeeDetailPage() {
 
         {/* ── Tab 15: โทษทางวินัย / ใบเตือน ── */}
         {tab === 15 && <DisciplineTab employeeId={id as string}/>}
+        {tab === 16 && <DocumentsTab employeeId={id as string}/>}
 
         </div>  {/* end main content */}
       </div>  {/* end grid 2-column */}

@@ -25,6 +25,33 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ product: data })
   }
 
+  // ── lookup ด้วย serial number → เทียบ serial_tracking (synced จาก BigQuery) ──
+  const serial = sp.get("serial")
+  if (serial) {
+    const norm = serial.trim().toUpperCase()
+    const { data, error } = await svc.from("serial_tracking")
+      .select("*").eq("serial_norm", norm).limit(1)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const st = (data ?? [])[0]
+    if (!st) return NextResponse.json({ serial: null, product: null })
+    // shape เป็น product-like สำหรับ autofill ในหน้าขาย
+    const product = {
+      __from_serial: true,
+      serial_number: st.serial_number,
+      name: st.canonical_product_name || st.product_name || st.sku,
+      brand: st.brand || null,
+      model: st.main_product_line || null,
+      color: st.colour || null,
+      sku: st.sku || null,
+      category: st.category_leaf || st.category_l2 || st.category_l1 || null,
+      storage: st.storage || null,
+      ram: st.ram || null,
+      variant_label: st.variant_label || null,
+      default_price: null,
+    }
+    return NextResponse.json({ serial: st, product })
+  }
+
   let query = svc.from("products").select("*").order("created_at", { ascending: false }).limit(limit)
   if (!includeInactive) query = query.eq("is_active", true)
   if (q) {

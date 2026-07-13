@@ -241,6 +241,32 @@ export default function EmployeeSalesPage() {
   }
   useEffect(() => { loadHistory() }, [])
 
+  // ── Serial lookup: เทียบ serial กับ serial_tracking (synced จาก BigQuery) → autofill ──
+  //    คืน true ถ้าเจอสินค้า (ตั้ง activeProduct + prefill ชื่อ/แบรนด์ให้แล้ว)
+  const applySerialLookup = async (sn: string, extra?: { barcode?: string; order?: string }): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/products?serial=${encodeURIComponent(sn)}`)
+      const d = await res.json()
+      if (res.ok && d.product) {
+        const p = d.product
+        setActiveProduct({ __unknown: true, __from_serial: true, barcode: extra?.barcode || null, ...p })
+        setForm(f => ({
+          ...f,
+          barcode: extra?.barcode || "",
+          sold_price: "",
+          sn,
+          order_number: extra?.order || f.order_number || "",
+          qty: "1", note: "",
+          manual_name: p.name || "",
+          manual_brand: p.brand || "",
+        }))
+        toast.success(`เจอสินค้าจาก Serial: ${p.name}`, { icon: "✨" })
+        return true
+      }
+    } catch { /* ignore — fallback ให้กรอกเอง */ }
+    return false
+  }
+
   // ── Multi-scan callback: รับ barcode + sn + order พร้อม product ──
   const onMultiScanned = async (codes: { barcode?: string; sn?: string; order?: string; product?: any | null }) => {
     setScannerOpen(null)
@@ -262,26 +288,33 @@ export default function EmployeeSalesPage() {
           qty: "1", note: "",
         }))
       } else {
-        // ไม่เจอใน DB — กรอกเอง
-        setActiveProduct({ __unknown: true, barcode: codes.barcode })
-        setForm(f => ({
-          ...f,
-          barcode: codes.barcode || "",
-          sold_price: "", sn: codes.sn || "", order_number: codes.order || "",
-          qty: "1", note: "", manual_name: "", manual_brand: "",
-        }))
-        toast("ไม่พบใน DB — กรอกชื่อสินค้า", { icon: "ℹ️" })
+        // barcode ไม่เจอใน DB — ถ้ามี SN ลอง lookup serial_tracking ก่อน
+        let found = false
+        if (codes.sn) found = await applySerialLookup(codes.sn, { barcode: codes.barcode, order: codes.order })
+        if (!found) {
+          setActiveProduct({ __unknown: true, barcode: codes.barcode })
+          setForm(f => ({
+            ...f,
+            barcode: codes.barcode || "",
+            sold_price: "", sn: codes.sn || "", order_number: codes.order || "",
+            qty: "1", note: "", manual_name: "", manual_brand: "",
+          }))
+          toast("ไม่พบใน DB — กรอกชื่อสินค้า", { icon: "ℹ️" })
+        }
       }
       if (codes.sn) toast.success(`เจอ Barcode + SN`, { icon: "✨" })
     } else if (codes.sn) {
-      // มีแต่ SN — ไม่เจอ barcode
-      setActiveProduct({ __unknown: true, barcode: null })
-      setForm(f => ({
-        ...f,
-        barcode: "", sold_price: "", sn: codes.sn || "", order_number: codes.order || "",
-        qty: "1", note: "", manual_name: "", manual_brand: "",
-      }))
-      toast(`ได้ SN — กรอกชื่อสินค้า + ราคา`, { icon: "🔢" })
+      // มีแต่ SN — ลอง lookup serial_tracking ก่อน
+      const found = await applySerialLookup(codes.sn, { order: codes.order })
+      if (!found) {
+        setActiveProduct({ __unknown: true, barcode: null })
+        setForm(f => ({
+          ...f,
+          barcode: "", sold_price: "", sn: codes.sn || "", order_number: codes.order || "",
+          qty: "1", note: "", manual_name: "", manual_brand: "",
+        }))
+        toast(`ได้ SN — กรอกชื่อสินค้า + ราคา`, { icon: "🔢" })
+      }
     }
   }
 
@@ -300,10 +333,13 @@ export default function EmployeeSalesPage() {
         setForm(f => ({ ...f, sn: code }))
         toast.success(`เพิ่ม SN: ${code}`)
       } else {
-        // ยังไม่มี product → สร้าง unknown แล้วเติม SN
-        setActiveProduct({ __unknown: true, barcode: null })
-        setForm(f => ({ ...f, sold_price: "", sn: code, order_number: "", qty: "1", note: "", manual_name: "", manual_brand: "" }))
-        toast(`ได้ SN: ${code} — กรอกชื่อสินค้า + ราคา`, { icon: "🔢" })
+        // ยังไม่มี product → ลอง lookup serial_tracking ก่อน แล้วค่อย fallback ให้กรอกเอง
+        const found = await applySerialLookup(code)
+        if (!found) {
+          setActiveProduct({ __unknown: true, barcode: null })
+          setForm(f => ({ ...f, sold_price: "", sn: code, order_number: "", qty: "1", note: "", manual_name: "", manual_brand: "" }))
+          toast(`ได้ SN: ${code} — กรอกชื่อสินค้า + ราคา`, { icon: "🔢" })
+        }
       }
       return
     }
@@ -342,7 +378,12 @@ export default function EmployeeSalesPage() {
         sn: "", order_number: "", qty: "1", note: "",
       }))
     } else {
-      // ไม่เจอใน DB → ถ้ารูปแบบเหมือน SN ให้เติม sn อัตโนมัติ
+      // ไม่เจอใน products → ถ้ารูปแบบเหมือน SN ลอง lookup serial_tracking ก่อน
+      if (looksLikeSn) {
+        const found = await applySerialLookup(code)
+        if (found) return
+      }
+      // fallback → ให้กรอกเอง (เติม sn อัตโนมัติถ้าเหมือน serial)
       setActiveProduct({ __unknown: true, barcode: looksLikeSn ? null : code })
       setForm(f => ({
         ...f,
@@ -1560,10 +1601,26 @@ function EntryModal({ product, form, setForm, onSubmit, onClose, submitting, onS
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
           {/* Product display */}
           {isUnknown ? (
-            <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-3">
-              <p className="text-[10px] font-black text-amber-700 uppercase mb-2 flex items-center gap-1">
-                <AlertCircle size={11}/> สินค้าใหม่ — กรอกข้อมูล
-              </p>
+            <div className={`border-2 rounded-xl p-3 ${product.__from_serial ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
+              {product.__from_serial ? (
+                <>
+                  <p className="text-[10px] font-black text-emerald-700 uppercase mb-2 flex items-center gap-1">
+                    <Check size={11}/> เจอจาก Serial · ตรวจ/แก้ชื่อได้
+                  </p>
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {product.sku && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-mono">SKU {product.sku}</span>}
+                    {product.model && <span className="text-[9px] font-black bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">{product.model}</span>}
+                    {product.storage && <span className="text-[9px] font-black bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{product.storage}</span>}
+                    {product.ram && <span className="text-[9px] font-black bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">RAM {product.ram}</span>}
+                    {product.color && <span className="text-[9px] font-black bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-full">{product.color}</span>}
+                    {product.category && <span className="text-[9px] font-black bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{product.category}</span>}
+                  </div>
+                </>
+              ) : (
+                <p className="text-[10px] font-black text-amber-700 uppercase mb-2 flex items-center gap-1">
+                  <AlertCircle size={11}/> สินค้าใหม่ — กรอกข้อมูล
+                </p>
+              )}
               <label className="block">
                 <span className="text-[10px] font-bold text-slate-500">ชื่อสินค้า *</span>
                 <input value={form.manual_name} onChange={e => setForm((f: any) => ({ ...f, manual_name: e.target.value }))}

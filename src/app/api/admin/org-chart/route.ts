@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   // ── 1) ดึงพนักงาน active ทั้งหมด ──
   let empQ = svc.from("employees")
-    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, avatar_url, company_id, position:positions(name), department:departments(name), company:companies(name_th)")
+    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, company_id, position:positions(name), department:departments(name), company:companies(name_th)")
     .eq("is_active", true).is("deleted_at", null)
   if (filterCompany) empQ = empQ.eq("company_id", filterCompany)
   const { data: emps } = await empQ
@@ -78,7 +78,10 @@ export async function GET(req: NextRequest) {
       employee_code: e.employee_code,
       first_name_th: e.first_name_th,
       last_name_th: e.last_name_th,
+      first_name_en: e.first_name_en,
+      last_name_en: e.last_name_en,
       nickname: e.nickname,
+      nickname_en: e.nickname_en,
       avatar_url: e.avatar_url,
       position: e.position?.name ?? null,
       department: e.department?.name ?? null,
