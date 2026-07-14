@@ -77,6 +77,9 @@ export async function POST(req: NextRequest) {
 
   const files = form.getAll("files") as File[]
   const names = form.getAll("names") as string[]  // parallel กับ files (อาจว่าง = ใช้ชื่อไฟล์)
+  // หมวด (Section A–F/custom) + รายการ checklist (1–20) — ใช้กับทุกไฟล์ในคำขอนี้
+  const category = ((form.get("category") as string | null) ?? "").toString().trim() || null
+  const checklistKey = ((form.get("checklist_key") as string | null) ?? "").toString().trim() || null
   if (!files || files.length === 0) return NextResponse.json({ error: "ไม่พบไฟล์" }, { status: 400 })
   if (files.length > 20) return NextResponse.json({ error: "สูงสุด 20 ไฟล์ต่อครั้ง" }, { status: 400 })
 
@@ -119,6 +122,8 @@ export async function POST(req: NextRequest) {
       file_type: file.type || null,
       storage_path: path,
       uploaded_by: dbUser.employee_id ?? null,
+      category: category,
+      checklist_key: checklistKey,
     }).select("*").single()
     if (insErr) { errors.push(`${file.name}: บันทึกล้มเหลว (${insErr.message})`); continue }
     created.push(row)
