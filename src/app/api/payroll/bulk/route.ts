@@ -1,5 +1,6 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { getPayrollScope, scopeAllows } from "@/lib/utils/payroll-access"
 import { calculatePayrollSummary, getLateThreshold, calcPF, computeAutoProrateDays, type OTBreakdown } from "@/lib/utils/payroll"
 import { classifyOtFromRecords } from "@/lib/utils/ot-classification"
 import { logPayroll } from "@/lib/auditLog"
@@ -100,6 +101,8 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const supa = createServiceClient()
+  const scope = await getPayrollScope(supa, user.id)
+  if (!scope.any) return NextResponse.json({ error: "ไม่มีสิทธิ์จัดการเงินเดือน" }, { status: 403 })
 
   // ── Pre-fetch period (ใช้ร่วมกันทุกคน) ─────────────────────────
   const { data: period, error: pErr } = await supa
@@ -110,6 +113,10 @@ export async function POST(req: Request) {
 
   if (pErr || !period) {
     return NextResponse.json({ error: "ไม่พบงวดเงินเดือน" }, { status: 404 })
+  }
+  // สิทธิ์รายบริษัท: งวดนี้อยู่บริษัทที่มีสิทธิ์ไหม
+  if (!scopeAllows(scope, period.company_id)) {
+    return NextResponse.json({ error: "ไม่มีสิทธิ์บริษัทนี้" }, { status: 403 })
   }
 
   const periodStart = period.start_date as string

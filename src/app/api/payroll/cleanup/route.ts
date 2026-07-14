@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
+import { getPayrollScope } from "@/lib/utils/payroll-access"
 
 /**
  * POST /api/payroll/cleanup
@@ -15,11 +16,11 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  // ตรวจ role
+  // ตรวจสิทธิ์เงินเดือน — cleanup เป็นงานข้ามบริษัท ต้องมีสิทธิ์เต็ม (ทุกบริษัท) เท่านั้น
   const supa = createServiceClient()
-  const { data: userData } = await supa.from("users").select("role").eq("id", user.id).single()
-  if (!userData || !["super_admin", "hr_admin"].includes(userData.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  const scope = await getPayrollScope(supa, user.id)
+  if (!scope.all) {
+    return NextResponse.json({ error: "ต้องมีสิทธิ์เงินเดือนทุกบริษัทจึงจะล้างข้อมูลได้" }, { status: 403 })
   }
 
   const body = await req.json()

@@ -72,6 +72,24 @@ async function hasEvaluatorRole(employeeId: string): Promise<boolean> {
   return false
 }
 
+// ── helper: ตรวจสิทธิ์ดูเงินเดือน (payroll_access) — "เหนือกว่า super_admin"
+async function isPayrollAllowed(userId: string): Promise<boolean> {
+  if (!userId) return false
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceKey) return false
+  try {
+    const supa = createSupabaseSb(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serviceKey,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    )
+    // user มีได้หลายแถว (หลายบริษัท) → เช็คว่ามีอย่างน้อย 1 แถว
+    const { data } = await supa.from("payroll_access")
+      .select("id").eq("user_id", userId).limit(1)
+    return !!(data && data.length > 0)
+  } catch { return false }
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -129,6 +147,14 @@ export async function middleware(request: NextRequest) {
       .from("users").select("role, employee_id").eq("id", user.id).maybeSingle()
     const role = u?.role
     const empId = u?.employee_id as string | undefined
+
+    // ── สิทธิ์ดูเงินเดือน "เหนือกว่า super_admin": เฉพาะ /admin/payroll (ไม่รวม payroll-rules) ──
+    //    บล็อกทุกคนที่ไม่อยู่ใน allowlist รวมถึง super_admin
+    if (pathname === "/admin/payroll" || pathname.startsWith("/admin/payroll/")) {
+      if (!(await isPayrollAllowed(user.id))) {
+        return NextResponse.redirect(new URL("/admin/dashboard", request.url))
+      }
+    }
 
     if (pathname.startsWith("/admin") && !["super_admin", "hr_admin"].includes(role)) {
       // ── ยกเว้น: /admin/sales อนุญาตให้ manager + พนง.ที่มีสิทธิ์ admin/manager ใน product_sale_permissions ──

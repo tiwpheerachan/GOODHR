@@ -3,6 +3,7 @@ import { usePathname } from "next/navigation"
 import Link from "next/link"
 import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { usePayrollAccess } from "@/lib/hooks/usePayrollAccess"
 import { createClient } from "@/lib/supabase/client"
 import { LanguageProvider, useLanguage } from "@/lib/i18n"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
@@ -27,6 +28,7 @@ const SIDEBAR = [
   { href: "/admin/probation-employees",  icon: Briefcase,       key: "probation_employees", badge: null as string|null },
   { href: "/admin/approvals",            icon: ClipboardCheck,  key: "requests",            badge: null as string|null },
   { href: "/admin/announcements",        icon: Megaphone,       key: "announcements",       badge: null as string|null },
+  { href: "/admin/regulations",          icon: ScrollText,      key: "regulations",         badge: null as string|null },
   { href: "/admin/chat",                 icon: MessageCircle,   key: "chat",                badge: null as string|null },
   { href: "/admin/attendance",           icon: Clock,           key: "attendance",          badge: null as string|null },
   { href: "/admin/attendance/offsite",   icon: Camera,          key: "offsite",             badge: null as string|null },
@@ -78,12 +80,17 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isFullAdmin = role === "super_admin" || role === "hr_admin"
   const isManagerRole = role === "manager"
 
+  // ── สิทธิ์ดูเงินเดือน "เหนือกว่า super_admin" ──
+  const { hasAccess: canPayroll } = usePayrollAccess()
+
   // กรอง sidebar:
   // - super_admin/hr_admin → เห็นทุก item
   // - คนอื่น (manager + permission holder) → เห็นเฉพาะ /admin/sales
-  const visibleSidebar = isFullAdmin
+  // - เมนู "เงินเดือน" (key=payroll) → เห็นเฉพาะคนที่อยู่ใน payroll_access
+  const visibleSidebar = (isFullAdmin
     ? SIDEBAR
     : SIDEBAR.filter(s => s.href === "/admin/sales")
+  ).filter(s => s.key !== "payroll" || canPayroll)
 
   useEffect(() => {
     const companyId = (user as any)?.company_id ?? user?.employee?.company_id

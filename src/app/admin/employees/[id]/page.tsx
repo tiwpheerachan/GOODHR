@@ -27,6 +27,10 @@ import DisciplineTab from "@/components/employees/DisciplineTab"
 import DocumentsTab from "@/components/employees/DocumentsTab"
 import EmployeeShaderBg from "@/components/ui/employee-shader-bg"
 import { useLanguage, useEmployeeName } from "@/lib/i18n"
+import { usePayrollAccess } from "@/lib/hooks/usePayrollAccess"
+
+// แท็บที่ต้องมีสิทธิ์เงินเดือน (payroll_access) ถึงจะเห็น
+const PAYROLL_TAB_KEYS = ["tab_salary", "tab_payroll_summary"]
 
 const TAB_KEYS = ["tab_summary","tab_personal","tab_employment","tab_salary","tab_payroll_summary","tab_schedule","tab_checkin","tab_mgr_history","tab_roles","tab_leave_quota","tab_eval_chain","tab_brands","tab_feishu","tab_borrow","tab_resign","tab_discipline","tab_documents"]
 
@@ -67,9 +71,12 @@ export default function EmployeeDetailPage() {
   const { user } = useAuth()
   const { t } = useLanguage()
   const empName = useEmployeeName()
+  const { canCompany } = usePayrollAccess()
   const supabase = createClient()
 
   const [emp,        setEmp]        = useState<any>(null)
+  // สิทธิ์ดูเงินเดือน "รายบริษัท" — ต้องมีสิทธิ์บริษัทของพนักงานคนนี้
+  const canPayroll = canCompany(emp?.company_id)
   const [salary,     setSalary]     = useState<any>(null)
   const [mgrHistory, setMgrHistory] = useState<any[]>([])
   const [allEmps,    setAllEmps]    = useState<any[]>([])
@@ -747,6 +754,8 @@ export default function EmployeeDetailPage() {
           {/* Tab navigation — vertical on desktop */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-2 space-y-0.5">
             {TAB_KEYS.map((key,i) => {
+              // ซ่อนแท็บเงินเดือน/สรุปเงินเดือน ถ้าไม่มีสิทธิ์ (payroll_access)
+              if (PAYROLL_TAB_KEYS.includes(key) && !canPayroll) return null
               const Icon = TAB_ICONS[key] ?? ChevronRight
               return (
               <button key={key} onClick={() => setTab(i)}
@@ -767,7 +776,7 @@ export default function EmployeeDetailPage() {
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm min-w-0">
 
         {/* ── Tab 0: สรุปข้อมูล ── */}
-        {tab === 0 && <SummaryTab employeeId={id as string} emp={emp} salary={salary} kpiSetting={kpiSetting}/>}
+        {tab === 0 && <SummaryTab employeeId={id as string} emp={emp} salary={canPayroll ? salary : null} kpiSetting={kpiSetting}/>}
 
         {/* ── Tab 1: ข้อมูลส่วนตัว ── */}
         {tab === 1 && <>
@@ -1254,7 +1263,7 @@ export default function EmployeeDetailPage() {
         </>}
 
         {/* ── Tab 3: เงินเดือน ── */}
-        {tab === 3 && <>
+        {tab === 3 && canPayroll && <>
           <h3 className="font-bold text-slate-800 mb-4">{t("admin.emp_detail.salary_structure")}</h3>
           {salary && <div className="bg-green-50 border border-green-100 rounded-xl p-3 mb-4 text-sm"><p className="text-green-800 font-semibold">{t("admin.emp_detail.salary_current", { amount: salary.base_salary?.toLocaleString() })}</p><p className="text-green-600 text-xs">{t("admin.emp_detail.salary_effective", { date: format(new Date(salary.effective_from),"d MMM yyyy",{locale:th}) })}</p></div>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1414,7 +1423,7 @@ export default function EmployeeDetailPage() {
         </>}
 
         {/* ── Tab 4: สรุปเงินเดือนรายเดือน ── */}
-        {tab === 4 && <PayrollHistoryTab employeeId={id as string} companyId={emp.company_id}/>}
+        {tab === 4 && canPayroll && <PayrollHistoryTab employeeId={id as string} companyId={emp.company_id}/>}
 
         {/* ── Tab 5: ตารางงาน ── */}
         {tab === 5 && <WorkScheduleTab employeeId={id as string} companyId={emp.company_id}/>}

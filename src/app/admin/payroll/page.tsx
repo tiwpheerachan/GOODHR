@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { usePayrollAccess } from "@/lib/hooks/usePayrollAccess"
 import { createClient } from "@/lib/supabase/client"
 import {
   Download, Play, CheckCircle, Loader2, Plus, RefreshCw,
@@ -17,6 +18,7 @@ import * as XLSX from "xlsx"
 import { BRAND_OPTIONS, normalizeBrands } from "@/lib/utils/brands"
 import { calcSSO, calcMonthlyTax, recomputePayroll } from "@/lib/utils/payroll"
 import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
+import PayrollAccessManager from "@/components/admin/PayrollAccessManager"
 import { useLanguage, useEmployeeName } from "@/lib/i18n"
 
 // ── helpers ────────────────────────────────────────────────────────────
@@ -1960,6 +1962,7 @@ export default function PayrollPage() {
   const { user }  = useAuth()
   const supabase  = createClient()
   const isSA      = user?.role === "super_admin" || user?.role === "hr_admin"
+  const { scope: payScope, loading: payLoading } = usePayrollAccess()
   const now       = new Date()
   const sp        = useSearchParams()
   const initialSearch = sp?.get("employee") ?? sp?.get("search") ?? ""
@@ -2002,13 +2005,16 @@ export default function PayrollPage() {
   const companyId = isSA ? (isAllCo ? undefined : (selectedCo || myCompanyId)) : myCompanyId
 
   useEffect(() => {
-    if (!isSA) return
+    if (!isSA || payLoading) return
     supabase.from("companies").select("id,name_th,code").eq("is_active", true).order("name_th")
       .then(({ data }) => {
-        setCompanies(data ?? [])
-        if (data?.[0] && !selectedCo) setSelectedCo(data[0].id)
+        // สิทธิ์รายบริษัท: แสดงเฉพาะบริษัทที่มีสิทธิ์ (all = ทุกบริษัท)
+        let list = data ?? []
+        if (!payScope.all) list = list.filter((c: any) => payScope.companyIds.includes(c.id))
+        setCompanies(list)
+        setSelectedCo(prev => prev || (list[0]?.id ?? ""))
       })
-  }, [isSA])
+  }, [isSA, payLoading]) // eslint-disable-line
 
   const loadPeriods = useCallback(async () => {
     try {
@@ -2466,6 +2472,7 @@ export default function PayrollPage() {
           <p className="text-slate-400 text-sm">{t("admin.payroll.subtitle")}</p>
         </div>
         <div className="flex gap-2 items-center flex-wrap">
+          <PayrollAccessManager/>
           <FeishuSyncButton dataset="payroll"/>
           {/* register view */}
           <Link href="/admin/payroll/register"
@@ -2481,7 +2488,8 @@ export default function PayrollPage() {
               setSelected(null)
             }}
               className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400">
-              <option value="all">{t("admin.payroll.all_companies")}</option>
+              {/* "ทุกบริษัท" เฉพาะคนที่มีสิทธิ์เต็ม */}
+              {payScope.all && <option value="all">{t("admin.payroll.all_companies")}</option>}
               {companies.map(c => <option key={c.id} value={c.id}>{c.name_th}</option>)}
             </select>
           )}

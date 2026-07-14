@@ -1,4 +1,5 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
+import { getPayrollScope, scopeAllows } from "@/lib/utils/payroll-access"
 import { NextResponse } from "next/server"
 import { logPayroll } from "@/lib/auditLog"
 
@@ -20,12 +21,17 @@ export async function GET(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const supa = createServiceClient()
+    const scope = await getPayrollScope(supa, user.id)
+    if (!scope.any) return NextResponse.json({ error: "ไม่มีสิทธิ์ดูข้อมูลเงินเดือน" }, { status: 403 })
     const companyId = searchParams.get("company_id")
+    // สิทธิ์รายบริษัท: ขอบริษัทที่ไม่มีสิทธิ์ → 403
+    if (companyId && !scopeAllows(scope, companyId)) return NextResponse.json({ error: "ไม่มีสิทธิ์บริษัทนี้" }, { status: 403 })
 
     let query = supa.from("payroll_periods")
       .select("id, year, month, period_name, start_date, end_date, pay_date, status, company_id")
       .order("year", { ascending: false }).order("month", { ascending: false })
     if (companyId) query = query.eq("company_id", companyId)
+    else if (!scope.all) query = query.in("company_id", scope.companyIds)  // โหมดทุกบริษัท → เฉพาะที่มีสิทธิ์
 
     const { data, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -35,7 +41,7 @@ export async function GET(req: Request) {
   const periodId = searchParams.get("period_id")
   const periodIdsParam = searchParams.get("period_ids")
 
-  const periodIds: string[] = periodIdsParam
+  let periodIds: string[] = periodIdsParam
     ? periodIdsParam.split(",").filter(Boolean)
     : periodId ? [periodId] : []
 
@@ -48,6 +54,16 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const supa = createServiceClient()
+  const scope = await getPayrollScope(supa, user.id)
+  if (!scope.any) return NextResponse.json({ error: "ไม่มีสิทธิ์ดูข้อมูลเงินเดือน" }, { status: 403 })
+
+  // สิทธิ์รายบริษัท: กรอง period ให้เหลือเฉพาะบริษัทที่มีสิทธิ์
+  if (!scope.all) {
+    const { data: prds } = await supa.from("payroll_periods").select("id, company_id").in("id", periodIds)
+    const allowed = new Set((prds ?? []).filter((p: any) => scope.companyIds.includes(p.company_id)).map((p: any) => p.id))
+    periodIds = periodIds.filter(id => allowed.has(id))
+    if (periodIds.length === 0) return NextResponse.json({ records: [] })
+  }
 
   const empSelect = `
     *,
@@ -151,6 +167,18 @@ export async function PATCH(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const supa = createServiceClient()
+  const scope = await getPayrollScope(supa, user.id)
+  if (!scope.any) return NextResponse.json({ error: "ไม่มีสิทธิ์แก้ไขข้อมูลเงินเดือน" }, { status: 403 })
+  // สิทธิ์รายบริษัท: record นี้อยู่บริษัทที่มีสิทธิ์ไหม
+  if (!scope.all) {
+    const { data: rec } = await supa.from("payroll_records").select("payroll_period_id").eq("id", id).maybeSingle()
+    const { data: prd } = rec
+      ? await supa.from("payroll_periods").select("company_id").eq("id", rec.payroll_period_id).maybeSingle()
+      : { data: null }
+    if (!prd || !scopeAllows(scope, (prd as any).company_id)) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์บริษัทนี้" }, { status: 403 })
+    }
+  }
 
   // อนุญาตให้ update ทุก field ที่ส่งมา (ยกเว้น id, employee_id, payroll_period_id)
   const SAFE_FIELDS = [

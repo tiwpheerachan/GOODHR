@@ -1,4 +1,5 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
+import { getPayrollScope, scopeAllows } from "@/lib/utils/payroll-access"
 import { NextResponse } from "next/server"
 
 // ════════════════════════════════════════════════════════════════════
@@ -17,11 +18,15 @@ export async function GET(req: Request) {
   if (!periodId) return NextResponse.json({ error: "period_id required" }, { status: 400 })
 
   const supa = createServiceClient()
+  const scope = await getPayrollScope(supa, user.id)
+  if (!scope.any) return NextResponse.json({ error: "ไม่มีสิทธิ์ดูข้อมูลเงินเดือน" }, { status: 403 })
 
   // ดึง period
   const { data: period } = await supa.from("payroll_periods")
     .select("id, year, month, start_date, end_date, company_id").eq("id", periodId).maybeSingle()
   if (!period) return NextResponse.json({ error: "period not found" }, { status: 404 })
+  // สิทธิ์รายบริษัท
+  if (!scopeAllows(scope, period.company_id)) return NextResponse.json({ error: "ไม่มีสิทธิ์บริษัทนี้" }, { status: 403 })
 
   // ดึงคนที่มี resign_date + company ตรงกับ period (ถ้า period มี company)
   //   ⚠️ paginate กันเพดาน 1000 แถว — บริษัทที่มีคนลาออกสะสมมาก คนลาออกล่าสุดจะไม่ตกหล่น

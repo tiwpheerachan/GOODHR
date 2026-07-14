@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { recomputePayroll, computeAutoProrateDays, applyAutoProrate } from "@/lib/utils/payroll"
+import { getPayrollScope, scopeAllows } from "@/lib/utils/payroll-access"
 
 export async function GET(req: NextRequest) {
   const supabase = createClient()
@@ -30,11 +31,15 @@ export async function GET(req: NextRequest) {
   const { data: record, error } = await query.single()
   if (error || !record) return NextResponse.json({ error: "Record not found" }, { status: 404 })
 
-  // Permission check: user can only download own payslip
-  const { data: userData } = await supa.from("users").select("role, employee_id").eq("id", user.id).single()
-  const isAdmin = userData?.role === "super_admin" || userData?.role === "hr_admin"
-  if (!isAdmin && userData?.employee_id !== record.employee_id) {
-    return NextResponse.json({ error: "No permission" }, { status: 403 })
+  // Permission check: ดาวน์โหลดได้ถ้าเป็นของตัวเอง หรือมีสิทธิ์เงินเดือน (เหนือกว่า super_admin)
+  const { data: userData } = await supa.from("users").select("employee_id").eq("id", user.id).single()
+  const isOwn = userData?.employee_id && userData.employee_id === record.employee_id
+  if (!isOwn) {
+    const scope = await getPayrollScope(supa, user.id)
+    const empCompanyId = (record.employee as any)?.company?.id ?? null
+    if (!scopeAllows(scope, empCompanyId)) {
+      return NextResponse.json({ error: "No permission" }, { status: 403 })
+    }
   }
 
   // Generate PDF as JSON data (client will render)

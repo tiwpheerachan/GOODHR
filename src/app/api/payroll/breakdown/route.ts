@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createServiceClient } from "@/lib/supabase/server"
+import { createServiceClient, createClient } from "@/lib/supabase/server"
+import { getPayrollScope, scopeAllows } from "@/lib/utils/payroll-access"
 
 /**
  * GET /api/payroll/breakdown?employee_id=xxx&year=2026&month=4&company_id=yyy
@@ -22,6 +23,20 @@ export async function GET(req: NextRequest) {
   }
 
   const supa = createServiceClient()
+
+  // ── auth: ต้อง login + มีสิทธิ์เงินเดือน หรือดูของตัวเอง ──
+  const { data: { user } } = await createClient().auth.getUser()
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const { data: me } = await supa.from("users").select("employee_id").eq("id", user.id).maybeSingle()
+  const isOwn = !!me?.employee_id && me.employee_id === employeeId
+  const scope = await getPayrollScope(supa, user.id)
+  let allowed = isOwn || scope.all
+  if (!allowed && scope.any) {
+    // สิทธิ์รายบริษัท: พนักงานคนนี้อยู่บริษัทที่มีสิทธิ์ไหม
+    const { data: emp } = await supa.from("employees").select("company_id").eq("id", employeeId).maybeSingle()
+    allowed = scopeAllows(scope, emp?.company_id)
+  }
+  if (!allowed) return NextResponse.json({ error: "ไม่มีสิทธิ์ดูข้อมูลเงินเดือน" }, { status: 403 })
 
   const prevM = month === 1 ? 12 : month - 1
   const prevY = month === 1 ? year - 1 : year

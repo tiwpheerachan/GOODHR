@@ -1,4 +1,5 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
+import { getPayrollScope, scopeAllows } from "@/lib/utils/payroll-access"
 import { NextResponse } from "next/server"
 import { calculatePayrollSummary, calcPF, computeAutoProrateDays, type OTBreakdown } from "@/lib/utils/payroll"
 import { classifyOtFromRecords } from "@/lib/utils/ot-classification"
@@ -907,6 +908,15 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const supa = createServiceClient()
+  const scope = await getPayrollScope(supa, user.id)
+  if (!scope.any) return NextResponse.json({ error: "ไม่มีสิทธิ์จัดการเงินเดือน" }, { status: 403 })
+  // สิทธิ์รายบริษัท: งวดนี้อยู่บริษัทที่มีสิทธิ์ไหม
+  if (!scope.all) {
+    const { data: prd } = await supa.from("payroll_periods").select("company_id").eq("id", payroll_period_id).maybeSingle()
+    if (!prd || !scopeAllows(scope, (prd as any).company_id)) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์บริษัทนี้" }, { status: 403 })
+    }
+  }
 
   // เลือก mode: init = ตั้งต้นฐานเงินเดือน, calc = คำนวณเต็ม
   const result = mode === "init"
