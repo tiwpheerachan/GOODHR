@@ -185,16 +185,16 @@ export default function RegulationsReaderPage() {
         <button
           onClick={() => go(idx - 1)} disabled={idx === 0}
           aria-label="หน้าก่อนหน้า"
-          className="absolute left-2 top-1/2 z-20 hidden -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/90 p-2.5 text-slate-600 shadow-md transition hover:bg-white disabled:pointer-events-none disabled:opacity-0 md:flex"
+          className="absolute left-1.5 top-1/2 z-20 flex -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/90 p-2 text-slate-600 shadow-md transition hover:bg-white disabled:pointer-events-none disabled:opacity-0 md:p-2.5"
         >
-          <ChevronLeft size={22} />
+          <ChevronLeft size={20} />
         </button>
         <button
           onClick={() => go(idx + 1)} disabled={idx === total - 1}
           aria-label="หน้าถัดไป"
-          className="absolute right-2 top-1/2 z-20 hidden -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/90 p-2.5 text-slate-600 shadow-md transition hover:bg-white disabled:pointer-events-none disabled:opacity-0 md:flex"
+          className="absolute right-1.5 top-1/2 z-20 flex -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/90 p-2 text-slate-600 shadow-md transition hover:bg-white disabled:pointer-events-none disabled:opacity-0 md:p-2.5"
         >
-          <ChevronRight size={22} />
+          <ChevronRight size={20} />
         </button>
 
         <AnimatePresence mode="popLayout" custom={dir}>
@@ -205,7 +205,7 @@ export default function RegulationsReaderPage() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: dir * -50 }}
             transition={{ duration: 0.26, ease: "easeInOut" }}
-            drag="x"
+            drag={page.kind === "sign" ? false : "x"}
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={0.15}
             onDragEnd={(_, info) => {
