@@ -251,7 +251,19 @@ export async function POST(req: NextRequest) {
     source: "manual",
   }).select("id, sold_at, sold_date").single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ success: true, sale: data })
+
+  // ── ตัดสต๊อกอัตโนมัติ: ถ้ามี serial → mark stock_items เป็น sold ──
+  let stock_deducted = 0
+  if (sn && String(sn).trim()) {
+    try {
+      const { data: n } = await svc.rpc("mark_stock_sold", {
+        p_serial: String(sn).trim(), p_sale: data.id, p_sold_by: me.employeeId,
+      })
+      stock_deducted = Number(n) || 0
+    } catch { /* ไม่ให้กระทบการบันทึกขาย */ }
+  }
+
+  return NextResponse.json({ success: true, sale: data, stock_deducted })
 }
 
 // PATCH — edit (own or admin)

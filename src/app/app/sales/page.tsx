@@ -208,6 +208,8 @@ export default function EmployeeSalesPage() {
   const [stats, setStats] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [myAccess, setMyAccess] = useState<string>("staff")
+  // โหมด: ขายออก (out) / รับเข้าสต๊อก (in) — ใช้ scanner ตัวเดียวกัน
+  const [stockMode, setStockMode] = useState(false)
 
   // ── Form state ──
   const [form, setForm] = useState({
@@ -416,7 +418,36 @@ export default function EmployeeSalesPage() {
     setProofPreviewUrl(null)
   }
 
+  // ── รับเข้าสต๊อก (ใช้ scanner เดียวกับขายออก) ──
+  const submitStockIn = async () => {
+    if (!activeProduct) return
+    const serial = form.sn.trim()
+    if (!serial) { toast.error("ต้องมี Serial Number เพื่อรับเข้าสต๊อก — แตะสแกน SN"); return }
+    if (activeProduct.__unknown && !form.manual_name.trim()) { toast.error("กรุณากรอกชื่อสินค้า"); return }
+    setSubmitting(true)
+    try {
+      const item = {
+        serial,
+        barcode: form.barcode || activeProduct.barcode || null,
+        product_name: activeProduct.__unknown ? form.manual_name.trim() : activeProduct.name,
+        brand: activeProduct.__unknown ? (form.manual_brand || null) : (activeProduct.brand || null),
+        sku: activeProduct.sku || null,
+        image_url: activeProduct.image_url || null,
+      }
+      const res = await fetch("/api/stock/scan-in", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: [item] }),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "รับเข้าสต๊อกไม่สำเร็จ"); return }
+      toast.success(`📦 รับเข้าสต๊อกแล้ว · ${item.product_name}`)
+      resetForm()
+    } catch { toast.error("เกิดข้อผิดพลาด") }
+    finally { setSubmitting(false) }
+  }
+
   const submitSale = async () => {
+    if (stockMode) return submitStockIn()   // โหมดรับเข้าสต๊อก
     if (!activeProduct) return
     const priceN = Number(form.sold_price)
     if (!form.sold_price || isNaN(priceN) || priceN < 0) {
@@ -492,20 +523,36 @@ export default function EmployeeSalesPage() {
     <div className="space-y-4 pb-24">
 
       {/* Header */}
-      <div className="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 rounded-2xl p-5 shadow-md text-white">
+      <div className={"rounded-2xl p-5 shadow-md text-white bg-gradient-to-br " +
+        (stockMode ? "from-emerald-500 via-teal-500 to-cyan-500" : "from-indigo-500 via-purple-500 to-pink-500")}>
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
             <ScanLine size={22}/>
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-black">บันทึกการขายสินค้า</h1>
-            <p className="text-[11px] opacity-90 mt-0.5">สแกน barcode → กรอกราคา → บันทึก</p>
+            <h1 className="text-xl font-black">{stockMode ? "รับสินค้าเข้าสต๊อก" : "บันทึกการขายสินค้า"}</h1>
+            <p className="text-[11px] opacity-90 mt-0.5">
+              {stockMode ? "สแกน barcode + Serial → รับเข้าสต๊อกสาขา" : "สแกน barcode → กรอกราคา → บันทึก"}
+            </p>
           </div>
           {(myAccess === "admin" || myAccess === "manager") && (
             <span className="text-[9px] font-black bg-white/20 backdrop-blur px-2 py-1 rounded-full uppercase tracking-wider">
               {myAccess}
             </span>
           )}
+        </div>
+        {/* Toggle โหมด */}
+        <div className="mt-3 flex gap-1 bg-white/20 backdrop-blur rounded-xl p-1">
+          <button onClick={() => { setStockMode(false); resetForm() }}
+            className={"flex-1 rounded-lg py-1.5 text-xs font-black transition " + (!stockMode ? "bg-white text-indigo-700 shadow" : "text-white/90")}>
+            🏷️ ขายออก
+          </button>
+          <button onClick={() => { setStockMode(true); resetForm() }}
+            className={"flex-1 rounded-lg py-1.5 text-xs font-black transition " + (stockMode ? "bg-white text-emerald-700 shadow" : "text-white/90")}>
+            📦 รับเข้าสต๊อก
+          </button>
+        </div>
+        <div className="hidden">
         </div>
       </div>
 
@@ -649,6 +696,7 @@ export default function EmployeeSalesPage() {
           product={activeProduct}
           form={form}
           setForm={setForm}
+          stockMode={stockMode}
           onSubmit={submitSale}
           onClose={resetForm}
           submitting={submitting}
@@ -1598,13 +1646,16 @@ function SearchModal({ onPick, onClose }: { onPick: (p: any) => void; onClose: (
 // ════════════════════════════════════════════════════════════════════
 // EntryModal — แสดงรายละเอียดสินค้า + ฟอร์มกรอกราคา/SN/Order
 // ════════════════════════════════════════════════════════════════════
-function EntryModal({ product, form, setForm, onSubmit, onClose, submitting, onScanSn, onScanOrder, onScanBarcode, proofPhoto, proofPreviewUrl, onOpenPhoto, onRemovePhoto }: any) {
+function EntryModal({ product, form, setForm, stockMode, onSubmit, onClose, submitting, onScanSn, onScanOrder, onScanBarcode, proofPhoto, proofPreviewUrl, onOpenPhoto, onRemovePhoto }: any) {
   const isUnknown = product.__unknown
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white flex items-center justify-between">
-          <p className="font-black flex items-center gap-2"><Check size={16}/> บันทึกการขาย</p>
+        <div className={"px-5 py-4 text-white flex items-center justify-between bg-gradient-to-r " +
+          (stockMode ? "from-emerald-500 to-teal-600" : "from-indigo-500 to-purple-600")}>
+          <p className="font-black flex items-center gap-2">
+            <Check size={16}/> {stockMode ? "รับเข้าสต๊อก" : "บันทึกการขาย"}
+          </p>
           <button onClick={onClose} className="p-1 hover:bg-white/20 rounded"><X size={18}/></button>
         </div>
 
@@ -1726,16 +1777,22 @@ function EntryModal({ product, form, setForm, onSubmit, onClose, submitting, onS
             </div>
           </div>
 
-          {/* Price (required) */}
-          <label className="block">
-            <span className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1">
-              <CircleDollarSign size={11} className="text-emerald-500"/> ราคาขาย * (บาท)
-            </span>
-            <input type="number" inputMode="decimal" value={form.sold_price}
-              onChange={e => setForm((f: any) => ({ ...f, sold_price: e.target.value }))}
-              placeholder="เช่น 4990"
-              className="w-full mt-1 bg-white border-2 border-emerald-200 rounded-xl px-4 py-3 text-2xl font-black text-emerald-700 outline-none focus:border-emerald-500 tabular-nums"/>
-          </label>
+          {/* Price (ขายออกเท่านั้น) */}
+          {stockMode ? (
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[12px] font-bold text-emerald-700">
+              <Hash size={14} className="shrink-0"/> รับเข้าสต๊อกต้องมี <b>Serial Number</b> (สแกน SN ด้านล่าง) · ไม่ต้องกรอกราคา
+            </div>
+          ) : (
+            <label className="block">
+              <span className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1">
+                <CircleDollarSign size={11} className="text-emerald-500"/> ราคาขาย * (บาท)
+              </span>
+              <input type="number" inputMode="decimal" value={form.sold_price}
+                onChange={e => setForm((f: any) => ({ ...f, sold_price: e.target.value }))}
+                placeholder="เช่น 4990"
+                className="w-full mt-1 bg-white border-2 border-emerald-200 rounded-xl px-4 py-3 text-2xl font-black text-emerald-700 outline-none focus:border-emerald-500 tabular-nums"/>
+            </label>
+          )}
 
           {/* Qty */}
           <label className="block">
@@ -1848,9 +1905,10 @@ function EntryModal({ product, form, setForm, onSubmit, onClose, submitting, onS
             ยกเลิก
           </button>
           <button onClick={onSubmit} disabled={submitting}
-            className="flex-1 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 text-white text-sm font-black rounded-xl flex items-center justify-center gap-1.5 shadow-sm">
+            className={"flex-1 py-2.5 disabled:opacity-50 text-white text-sm font-black rounded-xl flex items-center justify-center gap-1.5 shadow-sm bg-gradient-to-r " +
+              (stockMode ? "from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700" : "from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700")}>
             {submitting ? <Loader2 size={14} className="animate-spin"/> : <Check size={14}/>}
-            บันทึก
+            {stockMode ? "รับเข้าสต๊อก" : "บันทึก"}
           </button>
         </div>
       </div>

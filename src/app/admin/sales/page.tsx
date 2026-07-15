@@ -1,17 +1,19 @@
 "use client"
 import { useEffect, useState } from "react"
-import { ScanLine, BarChart3, Table2, Package, Shield, Loader2, Lock } from "lucide-react"
+import { ScanLine, BarChart3, Table2, Package, Shield, Loader2, Lock, Boxes } from "lucide-react"
 import DashboardTab from "@/components/admin/sales/DashboardTab"
 import TableTab from "@/components/admin/sales/TableTab"
 import PermissionsTab from "@/components/admin/sales/PermissionsTab"
 import ProductsTab from "@/components/admin/sales/ProductsTab"
+import StockTab from "@/components/admin/sales/StockTab"
 
-type Tab = "dashboard" | "table" | "products" | "permissions"
+type Tab = "dashboard" | "table" | "stock" | "products" | "permissions"
 
 const TABS: Array<{ key: Tab; label: string; icon: any; color: string }> = [
   { key: "dashboard",   label: "Dashboard",      icon: BarChart3, color: "from-indigo-500 to-purple-500" },
   { key: "table",       label: "ตารางยอดขาย",   icon: Table2,    color: "from-blue-500 to-cyan-500" },
-  { key: "products",    label: "คลังสินค้า",     icon: Package,   color: "from-emerald-500 to-teal-500" },
+  { key: "stock",       label: "สต๊อกสาขา",     icon: Boxes,     color: "from-emerald-500 to-teal-500" },
+  { key: "products",    label: "คลังสินค้า",     icon: Package,   color: "from-amber-500 to-orange-500" },
   { key: "permissions", label: "สิทธิ์",        icon: Shield,    color: "from-rose-500 to-pink-500" },
 ]
 
@@ -105,6 +107,7 @@ export default function AdminSalesPage() {
       <div>
         {tab === "dashboard"   && <DashboardTab canSeeAll={canSeeAll} canSeeTeam={canSeeTeam}/>}
         {tab === "table"       && <TableTab canSeeAll={canSeeAll} canSeeTeam={canSeeTeam}/>}
+        {tab === "stock"       && <StockTab canSeeAll={canSeeAll}/>}
         {tab === "products"    && canManageProducts && <ProductsTab/>}
         {tab === "permissions" && canManagePerms && <PermissionsTab/>}
       </div>
