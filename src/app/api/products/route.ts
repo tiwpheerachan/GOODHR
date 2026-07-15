@@ -33,11 +33,23 @@ export async function GET(req: NextRequest) {
   const includeInactive = sp.get("include_inactive") === "1"
 
   if (barcode) {
-    // 1) หาใน catalog local ก่อน (มีราคา)
+    // 1) หาใน catalog local ก่อน (curated)
     const { data, error } = await svc.from("products")
       .select("*").eq("barcode", barcode).eq("is_active", true).maybeSingle()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    if (data) return NextResponse.json({ product: data })
+    if (data) {
+      // เติมราคา/รูปจาก barcode_products (BQ) ถ้า catalog ยังว่าง → ไม่ให้ตกหล่นเรื่องราคา
+      if (!data.default_price || !data.image_url) {
+        const { data: bpRows } = await svc.from("barcode_products")
+          .select("sale_price, picture_url").eq("barcode_norm", barcode.trim().toUpperCase()).limit(1)
+        const bp = (bpRows ?? [])[0]
+        if (bp) {
+          if (!data.default_price && bp.sale_price != null && Number(bp.sale_price) > 0) data.default_price = Number(bp.sale_price)
+          if (!data.image_url && bp.picture_url) data.image_url = bp.picture_url
+        }
+      }
+      return NextResponse.json({ product: data })
+    }
 
     // 2) ไม่เจอ → fallback ไป barcode_products (synced จาก BigQuery pc.barcode_products)
     const norm = barcode.trim().toUpperCase()

@@ -249,11 +249,11 @@ export default function EmployeeSalesPage() {
       const d = await res.json()
       if (res.ok && d.product) {
         const p = d.product
-        setActiveProduct({ __unknown: true, __from_serial: true, barcode: extra?.barcode || null, ...p })
+        setActiveProduct({ __unknown: true, __from_serial: true, barcode: extra?.barcode || p.barcode || null, ...p })
         setForm(f => ({
           ...f,
-          barcode: extra?.barcode || "",
-          sold_price: "",
+          barcode: extra?.barcode || p.barcode || "",
+          sold_price: p.default_price ? String(p.default_price) : "",  // เติมราคาจาก barcode_products (join ด้วย sku)
           sn,
           order_number: extra?.order || f.order_number || "",
           qty: "1", note: "",
