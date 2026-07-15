@@ -94,16 +94,22 @@ async function run(req: NextRequest) {
       )) as string[]
       candidateSerials = allSerials.length
 
-      // diff กับ Supabase → หา serial ที่ยังไม่มี (เช็คทีละ chunk)
-      const missing: string[] = []
-      for (let i = 0; i < allSerials.length; i += CHUNK) {
-        const batch = allSerials.slice(i, i + CHUNK)
-        const { data: existing, error } = await svc
-          .from("serial_tracking").select("serial_number").in("serial_number", batch)
-        if (error) throw new Error("เช็ค existing ล้มเหลว: " + error.message)
-        const have = new Set((existing ?? []).map((e: any) => e.serial_number))
-        for (const s of batch) if (!have.has(s)) missing.push(s)
+      // diff กับ Supabase → โหลด serial เดิมทั้งหมด (เฉพาะคอลัมน์ serial_number) เข้า Set
+      //   ไม่ใช้ .in(1000) เพราะ URL ยาวเกิน → "fetch failed"; อ่านทีละหน้า 1000 ปลอดภัยกว่า
+      const existingSet = new Set<string>()
+      {
+        let from = 0
+        while (true) {
+          const { data, error } = await svc
+            .from("serial_tracking").select("serial_number").order("serial_number").range(from, from + 999)
+          if (error) throw new Error("เช็ค existing ล้มเหลว: " + error.message)
+          if (!data || data.length === 0) break
+          for (const e of data) if (e.serial_number) existingSet.add(String(e.serial_number).trim())
+          if (data.length < 1000) break
+          from += 1000
+        }
       }
+      const missing: string[] = allSerials.filter((s: string) => !existingSet.has(s))
       newSerials = missing.length
 
       if (missing.length === 0) {
