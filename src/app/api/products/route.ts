@@ -19,10 +19,35 @@ export async function GET(req: NextRequest) {
   const includeInactive = sp.get("include_inactive") === "1"
 
   if (barcode) {
+    // 1) หาใน catalog local ก่อน (มีราคา)
     const { data, error } = await svc.from("products")
       .select("*").eq("barcode", barcode).eq("is_active", true).maybeSingle()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ product: data })
+    if (data) return NextResponse.json({ product: data })
+
+    // 2) ไม่เจอ → fallback ไป serial_tracking (synced จาก BigQuery) ด้วย barcode
+    const norm = barcode.trim().toUpperCase()
+    const { data: stRows } = await svc.from("serial_tracking")
+      .select("*").eq("barcode_norm", norm).limit(1)
+    const st = (stRows ?? [])[0]
+    if (st) {
+      const product = {
+        __from_serial_barcode: true,     // มาจาก BQ (barcode) ไม่ใช่ catalog
+        barcode: st.barcode || barcode,
+        name: st.canonical_product_name || st.product_name || st.sku,
+        brand: st.brand || null,
+        model: st.main_product_line || null,
+        color: st.colour || null,
+        sku: st.sku || null,
+        category: st.category_leaf || st.category_l2 || st.category_l1 || null,
+        storage: st.storage || null,
+        ram: st.ram || null,
+        variant_label: st.variant_label || null,
+        default_price: null,
+      }
+      return NextResponse.json({ product })
+    }
+    return NextResponse.json({ product: null })
   }
 
   // ── lookup ด้วย serial number → เทียบ serial_tracking (synced จาก BigQuery) ──

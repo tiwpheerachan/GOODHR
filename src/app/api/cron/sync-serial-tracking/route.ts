@@ -15,7 +15,7 @@ function isAuthorized(req: NextRequest): boolean {
 
 // คอลัมน์ที่ดึงจาก BigQuery (mirror enriched table)
 const BQ_COLS = [
-  "sku", "product_name", "brand", "serial_number",
+  "sku", "product_name", "brand", "serial_number", "barcode",
   "canonical_variant_id", "sku_type", "canonical_product_id", "canonical_brand_id",
   "canonical_product_name", "main_product_line", "variant_label",
   "category_l1", "category_l2", "category_leaf", "category_path",
@@ -172,7 +172,7 @@ async function run(req: NextRequest) {
       const sku = r.sku
       if (!sku || bySku.has(sku)) continue
       bySku.set(sku, {
-        barcode: sku,
+        barcode: r.barcode || sku,   // ใช้ barcode จริงถ้ามี ไม่งั้น fallback เป็น sku
         name: r.canonical_product_name || r.product_name || sku,
         brand: r.brand || null,
         model: r.main_product_line || null,
