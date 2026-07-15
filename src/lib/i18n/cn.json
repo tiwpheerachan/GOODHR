@@ -561,6 +561,7 @@
       "learning": "学习系统",
       "branch_eval": "门店评估",
       "pc_sales": "PC 销售",
+      "scan_misses": "未识别扫码",
       "recruitment": "招聘",
       "payroll": "薪资",
       "payroll_rules": "计算公式",

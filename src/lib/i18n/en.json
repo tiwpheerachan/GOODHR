@@ -561,6 +561,7 @@
       "learning": "Learning",
       "branch_eval": "Branch Review",
       "pc_sales": "PC Sales",
+      "scan_misses": "Unknown Scans",
       "recruitment": "Recruitment",
       "payroll": "Payroll",
       "payroll_rules": "Payroll Formula",

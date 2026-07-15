@@ -2,6 +2,20 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { getProductSaleAccess, canManageProducts } from "@/lib/utils/product-sale-permissions"
 
+// ── log บาร์โค้ด/ซีเรียลที่สแกนแล้วไม่เจอ (best-effort, ไม่ block response) ──
+async function logScanMiss(svc: any, userId: string, code: string, type: "barcode" | "serial") {
+  try {
+    const { data: u } = await svc.from("users").select("employee_id").eq("id", userId).maybeSingle()
+    const empId = u?.employee_id ?? null
+    let companyId: string | null = null
+    if (empId) {
+      const { data: e } = await svc.from("employees").select("company_id").eq("id", empId).maybeSingle()
+      companyId = e?.company_id ?? null
+    }
+    await svc.rpc("log_scan_miss", { p_code: code, p_type: type, p_emp: empId, p_company: companyId })
+  } catch { /* เงียบ — ไม่ให้กระทบการสแกน */ }
+}
+
 // GET /api/products?barcode=xxx  → ดึงสินค้าเดี่ยวจาก barcode
 // GET /api/products?q=text       → search ชื่อ/barcode/brand/model/sku
 // GET /api/products              → list
@@ -25,28 +39,30 @@ export async function GET(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (data) return NextResponse.json({ product: data })
 
-    // 2) ไม่เจอ → fallback ไป serial_tracking (synced จาก BigQuery) ด้วย barcode
+    // 2) ไม่เจอ → fallback ไป barcode_products (synced จาก BigQuery pc.barcode_products)
     const norm = barcode.trim().toUpperCase()
-    const { data: stRows } = await svc.from("serial_tracking")
+    const { data: bpRows } = await svc.from("barcode_products")
       .select("*").eq("barcode_norm", norm).limit(1)
-    const st = (stRows ?? [])[0]
-    if (st) {
+    const bp = (bpRows ?? [])[0]
+    if (bp) {
+      const price = bp.sale_price != null && Number(bp.sale_price) > 0 ? Number(bp.sale_price) : null
       const product = {
-        __from_serial_barcode: true,     // มาจาก BQ (barcode) ไม่ใช่ catalog
-        barcode: st.barcode || barcode,
-        name: st.canonical_product_name || st.product_name || st.sku,
-        brand: st.brand || null,
-        model: st.main_product_line || null,
-        color: st.colour || null,
-        sku: st.sku || null,
-        category: st.category_leaf || st.category_l2 || st.category_l1 || null,
-        storage: st.storage || null,
-        ram: st.ram || null,
-        variant_label: st.variant_label || null,
-        default_price: null,
+        __from_barcode_products: true,    // มาจาก BQ (barcode_products) ไม่ใช่ catalog local
+        barcode: bp.barcode || barcode,
+        name: bp.canonical_product_name || bp.product_name || bp.sku,
+        brand: bp.brand || null,
+        model: bp.main_product_line || null,
+        color: bp.colour || null,
+        sku: bp.sku || null,
+        category: bp.category_leaf || bp.category_l2 || bp.category_l1 || bp.jst_category_name || null,
+        variant_label: bp.variant_label || null,
+        image_url: bp.picture_url || null,
+        default_price: price,
       }
       return NextResponse.json({ product })
     }
+    // ไม่เจอทั้ง catalog + barcode_products → log ไว้เติม master
+    await logScanMiss(svc, user.id, barcode, "barcode")
     return NextResponse.json({ product: null })
   }
 
@@ -58,11 +74,15 @@ export async function GET(req: NextRequest) {
       .select("*").eq("serial_norm", norm).limit(1)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     const st = (data ?? [])[0]
-    if (!st) return NextResponse.json({ serial: null, product: null })
+    if (!st) {
+      await logScanMiss(svc, user.id, serial, "serial")
+      return NextResponse.json({ serial: null, product: null })
+    }
     // shape เป็น product-like สำหรับ autofill ในหน้าขาย
-    const product = {
+    const product: any = {
       __from_serial: true,
       serial_number: st.serial_number,
+      barcode: null,
       name: st.canonical_product_name || st.product_name || st.sku,
       brand: st.brand || null,
       model: st.main_product_line || null,
@@ -72,7 +92,19 @@ export async function GET(req: NextRequest) {
       storage: st.storage || null,
       ram: st.ram || null,
       variant_label: st.variant_label || null,
+      image_url: st.picture_url || null,
       default_price: null,
+    }
+    // ── เติมราคา + barcode + รูป จาก barcode_products (แมตช์ด้วย sku) → serial scan ได้ราคา/รูปด้วย ──
+    if (st.sku) {
+      const { data: bpRows } = await svc.from("barcode_products")
+        .select("barcode, sale_price, picture_url").eq("sku", st.sku).limit(1)
+      const bp = (bpRows ?? [])[0]
+      if (bp) {
+        if (bp.sale_price != null && Number(bp.sale_price) > 0) product.default_price = Number(bp.sale_price)
+        if (bp.barcode) product.barcode = bp.barcode
+        if (!product.image_url && bp.picture_url) product.image_url = bp.picture_url
+      }
     }
     return NextResponse.json({ serial: st, product })
   }

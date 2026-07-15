@@ -2,7 +2,7 @@ import type { Config } from "@netlify/functions"
 
 // ── Netlify Scheduled Function ─────────────────────────────────────────────
 // sync ข้อมูล serial_tracking จาก BigQuery มายัง Supabase (ให้พนักงานสแกน serial แล้วรู้สินค้า)
-// รันทุก 15 นาที (ปรับได้ที่ config.schedule ด้านล่าง)
+// รันทุกวันเวลา 06:00 น. Bangkok (ปรับได้ที่ config.schedule ด้านล่าง)
 //
 // ต้องตั้งค่า Environment Variable บน Netlify:
 //   CRON_SECRET                          = secret string (ตรงกับใน API route)
@@ -27,5 +27,5 @@ export default async function handler() {
 }
 
 export const config: Config = {
-  schedule: "0 * * * *", // ทุกชั่วโมง (mode=new — insert เฉพาะ serial ใหม่)
+  schedule: "0 23 * * *", // 23:00 UTC = 06:00 น. Bangkok (UTC+7) — ทุกวันเช้า 6 โมง (mode=new)
 }

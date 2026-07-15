@@ -1607,6 +1607,10 @@ function EntryModal({ product, form, setForm, onSubmit, onClose, submitting, onS
                   <p className="text-[10px] font-black text-emerald-700 uppercase mb-2 flex items-center gap-1">
                     <Check size={11}/> เจอจาก Serial · ตรวจ/แก้ชื่อได้
                   </p>
+                  {product.image_url && (
+                    <img src={product.image_url} alt={product.name || ""}
+                      className="w-full h-32 object-contain rounded-lg bg-white ring-1 ring-emerald-100 mb-2"/>
+                  )}
                   <div className="flex flex-wrap gap-1 mb-2">
                     {product.sku && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-mono">SKU {product.sku}</span>}
                     {product.model && <span className="text-[9px] font-black bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">{product.model}</span>}

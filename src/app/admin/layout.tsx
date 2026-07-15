@@ -13,7 +13,7 @@ import {
   LayoutDashboard, Users, Clock, CreditCard, Calendar, CalendarDays,
   Settings, Menu, X, LogOut, ChevronRight, BookOpen, UserX, Target, Camera, CalendarClock,
   Network, ClipboardCheck, Megaphone, MessageCircle, ScrollText, Shield, Package, Table2, PieChart, Sparkles, GraduationCap,
-  UserPlus, Store, Briefcase, ScanLine, Link2, ShieldCheck,
+  UserPlus, Store, Briefcase, ScanLine, Link2, ShieldCheck, PackageSearch,
 } from "lucide-react"
 
 // key = slug ใน i18n (admin.nav.<key>)
@@ -45,6 +45,7 @@ const SIDEBAR = [
   { href: "/admin/training",            icon: GraduationCap,   key: "learning",            badge: null as string|null },
   { href: "/admin/branch-eval",         icon: Store,           key: "branch_eval",         badge: null as string|null },
   { href: "/admin/sales",               icon: ScanLine,        key: "pc_sales",            badge: null as string|null },
+  { href: "/admin/scan-misses",          icon: PackageSearch,   key: "scan_misses",         badge: null as string|null },
   { href: "https://careers.shd-technology.co.th/admin", icon: UserPlus, key: "recruitment", badge: null as string|null, external: true as boolean | undefined },
   { href: "/admin/payroll",              icon: CreditCard,      key: "payroll",             badge: null as string|null },
   { href: "/admin/payroll-rules",        icon: BookOpen,        key: "payroll_rules",       badge: null as string|null },

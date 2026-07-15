@@ -138,7 +138,99 @@ export default function DashboardTab({ canSeeAll, canSeeTeam }: { canSeeAll: boo
               renderItem={(it: any, i: number) => <PlainRow rank={i + 1} name={it.key} count={it.count} amount={it.amount} color="pink"/>}
             />
           </div>
+
+          {/* สรุปพนักงานแต่ละคน × แต่ละวัน */}
+          <EmployeeDailyMatrix matrix={data.by_employee_day} start={start} end={end}/>
         </>
+      )}
+    </div>
+  )
+}
+
+// ── ตารางเมทริกซ์: พนักงาน (แถว) × วัน (คอลัมน์) → ยอดขายแต่ละวัน ──
+function EmployeeDailyMatrix({ matrix, start, end }: { matrix: any; start: string; end: string }) {
+  const dates: string[] = matrix?.dates ?? []
+  const rows: any[] = matrix?.rows ?? []
+  const dayTotals = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const d of dates) m[d] = 0
+    for (const r of rows) for (const d of dates) m[d] += r.cells?.[d]?.amount || 0
+    return m
+  }, [matrix]) // eslint-disable-line
+  const grand = rows.reduce((n, r) => n + (r.total_amount || 0), 0)
+
+  const fmtDay = (d: string) => { try { return format(new Date(d + "T00:00:00"), "d/M") } catch { return d } }
+  const money = (n: number) => n ? `฿${Math.round(n).toLocaleString()}` : "-"
+
+  function exportCsv() {
+    const head = ["พนักงาน", ...dates.map(fmtDay), "รวม"]
+    const body = rows.map(r => [r.name, ...dates.map(d => String(Math.round(r.cells?.[d]?.amount || 0))), String(Math.round(r.total_amount || 0))])
+    const csv = "﻿" + [head, ...body].map(r => r.map(c => `"${(c || "").toString().replace(/"/g, '""')}"`).join(",")).join("\n")
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
+    const a = document.createElement("a"); a.href = url; a.download = `sales-by-employee-day_${start}_${end}.csv`; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-50 flex items-center gap-2">
+        <Calendar size={15} className="text-indigo-500"/>
+        <p className="font-black text-sm text-slate-700">ยอดขายพนักงานรายวัน</p>
+        <span className="text-[10px] text-slate-400 font-bold">{rows.length} คน · {dates.length} วัน</span>
+        <button onClick={exportCsv} className="ml-auto text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg px-2 py-1">
+          ส่งออก CSV
+        </button>
+      </div>
+      {rows.length === 0 ? (
+        <p className="p-8 text-center text-xs text-slate-400">ไม่มีข้อมูล</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[11px]">
+            <thead>
+              <tr className="bg-slate-50">
+                <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-left font-black text-slate-600 min-w-[130px]">พนักงาน</th>
+                {dates.map(d => (
+                  <th key={d} className="px-2 py-2 text-right font-bold text-slate-500 whitespace-nowrap min-w-[54px]">{fmtDay(d)}</th>
+                ))}
+                <th className="sticky right-0 z-10 bg-slate-100 px-3 py-2 text-right font-black text-slate-700 min-w-[80px]">รวม</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.employee_id} className={i % 2 ? "bg-slate-50/40" : ""}>
+                  <td className="sticky left-0 z-10 bg-inherit px-3 py-1.5 font-bold text-slate-700 truncate max-w-[130px]"
+                    style={{ backgroundColor: i % 2 ? "#fafbfc" : "#fff" }}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-4 text-center text-[9px] font-black text-slate-400">{i + 1}</span>
+                      {r.name}
+                    </span>
+                  </td>
+                  {dates.map(d => {
+                    const c = r.cells?.[d]
+                    return (
+                      <td key={d} className={"px-2 py-1.5 text-right tabular-nums " + (c?.amount ? "text-slate-700 font-semibold" : "text-slate-300")}>
+                        {money(c?.amount || 0)}
+                      </td>
+                    )
+                  })}
+                  <td className="sticky right-0 z-10 px-3 py-1.5 text-right font-black text-emerald-700 tabular-nums"
+                    style={{ backgroundColor: i % 2 ? "#f6faf7" : "#fff" }}>
+                    ฿{Math.round(r.total_amount || 0).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-100 border-t-2 border-slate-200">
+                <td className="sticky left-0 z-10 bg-slate-100 px-3 py-2 font-black text-slate-700">รวมรายวัน</td>
+                {dates.map(d => (
+                  <td key={d} className="px-2 py-2 text-right font-black text-slate-600 tabular-nums whitespace-nowrap">{money(dayTotals[d])}</td>
+                ))}
+                <td className="sticky right-0 z-10 bg-slate-200 px-3 py-2 text-right font-black text-emerald-800 tabular-nums">฿{Math.round(grand).toLocaleString()}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       )}
     </div>
   )

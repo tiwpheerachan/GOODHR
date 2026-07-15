@@ -122,6 +122,34 @@ export async function GET(req: NextRequest) {
     byEmp[k].amount += Number(s.sold_price) * (s.qty || 1)
   }
 
+  // group by employee × day (สรุปพนักงานแต่ละคนว่าแต่ละวันขายเท่าไหร่)
+  const empDay = new Map<string, { employee_id: string; name: string; avatar: string | null; total_amount: number; total_qty: number; cells: Record<string, { count: number; amount: number }> }>()
+  const dateSet = new Set<string>()
+  for (const s of sales) {
+    if (!s.employee_id) continue
+    const k = s.employee_id
+    const d = s.sold_date
+    dateSet.add(d)
+    if (!empDay.has(k)) empDay.set(k, {
+      employee_id: k,
+      name: s.employee ? (s.employee.nickname || `${s.employee.first_name_th} ${s.employee.last_name_th}`) : k,
+      avatar: s.employee?.avatar_url || null,
+      total_amount: 0, total_qty: 0, cells: {},
+    })
+    const row = empDay.get(k)!
+    const amt = Number(s.sold_price) * (s.qty || 1)
+    const qty = s.qty || 1
+    row.total_amount += amt
+    row.total_qty += qty
+    if (!row.cells[d]) row.cells[d] = { count: 0, amount: 0 }
+    row.cells[d].count += qty
+    row.cells[d].amount += amt
+  }
+  const byEmployeeDay = {
+    dates: Array.from(dateSet).sort(),
+    rows: Array.from(empDay.values()).sort((a, b) => b.total_amount - a.total_amount),
+  }
+
   // group by product
   const byProduct: Record<string, { name: string; brand: string | null; barcode: string | null; count: number; amount: number }> = {}
   for (const s of sales) {
@@ -168,6 +196,7 @@ export async function GET(req: NextRequest) {
     },
     by_date: Object.entries(byDate).sort().map(([d, v]) => ({ date: d, ...v })),
     by_employee: Object.values(byEmp).sort((a, b) => b.amount - a.amount),
+    by_employee_day: byEmployeeDay,
     by_product: Object.values(byProduct).sort((a, b) => b.amount - a.amount),
     by_branch: groupBy("branch_name"),
     by_channel: groupBy("sales_channel"),
