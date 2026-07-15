@@ -277,12 +277,22 @@ export default function EmployeeSalesPage() {
 
     // ── set product / activeProduct ──
     if (codes.barcode) {
-      if (codes.product) {
-        setActiveProduct(codes.product)
+      // classify อาจ return เร็วเมื่อ barcode ผ่าน EAN-13/UPC checksum โดยไม่ค้น DB
+      //   → ต้อง lookup เองที่นี่ ไม่งั้นสินค้าที่มีจริงจะขึ้น "สินค้าใหม่"
+      let product = codes.product
+      if (!product) {
+        try {
+          const res = await fetch(`/api/products?barcode=${encodeURIComponent(codes.barcode)}`)
+          const d = await res.json()
+          if (d?.product) product = d.product
+        } catch { /* ignore */ }
+      }
+      if (product) {
+        setActiveProduct(product)
         setForm(f => ({
           ...f,
           barcode: codes.barcode || "",
-          sold_price: codes.product.default_price ? String(codes.product.default_price) : "",
+          sold_price: product.default_price ? String(product.default_price) : "",
           sn: codes.sn || "",
           order_number: codes.order || "",
           qty: "1", note: "",
