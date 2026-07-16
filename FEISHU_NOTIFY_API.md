@@ -5,6 +5,48 @@
 
 > ⚠️ ชุด API นี้ **ไม่คืนข้อมูลเงินเดือน/payroll** โดยเจตนา
 
+มี 2 โหมด: **(A) Webhook push (realtime — แนะนำ)** GOODHR ยิงหาคุณทันทีที่มีเหตุการณ์ · **(B) Pull API** คุณ poll เอง (ด้านล่าง)
+
+---
+
+# 🔔 (A) Webhook Push — realtime (แนะนำ)
+
+GOODHR ยิง `POST` ไป URL ของคุณ **ทันที** ที่มีคำขอ (ลา/OT/แก้เวลา/เช็คอินนอกสถานที่/ลาออก) **ถูกสร้าง** หรือ **อนุมัติ/ปฏิเสธ** — ไม่ต้อง poll (เร็วกว่ามาก)
+
+**กลไก:** Postgres trigger + `pg_net` ยิงตรงจาก DB (async ไม่ block) → ไม่พึ่ง cron
+
+### ตั้งค่า (ฝั่ง GOODHR — admin)
+1. รัน migration `add_feishu_webhook.sql` ใน Supabase
+2. ตั้ง URL ปลายทาง + secret — ทำได้ 2 ทาง:
+   - SQL: `UPDATE webhook_config SET feishu_url='https://your-service/webhook', secret='<สุ่ม>' WHERE id=1;`
+   - หรือ API (admin): `PUT /api/admin/feishu-webhook` body `{feishu_url, secret, enabled}` · `POST` = ยิงทดสอบ · `GET` = ดูสถานะ
+
+### Payload ที่คุณจะได้รับ (POST)
+Header: `X-GoodHR-Secret: <secret>` (ใช้ verify ว่ามาจาก GOODHR จริง)
+```jsonc
+{
+  "event": "request.created" | "request.decided",
+  "request_type": "leave" | "overtime" | "adjustment" | "offsite" | "resignation",
+  "request_id": "uuid",
+  "employee_id": "uuid",     // เจ้าของคำขอ
+  "status": "pending" | "approved" | "rejected",
+  "company_id": "uuid",
+  "at": "2026-07-16T..."
+}
+```
+
+### ฝั่งคุณต้องทำ
+1. Verify `X-GoodHR-Secret` ให้ตรง
+2. `request.decided` → resolve `employee_id` เป็น feishu_user_id (เรียก `/resolve` ด้านล่าง) → ยิง Feishu "คำขอ{type}ของคุณ{status}แล้ว"
+3. `request.created` → resolve หา**หัวหน้า**ของ employee (`/resolve` คืน `manager`) → ยิงหาหัวหน้า "มีคำขอรออนุมัติ"
+4. ตอบ HTTP 2xx เร็วๆ (งานหนักทำ async ต่อ)
+
+> Payload ตั้งใจให้เบา (มีแค่ id) → ดึงรายละเอียด/ผู้รับเต็มจาก Pull API ด้านล่าง
+
+---
+
+# (B) Pull API
+
 ---
 
 ## Auth

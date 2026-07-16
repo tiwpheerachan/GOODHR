@@ -4,7 +4,7 @@ import Link from "next/link"
 import {
   ArrowLeft, Camera, X, Search, Package, ScanLine, Check,
   Trash2, Edit2, Save, AlertCircle, CircleDollarSign, Hash, FileText,
-  TrendingUp, ListChecks, Loader2, History, ImagePlus, ChevronRight,
+  TrendingUp, ListChecks, Loader2, History, ImagePlus, ChevronRight, Boxes,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -555,6 +555,19 @@ export default function EmployeeSalesPage() {
         <div className="hidden">
         </div>
       </div>
+
+      {/* ดูสต๊อกสาขา — พนักงานทุกคน */}
+      <Link href="/app/stock"
+        className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm transition-all active:bg-emerald-50">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+          <Boxes size={18} />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-black text-slate-800">สต๊อกของฉัน</p>
+          <p className="text-[11px] text-slate-400">ดูสินค้าคงเหลือในสาขา + ที่ฉันนำเข้า</p>
+        </div>
+        <ChevronRight size={16} className="text-emerald-400" />
+      </Link>
 
       {/* Admin/Manager shortcut — เห็นเฉพาะคนที่มีสิทธิ์ */}
       {(myAccess === "admin" || myAccess === "manager") && (

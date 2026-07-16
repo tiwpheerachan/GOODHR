@@ -6,9 +6,10 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   Boxes, Search, Loader2, RefreshCw, Building2, Package, Download, Hash, CheckCircle2,
-  AlertTriangle, ArrowLeftRight, X, ChevronDown, Store,
+  AlertTriangle, ArrowLeftRight, X, ChevronDown, Store, FileSpreadsheet,
 } from "lucide-react"
 import toast from "react-hot-toast"
+import * as XLSX from "xlsx"
 
 type View = "summary" | "by_branch" | "items" | "low_stock" | "discrepancy"
 
@@ -47,16 +48,37 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
 
   const branchNames = useMemo(() => (data?.by_branch ?? []).map((b: any) => b.name), [data])
 
-  function exportCsv() {
-    let rows: string[][] = []
-    if (view === "summary") { rows = [["สินค้า", "แบรนด์", "barcode", "คงเหลือ"]]; (data?.by_product ?? []).forEach((r: any) => rows.push([r.product_name, r.brand || "", r.barcode || "", String(r.qty)])) }
-    else if (view === "by_branch") { rows = [["สาขา", "สินค้า", "แบรนด์", "barcode", "จำนวน"]]; (data?.by_branch_detail ?? []).forEach((b: any) => b.products.forEach((p: any) => rows.push([b.name, p.product_name, p.brand || "", p.barcode || "", String(p.qty)]))) }
-    else if (view === "items") { rows = [["serial", "สินค้า", "barcode", "สาขา", "สถานะ"]]; items.forEach(r => rows.push([r.serial_number, r.product_name || "", r.barcode || "", r.branch_name || "", r.status])) }
-    else if (view === "low_stock") { rows = [["สินค้า", "สาขา", "คงเหลือ"]]; low.forEach(r => rows.push([r.product_name, r.branch_name, String(r.qty)])) }
-    else { rows = [["serial", "สินค้า", "สาขา", "พนักงาน", "วันที่ขาย"]]; disc.forEach(r => rows.push([r.serial, r.product_name || "", r.branch_name || "", r.employee || "", r.sold_date || ""])) }
-    const csv = "﻿" + rows.map(r => r.map(c => `"${(c || "").toString().replace(/"/g, '""')}"`).join(",")).join("\n")
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
-    const a = document.createElement("a"); a.href = url; a.download = `stock-${view}.csv`; a.click(); URL.revokeObjectURL(url)
+  const [exporting, setExporting] = useState(false)
+  // ดาวน์โหลด Excel ครบทุกมิติ (ดึงข้อมูลเต็มไม่ขึ้นกับมุมมองปัจจุบัน)
+  async function exportXlsx() {
+    setExporting(true)
+    try {
+      const [sumRes, itemRes] = await Promise.all([
+        fetch(`/api/stock/summary?view=summary`),
+        fetch(`/api/stock/summary?view=items&status=all`),
+      ])
+      const sum = await sumRes.json()
+      const it = await itemRes.json()
+      const fmtCell = (s: string) => { try { return s ? new Date(s).toLocaleString("sv-SE").slice(0, 16) : "" } catch { return s || "" } }
+      const wb = XLSX.utils.book_new()
+      // ต่อสาขา (แต่ละที่เหลือเท่าไหร่)
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((sum.by_branch ?? []).map((b: any) => ({ "สาขา": b.name, "คงเหลือ (ชิ้น)": b.qty }))), "ต่อสาขา")
+      // ต่อสินค้า (รวมหมด)
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((sum.by_product ?? []).map((p: any) => ({
+        "สินค้า": p.product_name, "แบรนด์": p.brand || "", "Barcode": p.barcode || "", "คงเหลือ": p.qty, "ขายไป": p.sold_qty, "สถานะ": p.out ? "หมด" : "มีของ",
+      }))), "ต่อสินค้า")
+      // แยกสาขา × สินค้า
+      const bp: any[] = []
+      ;(sum.by_branch_detail ?? []).forEach((b: any) => b.products.forEach((p: any) => bp.push({ "สาขา": b.name, "สินค้า": p.product_name, "Barcode": p.barcode || "", "คงเหลือ": p.qty, "ขายไป": p.sold_qty })))
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(bp), "แยกสาขา")
+      // รายซีเรียล
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((it.items ?? []).map((r: any) => ({
+        "Serial": r.serial_number, "สินค้า": r.product_name || "", "Barcode": r.barcode || "", "สาขา": r.branch_name || "",
+        "นำเข้าเมื่อ": fmtCell(r.in_at), "ผู้นำเข้า": r.in_by_name || "", "สถานะ": r.status === "in_stock" ? "คงเหลือ" : r.status === "sold" ? "ขายแล้ว" : r.status, "ขายเมื่อ": fmtCell(r.sold_at),
+      }))), "รายซีเรียล")
+      XLSX.writeFile(wb, `stock-report_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      toast.success("ดาวน์โหลดรายงานสต๊อกแล้ว")
+    } catch { toast.error("ดาวน์โหลดไม่สำเร็จ") } finally { setExporting(false) }
   }
 
   return (
@@ -97,8 +119,8 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
               <ArrowLeftRight size={13} /> โอนสต๊อก
             </button>
           )}
-          <button onClick={exportCsv} className="flex items-center gap-1 text-[11px] font-bold text-slate-600 border border-slate-200 rounded-xl px-2.5 py-2 hover:bg-slate-50">
-            <Download size={13} /> CSV
+          <button onClick={exportXlsx} disabled={exporting} className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-xl px-2.5 py-2 hover:bg-emerald-100 disabled:opacity-60">
+            {exporting ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />} Excel
           </button>
           <button onClick={load} className="p-2 hover:bg-slate-100 rounded-lg"><RefreshCw size={14} className={loading ? "animate-spin text-emerald-500" : "text-slate-500"} /></button>
         </div>
@@ -127,7 +149,9 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
                   <p className="text-[10px] text-slate-400 truncate">{p.brand || ""}{p.barcode ? ` · ${p.barcode}` : ""}
                     {Object.keys(p.branches || {}).length > 1 && ` · ${Object.entries(p.branches).map(([b, n]: any) => `${b}:${n}`).join(" ")}`}</p>
                 </div>
-                <span className="ml-auto text-base font-black text-emerald-700 shrink-0">{p.qty}</span>
+                {p.out
+                  ? <span className="ml-auto shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-black text-rose-600">หมด{p.sold_qty ? ` · ขายไป ${p.sold_qty}` : ""}</span>
+                  : <span className="ml-auto text-base font-black text-emerald-700 shrink-0">{p.qty}</span>}
               </Row>
             ))}
           </Card>
@@ -160,7 +184,9 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
                           <p className="text-sm font-bold text-slate-700 truncate">{p.product_name}</p>
                           <p className="text-[10px] text-slate-400 truncate">{p.brand || ""}{p.barcode ? ` · ${p.barcode}` : ""}</p>
                         </div>
-                        <span className="text-sm font-black text-emerald-700 shrink-0">{p.qty}</span>
+                        {p.out
+                          ? <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-black text-rose-600">หมด</span>
+                          : <span className="text-sm font-black text-emerald-700 shrink-0">{p.qty}</span>}
                       </div>
                     ))}
                   </div>
