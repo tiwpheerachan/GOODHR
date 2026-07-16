@@ -77,7 +77,8 @@ export async function GET(req: NextRequest) {
       q = q.in("employee_id", scope.empIds.filter(Boolean))
     }
   }
-  if (empIdFilter && canSeeAllSales(scope.me.access)) q = q.eq("employee_id", empIdFilter)
+  // กรองรายพนักงานได้ (scope .in()/.or() ด้านบนจำกัดสิทธิ์อยู่แล้ว → ทีมก็กรองสมาชิกได้)
+  if (empIdFilter) q = q.eq("employee_id", empIdFilter)
   if (start) q = q.gte("sold_date", start)
   if (end) q = q.lte("sold_date", end)
   if (branchName) q = q.eq("branch_name", branchName)
@@ -177,12 +178,19 @@ export async function GET(req: NextRequest) {
   }
 
   // facets (รวม distinct values สำหรับ filter UI)
+  const empFacet = new Map<string, string>()
+  for (const s of sales) {
+    if (!s.employee_id || !s.employee) continue
+    empFacet.set(s.employee_id, s.employee.nickname || `${s.employee.first_name_th ?? ""} ${s.employee.last_name_th ?? ""}`.trim() || s.employee_id)
+  }
   const facets = {
     branches: Array.from(new Set(sales.map(s => s.branch_name).filter(Boolean))).sort(),
     channels: Array.from(new Set(sales.map(s => s.sales_channel).filter(Boolean))).sort(),
     categories: Array.from(new Set(sales.map(s => s.category).filter(Boolean))).sort(),
     brands: Array.from(new Set(sales.map(s => s.brand || s.product?.brand).filter(Boolean))).sort(),
     sources: Array.from(new Set(sales.map(s => s.source).filter(Boolean))).sort(),
+    products: Array.from(new Set(sales.map(s => s.product_name).filter(Boolean))).sort(),
+    employees: Array.from(empFacet.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
   }
 
   return NextResponse.json({

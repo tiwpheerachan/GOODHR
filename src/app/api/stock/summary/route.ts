@@ -58,6 +58,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ scope: seeAll ? "all" : "branch", total: filtered.length, items: filtered })
   }
 
+  // ── ใกล้หมด: นับ in_stock ต่อ (สินค้า × สาขา) ที่ <= threshold ──
+  if (view === "low_stock") {
+    const threshold = Math.max(1, parseInt(p.get("threshold") || "3"))
+    const cell = new Map<string, any>()
+    for (const r of filtered) {
+      if (r.status !== "in_stock") continue
+      const pkey = r.barcode || r.sku || r.product_name || r.id
+      const bn = r.branch_name || "(ไม่ระบุสาขา)"
+      const key = pkey + "|" + bn
+      if (!cell.has(key)) cell.set(key, {
+        product_name: r.product_name || r.sku || "(ไม่ระบุ)", brand: r.brand || null,
+        barcode: r.barcode || null, image_url: r.image_url || null, branch_name: bn, qty: 0,
+      })
+      cell.get(key).qty++
+    }
+    const low = Array.from(cell.values()).filter(c => c.qty <= threshold).sort((a, b) => a.qty - b.qty)
+    return NextResponse.json({ scope: seeAll ? "all" : "branch", threshold, count: low.length, low_stock: low })
+  }
+
   // ── สรุปต่อสินค้า (key = barcode||sku||product_name) ──
   const prodMap = new Map<string, any>()
   for (const r of filtered) {
@@ -74,13 +93,27 @@ export async function GET(req: NextRequest) {
   }
   const byProduct = Array.from(prodMap.values()).sort((a, b) => b.qty - a.qty)
 
-  // ── สรุปต่อสาขา ──
-  const branchMap = new Map<string, number>()
+  // ── สรุปต่อสาขา + แยกสินค้าในแต่ละสาขา ──
+  const branchMap = new Map<string, Map<string, any>>()
   for (const r of filtered) {
     const bn = r.branch_name || "(ไม่ระบุสาขา)"
-    branchMap.set(bn, (branchMap.get(bn) || 0) + 1)
+    if (!branchMap.has(bn)) branchMap.set(bn, new Map())
+    const pm = branchMap.get(bn)!
+    const pkey = r.barcode || r.sku || r.product_name || r.id
+    if (!pm.has(pkey)) pm.set(pkey, {
+      product_name: r.product_name || r.sku || "(ไม่ระบุ)", brand: r.brand || null,
+      barcode: r.barcode || null, image_url: r.image_url || null, qty: 0,
+    })
+    pm.get(pkey).qty++
   }
-  const byBranch = Array.from(branchMap.entries()).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty)
+  const byBranch = Array.from(branchMap.entries())
+    .map(([name, pm]) => ({ name, qty: Array.from(pm.values()).reduce((n, p) => n + p.qty, 0) }))
+    .sort((a, b) => b.qty - a.qty)
+  const byBranchDetail = Array.from(branchMap.entries()).map(([name, pm]) => ({
+    name,
+    total: Array.from(pm.values()).reduce((n, p) => n + p.qty, 0),
+    products: Array.from(pm.values()).sort((a, b) => b.qty - a.qty),
+  })).sort((a, b) => b.total - a.total)
 
   return NextResponse.json({
     scope: seeAll ? "all" : "branch",
@@ -88,5 +121,6 @@ export async function GET(req: NextRequest) {
     total_products: byProduct.length,
     by_product: byProduct,
     by_branch: byBranch,
+    by_branch_detail: byBranchDetail,
   })
 }
