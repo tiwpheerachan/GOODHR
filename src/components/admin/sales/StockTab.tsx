@@ -15,7 +15,7 @@ type View = "summary" | "by_branch" | "items" | "low_stock" | "discrepancy"
 
 export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
   const [view, setView] = useState<View>("summary")
-  const [status, setStatus] = useState<"in_stock" | "sold" | "all">("in_stock")
+  const [status, setStatus] = useState<"in_stock" | "sold" | "removed" | "all">("in_stock")
   const [data, setData] = useState<any>(null)
   const [items, setItems] = useState<any[]>([])
   const [low, setLow] = useState<any[]>([])
@@ -112,6 +112,7 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
           <div className="flex items-center gap-1 bg-slate-50 rounded-xl p-1">
             <Seg active={status === "in_stock"} onClick={() => setStatus("in_stock")} label="คงเหลือ" />
             <Seg active={status === "sold"} onClick={() => setStatus("sold")} label="ขายแล้ว" />
+            <Seg active={status === "removed"} onClick={() => { setStatus("removed"); setView("items") }} label="เอาออกแล้ว" />
             <Seg active={status === "all"} onClick={() => setStatus("all")} label="ทั้งหมด" />
           </div>
         )}
