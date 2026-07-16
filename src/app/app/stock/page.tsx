@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   Boxes, Search, Loader2, ArrowLeft, ChevronDown, Package, Clock, User, Download, FileSpreadsheet,
+  Trash2, RotateCcw,
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
@@ -37,10 +38,25 @@ export default function EmployeeStockPage() {
       if (mine) p.set("mine", "1")
       const res = await fetch(`/api/stock/summary?${p}`)
       const d = await res.json()
-      setItems(res.ok ? (d.items ?? []).filter((it: Item) => it.status !== "removed") : [])
+      setItems(res.ok ? (d.items ?? []) : [])
     } catch { setItems([]) } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [mine]) // eslint-disable-line
+
+  // อายุในคลัง (วัน) + ลบ/กู้คืน
+  const daysIn = (s: string) => { try { return Math.max(0, Math.floor((Date.now() - new Date(s).getTime()) / 86400000)) } catch { return 0 } }
+  const [actingId, setActingId] = useState<string | null>(null)
+  async function act(id: string, action: "remove" | "restore") {
+    if (action === "remove" && !confirm("เอาสินค้านี้ออกจากสต๊อก? (กู้คืนได้ภายหลัง)")) return
+    setActingId(id)
+    try {
+      const res = await fetch("/api/stock/item", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action }) })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "ไม่สำเร็จ"); return }
+      setItems(prev => prev.map(it => it.id === id ? { ...it, status: d.status } : it))
+      toast.success(action === "remove" ? "เอาออกแล้ว" : "กู้คืนแล้ว")
+    } catch { toast.error("Error") } finally { setActingId(null) }
+  }
 
   // filter ตามช่วงวันที่นำเข้า (in_at) + คำค้น
   const filteredItems = useMemo(() => {
@@ -218,18 +234,33 @@ export default function EmployeeStockPage() {
               {isOpen && (
                 <div className="border-t border-slate-50">
                   {p.serials.map((s: Item) => (
-                    <div key={s.id} className="flex items-start gap-2 border-b border-slate-50 px-4 py-2 last:border-0">
-                      <div className={"mt-1 h-2 w-2 shrink-0 rounded-full " + (s.status === "in_stock" ? "bg-emerald-500" : "bg-slate-300")} />
+                    <div key={s.id} className={"flex items-start gap-2 border-b border-slate-50 px-4 py-2 last:border-0 " + (s.status === "removed" ? "opacity-60" : "")}>
+                      <div className={"mt-1 h-2 w-2 shrink-0 rounded-full " + (s.status === "in_stock" ? "bg-emerald-500" : s.status === "removed" ? "bg-rose-400" : "bg-slate-300")} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-mono text-[13px] font-bold text-slate-700">{s.serial_number}</p>
                         <p className="flex flex-wrap items-center gap-x-2 text-[10px] text-slate-400">
                           <span className="flex items-center gap-0.5"><Clock size={9} /> {fmt(s.in_at)}</span>
+                          {s.status === "in_stock" && <span className="font-bold text-amber-600">· อยู่คลัง {daysIn(s.in_at)} วัน</span>}
                           {s.in_by_name && <span className="flex items-center gap-0.5"><User size={9} /> {s.in_by_name}</span>}
                         </p>
                       </div>
-                      <span className={"shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold " + (s.status === "in_stock" ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500")}>
-                        {s.status === "in_stock" ? "คงเหลือ" : "ขายแล้ว"}
-                      </span>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <span className={"rounded-full px-2 py-0.5 text-[10px] font-bold " + (s.status === "in_stock" ? "bg-emerald-50 text-emerald-600" : s.status === "removed" ? "bg-rose-50 text-rose-600" : "bg-slate-100 text-slate-500")}>
+                          {s.status === "in_stock" ? "คงเหลือ" : s.status === "removed" ? "เอาออกแล้ว" : "ขายแล้ว"}
+                        </span>
+                        {s.status === "in_stock" && (
+                          <button onClick={() => act(s.id, "remove")} disabled={actingId === s.id} title="เอาออก (ไม่ได้ขาย)"
+                            className="rounded-lg p-1 text-rose-400 hover:bg-rose-50">
+                            {actingId === s.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                          </button>
+                        )}
+                        {s.status === "removed" && (
+                          <button onClick={() => act(s.id, "restore")} disabled={actingId === s.id} title="กู้คืน"
+                            className="rounded-lg p-1 text-emerald-500 hover:bg-emerald-50">
+                            {actingId === s.id ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

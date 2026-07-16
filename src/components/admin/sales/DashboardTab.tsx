@@ -6,6 +6,15 @@ import {
 } from "lucide-react"
 import { format } from "date-fns"
 import { th } from "date-fns/locale"
+import * as XLSX from "xlsx"
+import toast from "react-hot-toast"
+
+function downloadWb(wb: XLSX.WorkBook, filename: string) {
+  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+  const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }))
+  const a = document.createElement("a"); a.href = url; a.download = filename
+  document.body.appendChild(a); a.click(); setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url) }, 1000)
+}
 
 export default function DashboardTab({ canSeeAll, canSeeTeam }: { canSeeAll: boolean; canSeeTeam: boolean }) {
   const today = new Date().toISOString().slice(0, 10)
@@ -28,6 +37,55 @@ export default function DashboardTab({ canSeeAll, canSeeTeam }: { canSeeAll: boo
     } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [scope, start, end, source])
+
+  // ── ดาวน์โหลด Excel ละเอียด (เจาะรายการ: สาขา/สินค้า/ซีเรียล/เวลา/รายได้) ──
+  const [exporting, setExporting] = useState(false)
+  async function exportDetailed() {
+    setExporting(true)
+    try {
+      const p = new URLSearchParams({ scope, start, end, source, limit: "50000" })
+      const res = await fetch(`/api/products/sales?${p}`)
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "โหลดไม่สำเร็จ"); return }
+      const sales: any[] = d.sales ?? []
+      if (sales.length === 0) { toast.error("ไม่มีข้อมูลในช่วงนี้"); return }
+      const empName = (s: any) => s.employee ? (s.employee.nickname || `${s.employee.first_name_th ?? ""} ${s.employee.last_name_th ?? ""}`.trim()) : "(historical)"
+      const amt = (s: any) => Number(s.sold_price) * (s.qty || 1)
+
+      const wb = XLSX.utils.book_new()
+      // 1) รายละเอียดการขาย (line-level)
+      const detail = [...sales].sort((a, b) => (b.sold_at || "").localeCompare(a.sold_at || "")).map(s => ({
+        "วันที่": s.sold_date, "เวลา": s.sold_at ? format(new Date(s.sold_at), "HH:mm:ss") : "",
+        "สาขา": s.branch_name || s.branch?.name || "", "ช่องทาง": s.sales_channel || "", "พนักงาน": empName(s),
+        "สินค้า": s.product_name, "แบรนด์": s.brand || "", "หมวด": s.category || "", "Barcode": s.barcode || "", "Serial": s.sn || "",
+        "จำนวน": s.qty || 1, "ราคา/ชิ้น": Number(s.sold_price), "รายได้ (รวม)": amt(s), "Order": s.order_number || "", "ที่มา": s.source || "",
+      }))
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detail), "รายละเอียดการขาย")
+
+      // 2) เมทริกซ์ พนักงาน × วัน
+      const bd = data?.by_employee_day
+      if (bd?.rows?.length) {
+        const dates: string[] = bd.dates ?? []
+        const pivot = bd.rows.map((r: any) => {
+          const row: any = { "พนักงาน": r.name }
+          for (const dt of dates) row[format(new Date(dt + "T00:00:00"), "d/M")] = Math.round(r.cells?.[dt]?.amount || 0)
+          row["รวม"] = Math.round(r.total_amount || 0); return row
+        })
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pivot), "เมทริกซ์รายวัน")
+      }
+      // 3) สรุปต่อพนักงาน × สินค้า (ใครขายสินค้าอะไรไปกี่ชิ้น รายได้เท่าไหร่)
+      const ep = new Map<string, any>()
+      for (const s of sales) { const k = empName(s) + "||" + s.product_name; if (!ep.has(k)) ep.set(k, { "พนักงาน": empName(s), "สินค้า": s.product_name, "แบรนด์": s.brand || "", "จำนวน": 0, "รายได้": 0 }); const g = ep.get(k); g["จำนวน"] += s.qty || 1; g["รายได้"] += amt(s) }
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Array.from(ep.values()).sort((a, b) => b["รายได้"] - a["รายได้"])), "พนักงาน×สินค้า")
+      // 4) สรุปต่อสาขา × สินค้า
+      const bpm = new Map<string, any>()
+      for (const s of sales) { const b = s.branch_name || s.branch?.name || "(ไม่ระบุ)"; const k = b + "||" + s.product_name; if (!bpm.has(k)) bpm.set(k, { "สาขา": b, "สินค้า": s.product_name, "แบรนด์": s.brand || "", "จำนวน": 0, "รายได้": 0 }); const g = bpm.get(k); g["จำนวน"] += s.qty || 1; g["รายได้"] += amt(s) }
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Array.from(bpm.values()).sort((a, b) => b["รายได้"] - a["รายได้"])), "สาขา×สินค้า")
+
+      downloadWb(wb, `sales-detail_${start}_${end}.xlsx`)
+      toast.success(`ดาวน์โหลด ${sales.length} รายการ`)
+    } catch { toast.error("ดาวน์โหลดไม่สำเร็จ") } finally { setExporting(false) }
+  }
 
   const quickRange = (days: number | "month" | "today") => {
     const t = new Date()
@@ -140,7 +198,7 @@ export default function DashboardTab({ canSeeAll, canSeeTeam }: { canSeeAll: boo
           </div>
 
           {/* สรุปพนักงานแต่ละคน × แต่ละวัน */}
-          <EmployeeDailyMatrix matrix={data.by_employee_day} start={start} end={end}/>
+          <EmployeeDailyMatrix matrix={data.by_employee_day} start={start} end={end} onExportDetail={exportDetailed} exporting={exporting}/>
         </>
       )}
     </div>
@@ -148,7 +206,7 @@ export default function DashboardTab({ canSeeAll, canSeeTeam }: { canSeeAll: boo
 }
 
 // ── ตารางเมทริกซ์: พนักงาน (แถว) × วัน (คอลัมน์) → ยอดขายแต่ละวัน ──
-function EmployeeDailyMatrix({ matrix, start, end }: { matrix: any; start: string; end: string }) {
+function EmployeeDailyMatrix({ matrix, start, end, onExportDetail, exporting }: { matrix: any; start: string; end: string; onExportDetail: () => void; exporting: boolean }) {
   const dates: string[] = matrix?.dates ?? []
   const rows: any[] = matrix?.rows ?? []
   const dayTotals = useMemo(() => {
@@ -177,8 +235,11 @@ function EmployeeDailyMatrix({ matrix, start, end }: { matrix: any; start: strin
         <Calendar size={15} className="text-indigo-500"/>
         <p className="font-black text-sm text-slate-700">ยอดขายพนักงานรายวัน</p>
         <span className="text-[10px] text-slate-400 font-bold">{rows.length} คน · {dates.length} วัน</span>
-        <button onClick={exportCsv} className="ml-auto text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg px-2 py-1">
-          ส่งออก CSV
+        <button onClick={exportCsv} className="ml-auto text-[11px] font-bold text-slate-500 hover:bg-slate-100 rounded-lg px-2 py-1">
+          CSV
+        </button>
+        <button onClick={onExportDetail} disabled={exporting} className="flex items-center gap-1 text-[11px] font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-2.5 py-1 disabled:opacity-60">
+          {exporting ? <Loader2 size={12} className="animate-spin" /> : <TrendingUp size={12} />} Excel ละเอียด
         </button>
       </div>
       {rows.length === 0 ? (

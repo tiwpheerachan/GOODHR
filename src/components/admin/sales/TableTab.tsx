@@ -81,32 +81,7 @@ export default function TableTab({ canSeeAll, canSeeTeam }: { canSeeAll: boolean
     return { amount: amt, qty, count: rows.length }
   }, [rows])
 
-  const exportXlsx = () => {
-    if (!rows.length) { toast.error("ไม่มีข้อมูล"); return }
-    const out = rows.map((s: any) => ({
-      "Order No.": s.order_number || "",
-      "Date": s.sold_date,
-      "Time": format(new Date(s.sold_at), "HH:mm:ss"),
-      "Branch": s.branch_name || s.branch?.name || "",
-      "Sales Channel": s.sales_channel || "",
-      "Employee": s.employee ? `${s.employee.first_name_th} ${s.employee.last_name_th}` : "(historical)",
-      "Employee Code": s.employee?.employee_code || "",
-      "Product Name": s.product_name,
-      "Brand": s.brand || "",
-      "Category": s.category || "",
-      "Barcode": s.barcode || "",
-      "SN": s.sn || "",
-      "Qty": s.qty || 1,
-      "Unit Price": Number(s.sold_price),
-      "Total Sales": Number(s.sold_price) * (s.qty || 1),
-      "Source": s.source || "",
-      "Note": s.note || "",
-    }))
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(out), "Sales")
-    XLSX.writeFile(wb, `sales_${start}_${end}.xlsx`)
-    toast.success(`ดาวน์โหลด ${out.length} แถว`)
-  }
+  const [exportOpen, setExportOpen] = useState(false)
 
   const toggleSort = (key: string) => {
     setSortBy(s => s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" })
@@ -138,7 +113,7 @@ export default function TableTab({ canSeeAll, canSeeTeam }: { canSeeAll: boolean
           className={"px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 " + (showFilters ? "bg-indigo-500 text-white" : "bg-slate-100 text-slate-600")}>
           <Filter size={12}/> {activeFilters > 0 && <span className="bg-white/30 px-1 rounded text-[9px]">{activeFilters}</span>}
         </button>
-        <button onClick={exportXlsx} className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-xl flex items-center gap-1">
+        <button onClick={() => rows.length ? setExportOpen(true) : toast.error("ไม่มีข้อมูล")} className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-xl flex items-center gap-1">
           <Download size={12}/> Export
         </button>
         <button onClick={load} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Refresh">
@@ -259,6 +234,96 @@ export default function TableTab({ canSeeAll, canSeeTeam }: { canSeeAll: boolean
             <button onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className="p-1 disabled:opacity-30 hover:bg-white rounded"><ChevronsRight size={12}/></button>
           </div>
         )}
+      </div>
+
+      {exportOpen && <SalesExportModal rows={rows} data={data} start={start} end={end} onClose={() => setExportOpen(false)} />}
+    </div>
+  )
+}
+
+// ── โมดัลดาวน์โหลดยอดขาย (เลือกแยกชีต + สรุป) ──
+function SalesExportModal({ rows, data, start, end, onClose }: { rows: any[]; data: any; start: string; end: string; onClose: () => void }) {
+  const [splitBy, setSplitBy] = useState<"none" | "employee" | "branch">("none")
+  const [sheets, setSheets] = useState({ byEmp: true, byProduct: true, byBranch: true })
+  const toggle = (k: keyof typeof sheets) => setSheets(s => ({ ...s, [k]: !s[k] }))
+
+  const mapRow = (s: any) => ({
+    "Order No.": s.order_number || "", "Date": s.sold_date, "Time": s.sold_at ? format(new Date(s.sold_at), "HH:mm:ss") : "",
+    "Branch": s.branch_name || s.branch?.name || "", "Sales Channel": s.sales_channel || "",
+    "Employee": s.employee ? `${s.employee.first_name_th ?? ""} ${s.employee.last_name_th ?? ""}`.trim() : "(historical)",
+    "Employee Code": s.employee?.employee_code || "", "Product Name": s.product_name, "Brand": s.brand || "", "Category": s.category || "",
+    "Barcode": s.barcode || "", "SN": s.sn || "", "Qty": s.qty || 1, "Unit Price": Number(s.sold_price),
+    "Total Sales": Number(s.sold_price) * (s.qty || 1), "Source": s.source || "", "Note": s.note || "",
+  })
+  const safe = (n: string) => (n || "sheet").replace(/[\\/?*[\]:]/g, " ").slice(0, 28)
+
+  function run() {
+    const wb = XLSX.utils.book_new()
+    if (splitBy === "none") {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(mapRow)), "ยอดขายทั้งหมด")
+    } else {
+      const groups = new Map<string, any[]>()
+      for (const s of rows) {
+        const k = splitBy === "employee"
+          ? (s.employee ? (s.employee.nickname || `${s.employee.first_name_th ?? ""} ${s.employee.last_name_th ?? ""}`.trim()) : "(historical)")
+          : (s.branch_name || s.branch?.name || "(ไม่ระบุสาขา)")
+        if (!groups.has(k)) groups.set(k, [])
+        groups.get(k)!.push(s)
+      }
+      const names = new Set<string>()
+      for (const [k, arr] of Array.from(groups.entries()).sort((a, b) => b[1].length - a[1].length)) {
+        let nm = safe(k); let i = 2; while (names.has(nm)) nm = safe(k).slice(0, 25) + " " + (i++); names.add(nm)
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(arr.map(mapRow)), nm)
+      }
+    }
+    // ชีตสรุป
+    if (sheets.byEmp) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((data?.by_employee ?? []).map((e: any) => ({ "พนักงาน": e.name, "จำนวน (ชิ้น)": e.count, "ยอดขาย (บาท)": e.amount }))), "สรุปพนักงาน")
+    if (sheets.byProduct) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((data?.by_product ?? []).map((p: any) => ({ "สินค้า": p.name, "แบรนด์": p.brand || "", "Barcode": p.barcode || "", "จำนวน": p.count, "ยอดขาย": p.amount }))), "สรุปสินค้า")
+    if (sheets.byBranch) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((data?.by_branch ?? []).map((b: any) => ({ "สาขา": b.key, "จำนวน": b.count, "ยอดขาย": b.amount }))), "สรุปสาขา")
+
+    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }))
+    const a = document.createElement("a"); a.href = url; a.download = `sales_${start}_${end}.xlsx`
+    document.body.appendChild(a); a.click(); setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url) }, 1000)
+    toast.success(`ดาวน์โหลด ${rows.length} รายการ`)
+    onClose()
+  }
+
+  const Chk = ({ k, label }: { k: keyof typeof sheets; label: string }) => (
+    <button onClick={() => toggle(k)} className={"flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold " + (sheets[k] ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-500")}>
+      <span className={"flex h-4 w-4 items-center justify-center rounded border-2 " + (sheets[k] ? "border-emerald-500 bg-emerald-500" : "border-slate-300")}>{sheets[k] && <Download size={9} className="text-white" />}</span>{label}
+    </button>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between rounded-t-2xl bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-4 text-white">
+          <p className="flex items-center gap-2 font-black"><Download size={16} /> ดาวน์โหลดยอดขาย ({rows.length} รายการ)</p>
+          <button onClick={onClose} className="rounded p-1 hover:bg-white/20"><X size={18} /></button>
+        </div>
+        <div className="space-y-4 p-5">
+          <div>
+            <p className="mb-1.5 text-[11px] font-bold uppercase text-slate-400">แยกเป็นหลายชีตตาม</p>
+            <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+              {([["none", "ไม่แยก (ชีตเดียว)"], ["employee", "พนักงาน"], ["branch", "สาขา"]] as const).map(([v, l]) => (
+                <button key={v} onClick={() => setSplitBy(v)} className={"flex-1 rounded-lg py-1.5 text-xs font-black " + (splitBy === v ? "bg-white text-emerald-700 shadow" : "text-slate-500")}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-1.5 text-[11px] font-bold uppercase text-slate-400">แนบชีตสรุป</p>
+            <div className="flex flex-wrap gap-1.5">
+              <Chk k="byEmp" label="ต่อพนักงาน" />
+              <Chk k="byProduct" label="ต่อสินค้า" />
+              <Chk k="byBranch" label="ต่อสาขา" />
+            </div>
+          </div>
+          <button onClick={run} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 font-black text-white hover:bg-emerald-700">
+            <Download size={16} /> ดาวน์โหลด Excel
+          </button>
+          <p className="text-center text-[10px] text-slate-400">ยึดตามฟิลเตอร์ + ช่วงวันที่ที่เลือกอยู่</p>
+        </div>
       </div>
     </div>
   )

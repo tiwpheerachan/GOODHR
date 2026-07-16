@@ -87,7 +87,12 @@ function BranchPickerModal({ data, onClose, onSave }: any) {
   const [saving, setSaving] = useState(false)
 
   const branches: string[] = data?.available_branches || []
-  const channels: string[] = data?.available_channels || []
+  const [channels, setChannels] = useState<string[]>([])
+  useEffect(() => {
+    fetch("/api/products/sales/channels").then(r => r.json())
+      .then(d => setChannels((d.channels ?? []).map((c: any) => c.name)))
+      .catch(() => setChannels(["Brand Shop", "CDS", "Dealer"]))
+  }, [])
   const filteredBranches = branches.filter(b => !q || b.toLowerCase().includes(q.toLowerCase()))
 
   const submit = async () => {
@@ -109,14 +114,14 @@ function BranchPickerModal({ data, onClose, onSave }: any) {
           <div>
             <p className="text-[10px] font-black text-slate-500 uppercase mb-1.5">ช่องทางขาย</p>
             <div className="flex flex-wrap gap-1.5">
-              {["Brand Shop", "CDS", ...channels.filter(c => !["Brand Shop", "CDS"].includes(c))].map(c => (
+              {channels.map(c => (
                 <button key={c} onClick={() => setChannel(c === channel ? "" : c)}
                   className={"px-3 py-1.5 rounded-xl text-[11px] font-black transition " +
                     (channel === c ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
                   {c}
                 </button>
               ))}
-              <input value={channel && !["Brand Shop", "CDS", ...channels].includes(channel) ? channel : ""}
+              <input value={channel && !channels.includes(channel) ? channel : ""}
                 onChange={e => setChannel(e.target.value)}
                 placeholder="หรือพิมพ์เอง..."
                 className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] outline-none focus:border-indigo-400 w-32"/>

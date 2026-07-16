@@ -102,6 +102,9 @@ export default function PermissionsTab() {
         </div>
       </div>
 
+      {/* จัดการช่องทางขาย */}
+      <ChannelManager/>
+
       {/* Search */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 flex items-center gap-2">
         <Search size={14} className="text-slate-400 ml-1"/>
@@ -374,6 +377,75 @@ function AddPermissionModal({ candidates: initialCandidates, onClose, onAdded }:
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── จัดการช่องทางขาย (admin/manager) ──
+function ChannelManager() {
+  const [channels, setChannels] = useState<any[]>([])
+  const [name, setName] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  async function load() {
+    setLoading(true)
+    try { const r = await fetch("/api/products/sales/channels"); const d = await r.json(); setChannels(d.channels ?? []) }
+    catch {} finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+
+  async function add() {
+    const n = name.trim()
+    if (!n) return
+    setBusy(true)
+    try {
+      const r = await fetch("/api/products/sales/channels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: n }) })
+      const d = await r.json()
+      if (!r.ok) { toast.error(d.error || "Error"); return }
+      setChannels(d.channels ?? []); setName(""); toast.success("เพิ่มช่องทางแล้ว")
+    } catch { toast.error("Error") } finally { setBusy(false) }
+  }
+  async function del(id: string) {
+    if (!confirm("ลบช่องทางนี้?")) return
+    try {
+      const r = await fetch(`/api/products/sales/channels?id=${id}`, { method: "DELETE" })
+      if (!r.ok) { toast.error("ลบไม่สำเร็จ"); return }
+      setChannels(cs => cs.filter(c => c.id !== id)); toast.success("ลบแล้ว")
+    } catch { toast.error("Error") }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center"><Check size={15}/></div>
+        <div>
+          <p className="font-black text-sm text-slate-800">ช่องทางขาย</p>
+          <p className="text-[11px] text-slate-400">พนักงานเลือกจากลิสต์นี้ (กันพิมพ์ไม่ตรงกัน)</p>
+        </div>
+      </div>
+      <div className="flex gap-2 mb-3">
+        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") add() }}
+          placeholder="เพิ่มช่องทาง เช่น Power Buy"
+          className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400"/>
+        <button onClick={add} disabled={busy} className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black rounded-xl px-4 flex items-center gap-1 disabled:opacity-60">
+          {busy ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>} เพิ่ม
+        </button>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-slate-300"/></div>
+      ) : channels.length === 0 ? (
+        <p className="text-center text-xs text-slate-400 py-3">ยังไม่มีช่องทาง</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {channels.map(c => (
+            <span key={c.id} className="flex items-center gap-1.5 bg-slate-100 rounded-xl pl-3 pr-1.5 py-1.5 text-xs font-bold text-slate-700">
+              {c.name}
+              <button onClick={() => del(c.id)} className="p-0.5 hover:bg-rose-100 text-rose-500 rounded"><Trash2 size={12}/></button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

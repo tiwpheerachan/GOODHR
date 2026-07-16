@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   Boxes, Search, Loader2, RefreshCw, Building2, Package, Download, Hash, CheckCircle2,
-  AlertTriangle, ArrowLeftRight, X, ChevronDown, Store, FileSpreadsheet,
+  AlertTriangle, ArrowLeftRight, X, ChevronDown, Store, FileSpreadsheet, Trash2, RotateCcw,
 } from "lucide-react"
 import toast from "react-hot-toast"
 import * as XLSX from "xlsx"
@@ -48,40 +48,53 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
 
   const branchNames = useMemo(() => (data?.by_branch ?? []).map((b: any) => b.name), [data])
 
-  const [exporting, setExporting] = useState(false)
-  // ดาวน์โหลด Excel ครบทุกมิติ (ดึงข้อมูลเต็มไม่ขึ้นกับมุมมองปัจจุบัน)
-  async function exportXlsx() {
-    setExporting(true)
+  const [exportOpen, setExportOpen] = useState(false)
+
+  const daysIn = (s: string) => { try { return Math.max(0, Math.floor((Date.now() - new Date(s).getTime()) / 86400000)) } catch { return 0 } }
+  async function stockAct(id: string, action: "remove" | "restore") {
+    if (action === "remove" && !confirm("เอาสินค้านี้ออกจากสต๊อก? (กู้คืนได้ภายหลัง)")) return
     try {
-      const [sumRes, itemRes] = await Promise.all([
-        fetch(`/api/stock/summary?view=summary`),
-        fetch(`/api/stock/summary?view=items&status=all`),
-      ])
-      const sum = await sumRes.json()
-      const it = await itemRes.json()
-      const fmtCell = (s: string) => { try { return s ? new Date(s).toLocaleString("sv-SE").slice(0, 16) : "" } catch { return s || "" } }
+      const res = await fetch("/api/stock/item", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action }) })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "ไม่สำเร็จ"); return }
+      setItems(prev => prev.map(it => it.id === id ? { ...it, status: d.status } : it))
+      toast.success(action === "remove" ? "เอาออกแล้ว" : "กู้คืนแล้ว")
+    } catch { toast.error("Error") }
+  }
+  // เอาออกทั้งสินค้า (ทุกซีเรียลคงเหลือ) — ระบุสาขาได้
+  async function bulkRemove(p: any, branchName?: string) {
+    const where = branchName ? ` ที่ ${branchName}` : " (ทุกสาขา)"
+    if (!confirm(`เอา "${p.product_name}"${where} ออกจากสต๊อก ${p.qty} ชิ้น? (กู้คืนได้ภายหลัง)`)) return
+    try {
+      const res = await fetch("/api/stock/item", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ barcode: p.barcode || null, sku: p.barcode ? null : p.sku || null, product_name: (p.barcode || p.sku) ? null : p.product_name, branch_name: branchName || null, action: "remove" }),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "ไม่สำเร็จ"); return }
+      toast.success(`เอาออก ${d.affected} ชิ้นแล้ว`); load()
+    } catch { toast.error("Error") }
+  }
+
+  function exportView() {
+    if (view === "low_stock") {
+      if (low.length === 0) { toast.error("ไม่มีข้อมูล"); return }
       const wb = XLSX.utils.book_new()
-      // ต่อสาขา (แต่ละที่เหลือเท่าไหร่)
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((sum.by_branch ?? []).map((b: any) => ({ "สาขา": b.name, "คงเหลือ (ชิ้น)": b.qty }))), "ต่อสาขา")
-      // ต่อสินค้า (รวมหมด)
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((sum.by_product ?? []).map((p: any) => ({
-        "สินค้า": p.product_name, "แบรนด์": p.brand || "", "Barcode": p.barcode || "", "คงเหลือ": p.qty, "ขายไป": p.sold_qty, "สถานะ": p.out ? "หมด" : "มีของ",
-      }))), "ต่อสินค้า")
-      // แยกสาขา × สินค้า
-      const bp: any[] = []
-      ;(sum.by_branch_detail ?? []).forEach((b: any) => b.products.forEach((p: any) => bp.push({ "สาขา": b.name, "สินค้า": p.product_name, "Barcode": p.barcode || "", "คงเหลือ": p.qty, "ขายไป": p.sold_qty })))
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(bp), "แยกสาขา")
-      // รายซีเรียล
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((it.items ?? []).map((r: any) => ({
-        "Serial": r.serial_number, "สินค้า": r.product_name || "", "Barcode": r.barcode || "", "สาขา": r.branch_name || "",
-        "นำเข้าเมื่อ": fmtCell(r.in_at), "ผู้นำเข้า": r.in_by_name || "", "สถานะ": r.status === "in_stock" ? "คงเหลือ" : r.status === "sold" ? "ขายแล้ว" : r.status, "ขายเมื่อ": fmtCell(r.sold_at),
-      }))), "รายซีเรียล")
-      const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
-      const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }))
-      const a = document.createElement("a"); a.href = url; a.download = `stock-report_${new Date().toISOString().slice(0, 10)}.xlsx`
-      document.body.appendChild(a); a.click(); setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url) }, 1000)
-      toast.success("ดาวน์โหลดรายงานสต๊อกแล้ว")
-    } catch { toast.error("ดาวน์โหลดไม่สำเร็จ") } finally { setExporting(false) }
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(low.map(r => ({ "สินค้า": r.product_name, "แบรนด์": r.brand || "", "Barcode": r.barcode || "", "สาขา": r.branch_name, "คงเหลือ": r.qty }))), "ใกล้หมด")
+      downloadWorkbook(wb, `low-stock_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      toast.success(`ดาวน์โหลด ${low.length} รายการ`)
+    } else if (view === "discrepancy") {
+      if (disc.length === 0) { toast.error("ไม่มีข้อมูล"); return }
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(disc.map(r => ({
+        "Serial": r.serial, "สินค้า": r.product_name || "", "Barcode": r.barcode || "", "สาขา": r.branch_name || "",
+        "พนักงาน": r.employee || "", "ราคาขาย": r.sold_price, "วันที่ขาย": r.sold_date || "",
+      }))), "ขายแล้วไม่มีในสต๊อก")
+      downloadWorkbook(wb, `discrepancy_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      toast.success(`ดาวน์โหลด ${disc.length} รายการ`)
+    } else {
+      setExportOpen(true)   // summary/by_branch/items → โมดัลเลือกรายละเอียด
+    }
   }
 
   return (
@@ -122,8 +135,8 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
               <ArrowLeftRight size={13} /> โอนสต๊อก
             </button>
           )}
-          <button onClick={exportXlsx} disabled={exporting} className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-xl px-2.5 py-2 hover:bg-emerald-100 disabled:opacity-60">
-            {exporting ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />} Excel
+          <button onClick={exportView} className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-xl px-2.5 py-2 hover:bg-emerald-100">
+            <FileSpreadsheet size={13} /> Excel
           </button>
           <button onClick={load} className="p-2 hover:bg-slate-100 rounded-lg"><RefreshCw size={14} className={loading ? "animate-spin text-emerald-500" : "text-slate-500"} /></button>
         </div>
@@ -155,6 +168,9 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
                 {p.out
                   ? <span className="ml-auto shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-black text-rose-600">หมด{p.sold_qty ? ` · ขายไป ${p.sold_qty}` : ""}</span>
                   : <span className="ml-auto text-base font-black text-emerald-700 shrink-0">{p.qty}</span>}
+                {!p.out && p.qty > 0 && (
+                  <button onClick={() => bulkRemove(p)} title="เอาสินค้านี้ออกจากสต๊อก" className="shrink-0 rounded-lg p-1 text-rose-400 hover:bg-rose-50"><Trash2 size={14} /></button>
+                )}
               </Row>
             ))}
           </Card>
@@ -190,6 +206,9 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
                         {p.out
                           ? <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-black text-rose-600">หมด</span>
                           : <span className="text-sm font-black text-emerald-700 shrink-0">{p.qty}</span>}
+                        {!p.out && p.qty > 0 && (
+                          <button onClick={() => bulkRemove(p, b.name)} title={`เอาออกจาก ${b.name}`} className="shrink-0 rounded-lg p-1 text-rose-400 hover:bg-rose-50"><Trash2 size={13} /></button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -233,17 +252,27 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
               <div className={"w-2 h-2 rounded-full shrink-0 " + (it.status === "in_stock" ? "bg-emerald-500" : it.status === "sold" ? "bg-slate-300" : "bg-rose-400")} />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold text-slate-700 font-mono truncate">{it.serial_number}</p>
-                <p className="text-[10px] text-slate-400 truncate">{it.product_name || "(ไม่ระบุ)"}{it.branch_name ? ` · ${it.branch_name}` : ""}</p>
+                <p className="text-[10px] text-slate-400 truncate">
+                  {it.product_name || "(ไม่ระบุ)"}{it.branch_name ? ` · ${it.branch_name}` : ""}
+                  {it.status === "in_stock" && <span className="font-bold text-amber-600"> · อยู่คลัง {daysIn(it.in_at)} วัน</span>}
+                </p>
               </div>
               <span className={"text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 " + (it.status === "in_stock" ? "bg-emerald-50 text-emerald-600" : it.status === "sold" ? "bg-slate-100 text-slate-500" : "bg-rose-50 text-rose-600")}>
-                {it.status === "in_stock" ? "คงเหลือ" : it.status === "sold" ? "ขายแล้ว" : it.status}
+                {it.status === "in_stock" ? "คงเหลือ" : it.status === "sold" ? "ขายแล้ว" : "เอาออก"}
               </span>
+              {it.status === "in_stock" && (
+                <button onClick={() => stockAct(it.id, "remove")} title="เอาออก" className="shrink-0 rounded-lg p-1 text-rose-400 hover:bg-rose-50"><Trash2 size={13} /></button>
+              )}
+              {it.status === "removed" && (
+                <button onClick={() => stockAct(it.id, "restore")} title="กู้คืน" className="shrink-0 rounded-lg p-1 text-emerald-500 hover:bg-emerald-50"><RotateCcw size={13} /></button>
+              )}
             </Row>
           ))}
         </Card>
       )}
 
       {transferOpen && <TransferModal branchNames={branchNames} onClose={() => setTransferOpen(false)} onDone={() => { setTransferOpen(false); load() }} />}
+      {exportOpen && <ExportModal branchNames={branchNames} defaultStatus={status} q={q} onClose={() => setExportOpen(false)} />}
     </div>
   )
 }
@@ -297,6 +326,126 @@ function TransferModal({ branchNames, onClose, onDone }: { branchNames: string[]
             {busy ? <Loader2 size={15} className="animate-spin" /> : <ArrowLeftRight size={15} />} โอนสต๊อก
           </button>
           <p className="text-[10px] text-slate-400 text-center">โอนเฉพาะ serial ที่ยัง <b>คงเหลือ (in_stock)</b> เท่านั้น</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── โมดัลเลือกรายละเอียดดาวน์โหลด Excel ──
+function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
+  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+  const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }))
+  const a = document.createElement("a"); a.href = url; a.download = filename
+  document.body.appendChild(a); a.click(); setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url) }, 1000)
+}
+function xlDate(s: string | null) { try { return s ? new Date(s).toLocaleString("sv-SE").slice(0, 16) : "" } catch { return s || "" } }
+
+function ExportModal({ branchNames, defaultStatus, q, onClose }: { branchNames: string[]; defaultStatus: string; q: string; onClose: () => void }) {
+  const [sheets, setSheets] = useState({ branch: true, product: true, branchProduct: true, serials: true })
+  const [serialStatus, setSerialStatus] = useState<"in_stock" | "sold" | "all">(defaultStatus === "sold" ? "sold" : defaultStatus === "all" ? "all" : "in_stock")
+  const [branch, setBranch] = useState("")
+  const [busy, setBusy] = useState(false)
+  const toggle = (k: keyof typeof sheets) => setSheets(s => ({ ...s, [k]: !s[k] }))
+
+  async function run() {
+    if (!sheets.branch && !sheets.product && !sheets.branchProduct && !sheets.serials) { toast.error("เลือกอย่างน้อย 1 อย่าง"); return }
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/stock/summary?view=items&status=all${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ""}`)
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "โหลดไม่สำเร็จ"); return }
+      let all = (d.items ?? []).filter((r: any) => r.status !== "removed")
+      if (branch) all = all.filter((r: any) => (r.branch_name || "(ไม่ระบุสาขา)") === branch)
+      if (all.length === 0) { toast.error("ไม่มีข้อมูลตามเงื่อนไข"); return }
+      const inStock = all.filter((r: any) => r.status === "in_stock")
+
+      const wb = XLSX.utils.book_new()
+      const add = (rows: any[], name: string) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{}]), name)
+
+      // 1) ต่อสาขา (คงเหลือ + ขายไป)
+      if (sheets.branch) {
+        const m = new Map<string, any>()
+        for (const r of all) { const b = r.branch_name || "(ไม่ระบุสาขา)"; if (!m.has(b)) m.set(b, { "สาขา": b, "คงเหลือ": 0, "ขายไป": 0 }); const g = m.get(b); if (r.status === "in_stock") g["คงเหลือ"]++; else if (r.status === "sold") g["ขายไป"]++ }
+        add(Array.from(m.values()).sort((a, b) => b["คงเหลือ"] - a["คงเหลือ"]), "ต่อสาขา")
+      }
+      // 2) ต่อสินค้า
+      if (sheets.product) {
+        const m = new Map<string, any>()
+        for (const r of all) { const k = r.barcode || r.sku || r.product_name || r.id; if (!m.has(k)) m.set(k, { "สินค้า": r.product_name || "", "แบรนด์": r.brand || "", "Barcode": r.barcode || "", "คงเหลือ": 0, "ขายไป": 0 }); const g = m.get(k); if (r.status === "in_stock") g["คงเหลือ"]++; else if (r.status === "sold") g["ขายไป"]++ }
+        add(Array.from(m.values()).map((g: any) => ({ ...g, "สถานะ": g["คงเหลือ"] === 0 ? "หมด" : "มีของ" })).sort((a, b) => b["คงเหลือ"] - a["คงเหลือ"]), "ต่อสินค้า")
+      }
+      // 3) สาขา × สินค้า + ซีเรียลคงเหลือ
+      if (sheets.branchProduct) {
+        const m = new Map<string, any>()
+        for (const r of all) {
+          const b = r.branch_name || "(ไม่ระบุสาขา)"; const k = b + "|" + (r.barcode || r.sku || r.product_name || r.id)
+          if (!m.has(k)) m.set(k, { "สาขา": b, "สินค้า": r.product_name || "", "Barcode": r.barcode || "", "คงเหลือ": 0, "ขายไป": 0, _sn: [] as string[] })
+          const g = m.get(k); if (r.status === "in_stock") { g["คงเหลือ"]++; g._sn.push(r.serial_number) } else if (r.status === "sold") g["ขายไป"]++
+        }
+        add(Array.from(m.values()).map((g: any) => { const { _sn, ...rest } = g; return { ...rest, "ซีเรียลคงเหลือ": _sn.join(", ") } }).sort((a, b) => b["คงเหลือ"] - a["คงเหลือ"]), "สาขา×สินค้า")
+      }
+      // 4) รายซีเรียล (ตามสถานะที่เลือก)
+      if (sheets.serials) {
+        const src = serialStatus === "in_stock" ? inStock : serialStatus === "sold" ? all.filter((r: any) => r.status === "sold") : all
+        add(src.map((r: any) => ({
+          "สาขา": r.branch_name || "", "สินค้า": r.product_name || "", "แบรนด์": r.brand || "", "Barcode": r.barcode || "",
+          "Serial": r.serial_number, "สถานะ": r.status === "in_stock" ? "คงเหลือ" : "ขายแล้ว",
+          "นำเข้าเมื่อ": xlDate(r.in_at), "ผู้นำเข้า": r.in_by_name || "", "ขายเมื่อ": xlDate(r.sold_at),
+        })), "รายซีเรียล")
+      }
+      downloadWorkbook(wb, `stock-report_${branch ? branch.replace(/[^a-zA-Z0-9ก-๙]/g, "") + "_" : ""}${new Date().toISOString().slice(0, 10)}.xlsx`)
+      toast.success(`ดาวน์โหลดแล้ว (${all.length} ซีเรียล)`)
+      onClose()
+    } catch { toast.error("ดาวน์โหลดไม่สำเร็จ") } finally { setBusy(false) }
+  }
+
+  const Chk = ({ k, label, hint }: { k: keyof typeof sheets; label: string; hint: string }) => (
+    <button onClick={() => toggle(k)} className={"flex w-full items-start gap-2.5 rounded-xl border p-3 text-left " + (sheets[k] ? "border-emerald-300 bg-emerald-50" : "border-slate-200")}>
+      <span className={"mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 " + (sheets[k] ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300")}>{sheets[k] && <CheckCircle2 size={13} />}</span>
+      <span className="min-w-0"><span className="block text-sm font-bold text-slate-700">{label}</span><span className="block text-[11px] text-slate-400">{hint}</span></span>
+    </button>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-4 text-white">
+          <p className="flex items-center gap-2 font-black"><FileSpreadsheet size={16} /> ดาวน์โหลด Excel (เลือกรายละเอียด)</p>
+          <button onClick={onClose} className="rounded p-1 hover:bg-white/20"><X size={18} /></button>
+        </div>
+        <div className="space-y-3 p-5">
+          <p className="text-[11px] font-bold uppercase text-slate-400">เลือกชีตที่ต้องการ</p>
+          <div className="space-y-1.5">
+            <Chk k="branch" label="สรุปต่อสาขา" hint="แต่ละสาขาคงเหลือ/ขายไปเท่าไหร่" />
+            <Chk k="product" label="สรุปต่อสินค้า" hint="สินค้าไหนเหลือ/ขายไป/หมด" />
+            <Chk k="branchProduct" label="สาขา × สินค้า + ซีเรียลคงเหลือ" hint="แต่ละสาขามีสินค้าอะไรกี่ชิ้น + ซีเรียลที่เหลือ" />
+            <Chk k="serials" label="รายซีเรียลละเอียด" hint="ทุกซีเรียล + เวลานำเข้า + ผู้นำเข้า + สถานะ" />
+          </div>
+
+          {sheets.serials && (
+            <div>
+              <p className="mb-1 text-[11px] font-bold uppercase text-slate-400">รายซีเรียล — เอาเฉพาะ</p>
+              <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+                {([["in_stock", "คงเหลือ"], ["sold", "ขายแล้ว"], ["all", "ทั้งหมด"]] as const).map(([v, l]) => (
+                  <button key={v} onClick={() => setSerialStatus(v)} className={"flex-1 rounded-lg py-1.5 text-xs font-black " + (serialStatus === v ? "bg-white text-emerald-700 shadow" : "text-slate-500")}>{l}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p className="mb-1 text-[11px] font-bold uppercase text-slate-400">สาขา</p>
+            <select value={branch} onChange={e => setBranch(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none">
+              <option value="">ทุกสาขา</option>
+              {branchNames.map((b, i) => <option key={i} value={b}>{b}</option>)}
+            </select>
+          </div>
+          {q.trim() && <p className="text-[11px] text-amber-600">* กรองด้วยคำค้น "{q.trim()}" ด้วย</p>}
+
+          <button onClick={run} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 font-black text-white hover:bg-emerald-700 disabled:opacity-60">
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} ดาวน์โหลด
+          </button>
         </div>
       </div>
     </div>
