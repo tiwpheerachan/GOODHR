@@ -79,9 +79,18 @@ export default function EmployeeStockPage() {
   const fmtCell = (s: string | null) => { try { return s ? format(new Date(s), "yyyy-MM-dd HH:mm") : "" } catch { return s || "" } }
   const rangeSuffix = (from || to) ? `_${from || "all"}_${to || "now"}` : ""
 
-  // ── ดาวน์โหลดสต๊อก (Excel 2 ชีต: สรุป + รายซีเรียล) ──
+  // ดาวน์โหลด workbook แบบ Blob (มือถือรองรับดีกว่า XLSX.writeFile)
+  function downloadWb(wb: XLSX.WorkBook, filename: string) {
+    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }))
+    const a = document.createElement("a")
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click()
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url) }, 1000)
+  }
+
+  // ── ดาวน์โหลดสต๊อก (Excel 2 ชีต: สรุป + รายซีเรียล) — โหลดได้แม้สต๊อกเป็น 0/หมด ──
   function exportStock() {
-    if (products.length === 0) { toast.error("ไม่มีข้อมูล"); return }
+    if (filteredItems.length === 0) { toast.error("ไม่มีข้อมูลในช่วงวันที่ที่เลือก"); return }
     const summary = products.map((p: any) => ({
       "สินค้า": p.name, "แบรนด์": p.brand || "", "Barcode": p.barcode || "",
       "คงเหลือ": p.inStock, "ขายไป": p.sold, "สถานะ": p.inStock === 0 ? "หมด" : "มีของ",
@@ -95,7 +104,7 @@ export default function EmployeeStockPage() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), "สรุปสินค้า")
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(serials), "รายซีเรียล")
-    XLSX.writeFile(wb, `stock${mine ? "-mine" : ""}${rangeSuffix}.xlsx`)
+    downloadWb(wb, `stock${mine ? "-mine" : ""}${rangeSuffix}.xlsx`)
     toast.success(`ดาวน์โหลด ${summary.length} สินค้า · ${serials.length} ซีเรียล`)
   }
 
@@ -118,7 +127,7 @@ export default function EmployeeStockPage() {
       if (sales.length === 0) { toast.error("ไม่มียอดขายในช่วงนี้"); return }
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sales), "ยอดขายของฉัน")
-      XLSX.writeFile(wb, `my-sales${rangeSuffix}.xlsx`)
+      downloadWb(wb, `my-sales${rangeSuffix}.xlsx`)
       toast.success(`ดาวน์โหลด ${sales.length} รายการ`)
     } catch { toast.error("เกิดข้อผิดพลาด") } finally { setExporting(false) }
   }

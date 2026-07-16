@@ -76,7 +76,10 @@ export default function StockTab({ canSeeAll }: { canSeeAll: boolean }) {
         "Serial": r.serial_number, "สินค้า": r.product_name || "", "Barcode": r.barcode || "", "สาขา": r.branch_name || "",
         "นำเข้าเมื่อ": fmtCell(r.in_at), "ผู้นำเข้า": r.in_by_name || "", "สถานะ": r.status === "in_stock" ? "คงเหลือ" : r.status === "sold" ? "ขายแล้ว" : r.status, "ขายเมื่อ": fmtCell(r.sold_at),
       }))), "รายซีเรียล")
-      XLSX.writeFile(wb, `stock-report_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+      const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }))
+      const a = document.createElement("a"); a.href = url; a.download = `stock-report_${new Date().toISOString().slice(0, 10)}.xlsx`
+      document.body.appendChild(a); a.click(); setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url) }, 1000)
       toast.success("ดาวน์โหลดรายงานสต๊อกแล้ว")
     } catch { toast.error("ดาวน์โหลดไม่สำเร็จ") } finally { setExporting(false) }
   }
