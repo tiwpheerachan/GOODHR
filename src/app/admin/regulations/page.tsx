@@ -283,9 +283,9 @@ const hasCJK = (s: string) => /[一-鿿]/.test(s)
 const isHeading = (s: string) => /^\s*\d+[、.．)]/.test(s) || /^[（(]?\d+[)）]/.test(s)
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 const isSigSlot = (s: string) => /^\(\s*signature\s*\)$/i.test(s.trim()) || /^\(\s+\)$/.test(s.trim())
-const SIG_SHD = { file: "sig-shd.png", company: "SHD Technology", name: "May" }
-const SIG_RABBIT = { file: "sig-rabbit.jpg", company: "Rabbit + TopOne", name: "Winai" }
-const SIG_HASHTAG = { file: "sig-hashtag.png", company: "Hashtag", name: "JBC" }
+const SIG_SHD = { file: "sig-shd.png", company: "SHD Technology", name: "" }
+const SIG_RABBIT = { file: "sig-rabbit.jpg", company: "Rabbit + TopOne", name: "" }
+const SIG_HASHTAG = { file: "sig-hashtag.png", company: "Hashtag", name: "" }
 const SIG_PTC = { file: "sig-ptc.jpg", company: "PTC Distribution", name: "" }
 function signatureForCompany(company: any) {
   const code = (company?.code || "").toUpperCase()
