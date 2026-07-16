@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   const companyId = req.nextUrl.searchParams.get("company_id")
 
   let empQ = svc.from("employees")
-    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, employment_status, company_id, branch:branches(id,name), department:departments(id,name)")
+    .select("id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, employment_status, company_id, company:companies(id,name_th,code), branch:branches(id,name), department:departments(id,name)")
     .not("employment_status", "in", "(resigned,terminated)")
     .order("employee_code")
   if (companyId) empQ = empQ.eq("company_id", companyId)

@@ -25,6 +25,25 @@ const hasThai = (s: string) => /[฀-๿]/.test(s)
 const hasCJK = (s: string) => /[一-鿿]/.test(s)
 const isHeading = (s: string) => /^\s*\d+[、.．)]/.test(s) || /^[（(]?\d+[)）]/.test(s)
 
+// ── ลายเซ็นผู้บริหาร (ท้ายหมวด 10) — แสดงตามบริษัท/เครือที่พนักงานสังกัด ──
+type Sig = { src: string; company: string; name: string }
+const SIG_SHD: Sig = { src: "/regulations-sig/sig-shd.png", company: "SHD Technology", name: "May" }
+const SIG_RABBIT: Sig = { src: "/regulations-sig/sig-rabbit.jpg", company: "Rabbit + TopOne", name: "Winai" }
+const SIG_HASHTAG: Sig = { src: "/regulations-sig/sig-hashtag.png", company: "Hashtag", name: "JBC" }
+const SIG_PTC: Sig = { src: "/regulations-sig/sig-ptc.jpg", company: "PTC Distribution", name: "" }
+// map บริษัทของพนักงาน → ลายเซ็นเครือนั้น (SHD / Rabbit+TopOne / Hashtag / PTC)
+function signatureForCompany(company: any): Sig | null {
+  const code = (company?.code || "").toUpperCase()
+  const name = `${company?.name_th || ""} ${company?.name_en || ""}`.toLowerCase()
+  if (code === "SHD" || /shd|เอสเอชดี/.test(name)) return SIG_SHD
+  if (code === "HASHTAG" || /hashtag|แฮชแท็ก/.test(name)) return SIG_HASHTAG
+  if (["RABBIT", "TOP1"].includes(code) || /rabbit|แรบบิท|top\s?one|ท็อป\s?วัน/.test(name)) return SIG_RABBIT
+  if (code === "PTC" || /\bptc\b|พี\s?ที\s?ซี|pct/.test(name)) return SIG_PTC
+  return null
+}
+// ช่องสำหรับใส่ลายเซ็น (เช่น "(Signature )" หรือ "(        )")
+const isSigSlot = (s: string) => /^\(\s*signature\s*\)$/i.test(s.trim()) || /^\(\s+\)$/.test(s.trim())
+
 // ── โลโก้ SHD (ทางการ) — ใช้ไฟล์ public/shd-logo.png ; fallback = ตราตัวอักษร ──
 function ShdLogo({ h = 48, square = false }: { h?: number; square?: boolean }) {
   const [err, setErr] = useState(false)
@@ -217,7 +236,7 @@ export default function RegulationsReaderPage() {
             {/* หน้ากระดาษ */}
             <div className="mx-auto min-h-full max-w-3xl rounded-lg border border-slate-200 bg-white px-5 py-6 shadow-sm md:px-10 md:py-9">
               {page.kind === "cover" && <Cover doc={doc} />}
-              {page.kind === "content" && <Content page={page} />}
+              {page.kind === "content" && <Content page={page} signature={signatureForCompany(emp?.company)} />}
               {page.kind === "sign" && (
                 <Sign
                   loading={loading}
@@ -328,7 +347,7 @@ function Cover({ doc }: { doc: any }) {
 }
 
 // ── Content page (หนึ่งหมวด เรียงต่อเนื่อง) ──────────────────────────
-function Content({ page }: { page: Extract<Page, { kind: "content" }> }) {
+function Content({ page, signature }: { page: Extract<Page, { kind: "content" }>; signature: Sig | null }) {
   return (
     <article>
       {/* หัวหมวด */}
@@ -345,6 +364,10 @@ function Content({ page }: { page: Extract<Page, { kind: "content" }> }) {
       {/* เนื้อหา */}
       <div>
         {page.blocks.map((b, i) => {
+          // ช่องลายเซ็นในหมวด 10 → แสดงลายเซ็นผู้บริหาร 3 บริษัท
+          if (page.chapterNo === 10 && isSigSlot(b)) {
+            return <SignatureRow key={i} sig={signature} />
+          }
           const cjkOnly = hasCJK(b) && !hasThai(b)
           const heading = isHeading(b)
           if (heading) {
@@ -369,6 +392,23 @@ function Content({ page }: { page: Extract<Page, { kind: "content" }> }) {
         })}
       </div>
     </article>
+  )
+}
+
+// ── ลายเซ็นผู้บริหาร (หมวด 10) — เฉพาะเครือที่พนักงานสังกัด ──
+function SignatureRow({ sig }: { sig: Sig | null }) {
+  if (!sig) {
+    // บริษัทยังไม่ได้ map ลายเซ็น → เว้นช่องว่างไว้
+    return <div className="my-2 h-16 w-56 border-b border-slate-300" />
+  }
+  return (
+    <div className="my-3 flex flex-col items-center text-center sm:items-start">
+      <img src={sig.src} alt={`ลายเซ็น ${sig.company}`} className="h-20 w-auto max-w-[220px] object-contain" />
+      <div className="mt-1 w-56 border-t border-slate-300 pt-1.5">
+        <p className="text-[13px] font-bold text-slate-700">{sig.company}</p>
+        {sig.name && <p className="text-[11px] text-slate-400">{sig.name}</p>}
+      </div>
+    </div>
   )
 }
 

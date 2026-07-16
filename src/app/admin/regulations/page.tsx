@@ -282,16 +282,39 @@ const hasThai = (s: string) => /[฀-๿]/.test(s)
 const hasCJK = (s: string) => /[一-鿿]/.test(s)
 const isHeading = (s: string) => /^\s*\d+[、.．)]/.test(s) || /^[（(]?\d+[)）]/.test(s)
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+const isSigSlot = (s: string) => /^\(\s*signature\s*\)$/i.test(s.trim()) || /^\(\s+\)$/.test(s.trim())
+const SIG_SHD = { file: "sig-shd.png", company: "SHD Technology", name: "May" }
+const SIG_RABBIT = { file: "sig-rabbit.jpg", company: "Rabbit + TopOne", name: "Winai" }
+const SIG_HASHTAG = { file: "sig-hashtag.png", company: "Hashtag", name: "JBC" }
+const SIG_PTC = { file: "sig-ptc.jpg", company: "PTC Distribution", name: "" }
+function signatureForCompany(company: any) {
+  const code = (company?.code || "").toUpperCase()
+  const name = `${company?.name_th || ""} ${company?.name_en || ""}`.toLowerCase()
+  if (code === "SHD" || /shd|เอสเอชดี/.test(name)) return SIG_SHD
+  if (code === "HASHTAG" || /hashtag|แฮชแท็ก/.test(name)) return SIG_HASHTAG
+  if (["RABBIT", "TOP1"].includes(code) || /rabbit|แรบบิท|top\s?one|ท็อป\s?วัน/.test(name)) return SIG_RABBIT
+  if (code === "PTC" || /\bptc\b|พี\s?ที\s?ซี|pct/.test(name)) return SIG_PTC
+  return null
+}
 
 // ดาวน์โหลด/พิมพ์เอกสารทั้งฉบับ (เนื้อหาเต็ม + ลายเซ็น)
 function downloadFullDocument(emp: Emp, version: string, empName: (e: any) => string) {
   const doc = reg as any as { company: string; title_zh: string; title_th: string; chapters: any[] }
   const logo = `${window.location.origin}/shd-logo.png`
 
+  const sigOrigin = window.location.origin
+  const mySig = signatureForCompany((emp as any).company)   // ลายเซ็นเฉพาะเครือของพนักงานคนนี้
+  const execSigHtml = mySig ? `<div class="execsig">
+    <div class="execsig-col">
+      <img src="${sigOrigin}/regulations-sig/${mySig.file}" onerror="this.style.display='none'"/>
+      <div class="execsig-line"><div class="execsig-co">${esc(mySig.company)}</div><div class="execsig-name">${esc(mySig.name)}</div></div>
+    </div></div>` : `<div class="execsig-blank"></div>`
+
   const chaptersHtml = doc.chapters.filter((c) => c.no > 0).map((c) => `
     <section class="ch">
       <h2><span class="num">${c.no}</span> ${esc(c.title)}</h2>
       ${c.blocks.map((b: string) => {
+        if (c.no === 10 && isSigSlot(b)) return execSigHtml
         if (isHeading(b)) return `<h3>${esc(b)}</h3>`
         if (hasCJK(b) && !hasThai(b)) return `<p class="cjk">${esc(b)}</p>`
         return `<p>${esc(b)}</p>`
@@ -320,6 +343,12 @@ function downloadFullDocument(emp: Emp, version: string, empName: (e: any) => st
   .ch h3 { font-size:14px; font-weight:700; margin:14px 0 4px; }
   .ch p { margin:0 0 8px; text-align:justify; }
   .ch p.cjk { color:#94a3b8; font-size:12px; }
+  .execsig { display:flex; gap:20px; justify-content:center; flex-wrap:wrap; margin:10px 0 6px; page-break-inside:avoid; }
+  .execsig-col { text-align:center; min-width:150px; }
+  .execsig-col img { height:64px; width:auto; max-width:180px; object-fit:contain; }
+  .execsig-line { border-top:1px solid #94a3b8; margin-top:4px; padding-top:5px; }
+  .execsig-co { font-weight:700; font-size:12px; }
+  .execsig-name { color:#64748b; font-size:11px; }
   .signblock { margin-top:30px; border-top:2px solid ${NAVY}; padding-top:20px; page-break-inside:avoid; text-align:center; }
   .signblock h2 { font-size:16px; font-weight:800; }
   .signblock .stmt { max-width:520px; margin:8px auto 18px; color:#475569; }
