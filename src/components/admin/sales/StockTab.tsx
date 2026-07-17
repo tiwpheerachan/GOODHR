@@ -341,6 +341,9 @@ function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
   document.body.appendChild(a); a.click(); setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url) }, 1000)
 }
 function xlDate(s: string | null) { try { return s ? new Date(s).toLocaleString("sv-SE").slice(0, 16) : "" } catch { return s || "" } }
+function ageDaysOf(r: any) {
+  try { const end = r.status === "sold" && r.sold_at ? new Date(r.sold_at).getTime() : Date.now(); return Math.max(0, Math.floor((end - new Date(r.in_at).getTime()) / 86400000)) } catch { return 0 }
+}
 
 function ExportModal({ branchNames, defaultStatus, q, onClose }: { branchNames: string[]; defaultStatus: string; q: string; onClose: () => void }) {
   const [sheets, setSheets] = useState({ branch: true, product: true, branchProduct: true, serials: true })
@@ -392,7 +395,7 @@ function ExportModal({ branchNames, defaultStatus, q, onClose }: { branchNames: 
         add(src.map((r: any) => ({
           "สาขา": r.branch_name || "", "สินค้า": r.product_name || "", "แบรนด์": r.brand || "", "Barcode": r.barcode || "",
           "Serial": r.serial_number, "สถานะ": r.status === "in_stock" ? "คงเหลือ" : "ขายแล้ว",
-          "นำเข้าเมื่อ": xlDate(r.in_at), "ผู้นำเข้า": r.in_by_name || "", "ขายเมื่อ": xlDate(r.sold_at),
+          "นำเข้าเมื่อ": xlDate(r.in_at), "อายุในคลัง (วัน)": ageDaysOf(r), "ผู้นำเข้า": r.in_by_name || "", "ขายเมื่อ": xlDate(r.sold_at),
         })), "รายซีเรียล")
       }
       downloadWorkbook(wb, `stock-report_${branch ? branch.replace(/[^a-zA-Z0-9ก-๙]/g, "") + "_" : ""}${new Date().toISOString().slice(0, 10)}.xlsx`)

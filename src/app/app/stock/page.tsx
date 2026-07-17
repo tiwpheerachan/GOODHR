@@ -45,6 +45,7 @@ export default function EmployeeStockPage() {
 
   // อายุในคลัง (วัน) + ลบ/กู้คืน
   const daysIn = (s: string) => { try { return Math.max(0, Math.floor((Date.now() - new Date(s).getTime()) / 86400000)) } catch { return 0 } }
+  const ageBetween = (a: string, b: string) => { try { return Math.max(0, Math.floor((new Date(b).getTime() - new Date(a).getTime()) / 86400000)) } catch { return 0 } }
   const [actingId, setActingId] = useState<string | null>(null)
   async function act(id: string, action: "remove" | "restore") {
     if (action === "remove" && !confirm("เอาสินค้านี้ออกจากสต๊อก? (กู้คืนได้ภายหลัง)")) return
@@ -113,7 +114,9 @@ export default function EmployeeStockPage() {
     }))
     const serials = filteredItems.map(it => ({
       "Serial": it.serial_number, "สินค้า": it.product_name || "", "Barcode": it.barcode || "",
-      "นำเข้าเมื่อ": fmtCell(it.in_at), "ผู้นำเข้า": it.in_by_name || "",
+      "นำเข้าเมื่อ": fmtCell(it.in_at),
+      "อายุในคลัง (วัน)": it.status === "sold" && it.sold_at ? ageBetween(it.in_at, it.sold_at) : daysIn(it.in_at),
+      "ผู้นำเข้า": it.in_by_name || "",
       "สถานะ": it.status === "in_stock" ? "คงเหลือ" : it.status === "sold" ? "ขายแล้ว" : it.status,
       "ขายเมื่อ": fmtCell(it.sold_at),
     }))

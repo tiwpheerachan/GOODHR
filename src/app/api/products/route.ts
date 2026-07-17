@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
       const product = {
         __from_barcode_products: true,    // มาจาก BQ (barcode_products) ไม่ใช่ catalog local
         barcode: bp.barcode || barcode,
-        name: bp.canonical_product_name || bp.product_name || bp.sku,
+        name: bp.sku || bp.canonical_product_name || bp.product_name,
         brand: bp.brand || null,
         model: bp.main_product_line || null,
         color: bp.colour || null,
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
       __from_serial: true,
       serial_number: st.serial_number,
       barcode: null,
-      name: st.canonical_product_name || st.product_name || st.sku,
+      name: st.sku || st.canonical_product_name || st.product_name,
       brand: st.brand || null,
       model: st.main_product_line || null,
       color: st.colour || null,
