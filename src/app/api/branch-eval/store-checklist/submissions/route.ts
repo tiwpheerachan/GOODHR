@@ -41,7 +41,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ submission: data })
   }
 
-  let query = svc.from("store_checklist_submissions").select(LIST_SEL)
+  const full = sp.get("full") === "1"   // แนบ data ด้วย (สำหรับ export)
+  let query = svc.from("store_checklist_submissions").select(full ? DETAIL_SEL : LIST_SEL)
   // scope: evaluator เห็นเฉพาะของตัวเอง / admin+supervisor เห็นทั้งหมด
   if (sp.get("mine") === "1" || (!access.isEvalAdmin && !access.isSupervisor)) {
     query = query.eq("submitted_by", access.employeeId ?? "00000000-0000-0000-0000-000000000000")
@@ -106,4 +107,43 @@ export async function POST(req: NextRequest) {
       .update({ status: "done" }).eq("id", row.assignment_id).eq("assignee_id", access.employeeId)
   }
   return NextResponse.json({ id: data.id })
+}
+
+// PATCH — เจ้าของแก้ไข/ส่ง "ร่าง" ของตัวเอง { id, data?, photos?, lat?, lng?, location_name?, dealer_id?, status? }
+export async function PATCH(req: NextRequest) {
+  const c = await ctx(); if (c.error) return c.error
+  const { svc, access } = c
+  if (!access.employeeId) return NextResponse.json({ error: "ไม่พบข้อมูลพนักงาน" }, { status: 403 })
+  const body = await req.json().catch(() => ({}))
+  const id = (body?.id ?? "").toString()
+  if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 })
+
+  const { data: cur } = await svc.from("store_checklist_submissions")
+    .select("id, submitted_by, assignment_id").eq("id", id).maybeSingle()
+  if (!cur) return NextResponse.json({ error: "ไม่พบข้อมูล" }, { status: 404 })
+  if (cur.submitted_by !== access.employeeId) return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 })
+
+  const num = (v: any) => (v === "" || v == null || isNaN(Number(v)) ? null : Number(v))
+  const patch: any = {}
+  if (body.data !== undefined && typeof body.data === "object") patch.data = body.data
+  if (Array.isArray(body.photos)) patch.photos = body.photos
+  if (body.lat !== undefined) patch.lat = num(body.lat)
+  if (body.lng !== undefined) patch.lng = num(body.lng)
+  if (body.location_name !== undefined) patch.location_name = (body.location_name ?? "").toString().trim() || null
+  if (body.dealer_id) {
+    patch.dealer_id = body.dealer_id
+    const { data: dl } = await svc.from("store_dealers").select("name").eq("id", body.dealer_id).maybeSingle()
+    if (dl) patch.dealer_name = dl.name
+  }
+  if (body.status === "draft" || body.status === "submitted") patch.status = body.status
+
+  const { error } = await svc.from("store_checklist_submissions").update(patch).eq("id", id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // ถ้าส่งร่าง (draft→submitted) และมีงานมอบหมาย → ปิดงาน
+  if (patch.status === "submitted" && cur.assignment_id) {
+    await svc.from("store_checklist_assignments")
+      .update({ status: "done" }).eq("id", cur.assignment_id).eq("assignee_id", access.employeeId)
+  }
+  return NextResponse.json({ id })
 }

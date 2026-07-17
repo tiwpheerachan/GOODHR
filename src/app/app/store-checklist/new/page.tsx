@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
-  ArrowLeft, MapPin, Camera, Plus, Trash2, Loader2, Store, Search, Check, X, ClipboardList,
+  ArrowLeft, MapPin, Camera, Plus, Trash2, Loader2, Store, Search, Check, X, ClipboardList, FileText,
 } from "lucide-react"
 
 type Tpl = { id: string; name: string; description?: string; config: any }
@@ -44,17 +44,37 @@ function NewChecklistInner() {
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [pickDealer, setPickDealer] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
   const assignmentId = sp.get("assignment") || null
+  const draftId = sp.get("draft")
+  const [editId, setEditId] = useState<string | null>(draftId)
+  const skipReset = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const tpl = useMemo(() => tpls.find(t => t.id === tplId), [tpls, tplId])
 
-  // โหลด template + context จาก assignment/query
+  // โหลด template + context จาก assignment/query/draft
   useEffect(() => {
     fetch("/api/branch-eval/store-checklist/templates").then(r => r.json()).then(async (res) => {
       const list: Tpl[] = res.templates ?? []
       setTpls(list)
       const qTpl = sp.get("template")
+      // ── แก้ไข "ร่าง" เดิม → prefill ทุกอย่าง ──
+      if (draftId) {
+        const r = await fetch(`/api/branch-eval/store-checklist/submissions?id=${draftId}`).then(x => x.json()).catch(() => ({}))
+        const s = r.submission
+        if (s) {
+          skipReset.current = true
+          if (s.template_id) setTplId(s.template_id); else if (list[0]) setTplId(list[0].id)
+          if (s.dealer) setDealer(s.dealer)
+          if (s.data) setData(s.data)
+          if (Array.isArray(s.photos)) setPhotos(s.photos)
+          if (s.lat != null && s.lng != null) setGps({ lat: s.lat, lng: s.lng })
+          if (s.location_name) setLocName(s.location_name)
+          setEditId(s.id)
+          return
+        }
+      }
       // ถ้ามาจากงานมอบหมาย → ดึง template/dealer จาก assignment
       if (assignmentId) {
         const a = await fetch("/api/branch-eval/store-checklist/assignments?mine=1").then(r => r.json()).catch(() => ({}))
@@ -76,8 +96,11 @@ function NewChecklistInner() {
     })
   }, [])   // eslint-disable-line
 
-  // reset data เมื่อเปลี่ยน template
-  useEffect(() => { if (tpl) setData(emptyData(tpl.config)) }, [tplId])   // eslint-disable-line
+  // reset data เมื่อเปลี่ยน template (ข้ามครั้งแรกถ้ากำลัง prefill ร่าง)
+  useEffect(() => {
+    if (skipReset.current) { skipReset.current = false; return }
+    if (tpl) setData(emptyData(tpl.config))
+  }, [tplId])   // eslint-disable-line
 
   const set = (k: string, v: any) => setData((d: any) => ({ ...d, [k]: v }))
 
@@ -106,27 +129,36 @@ function NewChecklistInner() {
     if (fileRef.current) fileRef.current.value = ""
   }
 
-  const submit = async () => {
+  const save = async (status: "draft" | "submitted") => {
     if (!dealer) { alert("กรุณาเลือกร้าน"); return }
-    if (!tplId) { alert("กรุณาเลือก template"); return }
-    setSaving(true)
-    const res = await fetch("/api/branch-eval/store-checklist/submissions", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        template_id: tplId, dealer_id: dealer.id, assignment_id: assignmentId,
-        data, photos, lat: gps?.lat, lng: gps?.lng, location_name: locName,
-      }),
-    }).then(r => r.json())
-    setSaving(false)
-    if (res.id) { router.push("/app/store-checklist?done=1") }
-    else alert(res.error || "บันทึกไม่สำเร็จ")
+    if (!tplId) { alert("กรุณาเลือกแบบฟอร์ม"); return }
+    const busy = status === "draft" ? setSavingDraft : setSaving
+    busy(true)
+    const payload: any = { template_id: tplId, dealer_id: dealer.id, assignment_id: assignmentId,
+      data, photos, lat: gps?.lat, lng: gps?.lng, location_name: locName, status }
+    let res: any
+    if (editId) {
+      res = await fetch("/api/branch-eval/store-checklist/submissions", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editId, ...payload }),
+      }).then(r => r.json())
+    } else {
+      res = await fetch("/api/branch-eval/store-checklist/submissions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).then(r => r.json())
+    }
+    busy(false)
+    if (res.id) {
+      router.push(`/app/store-checklist?${status === "draft" ? "draft=1" : "done=1"}`)
+    } else alert(res.error || "บันทึกไม่สำเร็จ")
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-28">
-      <div className="sticky top-0 z-20 bg-white border-b px-4 py-3 flex items-center gap-3">
-        <Link href="/app/store-checklist" className="text-slate-500"><ArrowLeft size={22} /></Link>
-        <h1 className="font-bold text-slate-800 flex items-center gap-2"><ClipboardList size={18} /> เช็คลิสต์ร้านค้า</h1>
+    <div className="min-h-screen bg-slate-50/70 pb-28">
+      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b px-4 py-3 flex items-center gap-3">
+        <Link href="/app/store-checklist" className="w-8 h-8 grid place-items-center rounded-lg text-slate-400 hover:bg-slate-100"><ArrowLeft size={20} /></Link>
+        <h1 className="font-bold text-slate-800 flex items-center gap-2"><ClipboardList size={18} /> {editId ? "แก้ไขร่างเช็คลิสต์" : "เช็คลิสต์ร้านค้า"}</h1>
       </div>
 
       <div className="p-4 space-y-4 max-w-2xl mx-auto">
@@ -212,11 +244,15 @@ function NewChecklistInner() {
         </div>
       </div>
 
-      {/* Submit bar */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t p-3 z-20">
-        <button onClick={submit} disabled={saving || !dealer}
-          className="w-full max-w-2xl mx-auto bg-indigo-600 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
-          {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />} บันทึกเช็คลิสต์
+      {/* Actions — ส่ง / บันทึกร่าง (inline · ใช้ได้ทั้ง desktop และมือถือ) */}
+      <div className="max-w-2xl mx-auto px-4 flex flex-col-reverse sm:flex-row gap-2.5">
+        <button onClick={() => save("draft")} disabled={saving || savingDraft || !dealer}
+          className="sm:flex-1 bg-white border border-slate-300 disabled:opacity-50 text-slate-700 font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-50 transition">
+          {savingDraft ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} />} บันทึกร่าง
+        </button>
+        <button onClick={() => save("submitted")} disabled={saving || savingDraft || !dealer}
+          className="sm:flex-[2] bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm transition">
+          {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />} ส่งเช็คลิสต์
         </button>
       </div>
 

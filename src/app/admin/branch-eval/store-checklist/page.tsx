@@ -4,8 +4,9 @@ import Link from "next/link"
 import {
   ArrowLeft, LayoutDashboard, ClipboardList, Store, Send, Layers, Plus, Trash2, Search,
   MapPin, Camera, X, Loader2, Users, TrendingUp, Package, Image as ImageIcon, Edit2, Check,
-  ChevronRight, Calendar, ExternalLink,
+  ChevronRight, Calendar, ExternalLink, FileDown,
 } from "lucide-react"
+import { exportChecklistXlsx } from "@/lib/utils/store-checklist-export"
 
 type Tab = "dashboard" | "submissions" | "dealers" | "assignments" | "templates"
 
@@ -203,17 +204,28 @@ function SubmissionsTab() {
   const [subs, setSubs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<any>(null)
+  const [exporting, setExporting] = useState(false)
   const first = useRef(true)
   useEffect(() => {
     setLoading(true)
     fetch(`/api/branch-eval/store-checklist/submissions?from=${from}&to=${to}`).then(r => r.json())
       .then(res => setSubs(res.submissions ?? [])).finally(() => { setLoading(false); first.current = false })
   }, [from, to])
-  const shown = subs.filter(s => {
+  const match = (s: any) => {
     if (!q.trim()) return true
     const t = q.toLowerCase()
     return (s.dealer_name || s.dealer?.name || "").toLowerCase().includes(t) || (s.submitter_name || "").toLowerCase().includes(t)
-  })
+  }
+  const shown = subs.filter(s => s.status !== "draft" && match(s))
+  const exportXlsx = async () => {
+    setExporting(true)
+    try {
+      const res = await fetch(`/api/branch-eval/store-checklist/submissions?from=${from}&to=${to}&full=1`).then(r => r.json())
+      const rows = (res.submissions ?? []).filter((s: any) => s.status !== "draft" && match(s))
+      if (rows.length === 0) { alert("ไม่มีรายการให้ดาวน์โหลด"); return }
+      exportChecklistXlsx(rows, `เช็คลิสต์ร้านค้า_${from}_ถึง_${to}.xlsx`)
+    } finally { setExporting(false) }
+  }
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
@@ -224,6 +236,10 @@ function SubmissionsTab() {
           <span className="text-slate-300">→</span>
           <input type="date" value={to} onChange={e => setTo(e.target.value)} className="text-xs text-slate-600 outline-none w-28" />
         </div>
+        <button onClick={exportXlsx} disabled={exporting || subs.length === 0}
+          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-semibold text-sm px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 shadow-sm transition shrink-0">
+          {exporting ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />} Excel
+        </button>
       </div>
       {loading && first.current ? <ListSkeleton /> : (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-50 overflow-hidden">
