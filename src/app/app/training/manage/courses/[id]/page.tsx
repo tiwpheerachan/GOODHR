@@ -5,7 +5,7 @@ import Link from "next/link"
 import {
   ArrowLeft, Plus, Trash2, Send, Loader2, Video, FileText, ListChecks,
   Upload, X, Check, Settings, Users, Award, ChevronRight, Eye, PlayCircle, Download, LayoutDashboard,
-  Image as ImageIcon, BookOpen,
+  Image as ImageIcon, BookOpen, UserCheck, Search,
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { uploadTrainingFile, type UploadProgress as UProg } from "@/lib/training/upload"
@@ -547,6 +547,7 @@ function CoursePreviewModal({ course, modules, quizzes, onClose }: any) {
 
 function ModuleQuizzes({ courseId, moduleId, quizzes, onChange }: any) {
   const [showAddQuiz, setShowAddQuiz] = useState(false)
+  const [assignQuiz, setAssignQuiz] = useState<any>(null)
   const doAdd = async (title: string) => {
     await fetch("/api/training/quizzes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ course_id: courseId, module_id: moduleId, title }) })
     toast.success("เพิ่มควิซแล้ว")
@@ -572,6 +573,10 @@ function ModuleQuizzes({ courseId, moduleId, quizzes, onChange }: any) {
             <span className="flex-1 font-bold truncate">{q.title}</span>
             <ChevronRight size={12} className="text-slate-300 flex-shrink-0" />
           </Link>
+          <button onClick={() => setAssignQuiz(q)} title="กำหนดผู้ทำควิซนี้"
+            className="p-1 text-sky-600 hover:bg-sky-50 rounded flex-shrink-0 flex items-center gap-1">
+            <UserCheck size={12} /> <span className="text-[10px] font-bold">ผู้ทำ</span>
+          </button>
           <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); delQuiz(q) }}
             title="ลบควิซนี้"
             className="p-1 text-rose-500 hover:bg-rose-50 rounded flex-shrink-0">
@@ -591,6 +596,140 @@ function ModuleQuizzes({ courseId, moduleId, quizzes, onChange }: any) {
         onConfirm={doAdd}
         onClose={() => setShowAddQuiz(false)}
       />
+      {assignQuiz && <QuizAssignModal quiz={assignQuiz} onClose={() => setAssignQuiz(null)} />}
+    </div>
+  )
+}
+
+// ── กำหนดผู้ทำควิซ (รายคน ข้ามบริษัท) — auto-enroll เข้าคอร์สให้ ──
+function QuizAssignModal({ quiz, onClose }: { quiz: any; onClose: () => void }) {
+  const [assignees, setAssignees] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [q, setQ] = useState("")
+  const [results, setResults] = useState<any[]>([])
+  const [searching, setSearching] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const debRef = useRef<any>(null)
+
+  const empName = (e: any) => `${e.first_name_th || e.first_name_en || ""} ${e.last_name_th || e.last_name_en || ""}${e.nickname ? ` (${e.nickname})` : ""}`.trim()
+
+  async function load() {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/training/quizzes/assignments?quiz_id=${quiz.id}`)
+      const d = await res.json()
+      setAssignees(d.assignees ?? [])
+    } catch {} finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, []) // eslint-disable-line
+
+  useEffect(() => {
+    if (debRef.current) clearTimeout(debRef.current)
+    const s = q.trim()
+    if (!s) { setResults([]); setSearching(false); return }
+    setSearching(true)
+    debRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/training/quizzes/assignments?quiz_id=${quiz.id}&q=${encodeURIComponent(s)}`)
+        const d = await res.json()
+        setResults(d.results ?? [])
+      } catch { setResults([]) } finally { setSearching(false) }
+    }, 250)
+    return () => { if (debRef.current) clearTimeout(debRef.current) }
+  }, [q]) // eslint-disable-line
+
+  const assignedIds = new Set(assignees.map(a => a.id))
+
+  async function add(emp: any) {
+    setBusyId(emp.id)
+    try {
+      const res = await fetch("/api/training/quizzes/assignments", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quiz_id: quiz.id, employee_ids: [emp.id] }),
+      })
+      if (!res.ok) { toast.error("เพิ่มไม่สำเร็จ"); return }
+      setAssignees(prev => [...prev, emp]); setQ(""); setResults([])
+      toast.success("กำหนดผู้ทำแล้ว (เพิ่มเข้าคอร์สอัตโนมัติ)")
+    } catch { toast.error("Error") } finally { setBusyId(null) }
+  }
+  async function remove(id: string) {
+    setBusyId(id)
+    try {
+      const res = await fetch(`/api/training/quizzes/assignments?quiz_id=${quiz.id}&employee_id=${id}`, { method: "DELETE" })
+      if (!res.ok) { toast.error("เอาออกไม่สำเร็จ"); return }
+      setAssignees(prev => prev.filter(a => a.id !== id))
+    } catch { toast.error("Error") } finally { setBusyId(null) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between bg-gradient-to-r from-sky-500 to-blue-600 px-5 py-4 text-white">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 font-black"><Users size={16} /> กำหนดผู้ทำควิซ</p>
+            <p className="truncate text-[11px] opacity-90">{quiz.title}</p>
+          </div>
+          <button onClick={onClose} className="rounded p-1 hover:bg-white/20"><X size={18} /></button>
+        </div>
+        <div className="space-y-3 overflow-y-auto p-5">
+          <div className="rounded-xl bg-sky-50 px-3 py-2 text-[11px] font-bold text-sky-700">
+            {assignees.length === 0
+              ? "ยังไม่กำหนดใคร = ทุกคนในคอร์สเห็น/ทำควิซนี้ได้"
+              : `จำกัดเฉพาะ ${assignees.length} คนที่กำหนดไว้ (คนอื่นจะไม่เห็นควิซนี้)`}
+          </div>
+
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหาชื่อ / รหัสพนักงาน (ทุกบริษัท)"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-9 text-sm outline-none focus:border-sky-400" />
+            {searching && <Loader2 size={15} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-300" />}
+            {q.trim() && (
+              <div className="mt-1.5 max-h-52 overflow-y-auto rounded-xl border border-slate-100 bg-white shadow-sm">
+                {searching && results.length === 0 ? <p className="px-3 py-3 text-center text-xs text-slate-400">กำลังค้นหา...</p>
+                  : results.length === 0 ? <p className="px-3 py-3 text-center text-xs text-slate-400">ไม่พบพนักงาน</p>
+                  : results.map(e => {
+                    const has = assignedIds.has(e.id)
+                    return (
+                      <button key={e.id} onClick={() => !has && add(e)} disabled={has || busyId === e.id}
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-sky-50 disabled:opacity-50">
+                        <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-sky-100 text-sky-700 font-black flex items-center justify-center text-sm">
+                          {e.avatar_url ? <img src={e.avatar_url} alt="" className="h-full w-full object-cover" /> : (e.first_name_th || "?")[0]}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold text-slate-700">{empName(e)}</p>
+                          <p className="truncate text-[11px] text-slate-400">{[e.employee_code, e.company?.name_th, e.department?.name].filter(Boolean).join(" · ")}</p>
+                        </div>
+                        {has ? <span className="text-[10px] font-bold text-emerald-500">✓ กำหนดแล้ว</span> : <span className="text-xs font-bold text-sky-600">+ เพิ่ม</span>}
+                      </button>
+                    )
+                  })}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-[11px] font-bold uppercase text-slate-400">ผู้ถูกกำหนด ({assignees.length})</p>
+            {loading ? <div className="flex justify-center py-4"><Loader2 size={18} className="animate-spin text-slate-300" /></div>
+              : assignees.length === 0 ? <p className="py-3 text-center text-xs text-slate-400">— ยังไม่กำหนด (เปิดให้ทุกคน) —</p>
+              : <div className="space-y-1.5">
+                {assignees.map(a => (
+                  <div key={a.id} className="flex items-center gap-2 rounded-xl bg-slate-50 p-2">
+                    <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-sky-100 text-sky-700 font-black flex items-center justify-center text-sm">
+                      {a.avatar_url ? <img src={a.avatar_url} alt="" className="h-full w-full object-cover" /> : (a.first_name_th || "?")[0]}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-slate-700">{empName(a)}</p>
+                      <p className="truncate text-[11px] text-slate-400">{[a.employee_code, a.company?.name_th].filter(Boolean).join(" · ")}</p>
+                    </div>
+                    <button onClick={() => remove(a.id)} disabled={busyId === a.id} className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-100">
+                      {busyId === a.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                    </button>
+                  </div>
+                ))}
+              </div>}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
