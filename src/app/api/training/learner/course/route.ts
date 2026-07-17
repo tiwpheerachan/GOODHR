@@ -95,10 +95,28 @@ export async function GET(req: NextRequest) {
     }
   })
 
+  // ── กรองควิซตาม assignment (learner เห็นเฉพาะควิซที่ถูกกำหนด หรือควิซที่ไม่ได้กำหนดใคร) ──
+  let quizzes = qRes.data ?? []
+  if (!isManager && quizzes.length > 0) {
+    const quizIds = quizzes.map((q: any) => q.id)
+    const { data: assigns } = await svc.from("training_quiz_assignments")
+      .select("quiz_id, employee_id").in("quiz_id", quizIds)
+    const assignedQuiz = new Map<string, Set<string>>()
+    for (const a of assigns ?? []) {
+      if (!assignedQuiz.has(a.quiz_id)) assignedQuiz.set(a.quiz_id, new Set())
+      assignedQuiz.get(a.quiz_id)!.add(a.employee_id)
+    }
+    const myEmpId = access.employeeId ?? ""
+    quizzes = quizzes.filter((q: any) => {
+      const set = assignedQuiz.get(q.id)
+      return !set || set.size === 0 || set.has(myEmpId)  // ไม่มี assignment = เปิดทุกคน
+    })
+  }
+
   return NextResponse.json({
     course,
     modules,
-    quizzes: qRes.data ?? [],
+    quizzes,
     enrollment,
     progress: pRes.data ?? [],
   })

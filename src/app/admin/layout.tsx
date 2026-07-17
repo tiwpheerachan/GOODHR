@@ -45,7 +45,6 @@ const SIDEBAR = [
   { href: "/admin/training",            icon: GraduationCap,   key: "learning",            badge: null as string|null },
   { href: "/admin/branch-eval",         icon: Store,           key: "branch_eval",         badge: null as string|null },
   { href: "/admin/sales",               icon: ScanLine,        key: "pc_sales",            badge: null as string|null },
-  { href: "/admin/scan-misses",          icon: PackageSearch,   key: "scan_misses",         badge: null as string|null },
   { href: "https://careers.shd-technology.co.th/admin", icon: UserPlus, key: "recruitment", badge: null as string|null, external: true as boolean | undefined },
   { href: "/admin/payroll",              icon: CreditCard,      key: "payroll",             badge: null as string|null },
   { href: "/admin/payroll-rules",        icon: BookOpen,        key: "payroll_rules",       badge: null as string|null },
