@@ -187,6 +187,17 @@ export default function BranchEvalLandingPage() {
           value={stats.avgScore > 0 ? `${stats.avgScore.toFixed(0)}%` : "—"} />
       </div>
 
+      {/* เช็คลิสต์ร้านค้า (ฟีเจอร์แยก — เก็บข้อมูลร้าน/Dealer + รูป + GPS) */}
+      <Link href="/app/store-checklist"
+        className="flex items-center gap-3 bg-white rounded-2xl border-2 border-teal-200 p-4 shadow-sm hover:shadow-md transition">
+        <div className="w-11 h-11 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600"><Store size={20} /></div>
+        <div className="flex-1 min-w-0">
+          <p className="font-black text-slate-800">🏪 เช็คลิสต์ร้านค้า / Dealer</p>
+          <p className="text-[11px] text-slate-500">เข้าเยี่ยมร้าน · Stock/Order · คู่แข่ง · POSM · แนบรูป + GPS</p>
+        </div>
+        <ChevronRight size={16} className="text-slate-300" />
+      </Link>
+
       {/* Start new evaluation */}
       <div className="bg-gradient-to-br from-sky-600 via-blue-600 to-indigo-700 rounded-2xl p-4 lg:p-5 text-white shadow-sm">
         <div className="flex items-start gap-3 mb-3">

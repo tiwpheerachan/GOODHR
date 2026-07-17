@@ -11,6 +11,9 @@ body { font-family: "Sarabun", sans-serif; background: #f8fafc; color: #1e293b; 
   .responsive-container { max-width: none; }
 }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 16px); }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 
 /* ── Training System Animations ────────────────────────────── */
 @keyframes fadeInUp {

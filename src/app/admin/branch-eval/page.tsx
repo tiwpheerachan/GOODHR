@@ -249,6 +249,8 @@ export default function BranchEvalAdminLanding() {
           title="สิทธิ์" desc="มอบ admin / supervisor / evaluator" />
         <MenuCard href="/admin/branch-eval/assignments" icon={<ClipboardList size={18} />} color="orange"
           title="📋 การบ้าน" desc="มอบหมาย + ติดตามความคืบหน้า" />
+        <MenuCard href="/admin/branch-eval/store-checklist" icon={<Store size={18} />} color="teal"
+          title="🏪 เช็คลิสต์ร้านค้า" desc="ทะเบียนร้าน · มอบหมาย · dashboard · รูป/GPS" />
         <MenuCard href="/app/branch-eval/manage/ai-chat" icon={<Sparkles size={18} />} color="violet"
           title="🤖 AI ผู้ช่วย" desc="ถามข้อมูลประเมิน · scoped ปลอดภัย" />
         <MenuCard href="/admin/branch-eval/trash" icon={<Trash2 size={18} />} color="slate"
@@ -392,6 +394,7 @@ function MenuCard({ href, icon, color, title, desc }: any) {
     orange:  "bg-orange-50 text-orange-600 group-hover:border-orange-200",
     violet:  "bg-violet-50 text-violet-600 group-hover:border-violet-200",
     amber:   "bg-amber-50 text-amber-600 group-hover:border-amber-200",
+    teal:    "bg-teal-50 text-teal-600 group-hover:border-teal-200",
   }
   return (
     <Link href={href} className="group bg-white border border-slate-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex items-center gap-3">
