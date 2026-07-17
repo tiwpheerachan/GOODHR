@@ -79,6 +79,27 @@ export async function POST(req: NextRequest) {
   const rows = empIds.map(eid => ({ quiz_id: quizId, employee_id: eid, assigned_by: user.id }))
   const { error } = await svc.from("training_quiz_assignments").upsert(rows, { onConflict: "quiz_id,employee_id" })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // ── auto-enroll เข้าคอร์ส (กันเปิดคอร์สไม่ได้ = "ไม่พบคอร์ส") ──
+  //   ระบบเรียนรู้ต้องลงทะเบียนก่อนถึงเปิดคอร์สได้ · upsert ข้ามถ้าลงแล้ว
+  const courseId = (a.quiz as any)?.course_id
+  if (courseId) {
+    const enrollRows = empIds.map(eid => ({
+      course_id: courseId, employee_id: eid, enrolled_by: access.employeeId, status: "not_started",
+    }))
+    await svc.from("training_enrollments").upsert(enrollRows, { onConflict: "course_id,employee_id", ignoreDuplicates: true })
+    // แจ้งเตือนผู้ถูกกำหนด
+    try {
+      for (const eid of empIds) {
+        await svc.from("notifications").insert({
+          recipient_id: eid, type: "training_quiz_assigned",
+          title: "มีแบบทดสอบที่ต้องทำ",
+          message: "คุณถูกกำหนดให้ทำแบบทดสอบ — เข้าไปที่ห้องเรียน",
+          ref_table: "training_courses", ref_id: courseId, is_read: false,
+        })
+      }
+    } catch {}
+  }
   return NextResponse.json({ success: true })
 }
 

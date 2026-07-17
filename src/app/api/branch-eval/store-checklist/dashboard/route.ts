@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
     id, dealer_id, submitted_by, submitter_name, dealer_name, visit_date, data, photos, lat, lng, location_name,
     dealer:store_dealers(name, zone, area, store_type, is_new)`)
     .eq("status", "submitted")
+    .is("deleted_at", null)
   if (from) q = q.gte("visit_date", from)
   if (to) q = q.lte("visit_date", to)
   if (templateId) q = q.eq("template_id", templateId)

@@ -87,14 +87,23 @@ export function exportChecklistXlsx(subs: any[], filename: string) {
   }
   if (topics.length) { const ws = XLSX.utils.json_to_sheet(topics); ws["!cols"] = autoWidth(topics); XLSX.utils.book_append_sheet(wb, ws, "หัวข้อ") }
 
-  // ── ชีต: รูปภาพ (ลิงก์) ──
+  // ── ชีต: รูปภาพ (ลิงก์ + คำอธิบาย) ──
   const photos: any[] = []
   for (const s of subs) {
     if (!Array.isArray(s.photos)) continue
     s.photos.forEach((p: any, i: number) =>
-      photos.push({ "วันที่": s.visit_date || "", "ร้าน": s.dealer_name || s.dealer?.name || "", "รูปที่": i + 1, "ลิงก์": p.url || "", "คำอธิบาย": p.caption || "" }))
+      photos.push({ "วันที่": s.visit_date || "", "ร้าน": s.dealer_name || s.dealer?.name || "", "รูปที่": i + 1, "คำอธิบาย": p.caption || "", "ลิงก์": p.url || "" }))
   }
   if (photos.length) { const ws = XLSX.utils.json_to_sheet(photos); ws["!cols"] = autoWidth(photos); XLSX.utils.book_append_sheet(wb, ws, "รูปภาพ") }
+
+  // ── ชีต: ไฟล์แนบ (PDF/เอกสาร/วิดีโอ) ──
+  const files: any[] = []
+  for (const s of subs) {
+    if (!Array.isArray(s.files)) continue
+    s.files.forEach((f: any, i: number) =>
+      files.push({ "วันที่": s.visit_date || "", "ร้าน": s.dealer_name || s.dealer?.name || "", "ไฟล์ที่": i + 1, "ชื่อไฟล์": f.name || "", "ชนิด": f.mime || "", "ลิงก์": f.url || "" }))
+  }
+  if (files.length) { const ws = XLSX.utils.json_to_sheet(files); ws["!cols"] = autoWidth(files); XLSX.utils.book_append_sheet(wb, ws, "ไฟล์แนบ") }
 
   // ── ดาวน์โหลดผ่าน Blob (มือถือรองรับ) ──
   const out = XLSX.write(wb, { bookType: "xlsx", type: "array" })

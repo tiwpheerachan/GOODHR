@@ -4,7 +4,9 @@ import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
   ArrowLeft, MapPin, Camera, Plus, Trash2, Loader2, Store, Search, Check, X, ClipboardList, FileText,
+  Paperclip, File as FileIcon, Download,
 } from "lucide-react"
+import { compressImage } from "@/lib/utils/image-compress"
 
 type Tpl = { id: string; name: string; description?: string; config: any }
 type Dealer = {
@@ -12,6 +14,9 @@ type Dealer = {
   is_new?: boolean; contact_name?: string; contact_phone?: string; lat?: number; lng?: number
 }
 type Photo = { url: string; storage_path: string; caption?: string }
+type FileAtt = { url: string; storage_path: string; name: string; mime?: string; size?: number }
+
+const fmtSize = (n?: number) => !n ? "" : n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`
 
 function emptyData(config: any) {
   const d: any = {}
@@ -38,18 +43,21 @@ function NewChecklistInner() {
   const [dealer, setDealer] = useState<Dealer | null>(null)
   const [data, setData] = useState<any>({})
   const [photos, setPhotos] = useState<Photo[]>([])
+  const [files, setFiles] = useState<FileAtt[]>([])
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null)
   const [locName, setLocName] = useState("")
   const [gpsBusy, setGpsBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadingFile, setUploadingFile] = useState(false)
   const [pickDealer, setPickDealer] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
   const assignmentId = sp.get("assignment") || null
-  const draftId = sp.get("draft")
+  const draftId = sp.get("draft") || sp.get("edit")
   const [editId, setEditId] = useState<string | null>(draftId)
   const skipReset = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const docRef = useRef<HTMLInputElement>(null)
 
   const tpl = useMemo(() => tpls.find(t => t.id === tplId), [tpls, tplId])
 
@@ -69,6 +77,7 @@ function NewChecklistInner() {
           if (s.dealer) setDealer(s.dealer)
           if (s.data) setData(s.data)
           if (Array.isArray(s.photos)) setPhotos(s.photos)
+          if (Array.isArray(s.files)) setFiles(s.files)
           if (s.lat != null && s.lng != null) setGps({ lat: s.lat, lng: s.lng })
           if (s.location_name) setLocName(s.location_name)
           setEditId(s.id)
@@ -114,10 +123,12 @@ function NewChecklistInner() {
     )
   }
 
-  const onFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return
+  // อัปรูป (บีบอัดก่อน)
+  const onFiles = async (fl: FileList | null) => {
+    if (!fl || fl.length === 0) return
     setUploading(true)
-    for (const file of Array.from(files)) {
+    for (const raw of Array.from(fl)) {
+      const file = await compressImage(raw)
       const fd = new FormData(); fd.append("file", file)
       try {
         const res = await fetch("/api/branch-eval/store-checklist/upload", { method: "POST", body: fd }).then(r => r.json())
@@ -129,13 +140,30 @@ function NewChecklistInner() {
     if (fileRef.current) fileRef.current.value = ""
   }
 
+  // แนบไฟล์ (PDF/เอกสาร/วิดีโอ ฯลฯ)
+  const onDocs = async (fl: FileList | null) => {
+    if (!fl || fl.length === 0) return
+    setUploadingFile(true)
+    for (const file of Array.from(fl)) {
+      const fd = new FormData(); fd.append("file", file)
+      try {
+        const res = await fetch("/api/branch-eval/store-checklist/upload", { method: "POST", body: fd }).then(r => r.json())
+        if (res.url) setFiles(p => [...p, { url: res.url, storage_path: res.storage_path, name: res.name || file.name, mime: res.mime, size: res.size }])
+        else alert(res.error || "อัปโหลดไฟล์ไม่สำเร็จ")
+      } catch { alert("อัปโหลดไฟล์ไม่สำเร็จ") }
+    }
+    setUploadingFile(false)
+    if (docRef.current) docRef.current.value = ""
+  }
+
   const save = async (status: "draft" | "submitted") => {
     if (!dealer) { alert("กรุณาเลือกร้าน"); return }
     if (!tplId) { alert("กรุณาเลือกแบบฟอร์ม"); return }
+    if (uploading || uploadingFile) { alert("กรุณารอไฟล์อัปโหลดเสร็จก่อน"); return }
     const busy = status === "draft" ? setSavingDraft : setSaving
     busy(true)
     const payload: any = { template_id: tplId, dealer_id: dealer.id, assignment_id: assignmentId,
-      data, photos, lat: gps?.lat, lng: gps?.lng, location_name: locName, status }
+      data, photos, files, lat: gps?.lat, lng: gps?.lng, location_name: locName, status }
     let res: any
     if (editId) {
       res = await fetch("/api/branch-eval/store-checklist/submissions", {
@@ -208,24 +236,54 @@ function NewChecklistInner() {
         {/* Photos */}
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-bold text-slate-500 flex items-center gap-1"><Camera size={14} /> รูปแนบ ({photos.length})</label>
+            <label className="text-xs font-bold text-slate-500 flex items-center gap-1"><Camera size={14} /> รูปแนบ ({photos.length}) <span className="font-normal text-slate-400">· ไม่จำกัดจำนวน</span></label>
             <button onClick={() => fileRef.current?.click()} disabled={uploading}
               className="text-xs font-bold text-indigo-600 flex items-center gap-1">
               {uploading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} เพิ่มรูป
             </button>
           </div>
-          <input ref={fileRef} type="file" accept="image/*" multiple capture="environment" className="hidden" onChange={e => onFiles(e.target.files)} />
+          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={e => onFiles(e.target.files)} />
           {photos.length > 0 && (
-            <div className="grid grid-cols-3 gap-2 mt-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
               {photos.map((p, i) => (
                 <div key={i} className="relative">
-                  <img src={p.url} alt="" className="w-full h-24 object-cover rounded-lg border" />
+                  <a href={p.url} target="_blank" rel="noreferrer"><img src={p.url} alt="" className="w-full h-28 object-cover rounded-lg border" /></a>
                   <button onClick={() => setPhotos(ph => ph.filter((_, j) => j !== i))}
-                    className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-1"><X size={12} /></button>
+                    className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-1 shadow"><X size={12} /></button>
+                  <input value={p.caption ?? ""} onChange={e => setPhotos(ph => ph.map((x, j) => j === i ? { ...x, caption: e.target.value } : x))}
+                    placeholder="คำอธิบายรูป..." className="mt-1 w-full text-[11px] border rounded-md px-2 py-1" />
                 </div>
               ))}
             </div>
           )}
+          {uploading && <div className="text-[11px] text-slate-400 mt-2 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> กำลังบีบอัด & อัปโหลด...</div>}
+        </div>
+
+        {/* Files (PDF/เอกสาร/วิดีโอ) */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-slate-500 flex items-center gap-1"><Paperclip size={14} /> ไฟล์แนบ ({files.length}) <span className="font-normal text-slate-400">· PDF/เอกสาร/วิดีโอ ≤100MB</span></label>
+            <button onClick={() => docRef.current?.click()} disabled={uploadingFile}
+              className="text-xs font-bold text-indigo-600 flex items-center gap-1">
+              {uploadingFile ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} แนบไฟล์
+            </button>
+          </div>
+          <input ref={docRef} type="file" multiple className="hidden"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,video/*,audio/*" onChange={e => onDocs(e.target.files)} />
+          {files.length > 0 && (
+            <div className="space-y-1.5 mt-3">
+              {files.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 bg-slate-50 rounded-lg px-2.5 py-2">
+                  <FileIcon size={16} className="text-slate-400 shrink-0" />
+                  <a href={f.url} target="_blank" rel="noreferrer" className="flex-1 min-w-0 text-sm text-slate-700 truncate hover:text-indigo-600">{f.name}</a>
+                  {f.size ? <span className="text-[10px] text-slate-400 shrink-0">{fmtSize(f.size)}</span> : null}
+                  <a href={f.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-indigo-600 shrink-0"><Download size={14} /></a>
+                  <button onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600 shrink-0"><X size={14} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+          {uploadingFile && <div className="text-[11px] text-slate-400 mt-2 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> กำลังอัปโหลด...</div>}
         </div>
 
         {/* GPS */}
