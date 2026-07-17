@@ -315,6 +315,11 @@ export default function CourseBuilderMobilePage() {
               <span className="text-xs">เปิด</span>
             </label>
           </SRow>
+          {course.affect_kpi && (
+            <SRow label="น้ำหนัก KPI (%)">
+              <input type="number" min={0} max={100} defaultValue={course.kpi_weight} onBlur={e => saveCourse({ kpi_weight: Number(e.target.value) })} className={`${inp} w-24 text-right`} />
+            </SRow>
+          )}
         </div>
       )}
 
