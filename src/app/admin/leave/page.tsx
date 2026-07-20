@@ -11,6 +11,7 @@ import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
 import Link from "next/link"
 import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
+import * as XLSX from "xlsx"
 
 const inp = "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10 transition-all"
 
@@ -84,6 +85,10 @@ export default function AdminLeavePage() {
   const [resignNotes,   setResignNotes]   = useState<Record<string,string>>({})
   const [resignExpanded,setResignExpanded]= useState<string|null>(null)
   const [resignActing,  setResignActing]  = useState<string|null>(null)
+  const [resignSearch,  setResignSearch]  = useState("")
+  const [resignFrom,    setResignFrom]    = useState("")
+  const [resignTo,      setResignTo]      = useState("")
+  const [resignExporting,setResignExporting]=useState(false)
 
   const myId:string|undefined = user?.employee?.company_id??(user as any)?.company_id??undefined
   const cid = isSA?(selCo||undefined):myId
@@ -224,6 +229,76 @@ export default function AdminLeavePage() {
     setResignLoading(false)
   },[cid,isSA,myId,resignFilter])
 
+  // ── กรอง resignation ฝั่ง client: ซ่อนที่ปฏิเสธในหน้ารวม + ค้นหา + ช่วงวันที่ยื่น ──
+  const shownResign = resignReqs.filter((r:any)=>{
+    // "ทั้งหมด" ไม่รวมใบที่ปฏิเสธ (เหมือนไม่เคยลาออก) — ดูได้ที่แท็บ "ปฏิเสธ"
+    if(resignFilter==="all" && r.status==="rejected") return false
+    if(resignSearch.trim()){
+      const t=resignSearch.toLowerCase()
+      const hay=`${r.employee?.first_name_th||""} ${r.employee?.last_name_th||""} ${r.employee?.employee_code||""} ${r.employee?.department?.name||""} ${r.employee?.position?.name||""}`.toLowerCase()
+      if(!hay.includes(t)) return false
+    }
+    const d=(r.created_at||"").slice(0,10)
+    if(resignFrom && d<resignFrom) return false
+    if(resignTo   && d>resignTo)   return false
+    return true
+  })
+  // สรุปจำนวนตามสถานะ (จากที่กรองแล้ว)
+  const resignSummary = shownResign.reduce((a:any,r:any)=>{ a[r.status]=(a[r.status]||0)+1; return a },{} as Record<string,number>)
+
+  const companyName=(id:string)=>companies.find((c:any)=>c.id===id)?.name_th||""
+  const exportResignXlsx=()=>{
+    if(shownResign.length===0){ toast.error("ไม่มีข้อมูลให้ดาวน์โหลด"); return }
+    setResignExporting(true)
+    try{
+      const fmtD=(d:any)=>d?format(new Date(d),"yyyy-MM-dd",{locale:th}):""
+      const fmtDT=(d:any)=>d?format(new Date(d),"yyyy-MM-dd HH:mm",{locale:th}):""
+      const rows=shownResign.map((r:any)=>{
+        const ei=r.exit_interview||{}
+        const ratings=ei.ratings||{}
+        const rk=Object.keys(ratings).filter(k=>ratings[k])
+        const avg=rk.length?(rk.reduce((s,k)=>s+Number(ratings[k]||0),0)/rk.length):null
+        const assets=r.assets?.items?Object.entries(r.assets.items).filter(([,v])=>v).map(([k])=>k).join(", "):""
+        return {
+          "ชื่อ-นามสกุล": `${r.employee?.first_name_th||""} ${r.employee?.last_name_th||""}`.trim(),
+          "รหัสพนักงาน": r.employee?.employee_code||"",
+          "ตำแหน่ง": r.employee?.position?.name||"",
+          "แผนก": r.employee?.department?.name||"",
+          "บริษัท": r.employee?.company?.name_th || companyName(r.company_id),
+          "สถานะ": resignStatusLabel(r.status),
+          "ยื่นเมื่อ": fmtD(r.created_at),
+          "วันทำงานสุดท้าย": fmtD(r.last_work_date),
+          "วันมีผลบังคับ": fmtD(r.effective_date),
+          "เหตุผล": [...(r.reasons??[]).map((k:string)=>RESIGN_REASONS_MAP[k]||k), r.other_reason?`อื่นๆ: ${r.other_reason}`:""].filter(Boolean).join(" · "),
+          "เหตุผลเบื้องต้น(intent)": r.intent_reason||"",
+          "หัวหน้าอนุมัติเมื่อ": fmtDT(r.manager_approved_at),
+          "หมายเหตุหัวหน้า": r.manager_note||"",
+          "HR อนุมัติเมื่อ": fmtDT(r.hr_approved_at||r.intent_approved_at),
+          "หมายเหตุ HR": r.hr_note||"",
+          "ปรึกษาก่อนลาออก": ei.consulted==="yes"?"ได้ปรึกษา":ei.consulted==="no"?"ไม่ได้ปรึกษา":"",
+          "ความพึงพอใจเฉลี่ย(1-5)": avg!==null?avg.toFixed(1):"",
+          "แนะนำบริษัท NPS(0-10)": (ei.nps!==null&&ei.nps!==undefined)?ei.nps:"",
+          "คำแนะนำ": ei.suggestion||ei.additional_details||"",
+          "ข้อเสนอ": ei.comment||"",
+          "ทรัพย์สินต้องคืน": assets,
+          "ชดใช้(บาท)": Number(r.assets?.deduct_amount)||0,
+        }
+      })
+      const ws=XLSX.utils.json_to_sheet(rows)
+      ws["!cols"]=Object.keys(rows[0]).map(k=>({wch:Math.min(Math.max(k.length+2,10),40)}))
+      const wb=XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb,ws,"ใบลาออก")
+      const tag=resignFilter==="all"?"ทั้งหมด":resignStatusLabel(resignFilter)
+      const dr=(resignFrom||resignTo)?`_${resignFrom||"เริ่ม"}_ถึง_${resignTo||"ปัจจุบัน"}`:""
+      const out=XLSX.write(wb,{bookType:"xlsx",type:"array"})
+      const blob=new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})
+      const url=URL.createObjectURL(blob)
+      const a=document.createElement("a"); a.href=url; a.download=`ใบลาออก_${tag}${dr}.xlsx`
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(()=>URL.revokeObjectURL(url),1000)
+    }finally{ setResignExporting(false) }
+  }
+
   useEffect(()=>{ if(mainTab==="leave")      { load(); loadCounts() } },[load,loadCounts,mainTab])
   useEffect(()=>{ if(mainTab==="resignation") loadResign() },[loadResign,mainTab])
   useEffect(()=>{ loadTabCounts() },[loadTabCounts])
@@ -331,16 +406,18 @@ export default function AdminLeavePage() {
   ]
 
   // ── HR เปิดสิทธิ์ให้ลาออก (ขั้นก่อนกรอกฟอร์ม) ──
-  const handleIntent = async(id:string, action:"approved"|"rejected")=>{
+  const handleIntent = async(id:string, action:"approved"|"rejected"|"revoke")=>{
+    if(action==="revoke" && !confirm("ปิดสิทธิ์การลาออก? คำขอจะกลับไปสถานะรอเปิดสิทธิ์ และพนักงานจะกรอกแบบฟอร์มไม่ได้")) return
     setResignActing(id)
     try{
+      const apiAction = action==="approved" ? "intent_approve" : action==="rejected" ? "intent_reject" : "intent_revoke"
       const res = await fetch("/api/admin/resignations", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ id, action: action==="approved" ? "intent_approve" : "intent_reject", note: resignNotes[id] || null }),
+        body: JSON.stringify({ id, action: apiAction, note: resignNotes[id] || null }),
       })
       const d = await res.json()
       if(!res.ok){ toast.error(d.error || "ไม่สำเร็จ"); return }
-      toast.success(action==="approved" ? "✅ เปิดสิทธิ์ให้ลาออกแล้ว" : "ปฏิเสธคำขอลาออกแล้ว")
+      toast.success(action==="approved" ? "✅ เปิดสิทธิ์ให้ลาออกแล้ว" : action==="revoke" ? "🔒 ปิดสิทธิ์การลาออกแล้ว" : "ปฏิเสธคำขอลาออกแล้ว")
       loadResign(); loadTabCounts()
     }finally{ setResignActing(null) }
   }
@@ -587,18 +664,60 @@ export default function AdminLeavePage() {
             ))}
           </div>
 
+          {/* ── ค้นหา + ช่วงวันที่ + Excel ── */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 flex-1 min-w-[200px]">
+              <Search size={15} className="text-slate-400 shrink-0"/>
+              <input value={resignSearch} onChange={e=>setResignSearch(e.target.value)} placeholder="ค้นหา ชื่อ · รหัส · แผนก · ตำแหน่ง"
+                className="flex-1 text-sm outline-none bg-transparent min-w-0"/>
+              {resignSearch&&<button onClick={()=>setResignSearch("")} className="text-slate-300 hover:text-slate-500"><X size={14}/></button>}
+            </div>
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-2">
+              <Calendar size={14} className="text-slate-400"/>
+              <span className="text-[11px] text-slate-400 shrink-0">ยื่น</span>
+              <input type="date" value={resignFrom} onChange={e=>setResignFrom(e.target.value)} className="text-xs text-slate-600 outline-none w-[110px]"/>
+              <span className="text-slate-300">→</span>
+              <input type="date" value={resignTo} onChange={e=>setResignTo(e.target.value)} className="text-xs text-slate-600 outline-none w-[110px]"/>
+              {(resignFrom||resignTo)&&<button onClick={()=>{setResignFrom("");setResignTo("")}} className="text-slate-300 hover:text-slate-500"><X size={13}/></button>}
+            </div>
+            <button onClick={exportResignXlsx} disabled={resignExporting||shownResign.length===0}
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-sm transition shrink-0">
+              {resignExporting?<div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>:<Download size={15}/>}
+              Excel
+            </button>
+          </div>
+
+          {/* ── สรุปจำนวนตามสถานะ (จากที่กรอง) ── */}
+          {shownResign.length>0&&(
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span className="text-slate-400">พบ {shownResign.length} รายการ:</span>
+              {[
+                {k:"pending_intent",l:"รอเปิดสิทธิ์",c:"bg-violet-100 text-violet-700"},
+                {k:"intent_approved",l:"เปิดสิทธิ์แล้ว",c:"bg-indigo-100 text-indigo-700"},
+                {k:"pending_manager",l:"รอหัวหน้า",c:"bg-amber-100 text-amber-700"},
+                {k:"pending_hr",l:"รอ HR",c:"bg-sky-100 text-sky-700"},
+                {k:"approved",l:"อนุมัติ",c:"bg-emerald-100 text-emerald-700"},
+                {k:"rejected",l:"ปฏิเสธ",c:"bg-rose-100 text-rose-700"},
+              ].filter(s=>resignSummary[s.k]).map(s=>(
+                <span key={s.k} className={`px-2 py-0.5 rounded-full font-bold ${s.c}`}>{s.l} {resignSummary[s.k]}</span>
+              ))}
+            </div>
+          )}
+
           {resignLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"/>
             </div>
-          ) : resignReqs.length===0 ? (
+          ) : shownResign.length===0 ? (
             <div className="text-center py-16 text-slate-400">
               <UserX size={40} className="mx-auto mb-3 text-slate-200" strokeWidth={1.5}/>
-              <p className="text-sm">ไม่พบข้อมูลใบลาออก</p>
+              <p className="text-sm">{resignSearch||resignFrom||resignTo?"ไม่พบรายการที่ค้นหา":"ไม่พบข้อมูลใบลาออก"}</p>
             </div>
           ) : (
             <div className="space-y-4">
-              {resignReqs.map(r=>(
+              {shownResign.map(r=>{
+                const preForm = r.status==="pending_intent"||r.status==="intent_approved"  // ยังไม่กรอกฟอร์ม
+                return (
                 <div key={r.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                   {/* stripe header */}
                   <div className="flex items-center justify-between px-5 py-3 bg-slate-50/80 border-b border-slate-100">
@@ -625,6 +744,29 @@ export default function AdminLeavePage() {
                   </div>
 
                   <div className="p-5 space-y-3">
+                    {/* ── ก่อนกรอกฟอร์ม (รอเปิดสิทธิ์ / เปิดสิทธิ์แล้ว) — แสดงย่อ ── */}
+                    {preForm && (
+                      <>
+                        <div className="flex items-center justify-center bg-slate-50 rounded-xl px-3 py-2.5 text-xs">
+                          <span className="text-slate-400">ยื่นคำขอเมื่อ</span>
+                          <span className="font-black text-slate-800 ml-2">{format(new Date(r.created_at),"d MMM yyyy",{locale:th})}</span>
+                        </div>
+                        {r.intent_reason&&(
+                          <div className="text-xs bg-violet-50 border border-violet-100 rounded-xl px-3 py-2">
+                            <span className="font-bold text-violet-700">เหตุผลเบื้องต้น: </span>
+                            <span className="text-slate-600">{r.intent_reason}</span>
+                          </div>
+                        )}
+                        {r.status==="intent_approved"&&(
+                          <div className="flex items-center gap-2 text-xs bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2.5 text-indigo-700 font-medium">
+                            <Check size={13} className="shrink-0"/> เปิดสิทธิ์แล้ว — รอพนักงานกรอกแบบฟอร์มลาออก
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* ── ฟอร์มที่กรอกแล้ว (ซ่อนตอนยังไม่กรอก) ── */}
+                    {!preForm && (<>
                     {/* date summary */}
                     <div className="grid grid-cols-3 gap-2 text-xs">
                       {[
@@ -704,16 +846,11 @@ export default function AdminLeavePage() {
                         {Number(r.assets.deduct_amount)>0&&<p className="text-amber-600 font-bold mt-1.5">💰 ชดใช้ {Number(r.assets.deduct_amount).toLocaleString()} บาท</p>}
                       </div>
                     )}
+                    </>)}
 
                     {/* Intent action area — HR เปิดสิทธิ์ให้ลาออก (ก่อนกรอกฟอร์ม) */}
                     {r.status==="pending_intent"&&(
                       <>
-                        {r.intent_reason&&(
-                          <div className="text-xs bg-violet-50 border border-violet-100 rounded-xl px-3 py-2">
-                            <span className="font-bold text-violet-700">เหตุผลเบื้องต้น: </span>
-                            <span className="text-slate-600">{r.intent_reason}</span>
-                          </div>
-                        )}
                         <textarea
                           placeholder="หมายเหตุ (ถ้ามี)"
                           value={resignNotes[r.id]||""}
@@ -732,6 +869,17 @@ export default function AdminLeavePage() {
                           </button>
                         </div>
                       </>
+                    )}
+
+                    {/* Intent approved — ปิดสิทธิ์ (ยกเลิกการเปิดสิทธิ์) */}
+                    {r.status==="intent_approved"&&(
+                      <div className="flex gap-2">
+                        <button onClick={()=>handleIntent(r.id,"revoke")} disabled={resignActing===r.id}
+                          className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-red-50 border border-red-200 text-red-600 font-bold text-sm rounded-xl hover:bg-red-100 disabled:opacity-50">
+                          {resignActing===r.id?<div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"/>:<X size={14}/>}
+                          ปิดสิทธิ์ (ยกเลิกการเปิดสิทธิ์)
+                        </button>
+                      </div>
                     )}
 
                     {/* HR action area — ทำได้ทั้ง pending_manager และ pending_hr */}
@@ -761,7 +909,7 @@ export default function AdminLeavePage() {
                     )}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </>

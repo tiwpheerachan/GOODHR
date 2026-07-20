@@ -111,6 +111,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true })
   }
 
+  // ── HR ปิดสิทธิ์ (ยกเลิกการเปิดสิทธิ์) → กลับไปสถานะรอเปิดสิทธิ์ ──
+  if (action === "intent_revoke") {
+    if (item.status !== "intent_approved") return NextResponse.json({ error: "คำขอนี้ไม่ได้อยู่ในสถานะเปิดสิทธิ์แล้ว" }, { status: 400 })
+    const { error } = await svc.from("resignation_requests").update({
+      status: "pending_intent",
+      intent_approved_at: null,
+      hr_note: note || null,
+    }).eq("id", id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await notify("HR ปิดสิทธิ์การลาออก", note || "สิทธิ์การกรอกแบบฟอร์มลาออกถูกยกเลิก")
+    return NextResponse.json({ success: true })
+  }
+
   // ── HR อนุมัติ/ปฏิเสธ ใบลาออก (final) ──
   if (action === "approve" || action === "reject") {
     const approved = action === "approve"
