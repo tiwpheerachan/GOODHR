@@ -6,7 +6,7 @@ import { usePayrollAccess } from "@/lib/hooks/usePayrollAccess"
 import { createClient } from "@/lib/supabase/client"
 import {
   Download, Play, CheckCircle, Loader2, Plus, RefreshCw,
-  ChevronDown, AlertCircle, TrendingUp, Users, Banknote,
+  ChevronDown, ChevronUp, AlertCircle, TrendingUp, Users, Banknote,
   Clock, Info, Search, Eye, Edit2, Save, X, RotateCcw, Table2, Filter,
   Copy, ClipboardCheck, Columns3
 } from "lucide-react"
@@ -1979,6 +1979,9 @@ export default function PayrollPage() {
   const [payslip,      setPayslip]      = useState<any>(null)
   const [editing,      setEditing]      = useState<any>(null)
   const [filterDept,   setFilterDept]   = useState("")
+  const [empStatusFilter, setEmpStatusFilter] = useState("")   // "" | probation | resigned_period | probation_resigned
+  const [bulkAdding,   setBulkAdding]   = useState(false)
+  const [showResignedList, setShowResignedList] = useState(false)
   const [resignedPool, setResignedPool] = useState<any[]>([])
   const [addingEmpId,  setAddingEmpId]  = useState<string | null>(null)
   // คนลาออกก่อนงวด → ซ่อนไว้ default; HR กดดู/กู้คืนให้แสดงในรอบนี้
@@ -2153,6 +2156,28 @@ export default function PayrollPage() {
     } finally {
       setAddingEmpId(null)
     }
+  }
+
+  // ── เพิ่มคนที่ลาออกในรอบนี้ทั้งหมดเข้างวด (คำนวณเงินสุดท้าย) ──
+  const addAllResignedInPeriod = async () => {
+    if (!selected?.id) return
+    const pool = resignedPool.filter((p: any) => p.resigned_in_period)
+    if (pool.length === 0) return
+    setBulkAdding(true)
+    let ok = 0
+    try {
+      for (const emp of pool) {
+        try {
+          const res = await fetch("/api/payroll", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ employee_id: emp.id, payroll_period_id: selected.id, mode: "calc" }),
+          })
+          if (res.ok) ok++
+        } catch {}
+      }
+      if (ok > 0) { toast.success(`เพิ่มพนักงานลาออกในรอบนี้ ${ok} คนแล้ว`); await loadRecords() }
+      setResignedPool(prev => prev.filter((p: any) => !p.resigned_in_period))
+    } finally { setBulkAdding(false) }
   }
 
   // ── Background recalculate: คำนวณเงินเดือนใหม่เบื้องหลัง ────────
@@ -2397,14 +2422,35 @@ export default function PayrollPage() {
   // ── คนลาออกก่อนงวด + ยังไม่ได้กดกู้คืน = ซ่อน (ไม่รวมในตาราง/CSV/TXT/Excel) ──
   //   ใช้ predicate เดียวกันทุกที่ เพื่อให้ export ตรงกับสิ่งที่เห็นบนหน้าจอ
   const periodStart = selected?.start_date as string | undefined
+  const periodEnd   = selected?.end_date as string | undefined
   const isHiddenResigned = (r: any) => {
     const resign = r.employee?.resign_date
     return !!(resign && periodStart && resign < periodStart && !r.keep_in_period)
   }
+  // ── ตัวช่วยระบุสถานะพนักงาน (สำหรับ filter) ──
+  const isProbationRec = (r: any) => {
+    const es = r.employee?.employment_status
+    if (es === "probation") return true
+    const pend = r.employee?.probation_end_date, rd = r.employee?.resign_date
+    return !!(pend && rd && rd <= pend)   // ลาออกช่วงยังไม่ผ่านทดลองงาน = เคยทดลองงาน
+  }
+  const isResignedInPeriod = (r: any) => {
+    const rd = r.employee?.resign_date
+    return !!(rd && periodStart && periodEnd && rd >= periodStart && rd <= periodEnd)
+  }
+  const passEmpStatus = (r: any) => {
+    if (empStatusFilter === "probation")          return isProbationRec(r)
+    if (empStatusFilter === "resigned_period")    return isResignedInPeriod(r)
+    if (empStatusFilter === "probation_resigned") return isProbationRec(r) && isResignedInPeriod(r)
+    return true
+  }
+  const empStatusLabel = empStatusFilter === "probation" ? "ทดลองงาน"
+    : empStatusFilter === "resigned_period" ? "ลาออกในรอบนี้"
+    : empStatusFilter === "probation_resigned" ? "ทดลองงาน + ลาออกในรอบนี้" : ""
 
   const exportCSV = () => {
     const hdr = ["รหัส","ชื่อ","นามสกุล","ตำแหน่ง","แผนก","เงินเดือนฐาน","เบี้ยตำแหน่ง","ค่าเดินทาง","ค่าอาหาร","OT฿","OT1.5x(น.)","OT1.0x(น.)","OT3.0x(น.)","KPI Bonus","เกรด KPI","ฐาน KPI","คอมมิชชั่น","รวมรายรับ","หักขาด","หักสาย","หักกู้","SSO","ภาษี","หักรวม","สุทธิ","วันมา","วันขาด","สาย","ลาจ่าย","ลาไม่จ่าย","แก้ไขโดยHR"]
-    const rows = records.filter((r: any) => !isHiddenResigned(r)).map((r: any) => [
+    const rows = filtered.map((r: any) => [
       r.employee?.employee_code, r.employee?.first_name_th, r.employee?.last_name_th,
       r.employee?.position?.name, r.employee?.department?.name,
       r.base_salary||0, r.allowance_position||0, r.allowance_transport||0, r.allowance_food||0,
@@ -2440,6 +2486,7 @@ export default function PayrollPage() {
     // ── ซ่อนคนลาออกก่อนงวดนี้ (เว้นที่ HR กดกู้คืนแล้ว = keep_in_period) ──
     if (isHiddenResigned(r)) return false
 
+    if (!passEmpStatus(r)) return false
     if (filterDept && r.employee?.department?.name !== filterDept) return false
     if (!search) return true
     return `${r.employee?.first_name_th} ${r.employee?.last_name_th} ${r.employee?.employee_code} ${r.employee?.nickname||""}`
@@ -2644,6 +2691,17 @@ export default function PayrollPage() {
                 </select>
                 <Filter size={10} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
               </div>
+              {/* Employee-status filter (ทดลองงาน / ลาออกในรอบ) */}
+              <div className="relative">
+                <select value={empStatusFilter} onChange={e => setEmpStatusFilter(e.target.value)}
+                  className={`appearance-none border rounded-xl pl-3 pr-7 py-2 text-xs outline-none focus:border-indigo-400 ${empStatusFilter?"bg-indigo-50 border-indigo-200 text-indigo-700 font-bold":"bg-slate-50 border-slate-200 text-slate-600"}`}>
+                  <option value="">สถานะ: ทั้งหมด</option>
+                  <option value="probation">ทดลองงาน</option>
+                  <option value="resigned_period">ลาออกในรอบนี้</option>
+                  <option value="probation_resigned">ทดลองงาน + ลาออกในรอบนี้</option>
+                </select>
+                <Filter size={10} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+              </div>
               {/* Search */}
               <div className="relative flex-1 min-w-36 max-w-xs">
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
@@ -2678,6 +2736,65 @@ export default function PayrollPage() {
               </button>
             </div>
           )}
+
+          {/* ── Banner: คนลาออกในรอบนี้ที่ยังไม่ได้คำนวณเงินสุดท้าย (เปิดดูรายคน + กู้เข้ารอบได้) ── */}
+          {(() => {
+            const poolIn = resignedPool
+              .filter((p: any) => p.resigned_in_period)
+              .sort((a: any, b: any) => (b.resign_date ?? "").localeCompare(a.resign_date ?? ""))
+            if (poolIn.length === 0) return null
+            const prob = poolIn.filter((p: any) => p.was_probation).length
+            const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" }) : "-"
+            const fullName = (e: any) => `${e.first_name_th || ""} ${e.last_name_th || ""}`.trim() + (e.nickname ? ` (${e.nickname})` : "")
+            return (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 grid place-items-center text-amber-600 shrink-0 text-sm">🚪</div>
+                  <button onClick={() => setShowResignedList(v => !v)} className="flex-1 min-w-0 text-left text-sm">
+                    <p className="font-bold text-amber-800 flex items-center gap-1.5">
+                      มีพนักงานลาออกในรอบนี้ที่ยังไม่ได้คำนวณเงินสุดท้าย {poolIn.length} คน{prob>0&&<span className="font-normal"> (ทดลองงาน {prob} คน)</span>}
+                      {showResignedList ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                    </p>
+                    <p className="text-[11px] text-amber-600">กดเพื่อดูรายชื่อ · เพิ่มรายคน หรือเพิ่มทั้งหมด → คำนวณเงินตามวันทำงานจริง</p>
+                  </button>
+                  <button onClick={addAllResignedInPeriod} disabled={bulkAdding}
+                    className="shrink-0 flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-colors">
+                    {bulkAdding ? <Loader2 size={13} className="animate-spin"/> : <span className="text-sm leading-none">+</span>}
+                    เพิ่มทั้งหมด
+                  </button>
+                </div>
+                {/* dropdown รายชื่อ */}
+                {showResignedList && (
+                  <div className="border-t border-amber-200 bg-white/60 divide-y divide-amber-100 max-h-72 overflow-y-auto">
+                    {poolIn.map((e: any) => {
+                      const adding = addingEmpId === e.id
+                      return (
+                        <div key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-rose-100 grid place-items-center text-rose-600 font-bold text-xs shrink-0 overflow-hidden">
+                            {e.avatar_url ? <img src={e.avatar_url} alt="" className="w-full h-full object-cover"/> : (e.first_name_th?.[0] || "?")}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-slate-800 truncate">{fullName(e)}
+                              {e.was_probation && <span className="ml-1.5 text-[9px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full align-middle">ทดลองงาน</span>}
+                            </p>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {e.employee_code} · {e.department?.name || e.company?.code || "—"}
+                              <span className="text-rose-500 font-semibold"> · ลาออก {fmtDate(e.resign_date)}</span>
+                            </p>
+                          </div>
+                          <button onClick={() => addResignedToPeriod(e)} disabled={adding || bulkAdding}
+                            className="shrink-0 flex items-center gap-1 bg-white border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">
+                            {adding ? <Loader2 size={12} className="animate-spin"/> : <span className="leading-none">+</span>}
+                            เพิ่มในรอบนี้
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* ── Table ──────────────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -2995,6 +3112,7 @@ export default function PayrollPage() {
         const departments = Array.from(new Set(records.map((r: any) => r.employee?.department?.name).filter(Boolean))).sort() as string[]
         const txtFiltered = records.filter((r: any) => {
           if (isHiddenResigned(r)) return false
+          if (!passEmpStatus(r)) return false   // ยึด scope สถานะเดียวกับตาราง/Excel
           if (txtFilterDept && r.employee?.department?.name !== txtFilterDept) return false
           if (txtSearch) {
             const s = txtSearch.toLowerCase()
@@ -3031,6 +3149,7 @@ export default function PayrollPage() {
               <div className="bg-blue-600 px-5 py-4">
                 <h3 className="text-white font-bold">{t("admin.payroll.txt_modal_title")}</h3>
                 <p className="text-blue-200 text-xs">{t("admin.payroll.period_word")} {selected?.period_name || `${selected?.month}/${selected?.year}`} · {t("admin.payroll.count_people", { count: txtFiltered.length })} · ฿{Math.round(totalNet).toLocaleString("th-TH")}</p>
+                {empStatusLabel && <p className="mt-1 inline-flex items-center gap-1 bg-white/15 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">🔎 กรองสถานะ: {empStatusLabel}</p>}
               </div>
 
               {/* Filters */}
@@ -3128,7 +3247,7 @@ export default function PayrollPage() {
           }
           return true
         }
-        const matched = records.filter((r: any) => !isHiddenResigned(r)).filter(smartFilter)
+        const matched = records.filter((r: any) => !isHiddenResigned(r)).filter(passEmpStatus).filter(smartFilter)
         const finalList = matched.filter((r: any) => !smartExclude.has(r.employee?.id))
         const totalNetSmart = finalList.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).net, 0)
         const totalGrossSmart = finalList.reduce((s: number, r: any) => s + recomputePayroll(applyAutoProrate(r)).gross, 0)
@@ -3160,6 +3279,7 @@ export default function PayrollPage() {
                   <p className="text-emerald-100 text-[11px] mt-0.5">
                     {t("admin.payroll.period_word")} {periodLabel(selected)} · {t("admin.payroll.filtered_ratio", { shown: finalList.length, total: records.length })} · ฿{Math.round(totalNetSmart).toLocaleString("th-TH")}
                   </p>
+                  {empStatusLabel && <p className="mt-1 inline-flex items-center gap-1 bg-white/15 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">🔎 กรองสถานะ: {empStatusLabel}</p>}
                 </div>
                 <button onClick={() => setShowSmartExport(false)}
                   className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white">

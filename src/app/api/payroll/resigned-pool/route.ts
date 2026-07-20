@@ -36,7 +36,7 @@ export async function GET(req: Request) {
     let empQ = supa.from("employees")
       .select(`
         id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname, avatar_url, brand,
-        hire_date, resign_date, employment_status, is_active,
+        hire_date, resign_date, employment_status, is_active, probation_end_date,
         position:positions(id, name),
         department:departments(id, name),
         company:companies(id, code, name_th)
@@ -81,6 +81,8 @@ export async function GET(req: Request) {
       ...e,
       resigned_in_period: e.resign_date >= period.start_date && e.resign_date <= period.end_date,
       resigned_before:    e.resign_date < period.start_date,
+      // เคยเป็นพนักงานทดลองงาน: ยังทดลองงานอยู่ หรือ ลาออกก่อน/ระหว่างช่วงทดลองงาน
+      was_probation:      e.employment_status === "probation" || !!(e.probation_end_date && e.resign_date && e.resign_date <= e.probation_end_date),
     }))
     .sort((a: any, b: any) => {
       // คนลาออกในงวดขึ้นก่อน

@@ -43,29 +43,53 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── ดึงข้อมูลพนักงานทดลองงานทั้งหมด ──
-  let q = svc.from("employees")
-    .select(`id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en,
+  // ── สถานะที่ต้องการ: active (กำลังทดลองงาน) | resigned (ลาออกในช่วงทดลองงาน) | all ──
+  const status = (sp.get("status") || "active") as "active" | "resigned" | "all"
+
+  const EMP_SELECT = `id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en,
       nickname, email, phone, avatar_url, gender, birth_date,
-      hire_date, probation_end_date, employment_status, employment_type, is_active,
+      hire_date, probation_end_date, resign_date, employment_status, employment_type, is_active,
       company:companies(id, code, name_th),
       department:departments(id, name),
       position:positions(id, name),
-      branch:branches(id, name)`)
-    .eq("employment_status", "probation")
-    .eq("is_active", true)
-    .is("deleted_at", null)
-    .order("hire_date", { ascending: false })
-    .limit(500)
+      branch:branches(id, name)`
 
-  if (companyId) q = q.eq("company_id", companyId)
-  if (departmentId) q = q.eq("department_id", departmentId)
-  // ── Server-side filter ตาม range (เดิม client-side filter โดย hire_year/hire_month) ──
-  if (rangeStart) q = q.gte("hire_date", rangeStart)
-  if (rangeEnd)   q = q.lte("hire_date", rangeEnd)
+  // ── (1) พนักงานที่กำลังทดลองงานอยู่ (active) ──
+  let active: any[] = []
+  if (status === "active" || status === "all") {
+    let q = svc.from("employees").select(EMP_SELECT)
+      .eq("employment_status", "probation").eq("is_active", true)
+      .is("deleted_at", null).order("hire_date", { ascending: false }).limit(500)
+    if (companyId) q = q.eq("company_id", companyId)
+    if (departmentId) q = q.eq("department_id", departmentId)
+    if (rangeStart) q = q.gte("hire_date", rangeStart)   // กรองตามวันเริ่มงาน
+    if (rangeEnd)   q = q.lte("hire_date", rangeEnd)
+    const { data, error } = await q
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    active = data ?? []
+  }
 
-  const { data: employees, error } = await q
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  // ── (2) พนักงานที่ "ลาออกในช่วงทดลองงาน" (resigned) — กรองตามวันลาออกในรอบ ──
+  let resigned: any[] = []
+  if (status === "resigned" || status === "all") {
+    let rq = svc.from("employees").select(EMP_SELECT)
+      .not("probation_end_date", "is", null).not("resign_date", "is", null)
+      .in("employment_status", ["resigned", "terminated"])
+      .is("deleted_at", null).order("resign_date", { ascending: false }).limit(500)
+    if (companyId) rq = rq.eq("company_id", companyId)
+    if (departmentId) rq = rq.eq("department_id", departmentId)
+    if (rangeStart) rq = rq.gte("resign_date", rangeStart)   // ลาออกในรอบที่เลือก
+    if (rangeEnd)   rq = rq.lte("resign_date", rangeEnd)
+    const { data } = await rq
+    // เก็บเฉพาะคนที่ลาออกตอน "ยังไม่ผ่านทดลองงาน" (resign_date <= probation_end_date)
+    resigned = (data ?? [])
+      .filter((e: any) => e.resign_date <= e.probation_end_date)
+      .map((e: any) => ({ ...e, _resigned: true }))
+  }
+
+  const employees = status === "resigned" ? resigned
+    : status === "all" ? [...active, ...resigned]
+    : active
 
   // ── ดึง salary structures ──
   const empIds = (employees ?? []).map((e: any) => e.id)
@@ -149,7 +173,8 @@ export async function GET(req: NextRequest) {
         gross_this_month: payroll?.gross_income ?? null,
         hire_year: hire?.getFullYear() ?? null,
         hire_month: hire ? hire.getMonth() + 1 : null,
-        is_overdue_probation: prob && prob < today,
+        is_overdue_probation: !e._resigned && prob && prob < today,
+        resigned: !!e._resigned,
       },
     }
   })

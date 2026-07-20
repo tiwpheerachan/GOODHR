@@ -69,7 +69,7 @@ export async function GET(req: Request) {
     *,
     employee:employees(
       id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname,
-      avatar_url, brand, updated_at, hire_date, resign_date, employment_status,
+      avatar_url, brand, updated_at, hire_date, resign_date, employment_status, probation_end_date,
       position:positions(id, name),
       department:departments(id, name),
       company:companies(id, code, name_th)

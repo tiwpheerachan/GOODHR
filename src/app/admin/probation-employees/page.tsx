@@ -19,6 +19,7 @@ type Filters = {
   month?: number
   company_id?: string
   department_id?: string
+  status: "active" | "resigned" | "all"  // กำลังทดลองงาน / ลาออกในรอบ / ทั้งหมด
   search: string
 }
 
@@ -33,6 +34,7 @@ export default function AdminProbationEmployeesPage() {
     date_mode: "calendar",
     year: new Date().getFullYear(),
     month: new Date().getMonth() + 1,
+    status: "active",
     search: "",
   })
   const [selectedEmp, setSelectedEmp] = useState<any>(null)
@@ -47,6 +49,7 @@ export default function AdminProbationEmployeesPage() {
     }
     if (filters.company_id) params.set("company_id", filters.company_id)
     if (filters.department_id) params.set("department_id", filters.department_id)
+    if (filters.status && filters.status !== "active") params.set("status", filters.status)
     try {
       const res = await fetch(`/api/admin/probation-employees?${params}`)
       const d = await res.json()
@@ -56,7 +59,7 @@ export default function AdminProbationEmployeesPage() {
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [filters.scope, filters.date_mode, filters.year, filters.month, filters.company_id, filters.department_id])
+  useEffect(() => { load() }, [filters.scope, filters.date_mode, filters.year, filters.month, filters.company_id, filters.department_id, filters.status])
 
   const visibleEmployees = useMemo(() => {
     if (!data?.employees) return []
@@ -78,6 +81,8 @@ export default function AdminProbationEmployeesPage() {
       "บริษัท": e.company?.code || "",
       "แผนก": e.department?.name || "",
       "ตำแหน่ง": e.position?.name || "",
+      "สถานะ": e.resigned || e._derived?.resigned ? "ลาออกแล้ว" : "กำลังทดลองงาน",
+      "วันที่ลาออก": e.resign_date || "",
       "วันเริ่มงาน": e.hire_date,
       "วันสิ้นทดลองงาน": e.probation_end_date || "",
       "อายุงาน (วัน)": e._derived?.tenure_days || 0,
@@ -208,6 +213,13 @@ export default function AdminProbationEmployeesPage() {
           )}
 
           <div className="flex gap-2 flex-wrap items-center">
+            {/* สถานะ: กำลังทดลองงาน / ลาออกในรอบ / ทั้งหมด */}
+            <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value as Filters["status"] }))}
+              className={`border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-400 ${filters.status!=="active"?"bg-rose-50 border-rose-200 text-rose-700":"bg-slate-50 border-slate-200"}`}>
+              <option value="active">🟢 กำลังทดลองงาน</option>
+              <option value="resigned">🚪 ลาออกในรอบนี้</option>
+              <option value="all">📋 ทั้งหมด</option>
+            </select>
             <select value={filters.company_id || ""} onChange={e => setFilters(f => ({ ...f, company_id: e.target.value || undefined }))}
               className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:border-indigo-400 outline-none">
               <option value="">🏢 ทุกบริษัท</option>
@@ -421,6 +433,7 @@ function EmployeeDetailCard({ emp, onClick }: { emp: any; onClick: () => void })
           <p className="font-black text-sm text-slate-800 truncate leading-tight">
             {emp.first_name_th} {emp.last_name_th}
             {emp.nickname && <span className="text-slate-400 font-normal ml-1">({emp.nickname})</span>}
+            {(emp.resigned || d.resigned) && <span className="ml-1.5 align-middle text-[9px] font-bold bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full">🚪 ลาออก{emp.resign_date?` ${new Date(emp.resign_date).toLocaleDateString("th-TH",{day:"numeric",month:"short"})}`:""}</span>}
           </p>
           <p className="text-[10px] text-slate-500 truncate mt-0.5">
             {emp.employee_code} · {emp.position?.name || emp.department?.name || "—"}
