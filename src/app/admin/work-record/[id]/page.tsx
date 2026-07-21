@@ -79,6 +79,8 @@ export default function WorkRecordDetailPage() {
   const [managers, setManagers] = useState<Manager[]>([])
   const [monthDate, setMonthDate] = useState<Date>(new Date())
   const [recalculating, setRecalculating] = useState(false)
+  const [hrApproving, setHrApproving] = useState<string | null>(null)
+  const [bulkApproving, setBulkApproving] = useState(false)
   const [tab, setTab] = useState<Tab>("schedule")
 
   const [days, setDays] = useState<any[]>([])
@@ -219,6 +221,37 @@ export default function WorkRecordDetailPage() {
   }, [id, period.from, period.to])
 
   useEffect(() => { loadMonth() }, [loadMonth])
+
+  // ── HR อนุมัติ/ปลดล็อกเวลาทำงานรายวัน ──
+  const toggleHrApprove = async (workDate: string, approved: boolean) => {
+    setHrApproving(workDate)
+    try {
+      const res = await fetch("/api/work-record/hr-approve", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_id: id, work_dates: [workDate], approved }),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "ไม่สำเร็จ"); return }
+      toast.success(approved ? "✅ อนุมัติเวลาแล้ว (ล็อกการแก้/ขอลาวันนี้)" : "ปลดล็อกแล้ว")
+      await loadMonth()
+    } finally { setHrApproving(null) }
+  }
+  const bulkHrApprove = async (approved: boolean) => {
+    const dates = days.map((r: any) => r.work_date)
+    if (dates.length === 0) return
+    if (!confirm(approved ? `อนุมัติเวลาทั้งรอบ ${dates.length} วัน? (พนักงานจะแก้/ขอลาวันเหล่านี้ไม่ได้)` : `ปลดล็อกทั้งรอบ ${dates.length} วัน?`)) return
+    setBulkApproving(true)
+    try {
+      const res = await fetch("/api/work-record/hr-approve", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_id: id, work_dates: dates, approved }),
+      })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "ไม่สำเร็จ"); return }
+      toast.success(approved ? `✅ อนุมัติทั้งรอบแล้ว (${d.updated} วัน)` : "ปลดล็อกทั้งรอบแล้ว")
+      await loadMonth()
+    } finally { setBulkApproving(false) }
+  }
 
   // ── load documents tab data on demand ─────────────────────────────
   useEffect(() => {
@@ -376,6 +409,14 @@ export default function WorkRecordDetailPage() {
               คำนวณเวลาใหม่
             </button>
 
+            {/* HR อนุมัติเวลาทั้งรอบ */}
+            <button onClick={() => bulkHrApprove(true)} disabled={bulkApproving}
+              title="อนุมัติเวลาทั้งรอบ — ล็อกไม่ให้พนักงานขอแก้เวลา/ขอลาในวันเหล่านี้"
+              className="ml-1 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 disabled:opacity-60 flex items-center gap-1.5">
+              {bulkApproving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+              อนุมัติเวลาทั้งรอบ
+            </button>
+
             <div className="flex flex-wrap gap-2 ml-auto text-xs">
               <Pill color="emerald" label="มา" value={summary.present} />
               <Pill color="amber" label="สาย" value={summary.late} sub={summary.lateMin ? `${summary.lateMin} นาที` : undefined} />
@@ -398,11 +439,12 @@ export default function WorkRecordDetailPage() {
                     <Th>OT</Th>
                     <Th>การลางาน</Th>
                     <Th>หมายเหตุ</Th>
+                    <Th>อนุมัติเวลา (HR)</Th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
-                    <tr><td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                    <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-400">
                       <div className="flex items-center justify-center gap-2">
                         <div className="w-4 h-4 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
                         กำลังโหลด...
@@ -584,6 +626,22 @@ export default function WorkRecordDetailPage() {
                         {/* Note */}
                         <td className="px-3 py-2.5 text-[11px] text-slate-500 max-w-[160px] truncate">
                           {att?.note || ""}
+                        </td>
+                        {/* HR อนุมัติเวลาทำงานรายวัน (ล็อกพนักงานแก้/ขอลา) */}
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <button
+                            onClick={() => toggleHrApprove(row.work_date, !att?.hr_time_approved)}
+                            disabled={hrApproving === row.work_date}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition ${
+                              att?.hr_time_approved
+                                ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                            }`}
+                            title={att?.hr_time_approved ? "อนุมัติแล้ว — คลิกเพื่อปลดล็อก (พนักงานจะแก้/ขอลาได้)" : "คลิกเพื่ออนุมัติ (ล็อกไม่ให้พนักงานแก้เวลา/ขอลาวันนี้)"}>
+                            {hrApproving === row.work_date
+                              ? <Loader2 size={12} className="animate-spin" />
+                              : att?.hr_time_approved ? <><CheckCircle2 size={12} /> อนุมัติแล้ว</> : <>อนุมัติ</>}
+                          </button>
                         </td>
                       </tr>
                     )

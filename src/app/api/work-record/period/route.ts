@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
   // ── parallel fetch ────────────────────────────────────────────────
   const [attRes, assignRes, tplRes, profileRes, leaveRes, otRes, adjRes] = await Promise.all([
     svc.from("attendance_records")
-      .select("id, work_date, clock_in, clock_out, status, late_minutes, early_out_minutes, ot_minutes, work_minutes, note")
+      .select("id, work_date, clock_in, clock_out, status, late_minutes, early_out_minutes, ot_minutes, work_minutes, note, hr_time_approved, hr_time_approved_at")
       .eq("employee_id", employee_id).gte("work_date", from).lte("work_date", to)
       .order("work_date"),
 

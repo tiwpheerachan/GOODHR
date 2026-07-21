@@ -621,6 +621,13 @@ function AdjustModal({ record, onClose }: { record: any; onClose: () => void }) 
   const send = async () => {
     if (!reason.trim()) return toast.error("กรุณากรอกเหตุผล")
     setSaving(true)
+    // ── ล็อก: ถ้า HR อนุมัติเวลาวันนั้นแล้ว → ขอแก้ไม่ได้ ──
+    const { data: lockRow } = await supabase.from("attendance_records")
+      .select("hr_time_approved").eq("employee_id", user?.employee_id).eq("work_date", record.work_date).maybeSingle()
+    if (lockRow?.hr_time_approved) {
+      toast.error("วันนี้ HR อนุมัติเวลาแล้ว ไม่สามารถขอแก้ไขได้ — กรุณาติดต่อ HR/Admin")
+      setSaving(false); return
+    }
     const { error } = await supabase.from("time_adjustment_requests").insert({
       employee_id: user?.employee_id, company_id: user?.employee?.company_id,
       work_date: record.work_date, request_type: "time_adjustment",

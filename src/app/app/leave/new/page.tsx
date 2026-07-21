@@ -233,6 +233,15 @@ function LeaveNewInner() {
     setLoading(true)
     try {
       if (formType === "leave") {
+        // ── ล็อก: ถ้ามีวันไหนใน [start,end] ที่ HR อนุมัติเวลาแล้ว → ขอลาวันนั้นไม่ได้ ──
+        const { data: lockRows } = await supabase.from("attendance_records")
+          .select("work_date").eq("employee_id", empId).eq("hr_time_approved", true)
+          .gte("work_date", form.start_date).lte("work_date", form.end_date || form.start_date)
+        if (lockRows && lockRows.length > 0) {
+          const ds = lockRows.map((r: any) => r.work_date).join(", ")
+          setSubmitErr(`❌ HR อนุมัติเวลาทำงานวันที่ ${ds} แล้ว ไม่สามารถขอลาวันดังกล่าวได้ — กรุณาติดต่อ HR/Admin`)
+          setLoading(false); return
+        }
         const days = form.is_half_day
           ? 0.5
           : Math.ceil((new Date(form.end_date).getTime() - new Date(form.start_date).getTime()) / 86400000) + 1

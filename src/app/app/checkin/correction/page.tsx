@@ -111,6 +111,13 @@ export default function CorrectionPage() {
 
     setSubmitting(true)
     try {
+      // ── ล็อก: ถ้า HR อนุมัติเวลาวันนั้นแล้ว → ขอแก้ไม่ได้ ──
+      const { data: lockRow } = await supabase.from("attendance_records")
+        .select("hr_time_approved").eq("employee_id", empId).eq("work_date", selectedDate).maybeSingle()
+      if (lockRow?.hr_time_approved) {
+        toast.error("วันนี้ HR อนุมัติเวลาแล้ว ไม่สามารถขอแก้ไขได้ — กรุณาติดต่อ HR/Admin")
+        setSubmitting(false); return
+      }
       const outDate = form.clock_out_date || selectedDate
       const { error } = await supabase.from("time_adjustment_requests").insert({
         employee_id: empId,
