@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
   const from = sp.get("from"), to = sp.get("to")
   const templateId = sp.get("template_id")
   const companyId = sp.get("company_id")
+  const byEmployeeId = sp.get("by")   // กรองรายบุคคล (submitted_by)
 
   let q = svc.from("store_checklist_submissions").select(`
     id, dealer_id, submitted_by, submitter_name, dealer_name, visit_date, data, photos, lat, lng, location_name,
@@ -30,6 +31,7 @@ export async function GET(req: NextRequest) {
     .is("deleted_at", null)
   if (from) q = q.gte("visit_date", from)
   if (to) q = q.lte("visit_date", to)
+  if (byEmployeeId) q = q.eq("submitted_by", byEmployeeId)
   if (templateId) q = q.eq("template_id", templateId)
   if (companyId) q = q.eq("company_id", companyId)
   const { data: subs, error } = await q.order("visit_date", { ascending: false }).limit(3000)
@@ -42,7 +44,7 @@ export async function GET(req: NextRequest) {
   const { count: totalDealers } = await dq
 
   // ── coverage ──
-  const byEmp = new Map<string, { name: string; count: number }>()
+  const byEmp = new Map<string, { id: string; name: string; count: number }>()
   const byArea = new Map<string, number>()
   const byDate = new Map<string, number>()
   const dealerSet = new Set<string>()
@@ -50,13 +52,19 @@ export async function GET(req: NextRequest) {
   for (const r of rows) {
     if (r.dealer_id) dealerSet.add(r.dealer_id)
     const ek = r.submitted_by || "?"
-    const em = byEmp.get(ek) || { name: r.submitter_name || "—", count: 0 }
+    const em = byEmp.get(ek) || { id: ek, name: r.submitter_name || "—", count: 0 }
     em.count++; byEmp.set(ek, em)
     const area = (r.dealer as any)?.zone || (r.dealer as any)?.area || "ไม่ระบุ"
     byArea.set(area, (byArea.get(area) || 0) + 1)
     if (r.visit_date) byDate.set(r.visit_date, (byDate.get(r.visit_date) || 0) + 1)
     if (r.lat != null && r.lng != null)
-      gpsPoints.push({ id: r.id, lat: r.lat, lng: r.lng, dealer: r.dealer_name, date: r.visit_date })
+      gpsPoints.push({
+        id: r.id, lat: r.lat, lng: r.lng,
+        dealer: r.dealer_name || (r.dealer as any)?.name || "",
+        location_name: r.location_name || "",
+        by: r.submitter_name || "",
+        date: r.visit_date,
+      })
   }
 
   // ── competitor (จับกลุ่มตาม brand) ──

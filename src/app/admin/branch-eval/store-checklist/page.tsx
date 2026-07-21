@@ -91,12 +91,16 @@ function DashboardTab() {
   const [loading, setLoading] = useState(true)
   const [range, setRange] = useState(30)
   const [companyId, setCompanyId] = useState("")
+  const [byEmp, setByEmp] = useState("")            // กรองรายบุคคล
+  const [people, setPeople] = useState<any[]>([])   // รายชื่อผู้เข้าเยี่ยม (ไม่กรอง — ไว้ทำ dropdown)
   useEffect(() => {
     setLoading(true)
     const cq = companyId ? `&company_id=${companyId}` : ""
-    fetch(`/api/branch-eval/store-checklist/dashboard?from=${from}&to=${to}${cq}`).then(r => r.json())
-      .then(setD).finally(() => setLoading(false))
-  }, [from, to, companyId])
+    const bq = byEmp ? `&by=${byEmp}` : ""
+    fetch(`/api/branch-eval/store-checklist/dashboard?from=${from}&to=${to}${cq}${bq}`).then(r => r.json())
+      .then((res) => { setD(res); if (!byEmp) setPeople(res?.coverage?.byEmployee ?? []) })
+      .finally(() => setLoading(false))
+  }, [from, to, companyId, byEmp])
   const pick = (n: number) => { setRange(n); setFrom(daysAgo(n)); setTo(todayStr()) }
 
   const cov = d?.coverage
@@ -117,6 +121,15 @@ function DashboardTab() {
           <input type="date" value={to} onChange={e => { setTo(e.target.value); setRange(0) }} className="text-xs text-slate-600 outline-none w-28" />
         </div>
         <CompanySelect value={companyId} onChange={setCompanyId} />
+        {/* กรองรายบุคคล */}
+        <div className="flex items-center gap-1.5 bg-white rounded-xl border border-slate-200 px-2.5 py-1.5 shadow-sm">
+          <Users size={14} className="text-slate-400" />
+          <select value={byEmp} onChange={e => setByEmp(e.target.value)} className="text-xs text-slate-600 outline-none bg-transparent max-w-[150px]">
+            <option value="">ทุกคน</option>
+            {people.map((p: any) => <option key={p.id} value={p.id}>{p.name} ({p.count})</option>)}
+          </select>
+        </div>
+        {byEmp && <button onClick={() => setByEmp("")} className="text-[11px] text-teal-600 font-bold">ล้างตัวกรองคน</button>}
       </div>
 
       {loading && !d ? <DashSkeleton /> : !d ? null : (
@@ -133,8 +146,8 @@ function DashboardTab() {
 
             {/* แผนที่หมุด GPS */}
             {cov.gpsPoints.length > 0 && (
-              <Card title={`แผนที่จุดเข้าเยี่ยม (${cov.gpsPoints.length})`} icon={<MapIcon size={15} />}>
-                <StoreChecklistMap points={cov.gpsPoints} />
+              <Card title={`แผนที่จุดเข้าเยี่ยม (${cov.gpsPoints.length})${byEmp ? " · " + (people.find((p:any)=>p.id===byEmp)?.name || "") : ""}`} icon={<MapIcon size={15} />}>
+                <StoreChecklistMap points={cov.gpsPoints} height={360} />
               </Card>
             )}
 
@@ -374,9 +387,13 @@ function SubmissionModal({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
           {s.dealer && <div className="text-xs text-slate-500">{[s.dealer.store_type, s.dealer.zone, s.dealer.area].filter(Boolean).join(" / ")}</div>}
           {(s.lat != null) && (
-            <a href={`https://maps.google.com/?q=${s.lat},${s.lng}`} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-emerald-600 font-semibold bg-emerald-50 px-2.5 py-1.5 rounded-lg hover:bg-emerald-100">
-              <MapPin size={13} /> {s.location_name || "ดูตำแหน่งบนแผนที่"} <ExternalLink size={11} /></a>
+            <div>
+              <SectionLabel><MapPin size={13} /> ตำแหน่งที่เข้าตรวจ {s.location_name && <span className="text-teal-600">· {s.location_name}</span>}</SectionLabel>
+              <StoreChecklistMap points={[{ lat: s.lat, lng: s.lng, dealer: s.dealer_name, location_name: s.location_name, by: s.submitter_name, date: s.visit_date }]} height={240} />
+              <a href={`https://maps.google.com/?q=${s.lat},${s.lng}`} target="_blank" rel="noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-emerald-600 font-semibold bg-emerald-50 px-2.5 py-1.5 rounded-lg hover:bg-emerald-100">
+                <MapPin size={13} /> เปิดใน Google Maps <ExternalLink size={11} /></a>
+            </div>
           )}
           <DataView data={s.data} />
           {Array.isArray(s.photos) && s.photos.length > 0 && (

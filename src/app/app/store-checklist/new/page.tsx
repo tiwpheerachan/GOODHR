@@ -7,6 +7,7 @@ import {
   Paperclip, File as FileIcon, Download,
 } from "lucide-react"
 import { compressImage } from "@/lib/utils/image-compress"
+import { LocationPicker } from "@/components/StoreChecklistMap"
 
 type Tpl = { id: string; name: string; description?: string; config: any }
 type Dealer = {
@@ -289,7 +290,7 @@ function NewChecklistInner() {
         {/* GPS */}
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <label className="text-xs font-bold text-slate-500 flex items-center gap-1"><MapPin size={14} /> ตำแหน่ง (GPS)</label>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
             <button onClick={captureGps} disabled={gpsBusy}
               className={`px-3 py-2 rounded-xl text-sm font-bold flex items-center gap-1.5 ${gps ? "bg-emerald-50 text-emerald-700" : "bg-indigo-50 text-indigo-700"}`}>
               {gpsBusy ? <Loader2 size={15} className="animate-spin" /> : gps ? <Check size={15} /> : <MapPin size={15} />}
@@ -297,7 +298,13 @@ function NewChecklistInner() {
             </button>
             {gps && <span className="text-[11px] text-slate-500">{gps.lat.toFixed(5)}, {gps.lng.toFixed(5)}</span>}
           </div>
-          <input value={locName} onChange={e => setLocName(e.target.value)} placeholder="ชื่อสถานที่ (ไม่บังคับ)"
+          {/* แผนที่ปักหมุด — ลาก/แตะปรับได้ */}
+          {gps && (
+            <div className="mt-3">
+              <LocationPicker lat={gps.lat} lng={gps.lng} onChange={(la, ln) => setGps({ lat: la, lng: ln })} />
+            </div>
+          )}
+          <input value={locName} onChange={e => setLocName(e.target.value)} placeholder="ชื่อสถานที่ / ร้านที่ไปตรวจ (เช่น ICS ชั้น 7)"
             className="mt-2 w-full text-sm border rounded-xl px-3 py-2" />
         </div>
       </div>
