@@ -188,7 +188,7 @@ export async function PATCH(req: NextRequest) {
       if (payload.supervisor_id) {
         try {
           const newMgr = payload.supervisor_id
-          await supa.from("leave_requests").update({ manager_id: newMgr }).eq("employee_id", employee_id).eq("status", "pending")
+          // snapshot manager_id มีเฉพาะ resignation_requests (ตารางอื่น route ตามทีม dynamic)
           await supa.from("resignation_requests").update({ manager_id: newMgr }).eq("employee_id", employee_id).eq("status", "pending_manager")
           const [lv, ot, adj, off, res] = await Promise.all([
             supa.from("leave_requests").select("id", { count: "exact", head: true }).eq("employee_id", employee_id).eq("status", "pending"),

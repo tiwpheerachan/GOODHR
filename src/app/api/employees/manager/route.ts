@@ -70,10 +70,9 @@ export async function POST(req: Request) {
   await supa.from("employees").update({ kpi_evaluator_id: null }).eq("id", employee_id)
 
   // ── Step 5: โยนคำขอที่ค้างอยู่ไปหัวหน้าใหม่ + แจ้งเตือน ──
-  //   snapshot manager_id (leave/resignation) → หัวหน้าใหม่
-  //   (OT/ปรับเวลา/นอกสถานที่ route ตามทีม dynamic อยู่แล้ว — ย้ายอัตโนมัติ)
+  //   snapshot manager_id มีเฉพาะ resignation_requests → อัปเดตให้หัวหน้าใหม่
+  //   (ลา/OT/ปรับเวลา/นอกสถานที่ route ตามทีม dynamic อยู่แล้ว — ย้ายอัตโนมัติ)
   try {
-    await supa.from("leave_requests").update({ manager_id }).eq("employee_id", employee_id).eq("status", "pending")
     await supa.from("resignation_requests").update({ manager_id }).eq("employee_id", employee_id).eq("status", "pending_manager")
 
     const [lv, ot, adj, off, res] = await Promise.all([
