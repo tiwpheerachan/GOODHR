@@ -21,7 +21,12 @@ export async function POST(req: Request) {
 
     const supa = createServiceClient()
     const body = await req.json()
-    const { action, employee_id, resign_date, resign_reason, previous_status } = body
+    const { action, employee_id, resign_date, resign_reason, previous_status, separation_type } = body
+
+    // ประเภทการพ้นสภาพ → employment_status (terminated = เลิกจ้าง/ปลดออก, ที่เหลือ = resigned)
+    const TERMINATED_TYPES = ["dismissal_cause", "dismissal_nocause", "removal"]
+    const sepType: string | null = separation_type || null
+    const statusFromType = sepType && TERMINATED_TYPES.includes(sepType) ? "terminated" : "resigned"
 
     if (!employee_id) {
       return NextResponse.json({ error: "employee_id จำเป็น" }, { status: 400 })
@@ -42,29 +47,27 @@ export async function POST(req: Request) {
     // RESIGN — แจ้งลาออก
     // ════════════════════════════════════════════════════════
     if (action === "resign") {
-      if (emp.employment_status === "resigned") {
-        return NextResponse.json({ error: "พนักงานคนนี้ลาออกไปแล้ว" }, { status: 400 })
+      if (["resigned", "terminated"].includes(emp.employment_status)) {
+        return NextResponse.json({ error: "พนักงานคนนี้พ้นสภาพไปแล้ว" }, { status: 400 })
       }
 
       const effectiveDate = resign_date || new Date().toISOString().slice(0, 10)
 
-      // 1. อัปเดตสถานะพนักงาน → resigned + is_active = false
+      // 1. อัปเดตสถานะพนักงาน → resigned/terminated (ตามประเภท) + is_active = false
       const { error: updErr } = await supa.from("employees").update({
-        employment_status: "resigned",
+        employment_status: statusFromType,
         resign_date: effectiveDate,
         is_active: false,
       }).eq("id", employee_id)
 
       if (updErr) return NextResponse.json({ error: updErr.message }, { status: 400 })
 
-      // 1.5 เก็บเหตุผลล่าสุดบน employees ด้วย (เผื่อยังไม่ migrate column → error ก็ข้ามไป ไม่ล้ม flow)
-      if (resign_reason) {
-        await supa.from("employees").update({ resign_reason }).eq("id", employee_id)
-      }
+      // 1.5 เก็บเหตุผล + ประเภท (เผื่อยังไม่ migrate column → try แยกไม่ให้ล้ม flow)
+      if (resign_reason) { try { await supa.from("employees").update({ resign_reason }).eq("id", employee_id) } catch {} }
+      if (sepType)       { try { await supa.from("employees").update({ separation_type: sepType }).eq("id", employee_id) } catch {} }
 
       // 2. บันทึกประวัติการลาออก (ลงใน resignation_history)
-      // ถ้ามี table resignation_history ให้ insert — ถ้าไม่มีก็ข้ามไป
-      await supa.from("resignation_history").insert({
+      const histBase = {
         employee_id,
         company_id: emp.company_id,
         action: "resign",
@@ -72,7 +75,9 @@ export async function POST(req: Request) {
         reason: resign_reason || null,
         previous_status: emp.employment_status,
         performed_by: user.id,
-      })
+      }
+      const { error: hErr } = await supa.from("resignation_history").insert({ ...histBase, separation_type: sepType })
+      if (hErr) { await supa.from("resignation_history").insert(histBase) }  // fallback ถ้ายังไม่มี column separation_type
 
       // 3. ปิด auth user (disable login) — ป้องกันเข้าระบบ
       try {

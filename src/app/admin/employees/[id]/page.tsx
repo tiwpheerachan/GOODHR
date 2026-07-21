@@ -34,6 +34,17 @@ const PAYROLL_TAB_KEYS = ["tab_salary", "tab_payroll_summary"]
 
 const TAB_KEYS = ["tab_summary","tab_personal","tab_employment","tab_salary","tab_payroll_summary","tab_schedule","tab_checkin","tab_mgr_history","tab_roles","tab_leave_quota","tab_eval_chain","tab_brands","tab_feishu","tab_borrow","tab_resign","tab_discipline","tab_documents"]
 
+// ประเภทการพ้นสภาพพนักงาน (แจ้งลาออก) — terminated = เลิกจ้าง/ปลดออก, ที่เหลือ = resigned
+const SEPARATION_TYPES: { v: string; l: string; terminated?: boolean }[] = [
+  { v: "resignation",       l: "ลาออก" },
+  { v: "retirement",        l: "เกษียณอายุ" },
+  { v: "early_retire",      l: "เกษียณอายุก่อนกำหนด (Early retire)" },
+  { v: "death",             l: "เสียชีวิต" },
+  { v: "dismissal_nocause", l: "เลิกจ้าง (ไม่มีความผิด)", terminated: true },
+  { v: "dismissal_cause",   l: "เลิกจ้าง (มีความผิด)", terminated: true },
+  { v: "removal",           l: "ปลดออก", terminated: true },
+]
+
 const TAB_ICONS: Record<string, any> = {
   tab_summary: LayoutDashboard,
   tab_personal: User2,
@@ -100,6 +111,7 @@ export default function EmployeeDetailPage() {
   const [showResignModal, setShowResignModal] = useState(false)
   const [resignDate, setResignDate] = useState(format(new Date(),"yyyy-MM-dd"))
   const [resignReason, setResignReason] = useState("")
+  const [separationType, setSeparationType] = useState("resignation")
   const [resignLoading, setResignLoading] = useState(false)
   const [resignHistory, setResignHistory] = useState<any[]>([])
   const [showReinstateModal, setShowReinstateModal] = useState(false)
@@ -477,7 +489,7 @@ export default function EmployeeDetailPage() {
     try {
       const res = await fetch("/api/employees/resign", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "resign", employee_id: id, resign_date: resignDate, resign_reason: resignReason }),
+        body: JSON.stringify({ action: "resign", employee_id: id, resign_date: resignDate, resign_reason: resignReason, separation_type: separationType }),
       })
       const data = await res.json()
       if (!res.ok) { toast.error(data.error || t("admin.emp_detail.toast_error")); return }
@@ -1712,7 +1724,16 @@ export default function EmployeeDetailPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.resign_effective_date_req")}</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">ประเภทการพ้นสภาพ</label>
+                <select value={separationType} onChange={e => setSeparationType(e.target.value)} className={inp}>
+                  {SEPARATION_TYPES.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
+                </select>
+                {SEPARATION_TYPES.find(s => s.v === separationType)?.terminated && (
+                  <p className="text-[11px] text-red-500 mt-1">สถานะจะเป็น "เลิกจ้าง" (terminated)</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.resign_effective_date_req")} (วันที่มีผล)</label>
                 <input type="date" value={resignDate} onChange={e => setResignDate(e.target.value)} className={inp}/>
               </div>
               <div>
