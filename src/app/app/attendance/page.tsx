@@ -8,7 +8,7 @@ import {
   ChevronLeft, ChevronRight, Clock, LogIn, LogOut,
   AlertTriangle, TrendingDown, Info, FileEdit, CalendarClock,
   XCircle, CalendarDays, CheckCircle2, Plane, Home, ArrowLeft,
-  Flame, BarChart3, Timer,
+  Flame, BarChart3, Timer, Lock,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -628,6 +628,7 @@ export default function AttendancePage() {
                     {isAbsent && !lateMin && !earlyOutMin && <span className="flex items-center gap-1 text-[10px] font-black text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full"><XCircle size={8} />ขาดงาน</span>}
                     {isLeave && isVirtual && <span className="flex items-center gap-1 text-[10px] font-black text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-full"><Plane size={8} />{r.leave_type_name || "ลา"}</span>}
                     {(r.ot_minutes || 0) > 0 && <span className="text-[10px] font-black text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-full">OT {r.ot_minutes}น.</span>}
+                    {r.hr_time_approved && <span className="flex items-center gap-1 text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full"><Lock size={8} />HR อนุมัติแล้ว</span>}
                   </div>
                 </div>
 
@@ -639,18 +640,26 @@ export default function AttendancePage() {
                   </div>
                 )}
 
-                {/* actions */}
+                {/* actions — ถ้า HR อนุมัติเวลาแล้ว = ล็อก (ซ่อนปุ่ม + ขึ้นป้าย) */}
                 {showActions && (
-                  <div className={`flex divide-x ${isAbsent ? "border-t border-red-100 divide-red-100" : "border-t border-slate-100 divide-slate-100"}`}>
-                    <Link href={`/app/leave/new?type=adjustment&date=${r.work_date}`}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-black text-indigo-600 hover:bg-indigo-50 transition-colors">
-                      <FileEdit size={11} /> ขอแก้ไขเวลา
-                    </Link>
-                    <Link href={`/app/leave/new?type=leave&date=${r.work_date}`}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-black text-violet-600 hover:bg-violet-50 transition-colors">
-                      <CalendarClock size={11} /> ยื่นใบลา
-                    </Link>
-                  </div>
+                  r.hr_time_approved ? (
+                    <div className="border-t border-emerald-100 bg-emerald-50/60 py-2.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-700">
+                        <Lock size={11} /> HR อนุมัติเวลาแล้ว — แก้ไข/ลาวันนี้ไม่ได้ (ติดต่อ HR/Admin)
+                      </span>
+                    </div>
+                  ) : (
+                    <div className={`flex divide-x ${isAbsent ? "border-t border-red-100 divide-red-100" : "border-t border-slate-100 divide-slate-100"}`}>
+                      <Link href={`/app/leave/new?type=adjustment&date=${r.work_date}`}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-black text-indigo-600 hover:bg-indigo-50 transition-colors">
+                        <FileEdit size={11} /> ขอแก้ไขเวลา
+                      </Link>
+                      <Link href={`/app/leave/new?type=leave&date=${r.work_date}`}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-black text-violet-600 hover:bg-violet-50 transition-colors">
+                        <CalendarClock size={11} /> ยื่นใบลา
+                      </Link>
+                    </div>
+                  )
                 )}
               </div>
             )

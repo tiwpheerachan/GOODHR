@@ -262,6 +262,13 @@ function LeaveNewInner() {
         setTimeout(() => router.push("/app/leave"), 1200)
 
       } else if (formType === "adjustment") {
+        // ── ล็อก: HR อนุมัติเวลาวันนั้นแล้ว → ขอแก้ไม่ได้ ──
+        const { data: lockRow } = await supabase.from("attendance_records")
+          .select("hr_time_approved").eq("employee_id", empId).eq("work_date", form.work_date).maybeSingle()
+        if (lockRow?.hr_time_approved) {
+          setSubmitErr("❌ HR อนุมัติเวลาทำงานวันนี้แล้ว ไม่สามารถขอแก้ไขได้ — กรุณาติดต่อ HR/Admin")
+          setLoading(false); return
+        }
         const { error } = await supabase.from("time_adjustment_requests").insert({
           employee_id: empId, company_id: companyId,
           work_date: form.work_date, request_type: "time_adjustment",
