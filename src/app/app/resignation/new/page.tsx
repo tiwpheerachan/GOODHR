@@ -184,6 +184,14 @@ export default function ResignationNewPage() {
     try {
       // ต่อยอดจากแถวคำขอที่ HR เปิดสิทธิ์แล้ว (intent_approved) → กรอกฟอร์มเต็ม → รอหัวหน้าอนุมัติ
       if (!intentRow?.id) { toast.error("ไม่พบสิทธิ์การลาออก กรุณายื่นคำขอใหม่"); setSubmitting(false); return }
+      // ── หา "หัวหน้าปัจจุบัน" จาก history ก่อน (fallback = supervisor_id) กันชี้หัวหน้าเก่า ──
+      let currentManagerId: string | null = null
+      {
+        const { data: mh } = await supabase.from("employee_manager_history")
+          .select("manager_id").eq("employee_id", emp.id).is("effective_to", null)
+          .order("effective_from", { ascending: false }).limit(1).maybeSingle()
+        currentManagerId = mh?.manager_id ?? emp.supervisor_id ?? emp.manager_id ?? null
+      }
       const { error } = await supabase.from("resignation_requests").update({
         last_work_date: lastWorkDate,
         effective_date: effectiveDate,
@@ -199,12 +207,12 @@ export default function ResignationNewPage() {
         },
         assets:         { items: assets, notes: assetNotes, deduct_amount: deductAmount || 0 },
         status:         "pending_manager",
-        manager_id:     emp.manager_id ?? null,
+        manager_id:     currentManagerId,
       }).eq("id", intentRow.id)
       if (error) throw error
-      if (emp.manager_id) {
+      if (currentManagerId) {
         await supabase.from("notifications").insert({
-          employee_id: emp.manager_id,
+          employee_id: currentManagerId,
           type:        "resignation",
           title:       `${emp.first_name_th} ${emp.last_name_th} ยื่นใบลาออก`,
           body:        `วันสุดท้าย ${format(new Date(lastWorkDate), "d MMM yyyy", { locale: th })}`,

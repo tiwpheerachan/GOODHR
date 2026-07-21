@@ -52,10 +52,15 @@ function ManagerLayoutInner({ children }: { children: React.ReactNode }) {
       // ── ดึง team IDs ของหัวหน้า (ถ้าไม่ใช่ admin) ────────────
       let teamIds: string[] = []
       if (!isAdmin && empId) {
-        const { data: teamRows } = await supabase
-          .from("employee_manager_history").select("employee_id")
-          .eq("manager_id", empId).is("effective_to", null)
-        teamIds = (teamRows ?? []).map((r: any) => String(r.employee_id))
+        // safety-net: รวมทีมจาก history active + employees.supervisor_id (กัน drift ตอนเปลี่ยนหัวหน้า)
+        const [{ data: histRows }, { data: supRows }] = await Promise.all([
+          supabase.from("employee_manager_history").select("employee_id").eq("manager_id", empId).is("effective_to", null),
+          supabase.from("employees").select("id").eq("supervisor_id", empId),
+        ])
+        const set = new Set<string>()
+        ;(histRows ?? []).forEach((r: any) => set.add(String(r.employee_id)))
+        ;(supRows ?? []).forEach((r: any) => set.add(String(r.id)))
+        teamIds = Array.from(set)
       }
 
       // ── นับ pending เฉพาะลูกทีม (หรือทั้งบริษัทถ้า admin) ──

@@ -100,10 +100,16 @@ export default function ApprovalsPage() {
 
       let teamIds: string[] = []
       if (!useCompanyWide && empId) {
-        const { data: teamRows } = await supabase
-          .from("employee_manager_history").select("employee_id")
-          .eq("manager_id", empId).is("effective_to", null)
-        teamIds = (teamRows ?? []).map((r: any) => String(r.employee_id))
+        // safety-net: รวมทีมจาก 2 แหล่ง (history active + employees.supervisor_id)
+        //   กันเคสเปลี่ยนหัวหน้าแล้ว 2 แหล่ง drift → งานค้างหัวหน้าใหม่ไม่เห็น
+        const [{ data: histRows }, { data: supRows }] = await Promise.all([
+          supabase.from("employee_manager_history").select("employee_id").eq("manager_id", empId).is("effective_to", null),
+          supabase.from("employees").select("id").eq("supervisor_id", empId),
+        ])
+        const set = new Set<string>()
+        ;(histRows ?? []).forEach((r: any) => set.add(String(r.employee_id)))
+        ;(supRows ?? []).forEach((r: any) => set.add(String(r.id)))
+        teamIds = Array.from(set)
       }
 
       const fetchPending = async (table: string, selectStr: string) => {
@@ -206,9 +212,14 @@ export default function ApprovalsPage() {
 
     let teamIds: string[] = []
     if (!useCompanyWide && empId) {
-      const { data: teamRows } = await supabase.from("employee_manager_history")
-        .select("employee_id").eq("manager_id", empId).is("effective_to", null)
-      teamIds = (teamRows ?? []).map((r: any) => String(r.employee_id))
+      const [{ data: histRows }, { data: supRows }] = await Promise.all([
+        supabase.from("employee_manager_history").select("employee_id").eq("manager_id", empId).is("effective_to", null),
+        supabase.from("employees").select("id").eq("supervisor_id", empId),
+      ])
+      const set = new Set<string>()
+      ;(histRows ?? []).forEach((r: any) => set.add(String(r.employee_id)))
+      ;(supRows ?? []).forEach((r: any) => set.add(String(r.id)))
+      teamIds = Array.from(set)
     }
 
     const countQuery = (table: string, statusField = "pending") => {

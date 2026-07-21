@@ -184,6 +184,32 @@ export async function PATCH(req: NextRequest) {
       // (override จะตั้งใหม่ได้ที่หน้าตั้งค่าผู้ประเมิน KPI)
       await supa.from("employees").update({ kpi_evaluator_id: null }).eq("id", employee_id)
 
+      // ── โยนคำขอที่ค้างไปหัวหน้าใหม่ + แจ้งเตือน (เหมือน /api/employees/manager) ──
+      if (payload.supervisor_id) {
+        try {
+          const newMgr = payload.supervisor_id
+          await supa.from("leave_requests").update({ manager_id: newMgr }).eq("employee_id", employee_id).eq("status", "pending")
+          await supa.from("resignation_requests").update({ manager_id: newMgr }).eq("employee_id", employee_id).eq("status", "pending_manager")
+          const [lv, ot, adj, off, res] = await Promise.all([
+            supa.from("leave_requests").select("id", { count: "exact", head: true }).eq("employee_id", employee_id).eq("status", "pending"),
+            supa.from("overtime_requests").select("id", { count: "exact", head: true }).eq("employee_id", employee_id).eq("status", "pending"),
+            supa.from("time_adjustment_requests").select("id", { count: "exact", head: true }).eq("employee_id", employee_id).eq("status", "pending"),
+            supa.from("offsite_checkin_requests").select("id", { count: "exact", head: true }).eq("employee_id", employee_id).eq("status", "pending"),
+            supa.from("resignation_requests").select("id", { count: "exact", head: true }).eq("employee_id", employee_id).eq("status", "pending_manager"),
+          ])
+          const totalPending = (lv.count ?? 0) + (ot.count ?? 0) + (adj.count ?? 0) + (off.count ?? 0) + (res.count ?? 0)
+          if (totalPending > 0) {
+            const { data: emp } = await supa.from("employees").select("first_name_th, last_name_th").eq("id", employee_id).maybeSingle()
+            const who = emp ? `${emp.first_name_th} ${emp.last_name_th}` : "พนักงาน"
+            await supa.from("notifications").insert({
+              employee_id: newMgr, type: "approval",
+              title: `คุณได้รับมอบหมายดูแล ${who}`,
+              body: `มีคำขอค้างรออนุมัติ ${totalPending} รายการ — เข้าไปที่หน้าอนุมัติ`,
+            })
+          }
+        } catch (e) { console.error("Transfer pending (org) error:", e) }
+      }
+
       // ดึงชื่อหัวหน้าใหม่ + ชื่อพนักงาน สำหรับ audit log
       const { data: newManager } = payload.supervisor_id
         ? await supa.from("employees").select("first_name_th, last_name_th").eq("id", payload.supervisor_id).single()
