@@ -23,6 +23,9 @@ export async function GET(req: NextRequest) {
   const s = svc()
   const p = req.nextUrl.searchParams
   const companyId = p.get("company_id")
+  // offsite ค้าง pending สะสมมาก (flow ไม่ค่อยกดอนุมัติ) → นับเฉพาะที่สร้างใน N วันล่าสุด
+  const offsiteDays = Math.max(0, parseInt(p.get("offsite_days") || "3") || 3)
+  const offsiteCutoff = new Date(Date.now() - offsiteDays * 86_400_000).toISOString()
 
   // filter หัวหน้า (ถ้าระบุ)
   let onlyManager: EmpLite | null = null
@@ -40,6 +43,7 @@ export async function GET(req: NextRequest) {
   for (const src of SOURCES) {
     let q = s.from(src.table).select("*").eq("status", "pending").limit(2000)
     if (companyId) q = q.eq("company_id", companyId)
+    if (src.type === "offsite") q = q.gte("created_at", offsiteCutoff)
     const { data, error } = await q
     if (error) continue // ตารางอาจไม่มีในบางระบบ → ข้าม
     for (const r of data ?? []) {

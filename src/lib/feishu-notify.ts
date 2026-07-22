@@ -124,3 +124,39 @@ export async function teamMemberIds(s: any, managerId: string): Promise<string[]
     .is("effective_to", null)
   return Array.from(new Set((data ?? []).map((r: any) => r.employee_id).filter(Boolean)))
 }
+
+// ── utils ที่ใช้ร่วมในหลาย endpoint ──
+export function chunk<T>(arr: T[], n: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n))
+  return out
+}
+// "HH:MM[:SS]" → นาทีจากเที่ยงคืน (null ถ้าพาร์สไม่ได้)
+export function toMin(hhmm?: string | null): number | null {
+  if (!hhmm) return null
+  const m = /^(\d{1,2}):(\d{2})/.exec(hhmm)
+  return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : null
+}
+// เวลาปัจจุบันเป็นนาที (โซนไทย)
+export function nowMinTH(): number {
+  const th = new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Bangkok", hour12: false })
+  return toMin(th) ?? 0
+}
+
+// ── หา HR/Admin (role hr_admin|super_admin) ที่ผูก Feishu → EmpLite[] ──
+export async function hrRecipients(s: any, companyId?: string | null): Promise<EmpLite[]> {
+  const { data: us } = await s.from("users")
+    .select("employee_id, role")
+    .in("role", ["hr_admin", "super_admin"])
+  const ids = Array.from(new Set((us ?? []).map((u: any) => u.employee_id).filter(Boolean)))
+  if (ids.length === 0) return []
+  const out: EmpLite[] = []
+  for (const c of chunk(ids as string[], 300)) {
+    let q = s.from("employees").select(EMP_FIELDS).in("id", c)
+      .not("employment_status", "in", "(resigned,terminated)")
+    if (companyId) q = q.eq("company_id", companyId)
+    const { data } = await q
+    out.push(...((data ?? []) as unknown as EmpLite[]))
+  }
+  return out
+}
