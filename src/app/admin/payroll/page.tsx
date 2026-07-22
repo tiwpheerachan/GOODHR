@@ -1852,7 +1852,17 @@ function PayslipModal({ record, onClose, onEdit, onRefresh }: { record: any; onC
           {/* รายหัก */}
           <div className="bg-slate-50 rounded-xl overflow-hidden">
             <div className="px-4 py-2 bg-red-50"><p className="text-[10px] font-black text-red-800 uppercase tracking-wide">{t("admin.payroll.group_deduction")}</p></div>
-            {record.deduct_absent > 0 && <Row l={t("admin.payroll.ps_deduct_absent_days", { days: record.absent_days })} v={record.deduct_absent} neg/>}
+            {/* หักขาดงาน + ลาไม่รับเงิน แยกแสดง (deduct_absent รวม 2 อย่างไว้ในช่องเดียว) */}
+            {(() => {
+              const unpaidDays = Number(record.leave_unpaid_days) || 0
+              const absentDays = Number(record.absent_days) || 0
+              const unpaidDed = Math.round((base / 30) * unpaidDays * 100) / 100
+              const absentDed = Math.max(0, (Number(record.deduct_absent) || 0) - unpaidDed)
+              return (<>
+                {absentDed > 0 && <Row l={t("admin.payroll.ps_deduct_absent_days", { days: absentDays })} v={absentDed} neg/>}
+                {unpaidDed > 0 && <Row l={t("admin.payroll.ps_deduct_unpaid_days", { days: unpaidDays })} v={unpaidDed} neg/>}
+              </>)
+            })()}
             {record.deduct_late   > 0 && <Row l={t("admin.payroll.f_deduct_late")} v={record.deduct_late} neg/>}
             {record.deduct_early_out > 0 && <Row l={t("admin.payroll.f_deduct_early_out")} v={record.deduct_early_out} neg/>}
             {record.deduct_loan   > 0 && <Row l={t("admin.payroll.f_deduct_loan")} v={record.deduct_loan} neg/>}
@@ -1901,7 +1911,16 @@ function PayslipModal({ record, onClose, onEdit, onRefresh }: { record: any; onC
               {(record.ot_holiday_reg_minutes||0) > 0 && <p>OT 1.0×: {thb(base/30/8)} × 1.0 × {((record.ot_holiday_reg_minutes)/60).toFixed(2)}h = ฿{thb(base/30/8*1.0*record.ot_holiday_reg_minutes/60)}</p>}
               {(record.ot_holiday_ot_minutes||0)  > 0 && <p>OT 3.0×: {thb(base/30/8)} × 3.0 × {((record.ot_holiday_ot_minutes)/60).toFixed(2)}h = ฿{thb(base/30/8*3.0*record.ot_holiday_ot_minutes/60)}</p>}
               {record.deduct_late   > 0 && <p>{t("admin.payroll.formula_late")}: ROUND({ratePerMin.toFixed(4)} × {t("admin.payroll.minute_unit")}, 0) = ฿{thb(record.deduct_late)}</p>}
-              {record.deduct_absent > 0 && <p>{t("admin.payroll.formula_absent_days", { rate: thb(base/30), days: record.absent_days, amount: thb(record.deduct_absent) })}</p>}
+              {(() => {
+                const unpaidDays = Number(record.leave_unpaid_days) || 0
+                const absentDays = Number(record.absent_days) || 0
+                const unpaidDed = Math.round((base / 30) * unpaidDays * 100) / 100
+                const absentDed = Math.max(0, (Number(record.deduct_absent) || 0) - unpaidDed)
+                return (<>
+                  {absentDed > 0 && <p>{t("admin.payroll.formula_absent_days", { rate: thb(base/30), days: absentDays, amount: thb(absentDed) })}</p>}
+                  {unpaidDed > 0 && <p>{t("admin.payroll.formula_unpaid_days", { rate: thb(base/30), days: unpaidDays, amount: thb(unpaidDed) })}</p>}
+                </>)
+              })()}
             </div>
           </details>
         </div>

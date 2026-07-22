@@ -605,9 +605,17 @@ export default function SalaryPage() {
                     {tax>0    && <DeductRow label="ภาษีหัก ณ ที่จ่าย"  value={tax}    icon={<Receipt size={11} className="text-violet-400"/>}/>}
                     {dLate>0  && <DeductRow label={`หักมาสาย (${r.late_count??0} ครั้ง)`} value={dLate}  icon={<Clock size={11} className="text-amber-500"/>} color="text-amber-700"/>}
                     {dEarly>0 && <DeductRow label="หักออกก่อนกำหนด"     value={dEarly} icon={<TrendingDown size={11} className="text-orange-400"/>} color="text-orange-600"/>}
-                    {dAbsent>0&& <DeductRow label={`หักขาดงาน (${r.absent_days??0} วัน)`} value={dAbsent} icon={<UserX size={11} className="text-red-400"/>} color="text-red-600"/>}
+                    {/* deduct_absent รวม "ขาดงาน + ลาไม่รับเงิน" ไว้ช่องเดียว → แยกแสดงให้ถูก */}
+                    {(() => {
+                      const unpaidDed = Math.round((Number(r?.base_salary || 0) / 30) * leaveUnpaid * 100) / 100
+                      const absentDedOnly = Math.max(0, dAbsent - unpaidDed)
+                      return (<>
+                        {absentDedOnly > 0 && <DeductRow label={`หักขาดงาน (${r.absent_days??0} วัน)`} value={absentDedOnly} icon={<UserX size={11} className="text-red-400"/>} color="text-red-600"/>}
+                        {unpaidDed > 0 && <DeductRow label={`หักลาไม่รับเงิน (${leaveUnpaid} วัน)`} value={unpaidDed} icon={<UserX size={11} className="text-red-400"/>} color="text-red-600"/>}
+                      </>)
+                    })()}
                     {dLoan>0  && <DeductRow label="หักเงินกู้"           value={dLoan}  icon={<Banknote size={11} className="text-slate-400"/>}/>}
-                    {dOther>0 && <DeductRow label={leaveUnpaid > 0 ? `หักลาไม่ได้เงิน (${leaveUnpaid} วัน)` : "หักอื่นๆ"} value={dOther} icon={<Minus size={11} className="text-slate-400"/>}/>}
+                    {dOther>0 && <DeductRow label="หักอื่นๆ" value={dOther} icon={<Minus size={11} className="text-slate-400"/>}/>}
                     {deductExtras.map((ex: any, i: number) => (
                       <DeductRow key={`de-${i}`} label={ex.name || `หักเพิ่มเติม ${i+1}`} value={Number(ex.amount) || 0} icon={<Minus size={11} className="text-slate-400"/>}/>
                     ))}
