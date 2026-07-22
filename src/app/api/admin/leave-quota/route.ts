@@ -39,13 +39,18 @@ export async function GET(req: NextRequest) {
     if (data) allBalances = allBalances.concat(data)
   }
 
-  // 3) Leave types (per company)
-  const companyIds = Array.from(new Set(employees.map((e: any) => e.company_id)))
-  const { data: leaveTypes } = await supa.from("leave_types")
-    .select("id, name, company_id, color_hex, is_paid, is_active")
-    .in("company_id", companyIds)
-    .eq("is_active", true)
-    .order("name")
+  // 3) Leave types — ดึงทั้ง (ก) ตามบริษัทพนักงาน และ (ข) ตาม type_id ที่ balance อ้างถึง
+  //    (บางบริษัท เช่น Hashtag มี balance ที่อิง leave_type ของบริษัทอื่น → ต้อง resolve ข้ามบริษัท)
+  const companyIds = Array.from(new Set(employees.map((e: any) => e.company_id).filter(Boolean)))
+  const balTypeIds = Array.from(new Set(allBalances.map((b: any) => b.leave_type_id).filter(Boolean)))
+  const SEL = "id, name, company_id, color_hex, is_paid, is_active"
+  const [ltCo, ltById] = await Promise.all([
+    supa.from("leave_types").select(SEL).in("company_id", companyIds),
+    balTypeIds.length ? supa.from("leave_types").select(SEL).in("id", balTypeIds) : Promise.resolve({ data: [] as any[] }),
+  ])
+  const ltMap = new Map<string, any>()
+  for (const t of [...(ltCo.data ?? []), ...((ltById as any).data ?? [])]) ltMap.set(t.id, t)
+  const leaveTypes = Array.from(ltMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "", "th"))
 
   // 4) Leave requests (approved) — แสดงว่าลาไปวันไหนบ้าง
   let allLeaveReqs: any[] = []

@@ -86,12 +86,28 @@ export default function LeaveQuotaPage() {
     })
   }, [leaveTypes, selectedCo, userCompanyId, isSuperAdmin])
 
-  // ── Core 3 leave types for table header ──
-  const coreTypes = useMemo(() => {
-    return mainLeaveTypes.filter(lt =>
-      ["ลาป่วย", "ลากิจ", "ลาพักร้อน"].includes(lt.name)
-    )
-  }, [mainLeaveTypes])
+  // ── หมวดหลัก 3 คอลัมน์ (คงที่) + จับคู่ด้วยคีย์เวิร์ด (รองรับชื่อต่างบริษัท) ──
+  const CORE_CATS = useMemo(() => ([
+    { key: "sick",     label: "ลาป่วย",    color: "#ef4444", id: "cat_sick" },
+    { key: "personal", label: "ลากิจ",     color: "#f59e0b", id: "cat_personal" },
+    { key: "vacation", label: "ลาพักร้อน", color: "#10b981", id: "cat_vacation" },
+  ]), [])
+  const catOf = (name?: string): string | null => {
+    const n = name || ""
+    if (/ป่วย|sick/i.test(n)) return "sick"
+    if (/พักร้อน|พักผ่อน|annual|vacation/i.test(n)) return "vacation"
+    if (/กิจ|personal|business/i.test(n)) return "personal"
+    return null
+  }
+  // หา balance ของพนักงานตามหมวด (resolve leave_type ข้ามบริษัทได้ ผ่าน leaveTypes ที่รวม type ของ balance)
+  const getBalanceByCategory = (empId: string, cat: string): Balance | undefined => {
+    const empBalances = balances.filter(b => b.employee_id === empId)
+    for (const b of empBalances) {
+      const lt = leaveTypes.find(t => t.id === b.leave_type_id)
+      if (lt && catOf(lt.name) === cat) return b
+    }
+    return undefined
+  }
 
   // ── Search & filter ──
   const filtered = useMemo(() => {
@@ -106,17 +122,6 @@ export default function LeaveQuotaPage() {
   }, [employees, search])
 
   // ── Balance lookup helper ──
-  // When viewing "all companies", each company has its own leave_type_ids
-  // So we need to match by leave type NAME for the employee's company
-  const getBalanceByName = (empId: string, ltName: string): Balance | undefined => {
-    const emp = employees.find(e => e.id === empId)
-    if (!emp) return undefined
-    // Find the leave type with this name for the employee's company
-    const lt = leaveTypes.find(t => t.name === ltName && t.company_id === emp.company_id)
-    if (!lt) return undefined
-    return balances.find(b => b.employee_id === empId && b.leave_type_id === lt.id)
-  }
-
   const getBalance = (empId: string, ltId: string): Balance | undefined =>
     balances.find(b => b.employee_id === empId && b.leave_type_id === ltId)
 
@@ -276,11 +281,11 @@ export default function LeaveQuotaPage() {
                 <tr className="bg-slate-50 border-b border-slate-100">
                   <th className="sticky left-0 bg-slate-50 z-30 px-4 py-3 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wide min-w-[200px]">พนักงาน</th>
                   <th className="sticky left-[200px] bg-slate-50 z-30 px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wide min-w-[120px]">แผนก</th>
-                  {coreTypes.map(lt => (
+                  {CORE_CATS.map(lt => (
                     <th key={lt.id} className="px-2 py-3 text-center" colSpan={3}>
                       <div className="flex items-center justify-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: lt.color_hex || "#3b82f6" }} />
-                        <span className="text-[10px] font-bold text-slate-600 uppercase">{lt.name}</span>
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: lt.color }} />
+                        <span className="text-[10px] font-bold text-slate-600 uppercase">{lt.label}</span>
                       </div>
                     </th>
                   ))}
@@ -290,7 +295,7 @@ export default function LeaveQuotaPage() {
                 <tr className="bg-slate-50/50 border-b border-slate-100">
                   <th className="sticky left-0 bg-slate-50/50 z-30" />
                   <th className="sticky left-[200px] bg-slate-50/50 z-30" />
-                  {coreTypes.map(lt => (
+                  {CORE_CATS.map(lt => (
                     <React.Fragment key={lt.id + "_sub"}>
                       <th className="px-1.5 py-1.5 text-[9px] font-bold text-slate-400 text-center">โควต้า</th>
                       <th className="px-1.5 py-1.5 text-[9px] font-bold text-slate-400 text-center">ใช้</th>
@@ -305,10 +310,10 @@ export default function LeaveQuotaPage() {
                 {filtered.map((emp, idx) => {
                   const isExpanded = expandedEmp === emp.id
                   const empBalances = balances.filter(b => b.employee_id === emp.id)
-                  const coreNames = ["ลาป่วย", "ลากิจ", "ลาพักร้อน"]
+                  // "อื่นๆ" = balance ที่ไม่เข้าหมวดหลัก 3 (ป่วย/กิจ/พักร้อน) ตามคีย์เวิร์ด
                   const otherBalances = empBalances.filter(b => {
                     const lt = leaveTypes.find(t => t.id === b.leave_type_id)
-                    return !lt || !coreNames.includes(lt.name)
+                    return !lt || !catOf(lt.name)
                   })
                   const hasOther = otherBalances.length > 0
 
@@ -330,8 +335,8 @@ export default function LeaveQuotaPage() {
                           </div>
                         </td>
                         <td className="sticky left-[200px] bg-inherit z-10 px-3 py-3 text-xs text-slate-500 whitespace-nowrap">{emp.department?.name || "—"}</td>
-                        {coreTypes.map(lt => {
-                          const b = getBalanceByName(emp.id, lt.name)
+                        {CORE_CATS.map(lt => {
+                          const b = getBalanceByCategory(emp.id, lt.key)
                           if (!b) return (
                             <React.Fragment key={lt.id}>
                               <td className="px-1.5 py-3 text-center text-xs text-slate-300" colSpan={3}>—</td>
@@ -378,7 +383,7 @@ export default function LeaveQuotaPage() {
                         const empLeaves = leaveRequests.filter(lr => lr.employee_id === emp.id)
                         return (
                           <tr className="bg-indigo-50/30">
-                            <td colSpan={2 + coreTypes.length * 3 + 2} className="px-6 py-4">
+                            <td colSpan={2 + CORE_CATS.length * 3 + 2} className="px-6 py-4">
                               <div className="space-y-3">
                                 {/* ประเภทลาอื่นๆ */}
                                 {otherBalances.length > 0 && (
