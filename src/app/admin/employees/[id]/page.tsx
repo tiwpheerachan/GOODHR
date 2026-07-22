@@ -2670,19 +2670,64 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
   const [workEnd,     setWorkEnd]     = useState("18:00")
   const [breakMin,    setBreakMin]    = useState("60")
   const [isOvernight, setIsOvernight] = useState(false)
+  // วันหยุดประจำสัปดาห์ (employee_schedule_profiles.fixed_dayoffs)
+  const [dayoffs,     setDayoffs]     = useState<string[]>([])
+  const [dayoffDirty, setDayoffDirty] = useState(false)
+  const [savingDayoff,setSavingDayoff]= useState(false)
+  const [effScope,    setEffScope]    = useState<"today"|"all"|"range">("today")  // ขอบเขตการมีผล
+  const [effFrom,     setEffFrom]     = useState(format(new Date(),"yyyy-MM-dd"))
+  const [effTo,       setEffTo]       = useState("")
+  const profileMeta   = useRef<{ schedule_type: string; default_shift_id: string | null; work_code: string | null }>({ schedule_type: "fixed", default_shift_id: null, work_code: null })
 
   const load = useCallback(async () => {
-    const [{ data: sh }, { data: sc }] = await Promise.all([
+    const [{ data: sh }, { data: sc }, { data: prof }] = await Promise.all([
       supabase.from("shift_templates").select("*").eq("company_id", companyId).eq("is_active",true).order("name"),
       supabase.from("work_schedules")
         .select("*, shift:shift_templates(id,name,work_start,work_end,break_minutes,is_overnight)")
         .eq("employee_id", employeeId).order("effective_from", { ascending: false }),
+      supabase.from("employee_schedule_profiles").select("fixed_dayoffs, schedule_type, default_shift_id, work_code")
+        .eq("employee_id", employeeId).maybeSingle(),
     ])
     setShifts(sh ?? [])
     setSchedules(sc ?? [])
+    // ยังไม่มี profile → default เสาร์-อาทิตย์ (ตรงกับ fallback ของ payroll)
+    setDayoffs(Array.isArray(prof?.fixed_dayoffs) && prof!.fixed_dayoffs.length > 0 ? prof!.fixed_dayoffs : ["sat", "sun"])
+    profileMeta.current = { schedule_type: prof?.schedule_type || "fixed", default_shift_id: prof?.default_shift_id ?? null, work_code: (prof as any)?.work_code ?? null }
+    setDayoffDirty(false)
   }, [employeeId, companyId])
 
   useEffect(() => { load() }, [load])
+
+  // บันทึกวันหยุดประจำสัปดาห์ (ผ่าน API เดียวกับหน้าจัดกะ → เชื่อม payroll/pro max/จัดกะ)
+  const saveDayoffs = async () => {
+    setSavingDayoff(true)
+    try {
+      const res = await fetch("/api/shifts/profiles", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employee_id: employeeId,
+          schedule_type: profileMeta.current.schedule_type || "fixed",  // คงค่าเดิม ไม่ทับ variable
+          default_shift_id: profileMeta.current.default_shift_id,        // คง default shift เดิม (กันถูกล้างเป็น null)
+          work_code: profileMeta.current.work_code,                      // คง work_code เดิม
+          fixed_dayoffs: dayoffs,
+        }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok && !d.success) { toast.error(d.error || "บันทึกไม่สำเร็จ"); return }
+
+      // ── อัปเดตตารางกะที่ generate ไว้แล้ว ตามขอบเขตที่เลือก ──
+      const payload: any = { employee_id: employeeId }
+      if (effScope === "today") payload.from_date = format(new Date(), "yyyy-MM-dd")
+      else if (effScope === "range") { payload.from_date = effFrom; payload.to_date = effTo || null }
+      else payload.from_date = "1900-01-01"   // "all" = ทุกวันที่มีตาราง (ย้อนหลังด้วย)
+      const rs = await fetch("/api/shifts/resync-dayoffs", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      }).then(r => r.json()).catch(() => ({}))
+
+      toast.success(`บันทึกแล้ว · อัปเดตตารางกะ ${rs?.changed ?? 0} วัน`)
+      setDayoffDirty(false)
+    } finally { setSavingDayoff(false) }
+  }
 
   const closeForm = () => {
     setShowForm(false); setMode("template"); setSelectedShift("")
@@ -2786,6 +2831,59 @@ function WorkScheduleTab({ employeeId, companyId }: { employeeId: string; compan
           <p className="text-sm text-amber-800 font-medium">{t("admin.emp_detail.sched_no_shift_hint")}</p>
         </div>
       )}
+
+      {/* ── วันหยุดประจำสัปดาห์ (ติ๊กวัน — เชื่อม payroll/ตารางงาน/จัดกะ) ── */}
+      <div className="bg-white border border-slate-200 rounded-2xl px-4 py-4 mb-5">
+        <div className="flex items-center justify-between mb-1">
+          <div>
+            <p className="font-bold text-slate-800 text-sm flex items-center gap-1.5"><CalendarDays size={14} className="text-red-500"/> วันหยุดประจำสัปดาห์</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">ติ๊กวันที่เป็นวันหยุดประจำ — มีผลต่อการคำนวณเงินเดือน / ตารางงาน / จัดกะ อัตโนมัติ</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 mt-3">
+          {[
+            { key: "mon", label: "จันทร์" }, { key: "tue", label: "อังคาร" }, { key: "wed", label: "พุธ" },
+            { key: "thu", label: "พฤหัสบดี" }, { key: "fri", label: "ศุกร์" }, { key: "sat", label: "เสาร์" }, { key: "sun", label: "อาทิตย์" },
+          ].map(d => {
+            const active = dayoffs.includes(d.key)
+            return (
+              <button key={d.key} type="button"
+                onClick={() => { setDayoffs(prev => active ? prev.filter(x => x !== d.key) : [...prev, d.key]); setDayoffDirty(true) }}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${active ? "bg-red-100 text-red-700 border-2 border-red-300" : "bg-slate-50 text-slate-500 border border-slate-200 hover:border-teal-300"}`}>
+                {active && "🔴 "}{d.label}
+              </button>
+            )
+          })}
+        </div>
+        <p className="text-[11px] text-slate-400 mt-2.5">
+          {dayoffs.length === 0 ? "⚠️ ไม่ได้เลือก = ระบบใช้ค่าเริ่มต้น (เสาร์-อาทิตย์หยุด)" : `หยุด ${dayoffs.length} วัน/สัปดาห์ · ทำงาน ${7 - dayoffs.length} วัน`}
+        </p>
+
+        {/* ── ขอบเขตการมีผล + บันทึก (โผล่เมื่อแก้) ── */}
+        {dayoffDirty && (
+          <div className="mt-3 pt-3 border-t border-slate-100">
+            <p className="text-[11px] font-bold text-slate-500 mb-1.5">ให้มีผลตั้งแต่</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {([["today","ตั้งแต่วันนี้เป็นต้นไป"],["all","ทั้งหมด (รวมย้อนหลัง)"],["range","กำหนดช่วงเอง"]] as const).map(([v,l]) => (
+                <button key={v} onClick={() => setEffScope(v)}
+                  className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition ${effScope===v ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>{l}</button>
+              ))}
+              {effScope === "range" && (
+                <div className="flex items-center gap-1.5 ml-1">
+                  <input type="date" value={effFrom} onChange={e => setEffFrom(e.target.value)} className="text-[11px] border border-slate-200 rounded-lg px-2 py-1.5 outline-none" />
+                  <span className="text-slate-300">→</span>
+                  <input type="date" value={effTo} onChange={e => setEffTo(e.target.value)} placeholder="ถึง (เว้น=ตลอด)" className="text-[11px] border border-slate-200 rounded-lg px-2 py-1.5 outline-none" />
+                </div>
+              )}
+              <button onClick={saveDayoffs} disabled={savingDayoff}
+                className="ml-auto flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl bg-blue-600 text-white shadow-sm disabled:opacity-50">
+                {savingDayoff ? <Loader2 size={12} className="animate-spin"/> : <Save size={12}/>} บันทึก & อัปเดตตาราง
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1.5">💡 อัปเดตเฉพาะวันทำงาน/วันหยุดประจำ — ไม่แตะวันหยุดนักขัตฤกษ์ / วันลาที่มีอยู่</p>
+          </div>
+        )}
+      </div>
 
       {/* ── Add Form ── */}
       {showForm && (
