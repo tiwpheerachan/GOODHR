@@ -210,15 +210,19 @@ export async function POST(req: Request) {
     .select("id, company_id, hire_date, resign_date, is_attendance_exempt, pre_employment_enabled, pre_employment_from, pre_employment_to, pre_employment_daily_rate, phase2_start_date, department:departments(name), company:companies(code)")
     .in("id", employee_ids)
 
+  // ── เลือกโครงเงินเดือนที่ "มีผลในรอบนี้" (effective_from <= สิ้นรอบ) ──
+  //   เดิมใช้ effective_to IS NULL (ตัวล่าสุด) → เงินเดือนขึ้นใหม่มีผลย้อนหลังกับรอบเก่า
+  //   ใหม่: เอาตัวที่ effective_from ล่าสุดแต่ไม่เกินสิ้นรอบ → ปรับขึ้นรอบหน้าจะไม่กระทบรอบนี้
   const { data: salData } = await supa
     .from("salary_structures")
-    .select("employee_id, base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, provident_fund_pct, effective_from")
+    .select("employee_id, base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, provident_fund_pct, effective_from, effective_to")
     .in("employee_id", employee_ids)
-    .is("effective_to", null)
+    .lte("effective_from", periodEnd)
     .order("effective_from", { ascending: false })
     .order("created_at", { ascending: false })
 
-  // เอาแค่ record ล่าสุดต่อคน
+  // เอาโครงที่ effective_from ล่าสุด (แต่ <= สิ้นรอบ) ต่อคน = โครงที่มีผล ณ สิ้นรอบนั้น
+  //   (ไม่เช็ค effective_to เพราะมันคือแค่ boundary ของ version ถัดไป — greatest effective_from ก็พอ)
   const salByEmp = new Map<string, any>()
   for (const s of (salData ?? [])) {
     if (!salByEmp.has(s.employee_id)) salByEmp.set(s.employee_id, s)
@@ -279,13 +283,18 @@ export async function POST(req: Request) {
   // ── KPI Bonus: ดึงฐาน KPI + เกรด + 3 evaluation_type สำหรับทุกคนในงวด ──
   const GRADE_INCENTIVE_TABLE_BULK: Record<string, number> = { A: 5000, B: 4000, C: 3000, D: 2000 }
 
+  // เลือก KPI standard_amount ที่ "มีผลในรอบนี้" (effective_from <= สิ้นรอบ, ล่าสุด)
+  //   กันปรับ KPI ขึ้นแล้วย้อนหลังกับรอบเก่า
   const { data: kpiSettings } = await supa
     .from("kpi_bonus_settings")
-    .select("employee_id, standard_amount")
+    .select("employee_id, standard_amount, effective_from")
     .in("employee_id", employee_ids)
-    .eq("is_active", true)
+    .or(`effective_from.is.null,effective_from.lte.${periodEnd}`)
+    .order("effective_from", { ascending: false })
   const kpiSettingMap = new Map<string, number>()
-  for (const k of (kpiSettings ?? [])) kpiSettingMap.set(k.employee_id, Number(k.standard_amount) || 0)
+  for (const k of (kpiSettings ?? [])) {
+    if (!kpiSettingMap.has(k.employee_id)) kpiSettingMap.set(k.employee_id, Number(k.standard_amount) || 0)
+  }
 
   const { data: kpiForms } = await supa
     .from("kpi_forms")

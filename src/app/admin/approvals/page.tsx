@@ -67,6 +67,7 @@ export default function AdminApprovalsPage() {
   const [rejectItem, setRejectItem] = useState<any>(null)
   const [rejectNote, setRejectNote] = useState("")
   const [showExport, setShowExport] = useState(false)
+  const [showOnBehalf, setShowOnBehalf] = useState(false)
   const [editAdj, setEditAdj] = useState<any>(null)
   const [editAdjSaving, setEditAdjSaving] = useState(false)
 
@@ -221,6 +222,10 @@ export default function AdminApprovalsPage() {
           <p className="text-xs text-slate-400">{t("admin.requests.subtitle")}</p>
         </div>
         <div className="flex items-center gap-3">
+          <button onClick={() => setShowOnBehalf(true)}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm shadow-blue-200">
+            <Pencil size={13}/> ยื่นคำร้องแทนพนักงาน
+          </button>
           <Link href="/admin/approvals/supervisors"
             className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-50 text-indigo-700 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">
             <Users size={13}/> {t("admin.requests.supervisors_overview")}
@@ -510,6 +515,9 @@ export default function AdminApprovalsPage() {
         }}
       />
 
+      {/* ยื่นคำร้องแทนพนักงาน */}
+      {showOnBehalf && <OnBehalfModal onClose={() => setShowOnBehalf(false)} onDone={() => { setShowOnBehalf(false); load() }} />}
+
       {/* Reject modal */}
       {rejectItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -674,6 +682,194 @@ export default function AdminApprovalsPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ยื่นคำร้องแทนพนักงาน (HR/Admin) — ค้นหาพนักงาน + คีย์ ลา/OT/แก้เวลา
+// ══════════════════════════════════════════════════════════════════
+function OnBehalfModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const supabase = createClient()
+  const [q, setQ] = useState("")
+  const [results, setResults] = useState<any[]>([])
+  const [searching, setSearching] = useState(false)
+  const [emp, setEmp] = useState<any>(null)
+  const [type, setType] = useState<"leave" | "overtime" | "adjustment">("leave")
+  const [leaveTypes, setLeaveTypes] = useState<any[]>([])
+  const [saving, setSaving] = useState(false)
+  const today = format(new Date(), "yyyy-MM-dd")
+
+  // form fields
+  const [f, setF] = useState<any>({
+    leave_type_id: "", start_date: today, end_date: today, is_half_day: false, half_day_period: "morning",
+    work_date: today, ot_start: "18:00", ot_end: "20:00", ot_rate: "1.5",
+    requested_clock_in: "", requested_clock_out: "", clock_out_date: "",
+    reason: "",
+  })
+  const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }))
+
+  // ค้นหาพนักงาน (ข้ามบริษัท)
+  useEffect(() => {
+    if (!q.trim()) { setResults([]); return }
+    setSearching(true)
+    const tmr = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/employees/search?q=${encodeURIComponent(q)}&all_companies=1&limit=15`)
+        const d = await res.json()
+        setResults(d.employees ?? [])
+      } catch { setResults([]) } finally { setSearching(false) }
+    }, 280)
+    return () => clearTimeout(tmr)
+  }, [q])
+
+  // โหลดประเภทลาของบริษัทพนักงานที่เลือก
+  useEffect(() => {
+    if (!emp?.company_id) { setLeaveTypes([]); return }
+    supabase.from("leave_types").select("id, name, color_hex").eq("company_id", emp.company_id).eq("is_active", true).order("name")
+      .then(({ data }) => { setLeaveTypes(data ?? []); if (data?.[0]) set("leave_type_id", data[0].id) })
+  }, [emp?.company_id]) // eslint-disable-line
+
+  const submit = async () => {
+    if (!emp) return toast.error("กรุณาเลือกพนักงาน")
+    setSaving(true)
+    try {
+      const body: any = { employee_id: emp.id, type, reason: f.reason }
+      if (type === "leave") Object.assign(body, { leave_type_id: f.leave_type_id, start_date: f.start_date, end_date: f.end_date, is_half_day: f.is_half_day, half_day_period: f.half_day_period })
+      else if (type === "overtime") Object.assign(body, { work_date: f.work_date, ot_start: f.ot_start, ot_end: f.ot_end, ot_rate: f.ot_rate })
+      else Object.assign(body, { work_date: f.work_date, requested_clock_in: f.requested_clock_in, requested_clock_out: f.requested_clock_out, clock_out_date: f.clock_out_date })
+      const res = await fetch("/api/admin/submit-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      const d = await res.json()
+      if (!res.ok) { toast.error(d.error || "ยื่นไม่สำเร็จ"); return }
+      toast.success("ยื่นคำร้องแทนพนักงานแล้ว — เข้าคิวรออนุมัติ")
+      onDone()
+    } finally { setSaving(false) }
+  }
+
+  const inp = "w-full text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-blue-400"
+  const fullName = (e: any) => `${e.first_name_th || ""} ${e.last_name_th || ""}`.trim() + (e.nickname ? ` (${e.nickname})` : "")
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b border-slate-100 px-5 py-3.5 flex items-center justify-between">
+          <h3 className="font-black text-slate-800 flex items-center gap-2"><Pencil size={16} /> ยื่นคำร้องแทนพนักงาน</h3>
+          <button onClick={onClose} className="w-8 h-8 grid place-items-center rounded-lg text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {/* เลือกพนักงาน */}
+          {!emp ? (
+            <div>
+              <label className="text-[11px] font-bold text-slate-500">ค้นหาพนักงาน (ข้ามบริษัทได้)</label>
+              <div className="mt-1 flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2">
+                <Search size={15} className="text-slate-400" />
+                <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="ชื่อ / รหัสพนักงาน" className="flex-1 text-sm outline-none" />
+                {searching && <Loader2 size={14} className="animate-spin text-slate-300" />}
+              </div>
+              {q.trim() && (
+                <div className="mt-1.5 border border-slate-100 rounded-lg divide-y max-h-56 overflow-y-auto">
+                  {results.length === 0 && !searching ? <p className="px-3 py-4 text-center text-xs text-slate-400">ไม่พบพนักงาน</p> :
+                    results.map(e => (
+                      <button key={e.id} onClick={() => setEmp(e)} className="w-full text-left px-3 py-2.5 hover:bg-blue-50 flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 grid place-items-center text-blue-700 font-bold text-xs overflow-hidden shrink-0">
+                          {e.avatar_url ? <img src={e.avatar_url} className="w-full h-full object-cover" alt="" /> : (e.first_name_th?.[0] || "?")}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-700 truncate">{fullName(e)}</p>
+                          <p className="text-[11px] text-slate-400 truncate">{e.employee_code} · {(e.company as any)?.code || ""} · {e.department?.name || ""}</p>
+                        </div>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2.5">
+              <div className="w-9 h-9 rounded-full bg-blue-100 grid place-items-center text-blue-700 font-bold text-sm overflow-hidden shrink-0">
+                {emp.avatar_url ? <img src={emp.avatar_url} className="w-full h-full object-cover" alt="" /> : (emp.first_name_th?.[0] || "?")}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-slate-800 truncate">{fullName(emp)}</p>
+                <p className="text-[11px] text-slate-500">{emp.employee_code} · {(emp.company as any)?.code || ""} · {emp.department?.name || ""}</p>
+              </div>
+              <button onClick={() => { setEmp(null); setQ("") }} className="text-xs text-blue-600 font-bold">เปลี่ยน</button>
+            </div>
+          )}
+
+          {emp && (
+            <>
+              {/* ประเภทคำร้อง */}
+              <div className="flex gap-1.5">
+                {([["leave", "ลา", Calendar], ["overtime", "OT", Timer], ["adjustment", "แก้เวลา", FileEdit]] as const).map(([k, l, Ic]) => (
+                  <button key={k} onClick={() => setType(k)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold border transition ${type === k ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200"}`}>
+                    <Ic size={13} /> {l}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── ฟอร์มตามประเภท ── */}
+              {type === "leave" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500">ประเภทการลา</label>
+                    <select value={f.leave_type_id} onChange={e => set("leave_type_id", e.target.value)} className={inp}>
+                      {leaveTypes.length === 0 && <option value="">— ไม่มีประเภทลาของบริษัทนี้ —</option>}
+                      {leaveTypes.map(lt => <option key={lt.id} value={lt.id}>{lt.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-[11px] font-bold text-slate-500">วันเริ่ม</label><input type="date" value={f.start_date} onChange={e => set("start_date", e.target.value)} className={inp} /></div>
+                    <div><label className="text-[11px] font-bold text-slate-500">วันสิ้นสุด</label><input type="date" value={f.end_date} onChange={e => set("end_date", e.target.value)} className={inp} disabled={f.is_half_day} /></div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={f.is_half_day} onChange={e => set("is_half_day", e.target.checked)} className="accent-blue-600" /> ลาครึ่งวัน</label>
+                  {f.is_half_day && (
+                    <select value={f.half_day_period} onChange={e => set("half_day_period", e.target.value)} className={inp}>
+                      <option value="morning">ครึ่งวันเช้า</option><option value="afternoon">ครึ่งวันบ่าย</option>
+                    </select>
+                  )}
+                </div>
+              )}
+              {type === "overtime" && (
+                <div className="space-y-3">
+                  <div><label className="text-[11px] font-bold text-slate-500">วันที่ทำ OT</label><input type="date" value={f.work_date} onChange={e => set("work_date", e.target.value)} className={inp} /></div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><label className="text-[11px] font-bold text-slate-500">เริ่ม</label><input type="time" value={f.ot_start} onChange={e => set("ot_start", e.target.value)} className={inp} /></div>
+                    <div><label className="text-[11px] font-bold text-slate-500">ถึง</label><input type="time" value={f.ot_end} onChange={e => set("ot_end", e.target.value)} className={inp} /></div>
+                    <div><label className="text-[11px] font-bold text-slate-500">เรต</label>
+                      <select value={f.ot_rate} onChange={e => set("ot_rate", e.target.value)} className={inp}>
+                        <option value="1.5">1.5x</option><option value="1">1x</option><option value="3">3x</option>
+                      </select></div>
+                  </div>
+                </div>
+              )}
+              {type === "adjustment" && (
+                <div className="space-y-3">
+                  <div><label className="text-[11px] font-bold text-slate-500">วันที่</label><input type="date" value={f.work_date} onChange={e => set("work_date", e.target.value)} className={inp} /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-[11px] font-bold text-slate-500">เวลาเข้า (แก้เป็น)</label><input type="time" value={f.requested_clock_in} onChange={e => set("requested_clock_in", e.target.value)} className={inp} /></div>
+                    <div><label className="text-[11px] font-bold text-slate-500">เวลาออก (แก้เป็น)</label><input type="time" value={f.requested_clock_out} onChange={e => set("requested_clock_out", e.target.value)} className={inp} /></div>
+                  </div>
+                  <p className="text-[10px] text-slate-400">เว้นว่างช่องที่ไม่ต้องการแก้ · ถ้าออกข้ามวันให้ระบุวันออกในหมายเหตุ</p>
+                </div>
+              )}
+
+              <div><label className="text-[11px] font-bold text-slate-500">เหตุผล / หมายเหตุ</label>
+                <textarea value={f.reason} onChange={e => set("reason", e.target.value)} rows={2} className={inp + " resize-none"} placeholder="เช่น พนักงานแจ้งทางไลน์ / ลืมเช็คอิน" /></div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-700">
+                ℹ️ คำร้องจะถูกยื่นในนามพนักงาน (สถานะ "รออนุมัติ") แล้วอนุมัติได้ตามปกติในแท็บนี้ · มีป้าย "[ยื่นโดย HR แทน]" กำกับในเหตุผล
+              </div>
+
+              <button onClick={submit} disabled={saving}
+                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition">
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} ยื่นคำร้องแทน
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

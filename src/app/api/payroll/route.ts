@@ -94,7 +94,7 @@ function todayTH(): string {
 const GRADE_INCENTIVE_TABLE: Record<string, number> = { A: 5000, B: 4000, C: 3000, D: 2000 }
 
 async function getKpiBonus(
-  supa: any, employeeId: string, year: number, month: number
+  supa: any, employeeId: string, year: number, month: number, periodEnd?: string
 ): Promise<{ amount: number; grade: string | null; standardAmount: number; evaluationType: string; bonusAmount: number }> {
   // ดึงฟอร์ม KPI เดือนนี้ก่อน — ถ้ามีและ status เป็น submitted/approved/acknowledged
   const { data: kpiForm } = await supa
@@ -133,13 +133,16 @@ async function getKpiBonus(
     }
   }
 
-  // ── Mode A: standard — logic เดิม (kpi_bonus_settings × multiplier) + bonus ──
-  const { data: kpiSetting } = await supa
+  // ── Mode A: standard — เลือก KPI ที่มีผลในรอบ (effective_from <= สิ้นรอบ, ล่าสุด) ──
+  const kpiCut = periodEnd || `${year}-${String(month).padStart(2, "0")}-28`
+  const { data: kpiRows } = await supa
     .from("kpi_bonus_settings")
-    .select("standard_amount")
+    .select("standard_amount, effective_from")
     .eq("employee_id", employeeId)
-    .eq("is_active", true)
-    .maybeSingle()
+    .or(`effective_from.is.null,effective_from.lte.${kpiCut}`)
+    .order("effective_from", { ascending: false })
+    .limit(1)
+  const kpiSetting = kpiRows?.[0] ?? null
 
   if (!kpiSetting || !kpiSetting.standard_amount) {
     // ไม่มีฐาน KPI — ถ้าเป็น standard mode ก็ได้แค่ bonus_amount (ถ้ามี)
@@ -195,13 +198,10 @@ async function initRecord(
       .eq("id", employee_id)
       .single(),
     supa.from("salary_structures")
-      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct")
+      .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, effective_from, effective_to")
       .eq("employee_id", employee_id)
-      .is("effective_to", null)
       .order("effective_from", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .order("created_at", { ascending: false }),
   ])
 
   if (pRes.error || !pRes.data) return { error: "ไม่พบงวดเงินเดือน" }
@@ -215,7 +215,8 @@ async function initRecord(
     return { error: "พนักงานไม่ได้อยู่ในบริษัทเดียวกับงวดเงินเดือนนี้" }
   }
 
-  const sal    = sRes.data ?? {
+  // เลือกโครงที่ effective_from ล่าสุด ≤ สิ้นรอบ = โครงที่มีผลในรอบนี้ (ไม่ย้อนหลัง)
+  const sal    = ((sRes.data as any[]) ?? []).find((s: any) => s.effective_from <= period.end_date) ?? {
     base_salary: 0, allowance_position: 0, allowance_transport: 0,
     allowance_food: 0, allowance_phone: 0, allowance_housing: 0, allowance_vehicle: 0,
     tax_withholding_pct: null, ot_rate_normal: null, ot_rate_holiday: null,
@@ -245,7 +246,7 @@ async function initRecord(
   )
 
   // ── KPI Bonus: ดึงฐาน KPI + เกรดเดือนนี้ → คำนวณโบนัส ──
-  const kpiBonus = await getKpiBonus(supa, employee_id, Number(period.year), Number(period.month))
+  const kpiBonus = await getKpiBonus(supa, employee_id, Number(period.year), Number(period.month), period.end_date)
 
   // คำนวณแบบ init: ไม่มี attendance deductions, ไม่มี OT
   const result = calculatePayrollSummary({
@@ -367,11 +368,8 @@ async function calcAndSave(
     supa.from("salary_structures")
       .select("base_salary, allowance_position, allowance_transport, allowance_food, allowance_phone, allowance_housing, allowance_vehicle, tax_withholding_pct, ot_rate_normal, ot_rate_holiday, is_sso_exempt, is_tax_3pct, provident_fund_pct, effective_from, effective_to")
       .eq("employee_id", employee_id)
-      .is("effective_to", null)
       .order("effective_from", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .order("created_at", { ascending: false }),
   ])
 
   if (pRes.error || !pRes.data) return { error: "ไม่พบงวดเงินเดือน" }
@@ -385,8 +383,9 @@ async function calcAndSave(
     return { error: "พนักงานไม่ได้อยู่ในบริษัทเดียวกับงวดเงินเดือนนี้" }
   }
 
-  // ถ้ายังไม่มี salary_structures → ใช้ค่า default (เงินเดือน 0) เพื่อให้สร้าง record ได้
-  const sal    = sRes.data ?? {
+  // เลือกโครงเงินเดือนที่มีผลในรอบ (effective_from <= สิ้นรอบ) — กันปรับขึ้นแล้วย้อนหลัง
+  // ถ้ายังไม่มี → ใช้ค่า default (เงินเดือน 0) เพื่อให้สร้าง record ได้
+  const sal    = ((sRes.data as any[]) ?? []).find((s: any) => s.effective_from <= period.end_date) ?? {
     base_salary: 0, allowance_position: 0, allowance_transport: 0,
     allowance_food: 0, allowance_phone: 0, allowance_housing: 0, allowance_vehicle: 0,
     tax_withholding_pct: null, ot_rate_normal: null, ot_rate_holiday: null,
@@ -642,7 +641,7 @@ async function calcAndSave(
     sal.tax_withholding_pct != null ? Number(sal.tax_withholding_pct) : null
 
   // ── KPI Bonus: ดึงฐาน KPI + เกรดเดือนนี้ → คำนวณโบนัส ──
-  const kpiBonus = await getKpiBonus(supa, employee_id, Number(period.year), Number(period.month))
+  const kpiBonus = await getKpiBonus(supa, employee_id, Number(period.year), Number(period.month), period.end_date)
 
   // ── ถ้า exempt → ไม่หักมาสาย/ขาดงาน/ออกก่อน ────────────────
   const isExempt = !!emp.is_attendance_exempt

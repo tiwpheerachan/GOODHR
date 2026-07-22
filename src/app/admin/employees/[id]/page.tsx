@@ -108,6 +108,7 @@ export default function EmployeeDetailPage() {
   // resign modal
   const [kpiSetting, setKpiSetting] = useState<any>(null)
   const [kpiAmount,  setKpiAmount]  = useState<string>("")
+  const [kpiEffFrom, setKpiEffFrom] = useState<string>(format(new Date(),"yyyy-MM-dd"))
   const [showResignModal, setShowResignModal] = useState(false)
   const [resignDate, setResignDate] = useState(format(new Date(),"yyyy-MM-dd"))
   const [resignReason, setResignReason] = useState("")
@@ -450,21 +451,53 @@ export default function EmployeeDetailPage() {
     setLoading(false)
   }
 
+  // ── ลบรายการประวัติเงินเดือน (กันรายการซ้ำจากบันทึกหลายรอบ) ──
+  const deleteSalaryHistory = async (row: any) => {
+    if (!confirm(`ลบประวัติเงินเดือน ฿${Number(row.base_salary).toLocaleString()} (มีผล ${row.effective_from || "—"})?`)) return
+    setLoading(true)
+    try {
+      const { error } = await supabase.from("salary_structures").delete().eq("id", row.id)
+      if (error) { toast.error(error.message); return }
+      // ถ้าลบตัว "ปัจจุบัน" (effective_to null) → ทำให้ตัวล่าสุดที่เหลือกลายเป็นปัจจุบัน (payroll จะได้มีโครงใช้)
+      if (!row.effective_to) {
+        const { data: rest } = await supabase.from("salary_structures").select("id, effective_from")
+          .eq("employee_id", id as string).order("effective_from", { ascending: false }).order("created_at", { ascending: false }).limit(1)
+        if (rest?.[0]?.id) await supabase.from("salary_structures").update({ effective_to: null }).eq("id", rest[0].id)
+      }
+      toast.success("ลบรายการแล้ว")
+      setHistoryTick(prev => prev + 1)
+      // reload current salary (แถบด้านบน)
+      const { data: cur } = await supabase.from("salary_structures").select("*").eq("employee_id", id as string)
+        .is("effective_to", null).order("effective_from", { ascending: false }).limit(1).maybeSingle()
+      if (cur) { setSalary(cur); setSf(cur) }
+    } finally { setLoading(false) }
+  }
+
   const saveKpi = async () => {
     setLoading(true)
     const amt = parseFloat(kpiAmount) || 0
-    if (kpiSetting?.id) {
-      const { error } = await supabase.from("kpi_bonus_settings").update({ standard_amount: amt }).eq("id", kpiSetting.id)
-      if (error) { console.error("KPI update error:", error); toast.error(t("admin.emp_detail.toast_error") + ": " + error.message) }
-      else { toast.success(t("admin.emp_detail.toast_kpi_saved")); setKpiSetting({ ...kpiSetting, standard_amount: amt }) }
-    } else {
-      const { data, error } = await supabase.from("kpi_bonus_settings")
-        .insert({ employee_id: id, company_id: emp?.company_id, standard_amount: amt, is_active: true })
-        .select().single()
-      if (error) { console.error("KPI insert error:", error); toast.error(t("admin.emp_detail.toast_error") + ": " + error.message) }
-      else { toast.success(t("admin.emp_detail.toast_kpi_saved")); setKpiSetting(data) }
-    }
-    setLoading(false)
+    const eff = kpiEffFrom || format(new Date(),"yyyy-MM-dd")
+    try {
+      // ยอดไม่เปลี่ยน → แค่แก้ค่าเดิม (ไม่ version)
+      if (kpiSetting?.id && Number(kpiSetting.standard_amount) === amt) {
+        toast.success(t("admin.emp_detail.toast_kpi_saved")); return
+      }
+      if (kpiSetting?.id) {
+        // ── ปรับยอดใหม่ = version: ปิดตัวเก่า (effective_to) + เปิดตัวใหม่ (effective_from) ──
+        await supabase.from("kpi_bonus_settings").update({ is_active: false, effective_to: eff }).eq("id", kpiSetting.id)
+        const { data, error } = await supabase.from("kpi_bonus_settings")
+          .insert({ employee_id: id, company_id: emp?.company_id, standard_amount: amt, is_active: true, effective_from: eff })
+          .select().single()
+        if (error) { toast.error(t("admin.emp_detail.toast_error") + ": " + error.message); return }
+        toast.success("บันทึก KPI แล้ว · มีผลตั้งแต่ " + format(new Date(eff),"d MMM yyyy",{locale:th})); setKpiSetting(data)
+      } else {
+        const { data, error } = await supabase.from("kpi_bonus_settings")
+          .insert({ employee_id: id, company_id: emp?.company_id, standard_amount: amt, is_active: true, effective_from: eff })
+          .select().single()
+        if (error) { toast.error(t("admin.emp_detail.toast_error") + ": " + error.message); return }
+        toast.success(t("admin.emp_detail.toast_kpi_saved")); setKpiSetting(data)
+      }
+    } finally { setLoading(false) }
   }
 
   const addMgr = async () => {
@@ -1282,7 +1315,8 @@ export default function EmployeeDetailPage() {
             {[["base_salary","salary_base_input"],["allowance_position","salary_allow_position"],["allowance_transport","salary_allow_transport"],["allowance_food","salary_allow_food"],["allowance_phone","salary_allow_phone"],["allowance_housing","salary_allow_housing"],["allowance_vehicle","salary_allow_vehicle"],["ot_rate_normal","salary_ot_normal"],["ot_rate_holiday","salary_ot_holiday"]].map(([k,l]) => (
               <div key={k}><label className="block text-sm font-medium text-slate-700 mb-1.5">{t(`admin.emp_detail.${l}`)}</label><input type="number" step="0.01" value={sf[k]||""} onChange={e => setSf((f: any) => ({ ...f, [k]:e.target.value }))} className={inp}/></div>
             ))}
-            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.salary_effective_from")}</label><input type="date" value={sf.effective_from||""} onChange={e => setSf((f: any) => ({ ...f, effective_from:e.target.value }))} className={inp}/></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.salary_effective_from")}</label><input type="date" value={sf.effective_from||""} onChange={e => setSf((f: any) => ({ ...f, effective_from:e.target.value }))} className={inp}/>
+              <p className="text-[10px] text-slate-400 mt-1">💡 มีผลกับรอบที่สิ้นสุด ≥ วันนี้ · ตั้งวันต้นรอบหน้าถ้าไม่อยากให้กระทบรอบปัจจุบัน (ไม่ย้อนหลัง)</p></div>
             <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{t("admin.emp_detail.salary_reason")}</label><input value={sf.change_reason||""} onChange={e => setSf((f: any) => ({ ...f, change_reason:e.target.value }))} className={inp} placeholder={t("admin.emp_detail.salary_reason_ph")}/></div>
           </div>
 
@@ -1390,6 +1424,12 @@ export default function EmployeeDetailPage() {
                 )}
               </div>
             </div>
+            {/* วันที่มีผล KPI (ปรับขึ้นแล้วไม่ย้อนหลัง) */}
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-slate-600 mb-1">มีผลตั้งแต่ (วันที่ปรับ KPI ใหม่)</label>
+              <input type="date" value={kpiEffFrom} onChange={e => setKpiEffFrom(e.target.value)} className={inp + " max-w-[200px]"} />
+              <p className="text-[10px] text-slate-400 mt-1">💡 payroll จะใช้ยอดใหม่กับรอบที่สิ้นสุด ≥ วันนี้ · ตั้งวันต้นรอบหน้าถ้าไม่อยากให้กระทบรอบปัจจุบัน</p>
+            </div>
             <button onClick={saveKpi} disabled={loading} className="mt-3 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 disabled:opacity-60 transition-colors flex items-center gap-2">
               {loading && <Loader2 size={14} className="animate-spin"/>}<Save size={14}/> {t("admin.emp_detail.salary_save_kpi")}
             </button>
@@ -1420,6 +1460,11 @@ export default function EmployeeDetailPage() {
                           </span>
                         )}
                         {isCurrent && <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">{t("admin.emp_detail.common_current")}</span>}
+                        <button onClick={() => deleteSalaryHistory(s)} disabled={loading}
+                          className="ml-auto w-7 h-7 grid place-items-center rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition disabled:opacity-40"
+                          title="ลบรายการนี้">
+                          <Trash2 size={13}/>
+                        </button>
                       </div>
                       <p className="text-[11px] text-slate-400 mt-1">
                         {t("admin.emp_detail.salary_effective_prefix")} {s.effective_from ? format(new Date(s.effective_from + "T00:00:00"), "d MMM yyyy", { locale: th }) : "—"}
