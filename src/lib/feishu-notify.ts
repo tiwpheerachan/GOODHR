@@ -48,7 +48,7 @@ export function rangeToDates(range: string | null, from?: string | null, to?: st
 //   fmap = Feishu ID "ของจริง" จากตาราง feishu_users (import จาก Feishu API)
 //   ผูกด้วย feishu_users.goodhr_employee_id → เชื่อถือได้กว่า employees.feishu_user_id (ปน placeholder)
 export const EMP_FIELDS =
-  "id, employee_code, feishu_user_id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, employment_status, company_id, branch:branches(id,name), department:departments(id,name), position:positions(id,name), fmap:feishu_users!feishu_users_goodhr_employee_id_fkey(feishu_user_id,status)"
+  "id, employee_code, feishu_user_id, first_name_th, last_name_th, first_name_en, last_name_en, nickname, nickname_en, avatar_url, employment_status, company_id, branch:branches(id,name), department:departments(id,name), position:positions(id,name), fmap:feishu_users!feishu_users_goodhr_employee_id_fkey(feishu_user_id,open_id,status)"
 
 export type EmpLite = {
   id: string
@@ -63,19 +63,24 @@ export type EmpLite = {
   branch?: { id: string; name: string } | null
   department?: { id: string; name: string } | null
   position?: { id: string; name: string } | null
-  fmap?: { feishu_user_id: string | null; status: string | null }[] | null
+  fmap?: { feishu_user_id: string | null; open_id: string | null; status: string | null }[] | null
 }
 
-// ── Feishu ID ที่ใช้ยิงจริง: จาก feishu_users ก่อน (เลือก Active) → fallback employees.feishu_user_id ──
-export function realFeishuId(e: Partial<EmpLite> | null | undefined): string | null {
+// เลือกแถว feishu_users ที่ดีสุด (Active ก่อน → มี id ก่อน)
+function bestFmap(e: Partial<EmpLite> | null | undefined): any | null {
   const rows = (e as any)?.fmap
-  if (Array.isArray(rows) && rows.length) {
-    const active = rows.find((r: any) => (r.status || "").toLowerCase() === "active" && r.feishu_user_id)
-    const any = rows.find((r: any) => r.feishu_user_id)
-    const id = active?.feishu_user_id ?? any?.feishu_user_id
-    if (id) return id
-  }
-  return e?.feishu_user_id ?? null
+  if (!Array.isArray(rows) || !rows.length) return null
+  return rows.find((r: any) => (r.status || "").toLowerCase() === "active" && (r.feishu_user_id || r.open_id))
+      ?? rows.find((r: any) => r.feishu_user_id || r.open_id)
+      ?? null
+}
+// ── Feishu ID ที่ใช้ยิงจริง (user_id): feishu_users ก่อน → fallback employees.feishu_user_id ──
+export function realFeishuId(e: Partial<EmpLite> | null | undefined): string | null {
+  return bestFmap(e)?.feishu_user_id ?? e?.feishu_user_id ?? null
+}
+// ── open_id (สำหรับบอทที่ยิงด้วย receive_id_type=open_id) ──
+export function realOpenId(e: Partial<EmpLite> | null | undefined): string | null {
+  return bestFmap(e)?.open_id ?? null
 }
 
 export function empName(e: Partial<EmpLite> | null | undefined): string {
@@ -91,7 +96,8 @@ export function recipient(e: EmpLite) {
   return {
     employee_id: e.id,
     employee_code: e.employee_code,
-    feishu_user_id: realFeishuId(e),      // ✅ Feishu ID จริงจาก feishu_users (fallback employees) — null = ยังไม่ผูก
+    feishu_user_id: realFeishuId(e),      // ✅ user_id จริงจาก feishu_users (fallback employees) — null = ยังไม่ผูก
+    feishu_open_id: realOpenId(e),        // ✅ open_id (บอทเลือกยิงด้วย open_id/user_id ก็ได้)
     name: empName(e),
     department: e.department?.name ?? null,
     branch: e.branch?.name ?? null,
@@ -105,20 +111,28 @@ export async function resolveEmp(
   s: any,
   params: { employee_id?: string | null; feishu_user_id?: string | null; email?: string | null },
 ): Promise<EmpLite | null> {
-  // ระบุด้วย Feishu ID → หาใน feishu_users (ของจริง) ก่อน แล้ว map เป็น goodhr_employee_id
+  // ระบุด้วย Feishu ID → หาใน feishu_users (authoritative) ก่อน แล้ว map เป็น goodhr_employee_id
+  //   บอทส่ง open_id (ou_.../on_...) หรือ user_id (สั้น) มาก็ได้ → resolve ถูกคนเสมอ
+  //   ⚠️ ไม่เจอ = คืน null ("ไม่พบพนักงาน") ไม่มีทางคืนคนผิด
   if (params.feishu_user_id && !params.employee_id) {
+    const fid = params.feishu_user_id
+    const isOpen = /^(ou_|on_)/.test(fid)
+    const col = isOpen ? "open_id" : "feishu_user_id"
     const { data: fu } = await s.from("feishu_users")
       .select("goodhr_employee_id")
-      .eq("feishu_user_id", params.feishu_user_id)
+      .eq(col, fid)
       .not("goodhr_employee_id", "is", null)
       .limit(1).maybeSingle()
     if (fu?.goodhr_employee_id) {
       const { data } = await s.from("employees").select(EMP_FIELDS).eq("id", fu.goodhr_employee_id).limit(1).maybeSingle()
       if (data) return data as unknown as EmpLite
     }
-    // fallback: employees.feishu_user_id (เผื่อ legacy)
-    const { data } = await s.from("employees").select(EMP_FIELDS).eq("feishu_user_id", params.feishu_user_id).limit(1).maybeSingle()
-    return (data as unknown as EmpLite) ?? null
+    // fallback: employees.feishu_user_id (เฉพาะกรณี user_id — legacy)
+    if (!isOpen) {
+      const { data } = await s.from("employees").select(EMP_FIELDS).eq("feishu_user_id", fid).limit(1).maybeSingle()
+      return (data as unknown as EmpLite) ?? null
+    }
+    return null
   }
 
   let q = s.from("employees").select(EMP_FIELDS).limit(1)
