@@ -2,6 +2,7 @@ import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { calcGeoDistance, calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
 import { getLateThreshold } from "@/lib/utils/payroll"
+import { notifyCheckin } from "@/lib/notif-checkin"
 
 function todayBKK(): string {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" })
@@ -173,6 +174,11 @@ export async function POST(request: Request) {
 
     if (error) return NextResponse.json({ success: false, error: error.message })
 
+    notifyCheckin(emp.id, "clock_in", {
+      timeISO: now.toISOString(), lateMinutes: effectiveLate, isLate,
+      shiftStart: (shift as any)?.work_start ?? null, locationName: inRadiusBranch.name,
+    }).catch(() => {})
+
     return NextResponse.json({
       success: true,
       photo_url: photoUrl,
@@ -215,6 +221,10 @@ export async function POST(request: Request) {
   }).eq("id", existing.id)
 
   if (error) return NextResponse.json({ success: false, error: error.message })
+
+  notifyCheckin(emp.id, "clock_out", {
+    timeISO: now.toISOString(), workMinutes: workMin, earlyOutMinutes: earlyOutMin, locationName: inRadiusBranch.name,
+  }).catch(() => {})
 
   return NextResponse.json({
     success: true,

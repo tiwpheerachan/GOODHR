@@ -2,6 +2,7 @@ import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { calcGeoDistance, calcWorkDate, calcLateMinutes, calcWorkMinutes } from "@/lib/utils/attendance"
 import { getLateThreshold } from "@/lib/utils/payroll"
+import { notifyCheckin } from "@/lib/notif-checkin"
 
 // ── วันที่ปัจจุบันในโซนเวลาไทย ─────────────────────────────────────────
 // ใช้ sv-SE locale เพราะ format = "yyyy-MM-dd" ตรงกับที่ต้องการ
@@ -347,13 +348,20 @@ export async function POST(request: Request) {
 
     if (insErr) return NextResponse.json({ success: false, error: insErr.message })
 
+    const locName = isAnywhereAllowed ? (nearest?.name ?? "Anywhere") : (nearest?.name ?? "สาขา")
+    // แจ้งเตือนเข้า Feishu (fire-and-forget · gated rollout · ไม่ block check-in)
+    notifyCheckin(emp.id, "clock_in", {
+      timeISO: now.toISOString(), lateMinutes: effectiveLate, isLate,
+      shiftStart: (shift as any)?.work_start ?? null, locationName: locName,
+    }).catch(() => {})
+
     return NextResponse.json({
       success:           true,
       late_minutes:      effectiveLate,
       is_late:           isLate,
       raw_late_minutes:  rawLateMin,
       threshold_minutes: lateThreshold,
-      location_name:     isAnywhereAllowed ? (nearest?.name ?? "Anywhere") : (nearest?.name ?? "สาขา"),
+      location_name:     locName,
       checkin_anywhere:  isAnywhereAllowed,
       half_day_leave:    halfDayLeave,
     })
@@ -447,6 +455,10 @@ export async function POST(request: Request) {
       .eq("id", rec.id as string)
 
     if (updErr) return NextResponse.json({ success: false, error: updErr.message })
+
+    notifyCheckin(emp.id, "clock_out", {
+      timeISO: now.toISOString(), workMinutes: workMin, earlyOutMinutes: earlyOutMin,
+    }).catch(() => {})
 
     return NextResponse.json({
       success:           true,
