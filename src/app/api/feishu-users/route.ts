@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
 
   if (q) {
     const k = q.replace(/[%_,()]/g, "")
-    query = query.or([
+    const ors = [
       `name.ilike.%${k}%`,
       `name_cn.ilike.%${k}%`,
       `name_en.ilike.%${k}%`,
@@ -99,7 +99,15 @@ export async function GET(req: NextRequest) {
       `email_business.ilike.%${k}%`,
       `feishu_user_id.ilike.%${k}%`,
       `job_title.ilike.%${k}%`,
-    ].join(","))
+    ]
+    // ค้นชื่อไทย/รหัสจาก GoodHR employee ที่ link แล้ว map กลับเป็น feishu_users
+    const { data: gemps } = await svc.from("employees")
+      .select("id")
+      .or(`first_name_th.ilike.%${k}%,last_name_th.ilike.%${k}%,nickname.ilike.%${k}%,employee_code.ilike.%${k}%,first_name_en.ilike.%${k}%,last_name_en.ilike.%${k}%`)
+      .limit(200)
+    const gids = (gemps ?? []).map((e: any) => e.id)
+    if (gids.length) ors.push(`goodhr_employee_id.in.(${gids.join(",")})`)
+    query = query.or(ors.join(","))
   }
 
   const { data, count, error } = await query
