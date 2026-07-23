@@ -78,9 +78,10 @@ async function run(req: NextRequest) {
             for (const e of es ?? []) names.set(e.id, empNameOf(e) || "")
           }
           const enabled = await enabledRecipientSet(svc, recIds as string[])
+          let blocked = 0
           for (const n of fresh) {
             const eid = n.employee_id || n.recipient_id
-            if (!enabled.has(eid)) { failed++; continue }   // ยังไม่เปิดสิทธิ์รับ → ข้าม (ไม่ log ป้องกัน retry มั่ว)
+            if (!enabled.has(eid)) { blocked++; continue }   // ยังไม่เปิดสิทธิ์รับ → ข้าม (ไม่นับเป็น failed)
             const f = feishu.get(eid)
             const ok = await autoSend(svc, {
               type: "relay", title: n.title || "แจ้งเตือนจาก GOODHR", body: n.body ?? n.message ?? "",
@@ -88,8 +89,10 @@ async function run(req: NextRequest) {
             }, { employee_id: eid, name: names.get(eid) || null, feishu_open_id: f?.open_id ?? null, feishu_user_id: f?.feishu_user_id ?? null })
             ok ? sent++ : failed++
           }
+          out[type] = { sent, failed, blocked }
+          continue
         }
-        out[type] = { sent, failed }
+        out[type] = { sent, failed, blocked: 0 }
         continue
       }
       if (type === "checkin_due") {

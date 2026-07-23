@@ -887,6 +887,7 @@
       "f_allowance_housing": "ค่าที่พัก",
       "f_allowance_vehicle": "ค่าเสื่อมรถยนต์",
       "f_other_income": "รายได้อื่นๆ",
+      "f_phase1_wage": "ค่าจ้างช่วงทดลองงาน ({days} วัน)",
       "f_service_fee": "ค่าบริการ",
       "f_depreciation": "ค่าเสื่อมสภาพ",
       "f_expressway": "ค่าทางด่วน",

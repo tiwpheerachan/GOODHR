@@ -887,6 +887,7 @@
       "f_allowance_housing": "Housing",
       "f_allowance_vehicle": "Vehicle Depreciation",
       "f_other_income": "Other Income",
+      "f_phase1_wage": "Pre-employment wage ({days} days)",
       "f_service_fee": "Service Fee",
       "f_depreciation": "Depreciation",
       "f_expressway": "Expressway",

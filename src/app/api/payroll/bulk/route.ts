@@ -1,7 +1,7 @@
 import { createServiceClient, createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { getPayrollScope, scopeAllows } from "@/lib/utils/payroll-access"
-import { calculatePayrollSummary, getLateThreshold, calcPF, computeAutoProrateDays, type OTBreakdown } from "@/lib/utils/payroll"
+import { calculatePayrollSummary, getLateThreshold, calcPF, computeAutoProrateDays, computeProrateDays, prorateFactor, type OTBreakdown } from "@/lib/utils/payroll"
 import { classifyOtFromRecords } from "@/lib/utils/ot-classification"
 import { logPayroll } from "@/lib/auditLog"
 
@@ -480,10 +480,16 @@ export async function POST(req: Request) {
           }
 
           const baseSalary = Number(sal.base_salary) || 0
-          // Phase 2 auto-prorate (เดือนแรกของ 2 เฟส): prorate ฐานเงินเดือนตาม phase2_start
-          const autoPhase2Prorate = twoPhase ? computeAutoProrateDays(emp.phase2_start_date, periodStart, periodEnd) : null
-          const p2Factor = (autoPhase2Prorate != null && autoPhase2Prorate > 0 && autoPhase2Prorate < 30) ? autoPhase2Prorate / 30 : 1
-          const effectiveBase = Math.round(baseSalary * p2Factor)   // ฐาน Phase 2 (พนักงานจริง)
+          // ── Auto-prorate ฐานเงินเดือน (ครบทุกกรณี) ──
+          //   two-phase → เริ่มนับที่ phase2_start | ปกติ → เริ่มที่ hire_date ; ทั้งคู่ตัดที่ resign_date
+          //   คืน null=เต็มงวด · 0=ยังไม่เริ่ม/ออกก่อนงวด (ฐาน=0 ไม่คิด SSO) · N=จำนวนวัน (จาก 30)
+          const prorateStartBoundary = twoPhase ? (emp.phase2_start_date as string) : (emp.hire_date as string | null)
+          const autoProrate = computeProrateDays(prorateStartBoundary, resignDate, periodStart, periodEnd)
+          // เคารพ manual override: ถ้า HR กรอก prorate_days เองไว้ → ใช้ค่านั้น
+          const _prExist = existingPayrolls.get(eid)
+          const manualProrate = (_prExist?.is_manual_override && _prExist?.prorate_days != null) ? Number(_prExist.prorate_days) : null
+          const effProrate = manualProrate != null ? manualProrate : autoProrate
+          const effectiveBase = Math.round(baseSalary * prorateFactor(effProrate))   // ฐานหลัง prorate
           // Phase 1: ค่าจ้าง/วัน × วันทำงานจริง → จ่ายเป็น "ค่าอื่นๆ", ภาษี 3% เท่านั้น
           const phase1DailyRate = Number(emp.pre_employment_daily_rate) || 500
           const phase1Wage = twoPhase ? Math.round(phase1DailyRate * phase1WorkDays) : 0
@@ -612,7 +618,8 @@ export async function POST(req: Request) {
             deduct_loan:      loanDeduction,
             deduct_other:     mIsManual && existPR?.deduct_other != null     ? Number(existPR.deduct_other)     : mDeductOther,
             deduction_extras: existPR?.deduction_extras || null,
-            ...(twoPhase ? { prorate_days: autoPhase2Prorate } : {}),
+            // prorate_days = จำนวนวันที่คิด (null=เต็มงวด, 0=ไม่ active) — เก็บทุกคนเพื่อให้แสดงผลตรงกับที่คำนวณ
+            prorate_days: effProrate,
             social_security_base: effectiveBase, social_security_rate: 0.05,
             // SSO: structural flag (is_sso_exempt) ชนะ manual ทุกกรณี → ใช้ finalSso เสมอ
             social_security_amount: !!sal.is_sso_exempt

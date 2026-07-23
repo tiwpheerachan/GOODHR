@@ -887,6 +887,7 @@
       "f_allowance_housing": "住房费",
       "f_allowance_vehicle": "车辆折旧",
       "f_other_income": "其他收入",
+      "f_phase1_wage": "试用期工资（{days} 天）",
       "f_service_fee": "服务费",
       "f_depreciation": "折旧",
       "f_expressway": "高速费",

@@ -30,6 +30,58 @@ export function computeAutoProrateDays(
 }
 
 /**
+ * Prorate ให้ครบทุกกรณี (แทน computeAutoProrateDays ที่ดูแต่ hire):
+ *   startBoundary = วันเริ่ม "ได้ฐานเงินเดือน" (hire_date หรือ phase2_start_date)
+ *   endBoundary   = resign_date (ถ้ามี) — ลาออกกลางงวด → นับถึงวันนั้น
+ * คืนค่า:
+ *   null = เต็มงวด (ไม่ prorate, factor = 1)
+ *   0    = ไม่ active ในงวดนี้ (เริ่มหลังงวด / ออกก่อนงวด / phase2 ยังไม่เริ่ม) → ฐาน = 0, ไม่คิด SSO
+ *   N    = จำนวนวันที่ต้องคิด (จาก 30) → factor = N/30
+ */
+export function computeProrateDays(
+  startBoundary?: string | null,
+  endBoundary?: string | null,
+  periodStart?: string | null,
+  periodEnd?: string | null,
+): number | null {
+  if (!periodStart || !periodEnd) return null
+  const toMid = (ds?: string | null): number | null => {
+    if (!ds) return null
+    const d = new Date(ds)
+    if (isNaN(d.getTime())) return null
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  }
+  const sM = toMid(periodStart), eM = toMid(periodEnd)
+  if (sM == null || eM == null) return null
+  const startM = toMid(startBoundary)
+  const endM = toMid(endBoundary)
+
+  // ไม่ active ในงวดนี้เลย → 0 (ฐาน = 0)
+  if (startM != null && startM > eM) return 0   // เริ่ม/phase2 หลังจบงวด
+  if (endM != null && endM < sM) return 0        // ลาออกก่อนงวดเริ่ม
+
+  // ขอบเขต active ภายในงวด
+  const activeStart = (startM != null && startM > sM) ? startM : sM
+  const activeEnd   = (endM   != null && endM   < eM) ? endM   : eM
+  if (activeStart > activeEnd) return 0
+
+  // ครอบเต็มงวด → null (ไม่ prorate)
+  if (activeStart <= sM && activeEnd >= eM) return null
+
+  const days = Math.round((activeEnd - activeStart) / 86_400_000) + 1
+  if (days < 1) return 0
+  if (days >= 30) return null   // 30 วันขึ้นไป = เต็ม
+  return days
+}
+
+/** แปลง prorate (null|0|N) → factor คูณฐานเงินเดือน */
+export function prorateFactor(prorate: number | null): number {
+  if (prorate == null) return 1      // เต็มงวด
+  if (prorate <= 0) return 0         // ไม่ active
+  return prorate / 30
+}
+
+/**
  * apply auto-prorate ลงใน record (clone)
  *   ถ้า prorate_days ยัง null แต่มี _autoProrateDays → ใช้ _autoProrateDays แทน
  *   ใช้ทั้งใน admin/payroll table, EditModal, PayslipModal, /api/payslip/download
@@ -77,8 +129,10 @@ export function applyProrate(amount: number, prorateDays: number | null | undefi
 export function recomputePayroll(record: any) {
   const N = (v: any) => Number(v) || 0
   const fullBase = N(record?.base_salary)
-  const pd = N(record?.prorate_days)
-  const factor = (pd > 0 && pd < 30) ? pd / 30 : 1
+  // prorate_days: null/undefined = เต็มงวด (factor 1) | 0 = ไม่ active (factor 0) | N = N/30
+  const pdRaw = record?.prorate_days
+  const pd = pdRaw == null ? null : Number(pdRaw)
+  const factor = pd == null ? 1 : (pd <= 0 ? 0 : (pd < 30 ? pd / 30 : 1))
   const isProrated = factor < 1
 
   // ปัดเศษเป็นบาท (<0.5 ลง, ≥0.5 ขึ้น)
@@ -124,7 +178,7 @@ export function recomputePayroll(record: any) {
   const totalDed = Math.round(baseDeducts + sso + pf + tax + deTotal)
   const net = Math.max(Math.round(gross - totalDed), 0)
 
-  return { effBase, effBonus, gross, sso, pf, tax, totalDed, net, isProrated, factor, prorateDays: pd }
+  return { effBase, effBonus, gross, sso, pf, tax, totalDed, net, isProrated, factor, prorateDays: pd ?? 30 }
 }
 
 /** อัตราค่าจ้างต่อนาที = เงินเดือน / 30 / 8 / 60 */

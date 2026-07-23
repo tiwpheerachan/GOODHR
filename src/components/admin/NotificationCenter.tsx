@@ -87,7 +87,7 @@ function EmpPicker({ selected, onToggle }: { selected: Map<string, Emp>; onToggl
     if (!q.trim()) { setResults([]); return }
     const t = setTimeout(async () => {
       setLoading(true)
-      try { const r = await fetch(`/api/employees/search?q=${encodeURIComponent(q)}&limit=20`); const j = await r.json(); setResults(j.employees ?? []) } finally { setLoading(false) }
+      try { const r = await fetch(`/api/employees/search?q=${encodeURIComponent(q)}&limit=30&all_companies=1`); const j = await r.json(); setResults(j.employees ?? []) } finally { setLoading(false) }
     }, 250)
     return () => clearTimeout(t)
   }, [q])
@@ -265,26 +265,68 @@ function TemplatesPanel() {
   )
 }
 
-// ═══════════════ ประวัติการส่ง ═══════════════
+// ═══════════════ ประวัติการส่ง (ฟิลเตอร์ฉลาด) ═══════════════
 function LogPanel() {
-  const [logs, setLogs] = useState<any[]>([]); const [total, setTotal] = useState(0); const [page, setPage] = useState(0)
-  const [fType, setFType] = useState(""); const [fStatus, setFStatus] = useState(""); const [loading, setLoading] = useState(true)
+  const [logs, setLogs] = useState<any[]>([]); const [total, setTotal] = useState(0); const [sent, setSent] = useState(0); const [failed, setFailed] = useState(0)
+  const [page, setPage] = useState(0)
+  const [fType, setFType] = useState(""); const [fStatus, setFStatus] = useState(""); const [fSender, setFSender] = useState("")
+  const [q, setQ] = useState(""); const [from, setFrom] = useState(""); const [to, setTo] = useState("")
+  const [loading, setLoading] = useState(true)
   const SIZE = 30
+  const buildParams = (extra?: Record<string, string>) => {
+    const p = new URLSearchParams({ limit: String(SIZE), offset: String(page * SIZE), ...(extra || {}) })
+    if (fType) p.set("type", fType); if (fStatus) p.set("status", fStatus); if (fSender) p.set("sender", fSender)
+    if (q.trim()) p.set("q", q.trim()); if (from) p.set("from", from); if (to) p.set("to", to)
+    return p
+  }
   const load = useCallback(() => {
-    setLoading(true); const p = new URLSearchParams({ limit: String(SIZE), offset: String(page * SIZE) })
-    if (fType) p.set("type", fType); if (fStatus) p.set("status", fStatus)
-    fetch(`/api/admin/notifications/log?${p}`).then((r) => r.json()).then((j) => { setLogs(j.logs ?? []); setTotal(j.total ?? 0); setLoading(false) })
-  }, [page, fType, fStatus])
-  useEffect(() => { load() }, [load])
+    setLoading(true)
+    fetch(`/api/admin/notifications/log?${buildParams()}`).then((r) => r.json()).then((j) => {
+      setLogs(j.logs ?? []); setTotal(j.total ?? 0); setSent(j.sent ?? 0); setFailed(j.failed ?? 0); setLoading(false)
+    })
+  }, [page, fType, fStatus, fSender, q, from, to])
+  useEffect(() => { const t = setTimeout(load, q ? 300 : 0); return () => clearTimeout(t) }, [load])
+
+  const exportCsv = async () => {
+    const p = buildParams({ export: "1" }); p.delete("limit"); p.delete("offset")
+    const j = await (await fetch(`/api/admin/notifications/log?${p}`)).json()
+    const rows = j.logs ?? []
+    const head = ["เวลา", "ชนิด", "ผู้รับ", "Feishu ID", "หัวข้อ", "ผู้ส่ง", "สถานะ", "error", "message_id"]
+    const csv = [head.join(","), ...rows.map((l: any) => [
+      new Date(l.created_at).toLocaleString("th-TH"), l.type, l.recipient_name, l.recipient_feishu_id, l.title, l.sent_by_name, l.status, l.error, l.message_id,
+    ].map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))].join("\n")
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" })
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `notification-log-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+  }
+  const reset = () => { setFType(""); setFStatus(""); setFSender(""); setQ(""); setFrom(""); setTo(""); setPage(0) }
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        <select value={fType} onChange={(e) => { setFType(e.target.value); setPage(0) }} className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
-          <option value="">ทุกชนิด</option>{["custom", "checkin_due", "checkout_reminder", "manager_digest", "celebrations", "probation_due", "stale_approvals", "request_created", "request_decided", "my_leave_balance"].map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <select value={fStatus} onChange={(e) => { setFStatus(e.target.value); setPage(0) }} className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"><option value="">ทุกสถานะ</option><option value="sent">สำเร็จ</option><option value="failed">ไม่สำเร็จ</option></select>
-        <button onClick={load} className="p-1.5 bg-white border border-slate-200 rounded-lg"><RefreshCw size={13} className={loading ? "animate-spin text-indigo-500" : "text-slate-500"} /></button>
-        <span className="text-[11px] text-slate-400">ทั้งหมด {total} รายการ</span>
+      {/* สรุป */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-white rounded-xl border border-slate-100 p-3 text-center"><div className="text-2xl font-black text-slate-700 tabular-nums">{total}</div><div className="text-[11px] text-slate-500 font-bold">ทั้งหมด (ตามฟิลเตอร์)</div></div>
+        <div className="bg-white rounded-xl border border-slate-100 p-3 text-center"><div className="text-2xl font-black text-emerald-600 tabular-nums">{sent}</div><div className="text-[11px] text-slate-500 font-bold">สำเร็จ</div></div>
+        <div className="bg-white rounded-xl border border-slate-100 p-3 text-center"><div className="text-2xl font-black text-rose-600 tabular-nums">{failed}</div><div className="text-[11px] text-slate-500 font-bold">ไม่สำเร็จ</div></div>
+      </div>
+      {/* ฟิลเตอร์ */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 space-y-2">
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input value={q} onChange={(e) => { setQ(e.target.value); setPage(0) }} placeholder="ค้นชื่อผู้รับ / หัวข้อ / Feishu ID..." className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-xl" />
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select value={fType} onChange={(e) => { setFType(e.target.value); setPage(0) }} className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+            <option value="">ทุกชนิด</option>{["checkin", "checkout", "relay", "custom", "intro", "checkin_due", "checkout_reminder", "manager_digest", "celebrations", "probation_due", "stale_approvals"].map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select value={fStatus} onChange={(e) => { setFStatus(e.target.value); setPage(0) }} className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"><option value="">ทุกสถานะ</option><option value="sent">สำเร็จ</option><option value="failed">ไม่สำเร็จ</option></select>
+          <select value={fSender} onChange={(e) => { setFSender(e.target.value); setPage(0) }} className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"><option value="">ทุกผู้ส่ง</option><option value="auto">อัตโนมัติ</option><option value="manual">ส่งเอง</option></select>
+          <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(0) }} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg" title="จากวันที่" />
+          <span className="text-slate-400 text-xs">–</span>
+          <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(0) }} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg" title="ถึงวันที่" />
+          <button onClick={reset} className="px-2.5 py-1.5 text-xs text-slate-500 hover:text-rose-500 font-bold">ล้าง</button>
+          <button onClick={load} className="p-1.5 bg-white border border-slate-200 rounded-lg"><RefreshCw size={13} className={loading ? "animate-spin text-indigo-500" : "text-slate-500"} /></button>
+          <button onClick={exportCsv} className="ml-auto px-3 py-1.5 bg-emerald-600 text-white text-xs font-black rounded-lg flex items-center gap-1"><ScrollText size={13} /> Export CSV</button>
+        </div>
       </div>
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden overflow-x-auto">
         <table className="w-full text-xs">

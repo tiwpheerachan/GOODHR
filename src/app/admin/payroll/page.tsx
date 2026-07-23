@@ -16,7 +16,7 @@ import { th } from "date-fns/locale"
 import toast from "react-hot-toast"
 import * as XLSX from "xlsx"
 import { BRAND_OPTIONS, normalizeBrands } from "@/lib/utils/brands"
-import { calcSSO, calcMonthlyTax, recomputePayroll } from "@/lib/utils/payroll"
+import { calcSSO, calcMonthlyTax, recomputePayroll, computeProrateDays } from "@/lib/utils/payroll"
 import FeishuSyncButton from "@/components/admin/FeishuSyncButton"
 import PayrollAccessManager from "@/components/admin/PayrollAccessManager"
 import { useLanguage, useEmployeeName } from "@/lib/i18n"
@@ -140,6 +140,7 @@ const REG_COLS: RCol[] = [
   { key:"diligence",   label:"เบี้ยขยัน",              group:"income", get:r=>n((r.income_extras||{}).diligence_bonus) },
   { key:"referral",    label:"เพื่อนแนะนำเพื่อน",       group:"income", get:r=>n((r.income_extras||{}).referral_bonus) },
   { key:"other_inc",   label:"รายได้อื่นๆ",            group:"income", get:r=>n(r.other_income) },
+  { key:"phase1_wage", label:"ค่าจ้างทดลองงาน(P1)",   group:"income", get:r=>n(r.phase1_wage) },
   // deduction
   { key:"late",        label:"หักมาสาย",             group:"deduction", get:r=>n(r.deduct_late) },
   { key:"early",       label:"ออกก่อนกำหนด",        group:"deduction", get:r=>n(r.deduct_early_out) },
@@ -1836,6 +1837,8 @@ function PayslipModal({ record, onClose, onEdit, onRefresh }: { record: any; onC
             )}
             {record.commission > 0 && <Row l={t("admin.payroll.f_commission")} v={record.commission}/>}
             {record.other_income > 0 && <Row l={t("admin.payroll.f_other_income")} v={record.other_income}/>}
+            {/* ค่าจ้างช่วงทดลองงาน (Pre-Employee / Phase 1) — จ่ายเป็นรายได้อื่น หัก 3% ไม่คิด SSO */}
+            {record.phase1_wage > 0 && <Row l={t("admin.payroll.f_phase1_wage", { days: record.phase1_work_days ?? 0 })} v={record.phase1_wage}/>}
             {/* income extras */}
             {(() => {
               const ie = record.income_extras
@@ -2112,7 +2115,8 @@ export default function PayrollPage() {
       }
       const enriched = (json.records ?? []).map((r: any) => {
         const p = periodMap.get(r.payroll_period_id)
-        const auto = computeAutoProrateDays(r.employee?.hire_date, p?.start_date, p?.end_date)
+        // prorate สำหรับแสดงผล (fallback เมื่อ record ยังไม่ถูกคำนวณใหม่) — ดู resign_date ด้วย
+        const auto = computeProrateDays(r.employee?.hire_date, r.employee?.resign_date, p?.start_date, p?.end_date)
         return { ...r, _autoProrateDays: auto }
       })
       setRecords(dedupePayrollRecords(enriched))
