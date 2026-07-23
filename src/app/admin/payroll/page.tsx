@@ -1965,7 +1965,9 @@ async function loadActiveEmployeesPaged(supabase: any, companyId: string, select
   let from = 0
   while (true) {
     const { data, error } = await supabase.from("employees").select(select)
-      .eq("company_id", companyId).eq("is_active", true).order("id").range(from, from + 999)
+      .eq("company_id", companyId).eq("is_active", true)
+      .eq("include_in_payroll", true)   // ข้ามคนที่ตั้งค่า "ไม่คิดในเงินเดือน"
+      .order("id").range(from, from + 999)
     if (error || !data || data.length === 0) break
     all.push(...data)
     if (data.length < 1000) break

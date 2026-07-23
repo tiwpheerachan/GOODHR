@@ -451,6 +451,18 @@ export default function EmployeeDetailPage() {
     setLoading(false)
   }
 
+  // ── สลับ "คิดในหน้าเงินเดือนไหม" (employees.include_in_payroll) — บันทึกทันที ──
+  const toggleIncludePayroll = async (val: boolean) => {
+    set("include_in_payroll", val)   // optimistic
+    const { error } = await supabase.from("employees").update({ include_in_payroll: val }).eq("id", id as string)
+    if (error) {
+      set("include_in_payroll", !val)   // rollback
+      toast.error(t("admin.emp_detail.toast_error"))
+      return
+    }
+    toast.success(val ? t("admin.emp_detail.salary_include_on") : t("admin.emp_detail.salary_include_off"))
+  }
+
   // ── ลบรายการประวัติเงินเดือน (กันรายการซ้ำจากบันทึกหลายรอบ) ──
   const deleteSalaryHistory = async (row: any) => {
     if (!confirm(`ลบประวัติเงินเดือน ฿${Number(row.base_salary).toLocaleString()} (มีผล ${row.effective_from || "—"})?`)) return
@@ -1352,6 +1364,21 @@ export default function EmployeeDetailPage() {
             </div>
 
             <div className="border-t border-indigo-200 pt-4 space-y-3">
+              {/* คิดในหน้าเงินเดือนไหม (employees.include_in_payroll) */}
+              <label className={`flex items-center gap-3 cursor-pointer group rounded-xl p-3 border ${form.include_in_payroll === false ? "bg-red-50/60 border-red-200" : "bg-emerald-50/50 border-emerald-200"}`}>
+                <input
+                  type="checkbox"
+                  checked={form.include_in_payroll !== false}
+                  onChange={e => toggleIncludePayroll(e.target.checked)}
+                  className="w-5 h-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <div>
+                  <p className="text-sm font-bold text-slate-700 group-hover:text-emerald-700 transition-colors">{t("admin.emp_detail.salary_include_payroll")}</p>
+                  <p className="text-[11px] text-slate-400">{t("admin.emp_detail.salary_include_payroll_note")}</p>
+                </div>
+                {form.include_in_payroll === false && <span className="ml-auto text-xs font-black text-red-500 bg-red-100 px-2 py-1 rounded-lg">{t("admin.emp_detail.salary_badge_exclude_payroll")}</span>}
+              </label>
+
               {/* ประกันสังคม */}
               <label className="flex items-center gap-3 cursor-pointer group">
                 <input

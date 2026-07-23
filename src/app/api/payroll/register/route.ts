@@ -69,7 +69,7 @@ export async function GET(req: Request) {
     *,
     employee:employees(
       id, employee_code, first_name_th, last_name_th, first_name_en, last_name_en, nickname_en, nickname,
-      avatar_url, brand, updated_at, hire_date, resign_date, employment_status, probation_end_date,
+      avatar_url, brand, updated_at, hire_date, resign_date, employment_status, probation_end_date, include_in_payroll,
       position:positions(id, name),
       department:departments(id, name),
       company:companies(id, code, name_th)
@@ -111,7 +111,9 @@ export async function GET(req: Request) {
     }
   }
 
+  // กรองคนที่ตั้งค่า "ไม่คิดในเงินเดือน" ออก (include_in_payroll = false) → ไม่โผล่ในหน้า/Excel
   const records = Array.from(byEmp.values())
+    .filter(r => r.employee?.include_in_payroll !== false)
 
   // ── แนบ structural flags (is_sso_exempt / is_tax_3pct) จาก salary structure ล่าสุดที่ "เปิดอยู่" ──
   //    ใช้ใน recomputePayroll ฝั่ง client เพื่อให้คน prorate + exempt ไม่ถูกคำนวณ SSO/ภาษีผิด

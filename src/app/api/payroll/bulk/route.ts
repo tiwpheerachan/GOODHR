@@ -207,7 +207,7 @@ export async function POST(req: Request) {
   // ── Pre-fetch employees + salary structures (1 query each) ──────
   const { data: empData } = await supa
     .from("employees")
-    .select("id, company_id, hire_date, resign_date, is_attendance_exempt, pre_employment_enabled, pre_employment_from, pre_employment_to, pre_employment_daily_rate, phase2_start_date, department:departments(name), company:companies(code)")
+    .select("id, company_id, hire_date, resign_date, is_attendance_exempt, include_in_payroll, pre_employment_enabled, pre_employment_from, pre_employment_to, pre_employment_daily_rate, phase2_start_date, department:departments(name), company:companies(code)")
     .in("id", employee_ids)
 
   // ── เลือกโครงเงินเดือนที่ "มีผลในรอบนี้" (effective_from <= สิ้นรอบ) ──
@@ -332,11 +332,12 @@ export async function POST(req: Request) {
   // ── Guard: กรอง employee ที่ company_id ไม่ตรงกับ period ──────
   const validEmployeeIds = employee_ids.filter(eid => {
     const emp = empMap.get(eid)
-    return emp && emp.company_id === period.company_id
+    // company_id ต้องตรงรอบ + ต้องไม่ถูกปิด "คิดในเงินเดือน"
+    return emp && emp.company_id === period.company_id && emp.include_in_payroll !== false
   })
   const skippedCount = employee_ids.length - validEmployeeIds.length
   if (skippedCount > 0) {
-    console.warn(`[bulk] Skipped ${skippedCount} employees: company_id mismatch with period ${period.company_id}`)
+    console.warn(`[bulk] Skipped ${skippedCount} employees: company_id mismatch or excluded from payroll (period ${period.company_id})`)
   }
 
   // ── Process each employee ───────────────────────────────────────
