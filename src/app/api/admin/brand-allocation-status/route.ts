@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
                brand, brand_allocations, company_id,
                position:positions(name), department:departments(name), company:companies(code, name_th)`)
       .eq("is_active", true).is("deleted_at", null)
+      .not("employment_status", "in", "(resigned,terminated)")   // กันคนลาออกหลุด แม้ is_active เพี้ยน
       .order("first_name_th")
       .range(from, from + 999)
     if (companyId) q = q.eq("company_id", companyId)

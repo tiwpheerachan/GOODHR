@@ -6,7 +6,7 @@ import { useBrands } from "@/lib/hooks/useBrands"
 import { normalizeBrands } from "@/lib/utils/brands"
 import {
   Store, Search, Users, Layers, Percent, Loader2, Sparkles,
-  AlertTriangle, ChevronDown, ClipboardCheck, UserX, CheckCircle2, CircleSlash,
+  AlertTriangle, ChevronDown, ClipboardCheck, UserX, CheckCircle2, CircleSlash, RefreshCw,
 } from "lucide-react"
 
 // ─── Color theming ──────────────────────────────────────────────────
@@ -116,18 +116,21 @@ export default function BrandsPage() {
   }, [isSuperAdmin])
 
   // ── load employees (scoped) ──
-  useEffect(() => {
+  const loadEmployees = useCallback(() => {
     if (!isSuperAdmin && !myCompanyId) return
     setLoading(true)
     let q = supabase.from("employees")
       .select(`id, employee_code, first_name_th, last_name_th, nickname, avatar_url, brand, brand_allocations, company_id,
                position:positions(name), department:departments(name), company:companies(code, name_th)`)
       .eq("is_active", true).is("deleted_at", null)
+      .not("employment_status", "in", "(resigned,terminated)")   // กันคนลาออกหลุด แม้ is_active เพี้ยน
       .order("first_name_th")
     if (activeCompanyId) q = q.eq("company_id", activeCompanyId)
     else if (!isSuperAdmin) q = q.eq("company_id", myCompanyId!)
     q.then(({ data }) => { setEmployees(data ?? []); setLoading(false) })
   }, [activeCompanyId, isSuperAdmin, myCompanyId])
+
+  useEffect(() => { loadEmployees() }, [loadEmployees])
 
   // ── load "ค้างตั้งค่าสัดส่วน" (จัดกลุ่มตามหัวหน้า) ──
   const loadPending = useCallback(() => {
@@ -145,6 +148,12 @@ export default function BrandsPage() {
     if (!isSuperAdmin && !myCompanyId) return
     loadPending()
   }, [view, loadPending, isSuperAdmin, myCompanyId])
+
+  // ── รีเฟรชข้อมูลทั้งหน้า (ดึงใหม่จาก DB — เห็นผลคนลาออก/สัดส่วนล่าสุดทันที) ──
+  const refreshAll = useCallback(() => {
+    loadEmployees()
+    loadPending()
+  }, [loadEmployees, loadPending])
 
   // เฉพาะคนที่ถือแบรนด์อย่างน้อย 1 แบรนด์
   const holders = useMemo(
@@ -210,6 +219,12 @@ export default function BrandsPage() {
             </h1>
             <p className="text-white/60 text-sm mt-0.5">สัดส่วนการถือครองแบรนด์ของพนักงานแต่ละคน</p>
           </div>
+          <button onClick={refreshAll} disabled={loading || pendingLoading}
+            title="รีเฟรชข้อมูลล่าสุด"
+            className="flex items-center gap-1.5 bg-white/15 backdrop-blur border border-white/20 text-white text-sm font-bold rounded-xl px-4 py-2.5 hover:bg-white/25 transition disabled:opacity-50 shrink-0">
+            <RefreshCw size={15} className={(loading || pendingLoading) ? "animate-spin" : ""} />
+            รีเฟรช
+          </button>
           {isSuperAdmin && (
             <div className="relative">
               <select value={selectedCompany} onChange={e => setSelectedCompany(e.target.value)}
