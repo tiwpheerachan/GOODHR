@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/server"
 import { autoSend } from "@/lib/notif-autosend"
+import { enabledRecipientSet } from "@/lib/notif-rollout"
 
 export const maxDuration = 300
+
+const empNameOf = (e: any) => e ? `${e.first_name_th || ""} ${e.last_name_th || ""}${e.nickname ? ` (${e.nickname})` : ""}`.trim() : null
+function colorForNoti(n: any): string {
+  const title = n.title || ""
+  if (/ปฏิเสธ|ไม่ผ่าน|reject|fail/i.test(title)) return "red"
+  if (/อนุมัติ|ผ่าน|approve|pass|สำเร็จ/i.test(title)) return "green"
+  return "blue"
+}
 
 // ════════════════════════════════════════════════════════════════════
 // GET/POST /api/cron/notify?type=all|checkin_due|checkout_reminder|manager_digest|
@@ -48,6 +57,41 @@ async function run(req: NextRequest) {
     let sent = 0, failed = 0
 
     try {
+      if (type === "relay") {
+        // relay in-app notifications (อนุมัติ/ปฏิเสธ/มอบหมาย ฯลฯ) → Feishu โดย GoodHR เอง
+        const win = new Date(Date.now() - 20 * 60_000).toISOString()   // 20 นาทีล่าสุด
+        const { data: notis } = await svc.from("notifications").select("*").gte("created_at", win).order("created_at").limit(500)
+        const list = notis ?? []
+        if (list.length) {
+          // dedup: ที่ relay ไปแล้ว (จาก send_log)
+          const { data: done } = await svc.from("notification_send_log").select("meta").eq("type", "relay").gte("created_at", win).limit(3000)
+          const doneSet = new Set((done ?? []).map((d: any) => d.meta?.notif_id).filter(Boolean))
+          const fresh = list.filter((n: any) => !doneSet.has(n.id) && (n.employee_id || n.recipient_id))
+          const recIds = Array.from(new Set(fresh.map((n: any) => n.employee_id || n.recipient_id)))
+          // map emp → feishu + ชื่อ + rollout
+          const feishu = new Map<string, any>(), names = new Map<string, string>()
+          for (let i = 0; i < recIds.length; i += 300) {
+            const c = recIds.slice(i, i + 300)
+            const { data: fus } = await svc.from("feishu_users").select("goodhr_employee_id, open_id, feishu_user_id, status").in("goodhr_employee_id", c)
+            for (const f of fus ?? []) if (f.goodhr_employee_id && !feishu.has(f.goodhr_employee_id)) feishu.set(f.goodhr_employee_id, f)
+            const { data: es } = await svc.from("employees").select("id, first_name_th, last_name_th, nickname").in("id", c)
+            for (const e of es ?? []) names.set(e.id, empNameOf(e) || "")
+          }
+          const enabled = await enabledRecipientSet(svc, recIds as string[])
+          for (const n of fresh) {
+            const eid = n.employee_id || n.recipient_id
+            if (!enabled.has(eid)) { failed++; continue }   // ยังไม่เปิดสิทธิ์รับ → ข้าม (ไม่ log ป้องกัน retry มั่ว)
+            const f = feishu.get(eid)
+            const ok = await autoSend(svc, {
+              type: "relay", title: n.title || "แจ้งเตือนจาก GOODHR", body: n.body ?? n.message ?? "",
+              headerColor: colorForNoti(n), meta: { notif_id: n.id },
+            }, { employee_id: eid, name: names.get(eid) || null, feishu_open_id: f?.open_id ?? null, feishu_user_id: f?.feishu_user_id ?? null })
+            ok ? sent++ : failed++
+          }
+        }
+        out[type] = { sent, failed }
+        continue
+      }
       if (type === "checkin_due") {
         const d = await pull("checkin-due")
         for (const r of d?.recipients ?? []) {

@@ -1,0 +1,50 @@
+name: GOODHR Notifications (cron)
+
+# ยิง endpoint แจ้งเตือนของ GoodHR ตามเวลา (เวลา cron = UTC · ไทย = UTC+7)
+# ต้องตั้ง GitHub Secret: CRON_SECRET (Settings → Secrets and variables → Actions)
+on:
+  schedule:
+    - cron: "*/5 * * * *"        # Relay อนุมัติ/ปฏิเสธ → ทุก 5 นาที
+    - cron: "*/10 0-4 * * *"     # เตือนก่อนเข้ากะ → ทุก 10 นาที 07:00-11:00 ไทย
+    - cron: "*/15 10-14 * * *"   # เตือนลืมเช็คเอาท์ → ทุก 15 นาที 17:00-21:00 ไทย
+    - cron: "15 2 * * *"         # สรุปเช้า+วันเกิด+คำขอค้าง+ทดลองงาน → 09:15 ไทย
+    - cron: "0 * * * *"          # Sync Feishu + backfill open_id → ทุก 1 ชม.
+  workflow_dispatch: {}          # ปุ่มรันมือ (Actions → Run workflow) ไว้ทดสอบ
+
+concurrency:
+  group: goodhr-notify
+  cancel-in-progress: false
+
+env:
+  BASE: https://goodhr.onrender.com
+
+jobs:
+  relay:
+    if: github.event.schedule == '*/5 * * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS "$BASE/api/cron/notify?type=relay&secret=${{ secrets.CRON_SECRET }}" && echo " ✓ relay"
+
+  checkin:
+    if: github.event.schedule == '*/10 0-4 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS "$BASE/api/cron/notify?type=checkin_due&secret=${{ secrets.CRON_SECRET }}" && echo " ✓ checkin"
+
+  checkout:
+    if: github.event.schedule == '*/15 10-14 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS "$BASE/api/cron/notify?type=checkout_reminder&secret=${{ secrets.CRON_SECRET }}" && echo " ✓ checkout"
+
+  daily:
+    if: github.event.schedule == '15 2 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS "$BASE/api/cron/notify?type=manager_digest,celebrations,stale_approvals,probation_due&secret=${{ secrets.CRON_SECRET }}" && echo " ✓ daily"
+
+  feishu_sync:
+    if: github.event.schedule == '0 * * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS "$BASE/api/cron/feishu-sync?secret=${{ secrets.CRON_SECRET }}" && echo " ✓ sync"
