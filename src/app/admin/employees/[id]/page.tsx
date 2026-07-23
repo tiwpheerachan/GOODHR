@@ -419,6 +419,11 @@ export default function EmployeeDetailPage() {
 
   const saveSalary = async () => {
     if (!sf.base_salary) return toast.error(t("admin.emp_detail.toast_enter_salary"))
+    // กันวันที่มีผลเป็นปี พ.ศ. (เช่น 2569) → payroll จะหาโครงเงินเดือนไม่เจอ เงินเดือนไม่ขึ้น
+    if (sf.effective_from) {
+      const y = parseInt(String(sf.effective_from).slice(0, 4))
+      if (y > 2100) return toast.error(t("admin.emp_detail.toast_year_must_be_ce", { label: t("admin.emp_detail.salary_effective_from") || "วันที่มีผล", y }))
+    }
     setLoading(true)
     // ปิด salary ที่ยังเปิดอยู่ "ทุกตัว" ของพนักงานคนนี้ ก่อน insert ตัวใหม่
     //   กัน duplicate open structures (effective_to=null) ที่ทำให้ payroll เลือก structure ผิด
