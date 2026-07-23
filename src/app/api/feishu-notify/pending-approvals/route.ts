@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import {
   checkBotAuth, svc, resolveEmp, recipient, currentManagerMap, EMP_FIELDS, empName, type EmpLite,
 } from "@/lib/feishu-notify"
+import { filterEnabled } from "@/lib/notif-rollout"
 
 // ════════════════════════════════════════════════════════════════════
 // GET /api/feishu-notify/pending-approvals?manager_employee_id=|manager_feishu_id=&company_id=
@@ -106,8 +107,9 @@ export async function GET(req: NextRequest) {
     }
   }).sort((a, b) => b.counts.total - a.counts.total)
 
+  const gatedM = p.get("rollout") !== "0" ? await filterEnabled(s, managers, (m: any) => m.manager?.employee_id) : managers
   return NextResponse.json({
     total_pending: items.length,
-    managers,
+    managers: gatedM,
   })
 }

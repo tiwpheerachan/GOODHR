@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkBotAuth, svc, EMP_FIELDS, recipient, chunk, type EmpLite } from "@/lib/feishu-notify"
+import { filterEnabled } from "@/lib/notif-rollout"
 
 // ════════════════════════════════════════════════════════════════════
 // GET /api/feishu-notify/notifications-feed?since=ISO&company_id=&limit=&types=
@@ -67,10 +68,11 @@ export async function GET(req: NextRequest) {
     .filter(Boolean) as any[]
 
   const latest = notis[notis.length - 1].created_at || since
+  const gatedOut = p.get("rollout") !== "0" ? await filterEnabled(s, out, (n: any) => n.recipient?.employee_id) : out
   return NextResponse.json({
     since,
-    count: out.length,
+    count: gatedOut.length,
     latest,                // ← bot ใช้เป็น since ของรอบถัดไป
-    notifications: out,    // มี recipient.feishu_user_id ให้ยิงได้เลย
+    notifications: gatedOut,   // เฉพาะคนที่เปิดสิทธิ์รับ (rollout)
   })
 }

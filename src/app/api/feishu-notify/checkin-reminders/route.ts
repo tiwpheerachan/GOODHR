@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkBotAuth, svc, todayTH, EMP_FIELDS, recipient, type EmpLite } from "@/lib/feishu-notify"
+import { filterEnabled } from "@/lib/notif-rollout"
 
 // ════════════════════════════════════════════════════════════════════
 // GET /api/feishu-notify/checkin-reminders?company_id=&date=
@@ -46,11 +47,13 @@ export async function GET(req: NextRequest) {
   }
 
   const pending = emps.filter((e) => !checkedIn.has(e.id))
+  const recips = pending.map(recipient)
+  const gated = req.nextUrl.searchParams.get("rollout") !== "0" ? await filterEnabled(s, recips, (r: any) => r.employee_id) : recips
   return NextResponse.json({
     date,
     total_active: emps.length,
     checked_in: checkedIn.size,
-    pending_count: pending.length,
-    recipients: pending.map(recipient),   // มี feishu_user_id ให้ยิงได้เลย
+    pending_count: gated.length,
+    recipients: gated,   // เฉพาะคนที่เปิดสิทธิ์รับ (rollout)
   })
 }

@@ -54,9 +54,21 @@ CREATE TABLE IF NOT EXISTS notification_senders (
   CONSTRAINT uq_notif_sender UNIQUE (employee_id)
 );
 
+-- 4) allowlist "ผู้รับ" (rollout gate) — เริ่มส่งให้ใคร/แผนกไหน
+--    kind='employee' ref_id=employee_id · kind='department' ref_id=department_id · kind='all' ref_id=null (เปิดทุกคน)
+CREATE TABLE IF NOT EXISTS notification_rollout (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind       TEXT NOT NULL,        -- 'employee' | 'department' | 'all'
+  ref_id     UUID,
+  added_by   UUID,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_notif_rollout ON notification_rollout(kind, COALESCE(ref_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
 ALTER TABLE notification_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notification_send_log  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notification_senders   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notification_rollout   ENABLE ROW LEVEL SECURITY;
 
 -- seed — INSERT สำหรับติดตั้งใหม่ · DO UPDATE เฉพาะ audience/sample_rows/name (ไม่ทับ title/body ที่ user แก้)
 INSERT INTO notification_templates (key, name, category, audience, header_color, title_tmpl, body_tmpl, sample_rows, sort_order) VALUES

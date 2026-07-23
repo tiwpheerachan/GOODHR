@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   Bell, Send, ListChecks, ScrollText, ShieldCheck, Search, Plus, Trash2,
-  Loader2, Check, X, Users, RefreshCw, CheckCircle2, AlertCircle, UserCog, Building2,
+  Loader2, Check, X, Users, RefreshCw, CheckCircle2, AlertCircle, UserCog, Building2, UserCheck, Rocket,
 } from "lucide-react"
 import toast from "react-hot-toast"
 
@@ -27,9 +27,10 @@ type Emp = { id: string; employee_code?: string | null; first_name_th?: string |
 const empName = (e: any) => e?.name || `${e?.first_name_th || ""} ${e?.last_name_th || ""}${e?.nickname ? ` (${e.nickname})` : ""}`.trim() || e?.employee_code || "-"
 
 export default function NotificationCenter() {
-  const [sub, setSub] = useState<"send" | "templates" | "log" | "senders">("send")
+  const [sub, setSub] = useState<"send" | "rollout" | "templates" | "log" | "senders">("send")
   const SUBS = [
-    { k: "send", l: "ส่งเอง", icon: Send }, { k: "templates", l: "การ์ด/ชนิด", icon: ListChecks },
+    { k: "send", l: "ส่งเอง", icon: Send }, { k: "rollout", l: "สิทธิ์รับ (เริ่มใช้กับใคร)", icon: UserCheck },
+    { k: "templates", l: "การ์ด/ชนิด", icon: ListChecks },
     { k: "log", l: "ประวัติการส่ง", icon: ScrollText }, { k: "senders", l: "สิทธิ์ผู้ส่ง", icon: ShieldCheck },
   ] as const
   return (
@@ -47,6 +48,7 @@ export default function NotificationCenter() {
         ))}
       </div>
       {sub === "send" && <SendPanel />}
+      {sub === "rollout" && <RolloutPanel />}
       {sub === "templates" && <TemplatesPanel />}
       {sub === "log" && <LogPanel />}
       {sub === "senders" && <SendersPanel />}
@@ -151,8 +153,9 @@ function SendPanel() {
       })
       const j = await r.json()
       if (!r.ok) return toast.error(j.error || "ส่งไม่สำเร็จ")
-      toast.success(`ส่งสำเร็จ ${j.sent} คน${j.failed ? ` · ไม่สำเร็จ ${j.failed}` : ""}`)
-      if (j.failed) { const fails = (j.results || []).filter((x: any) => x.status === "failed").slice(0, 5); if (fails.length) toast(`ไม่สำเร็จ: ${fails.map((f: any) => `${f.name || "-"} (${f.error})`).join(", ")}`, { duration: 6000 }) }
+      toast.success(`ส่งสำเร็จ ${j.sent} คน${j.failed ? ` · ไม่สำเร็จ ${j.failed}` : ""}${j.blocked ? ` · ยังไม่เปิดสิทธิ์ ${j.blocked}` : ""}`)
+      if (j.blocked) toast(`⛔ ${j.blocked} คนยังไม่เปิดสิทธิ์รับ (นำร่อง) — เปิดที่แท็บ "สิทธิ์รับ"`, { duration: 6000 })
+      else if (j.failed) { const fails = (j.results || []).filter((x: any) => x.status === "failed").slice(0, 5); if (fails.length) toast(`ไม่สำเร็จ: ${fails.map((f: any) => `${f.name || "-"} (${f.error})`).join(", ")}`, { duration: 6000 }) }
     } catch (e: any) { toast.error(e.message) } finally { setSending(false) }
   }
 
@@ -309,6 +312,122 @@ function LogPanel() {
         <span className="text-[11px] text-slate-500">{page + 1} / {Math.max(1, Math.ceil(total / SIZE))}</span>
         <button disabled={(page + 1) * SIZE >= total} onClick={() => setPage((p) => p + 1)} className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg disabled:opacity-40">ถัดไป</button>
       </div>
+    </div>
+  )
+}
+
+// ═══════════════ สิทธิ์รับแจ้งเตือน (rollout — เริ่มใช้กับใคร) ═══════════════
+function RolloutPanel() {
+  const [mode, setMode] = useState<"all" | "pilot" | "none">("none")
+  const [emps, setEmps] = useState<any[]>([])
+  const [deps, setDeps] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [pick, setPick] = useState<Map<string, Emp>>(new Map())
+  const load = useCallback(() => {
+    setLoading(true)
+    fetch("/api/admin/notifications/rollout").then((r) => r.json()).then((j) => { setMode(j.mode ?? "none"); setEmps(j.employees ?? []); setDeps(j.departments ?? []); setLoading(false) })
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const setAll = async (on: boolean) => {
+    await fetch("/api/admin/notifications/rollout", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: on ? "all" : "pilot" }) })
+    toast.success(on ? "เปิดรับทุกคนแล้ว" : "กลับเป็นโหมดนำร่อง"); load()
+  }
+  const toggleDep = async (d: any) => {
+    if (d.enabled) await fetch(`/api/admin/notifications/rollout?id=${d.row_id}`, { method: "DELETE" })
+    else await fetch("/api/admin/notifications/rollout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ department_ids: [d.department_id] }) })
+    load()
+  }
+  const addEmps = async () => {
+    if (pick.size === 0) return
+    await fetch("/api/admin/notifications/rollout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ employee_ids: Array.from(pick.keys()) }) })
+    toast.success("เปิดสิทธิ์รับแล้ว"); setPick(new Map()); setAdding(false); load()
+  }
+  const rmEmp = async (rowId: string) => { await fetch(`/api/admin/notifications/rollout?id=${rowId}`, { method: "DELETE" }); load() }
+  const toggle = (e: Emp) => setPick((m) => { const n = new Map(m); n.has(e.id) ? n.delete(e.id) : n.set(e.id, e); return n })
+
+  if (loading) return <div className="py-16 text-center text-slate-400"><Loader2 className="animate-spin inline" size={22} /> กำลังโหลด...</div>
+  const enabledDeps = deps.filter((d) => d.enabled).length
+
+  return (
+    <div className="space-y-5">
+      {/* โหมด — banner ใหญ่ */}
+      <div className={`rounded-3xl border-2 p-6 flex items-center gap-5 ${mode === "all" ? "bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-200" : "bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200"}`}>
+        <div className={`w-16 h-16 rounded-2xl grid place-items-center shadow-sm ${mode === "all" ? "bg-emerald-500" : "bg-amber-500"}`}><Rocket size={30} className="text-white" /></div>
+        <div className="flex-1">
+          <div className="font-black text-lg text-slate-800">{mode === "all" ? "🎉 เปิดรับทุกคนแล้ว — ใช้งานเต็มระบบ" : "🚀 โหมดนำร่อง"}</div>
+          <div className="text-sm text-slate-500 mt-0.5">{mode === "all" ? "ทุกคนที่ผูก Feishu จะได้รับแจ้งเตือน" : "ส่งเฉพาะคน/แผนกที่เปิดสิทธิ์ด้านล่าง · ที่เหลือจะถูกข้าม"}</div>
+        </div>
+        <button onClick={() => setAll(mode !== "all")} className={`px-6 py-3 text-sm font-black rounded-2xl text-white shadow-sm transition ${mode === "all" ? "bg-amber-500 hover:bg-amber-600" : "bg-emerald-600 hover:bg-emerald-700"}`}>
+          {mode === "all" ? "กลับเป็นนำร่อง" : "เปิดรับทุกคน"}
+        </button>
+      </div>
+
+      {mode !== "all" && (
+        <>
+          {/* สถิติ */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-center">
+              <div className="text-3xl font-black text-emerald-600 tabular-nums">{emps.length}</div>
+              <div className="text-xs text-slate-500 font-bold mt-1">คนที่เปิดสิทธิ์</div>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-center">
+              <div className="text-3xl font-black text-blue-600 tabular-nums">{enabledDeps}</div>
+              <div className="text-xs text-slate-500 font-bold mt-1">แผนกที่เปิดทั้งแผนก</div>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-center">
+              <div className="text-3xl font-black text-slate-700 tabular-nums">{deps.length}</div>
+              <div className="text-xs text-slate-500 font-bold mt-1">แผนกทั้งหมด</div>
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-5">
+            {/* รายคน */}
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-base font-black text-slate-800 flex items-center gap-2"><UserCheck size={18} className="text-emerald-600" /> เปิดสิทธิ์รายคน</span>
+                <button onClick={() => setAdding((v) => !v)} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-xl flex items-center gap-1.5 shadow-sm"><Plus size={14} /> เพิ่มคน</button>
+              </div>
+              {adding && (
+                <div className="border border-indigo-100 bg-indigo-50/40 rounded-2xl p-4 space-y-2.5">
+                  {pick.size > 0 && <div className="flex gap-1.5 flex-wrap">{Array.from(pick.values()).map((e) => <span key={e.id} className="inline-flex items-center gap-1 text-xs bg-white border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-full">{empName(e)}<button onClick={() => toggle(e)}><X size={12} /></button></span>)}</div>}
+                  <EmpPicker selected={pick} onToggle={toggle} />
+                  <button onClick={addEmps} disabled={pick.size === 0} className="w-full py-2.5 bg-emerald-600 disabled:opacity-40 text-white text-sm font-black rounded-xl">✓ เปิดสิทธิ์ {pick.size} คน</button>
+                </div>
+              )}
+              <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                {emps.length === 0 && <div className="text-center py-8 text-slate-300 text-sm">ยังไม่เปิดให้ใคร<br /><span className="text-xs">กด "เพิ่มคน" เพื่อเริ่มนำร่อง</span></div>}
+                {emps.map((e) => (
+                  <div key={e.row_id} className="flex items-center gap-2.5 px-3.5 py-2.5 bg-emerald-50 rounded-xl">
+                    <div className="w-8 h-8 rounded-full bg-emerald-500 grid place-items-center text-white"><UserCheck size={15} /></div>
+                    <span className="flex-1 text-sm font-semibold text-slate-700">{e.name}</span>
+                    <button onClick={() => rmEmp(e.row_id)} className="p-1.5 hover:bg-rose-100 rounded-lg text-slate-400 hover:text-rose-500"><X size={15} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* รายแผนก */}
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-3">
+              <span className="text-base font-black text-slate-800 flex items-center gap-2"><Building2 size={18} className="text-blue-600" /> เปิดทั้งแผนก <span className="text-xs text-slate-400 font-bold">(ติ๊กเพื่อเปิดทั้งแผนก)</span></span>
+              <div className="grid sm:grid-cols-2 gap-2 max-h-[28rem] overflow-y-auto pr-1">
+                {deps.map((d) => (
+                  <button key={d.department_id} onClick={() => toggleDep(d)}
+                    className={`flex items-center gap-2.5 px-3.5 py-3 rounded-2xl border-2 text-left text-sm font-semibold transition ${d.enabled ? "bg-emerald-50 border-emerald-300 text-emerald-800 shadow-sm" : "bg-white border-slate-100 text-slate-600 hover:border-slate-200 hover:bg-slate-50"}`}>
+                    <span className={`w-5 h-5 rounded-md border-2 grid place-items-center flex-none ${d.enabled ? "bg-emerald-500 border-emerald-500" : "border-slate-300"}`}>{d.enabled && <Check size={13} className="text-white" />}</span>
+                    <span className="truncate">{d.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="bg-blue-50 border border-blue-100 rounded-2xl px-5 py-3.5 text-sm text-blue-800 flex items-start gap-2.5">
+            <span className="text-lg">💡</span>
+            <div>เปิดสิทธิ์ <b>4 คนนำร่อง</b>ได้เลยตอนนี้ · การส่งจะ<b>ข้ามคนที่ยังไม่เปิดสิทธิ์</b>โดยอัตโนมัติ (ขึ้น "ยังไม่เปิดสิทธิ์" ในประวัติ) · เมื่อพร้อมใช้ทั้งบริษัทค่อยกด <b>"เปิดรับทุกคน"</b></div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

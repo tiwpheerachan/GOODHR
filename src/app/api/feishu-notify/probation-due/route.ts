@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkBotAuth, svc, todayTH, addDays, recipient, hrRecipients, empName, chunk } from "@/lib/feishu-notify"
+import { filterEnabled } from "@/lib/notif-rollout"
 import { effectiveEmploymentStart, ROUND_DAYS } from "@/lib/constants/probation"
 
 // ════════════════════════════════════════════════════════════════════
@@ -56,6 +57,6 @@ export async function GET(req: NextRequest) {
       department: e.department?.name ?? null, branch: e.branch?.name ?? null,
       due_date: targetDue,
     })),
-    hr_recipients: hr.map(recipient),   // มี feishu_user_id ให้ยิงหา HR
+    hr_recipients: p.get("rollout") !== "0" ? await filterEnabled(s, hr.map(recipient), (r: any) => r.employee_id) : hr.map(recipient),
   })
 }

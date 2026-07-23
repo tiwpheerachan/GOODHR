@@ -3,6 +3,7 @@ import {
   checkBotAuth, svc, todayTH, EMP_FIELDS, recipient, empName, chunk,
   resolveEmp, currentManagerMap, type EmpLite,
 } from "@/lib/feishu-notify"
+import { filterEnabled } from "@/lib/notif-rollout"
 
 // ════════════════════════════════════════════════════════════════════
 // GET /api/feishu-notify/manager-digest?date=&company_id=&manager_employee_id=|manager_feishu_id=
@@ -125,5 +126,6 @@ export async function GET(req: NextRequest) {
     }
   }).sort((a, b) => b.team_size - a.team_size)
 
-  return NextResponse.json({ date, manager_count: managers.length, managers })
+  const gatedM = p.get("rollout") !== "0" ? await filterEnabled(s, managers, (m: any) => m.manager?.employee_id) : managers
+  return NextResponse.json({ date, manager_count: gatedM.length, managers: gatedM })
 }

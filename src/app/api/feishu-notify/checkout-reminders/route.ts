@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkBotAuth, svc, todayTH, EMP_FIELDS, recipient, chunk, toMin, nowMinTH, type EmpLite } from "@/lib/feishu-notify"
+import { filterEnabled } from "@/lib/notif-rollout"
 
 // ════════════════════════════════════════════════════════════════════
 // GET /api/feishu-notify/checkout-reminders
@@ -110,10 +111,11 @@ export async function GET(req: NextRequest) {
       return { ...recipient(e), shift_end: `${hh}:${mm}`, minutes_since_end: x.since }
     })
 
+  const gated = p.get("rollout") !== "0" ? await filterEnabled(s, recipients, (r: any) => r.employee_id) : recipients
   return NextResponse.json({
     date, now: nowMin, lead, window,
     open_count: openEmpIds.length,
-    due_count: recipients.length,
-    recipients,
+    due_count: gated.length,
+    recipients: gated,
   })
 }

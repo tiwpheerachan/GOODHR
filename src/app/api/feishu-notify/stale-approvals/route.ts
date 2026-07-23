@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import {
   checkBotAuth, svc, resolveEmp, recipient, currentManagerMap, EMP_FIELDS, empName, chunk, type EmpLite,
 } from "@/lib/feishu-notify"
+import { filterEnabled } from "@/lib/notif-rollout"
 
 // ════════════════════════════════════════════════════════════════════
 // GET /api/feishu-notify/stale-approvals?days=3&company_id=&manager_employee_id=|manager_feishu_id=
@@ -97,5 +98,6 @@ export async function GET(req: NextRequest) {
     }
   }).sort((a, b) => b.max_age_days - a.max_age_days)
 
-  return NextResponse.json({ days, total_stale: items.length, manager_count: managers.length, managers })
+  const gatedM = p.get("rollout") !== "0" ? await filterEnabled(s, managers, (m: any) => m.manager?.employee_id) : managers
+  return NextResponse.json({ days, total_stale: items.length, manager_count: gatedM.length, managers: gatedM })
 }

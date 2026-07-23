@@ -32,6 +32,21 @@ const COLOR: Record<string, string> = {
   grey: "grey", gray: "grey", purple: "purple", turquoise: "turquoise",
 }
 
+// batch: user_id[] → Map<user_id, open_id> (authoritative จาก Feishu, ครั้งละ 45)
+export async function batchOpenIds(userIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const token = await tenantToken()
+  if (!token || !userIds.length) return out
+  for (let i = 0; i < userIds.length; i += 45) {
+    const slice = userIds.slice(i, i + 45)
+    const qs = slice.map((u) => `user_ids=${encodeURIComponent(u)}`).join("&")
+    const res = await fetch(`${FEISHU_BASE}/open-apis/contact/v3/users/batch?user_id_type=user_id&${qs}`, { headers: { Authorization: `Bearer ${token}` } })
+    const j = await res.json().catch(() => null)
+    for (const it of j?.data?.items ?? []) if (it.user_id && it.open_id) out.set(it.user_id, it.open_id)
+  }
+  return out
+}
+
 export type CardRow = { label: string; value: string }
 
 // สร้าง interactive card JSON (แบบเดียวกับที่ทดสอบส่ง pilot สำเร็จ)

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkBotAuth, svc, todayTH, EMP_FIELDS, recipient, type EmpLite } from "@/lib/feishu-notify"
+import { filterEnabled } from "@/lib/notif-rollout"
 
 // ════════════════════════════════════════════════════════════════════
 // GET /api/feishu-notify/checkin-due
@@ -138,10 +139,11 @@ export async function GET(req: NextRequest) {
       }
     })
 
+  const gated = p.get("rollout") !== "0" ? await filterEnabled(s, recipients, (r: any) => r.employee_id) : recipients
   return NextResponse.json({
     date, now: nowMin, lead, window,
     scheduled_count: startByEmp.size,
-    due_count: recipients.length,
-    recipients,   // มี feishu_user_id + shift_start + minutes_until_start
+    due_count: gated.length,
+    recipients: gated,   // เฉพาะคนที่เปิดสิทธิ์รับ (rollout)
   })
 }

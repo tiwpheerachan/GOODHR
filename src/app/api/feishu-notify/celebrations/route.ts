@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkBotAuth, svc, todayTH, EMP_FIELDS, recipient, type EmpLite } from "@/lib/feishu-notify"
+import { filterEnabled } from "@/lib/notif-rollout"
 
 // ════════════════════════════════════════════════════════════════════
 // GET /api/feishu-notify/celebrations?date=&company_id=&type=birthday|anniversary|all
@@ -48,11 +49,14 @@ export async function GET(req: NextRequest) {
         .filter((e) => e.years >= 1)      // ครบรอบ = อย่างน้อย 1 ปี
     : []
 
+  const gate = p.get("rollout") !== "0"
+  const bd = gate ? await filterEnabled(s, birthdays, (r: any) => r.employee_id) : birthdays
+  const an = gate ? await filterEnabled(s, anniversaries, (r: any) => r.employee_id) : anniversaries
   return NextResponse.json({
     date,
-    birthday_count: birthdays.length,
-    anniversary_count: anniversaries.length,
-    birthdays,          // มี feishu_user_id → DM อวยพรวันเกิด
-    anniversaries,      // + years (ครบกี่ปี)
+    birthday_count: bd.length,
+    anniversary_count: an.length,
+    birthdays: bd,          // เฉพาะคนที่เปิดสิทธิ์รับ (rollout)
+    anniversaries: an,
   })
 }

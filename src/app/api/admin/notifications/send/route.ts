@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { notifGuard, canSend } from "@/lib/notif-admin"
 import { EMP_FIELDS, realOpenId, realFeishuId, empName, chunk, type EmpLite } from "@/lib/feishu-notify"
 import { buildCard, sendCard } from "@/lib/feishu-send"
+import { enabledRecipientSet } from "@/lib/notif-rollout"
 
 // POST { type, title, body, header_color?, rows?, employee_ids[] }
 //   ส่งการ์ดหาผู้รับที่เลือก → ส่งจริงเข้า Feishu + เขียน log ทุกครั้ง
@@ -30,8 +31,11 @@ export async function POST(req: NextRequest) {
 
   const card = buildCard({ header_color: headerColor, title, body: text, rows, note: `ส่งโดย ${g.name || "แอดมิน"} · GOODHR` })
 
+  // rollout gate: ส่งเฉพาะคนที่ "เปิดสิทธิ์รับแจ้งเตือน" แล้ว (นำร่อง)
+  const enabled = await enabledRecipientSet(g.svc, ids)
+
   const results: any[] = []
-  let sent = 0, failed = 0
+  let sent = 0, failed = 0, blocked = 0
   for (const id of ids) {
     const e = empMap.get(id)
     const rname = e ? empName(e) : null
@@ -41,13 +45,15 @@ export async function POST(req: NextRequest) {
     const idType = openId ? "open_id" : "user_id"
 
     let status = "failed", messageId: string | undefined, err: string | undefined
-    if (!recvId) {
+    if (!enabled.has(id)) {
+      status = "blocked"; err = "ยังไม่เปิดสิทธิ์รับแจ้งเตือน (นำร่อง)"
+    } else if (!recvId) {
       err = "ไม่มี Feishu ID (ยังไม่ผูก)"
     } else {
       const r = await sendCard(recvId, card, idType as any)
       if (r.ok) { status = "sent"; messageId = r.message_id } else { err = r.error }
     }
-    if (status === "sent") sent++; else failed++
+    if (status === "sent") sent++; else if (status === "blocked") blocked++; else failed++
 
     // log ทุกครั้ง
     await g.svc.from("notification_send_log").insert({
@@ -60,5 +66,5 @@ export async function POST(req: NextRequest) {
     results.push({ employee_id: id, name: rname, status, error: err })
   }
 
-  return NextResponse.json({ sent, failed, total: ids.length, results })
+  return NextResponse.json({ sent, failed, blocked, total: ids.length, results })
 }
