@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkBotAuth, svc, EMP_FIELDS, recipient, empName, currentManagerMap, type EmpLite } from "@/lib/feishu-notify"
+import { enabledRecipientSet } from "@/lib/notif-rollout"
 
 // ════════════════════════════════════════════════════════════════════
 // GET /api/feishu-notify/request-detail?type=leave|ot|adjustment|offsite|resignation&id=<request_id>
@@ -126,6 +127,10 @@ export async function GET(req: NextRequest) {
 
   const statusLabel = STATUS_LABEL[r.status] || r.status
 
+  // เปิดสิทธิ์รับ (rollout) ของผู้ยื่น + หัวหน้า → บอทใช้ตัดสินใจก่อนส่ง
+  const chkIds = [r.employee_id, mgrId].filter(Boolean) as string[]
+  const enabled = await enabledRecipientSet(s, chkIds)
+
   return NextResponse.json({
     request: {
       type, type_label: cfg.label, id: r.id,
@@ -134,8 +139,8 @@ export async function GET(req: NextRequest) {
       review_note: r.review_note ?? r.manager_note ?? r.hr_note ?? null,
       reviewer,
     },
-    requester: emp ? { ...recipient(emp), department: emp.department?.name ?? null, position: emp.position?.name ?? null } : { employee_id: r.employee_id },
-    manager,                 // หัวหน้าที่ต้องอนุมัติ (มี feishu_user_id/open_id)
+    requester: emp ? { ...recipient(emp), department: emp.department?.name ?? null, position: emp.position?.name ?? null, notify_enabled: enabled.has(r.employee_id) } : { employee_id: r.employee_id, notify_enabled: false },
+    manager: manager ? { ...manager, notify_enabled: mgrId ? enabled.has(mgrId) : false } : null,   // หัวหน้าที่ต้องอนุมัติ
     details,                 // label/value พร้อม render
     summary,                 // สรุปบรรทัดเดียว
   })

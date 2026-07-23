@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkBotAuth, svc, resolveEmp, recipient, empName, EMP_FIELDS } from "@/lib/feishu-notify"
+import { enabledRecipientSet } from "@/lib/notif-rollout"
 
 // ════════════════════════════════════════════════════════════════════
 // GET /api/feishu-notify/resolve?employee_id=|feishu_user_id=|email=
@@ -34,12 +35,17 @@ export async function GET(req: NextRequest) {
     .select("employee_id", { count: "exact", head: true })
     .eq("manager_id", emp.id).is("effective_to", null)
 
+  // เปิดสิทธิ์รับแจ้งเตือน (rollout) ไหม → บอทใช้ตัดสินใจก่อนส่ง (โดยเฉพาะ webhook)
+  const enabled = await enabledRecipientSet(s, [emp.id])
+  const notify_enabled = enabled.has(emp.id)
+
   return NextResponse.json({
     employee: recipient(emp),
     display_name: empName(emp),
     role: u?.role ?? "employee",
     is_manager: (teamCount ?? 0) > 0,
     team_size: teamCount ?? 0,
+    notify_enabled,     // ⛔ false = ยังไม่เปิดสิทธิ์รับ → bot ไม่ควรส่ง
     manager,
   })
 }
