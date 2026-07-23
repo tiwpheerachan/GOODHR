@@ -139,8 +139,8 @@ const REG_COLS: RCol[] = [
   { key:"perdiem",     label:"เบี้ยเลี้ยง",            group:"income", get:r=>n((r.income_extras||{}).per_diem) },
   { key:"diligence",   label:"เบี้ยขยัน",              group:"income", get:r=>n((r.income_extras||{}).diligence_bonus) },
   { key:"referral",    label:"เพื่อนแนะนำเพื่อน",       group:"income", get:r=>n((r.income_extras||{}).referral_bonus) },
-  { key:"other_inc",   label:"รายได้อื่นๆ",            group:"income", get:r=>n(r.other_income) },
-  { key:"phase1_wage", label:"ค่าจ้างทดลองงาน(P1)",   group:"income", get:r=>n(r.phase1_wage) },
+  // รายได้อื่นๆ = other_income + ค่าจ้างช่วงทดลองงาน PC (phase1_wage 500/วัน — จ่ายเป็นรายได้อื่น หัก 3%)
+  { key:"other_inc",   label:"รายได้อื่นๆ",            group:"income", get:r=>n(r.other_income)+n(r.phase1_wage) },
   // deduction
   { key:"late",        label:"หักมาสาย",             group:"deduction", get:r=>n(r.deduct_late) },
   { key:"early",       label:"ออกก่อนกำหนด",        group:"deduction", get:r=>n(r.deduct_early_out) },
@@ -746,7 +746,7 @@ function exportXLSX(records: any[], period: any) {
     // ใช้ effBonus (prorated) แทน r.bonus เพื่อให้ตรงกับ gross/net
     const bonusTotal = (r:any) => recomputePayroll(applyAutoProrate(r)).effBonus+n(ie(r).kpi||0)+n(ie(r).incentive||0)+n(ie(r).performance_bonus||0)+n(ie(r).diligence_bonus||0)+n(ie(r).referral_bonus||0)
     const commTotal  = (r:any) => n(r.commission)+n(ie(r).service_fee||0)+n(ie(r).campaign||0)
-    const otherInc   = (r:any) => n(r.other_income)+n(ie(r).depreciation||0)+n(ie(r).expressway||0)+n(ie(r).fuel||0)+n(ie(r).retirement_fund||0)+n(ie(r).per_diem||0)
+    const otherInc   = (r:any) => n(r.other_income)+n(r.phase1_wage)+n(ie(r).depreciation||0)+n(ie(r).expressway||0)+n(ie(r).fuel||0)+n(ie(r).retirement_fund||0)+n(ie(r).per_diem||0)
     const workDeduct = (r:any) => n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)
     const extraDeduct= (r:any) => n(r.deduct_loan)+n(r.deduct_other)+n(de(r).suspension||0)+n(de(r).card_lost||0)+n(de(r).uniform||0)+n(de(r).parking||0)+n(de(r).employee_products||0)+n(de(r).legal_enforcement||0)+n(de(r).student_loan||0)
     return [
@@ -800,7 +800,7 @@ function exportXLSX(records: any[], period: any) {
         co, recs.length,
         sum(r=>n(r.base_salary)), sum(otA),
         sum(r=>n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)),
-        sum(r=>recomputePayroll(applyAutoProrate(r)).effBonus), sum(r=>n(r.commission)), sum(r=>n(r.other_income)),
+        sum(r=>recomputePayroll(applyAutoProrate(r)).effBonus), sum(r=>n(r.commission)), sum(r=>n(r.other_income)+n(r.phase1_wage)),
         sum(r=>recomputePayroll(applyAutoProrate(r)).gross),
         sum(r=>n(r.deduct_late)+n(r.deduct_early_out)+n(r.deduct_absent)),
         sum(r=>recomputePayroll(applyAutoProrate(r)).sso), sum(r=>recomputePayroll(applyAutoProrate(r)).tax),
@@ -848,7 +848,7 @@ function exportXLSX(records: any[], period: any) {
     ["เบี้ยเลี้ยง (Per Diem)",     grand(r=>n(ie2(r).per_diem||0))],
     ["เบี้ยขยัน",                  grand(r=>n(ie2(r).diligence_bonus||0))],
     ["เพื่อนแนะนำเพื่อน",           grand(r=>n(ie2(r).referral_bonus||0))],
-    ["รายได้อื่นๆ",                grand(r=>n(r.other_income))],
+    ["รายได้อื่นๆ",                grand(r=>n(r.other_income)+n(r.phase1_wage))],
   ]
   const deductItems: [string, number][] = [
     ["หักมาสาย",                   grand(r=>n(r.deduct_late))],
@@ -3088,7 +3088,7 @@ export default function PayrollPage() {
                           <td className="px-2 py-2 text-right">{recs.length}</td>
                           <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.base_salary)))}</td>
                           <td className="px-2 py-2 text-right text-amber-700">{thb(sumField(recs, r => n(r.ot_amount)))}</td>
-                          <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)+n(r.commission)+n(r.other_income)+n(r.bonus)+ie(r)))}</td>
+                          <td className="px-2 py-2 text-right">{thb(sumField(recs, r => n(r.allowance_position)+n(r.allowance_transport)+n(r.allowance_food)+n(r.allowance_phone)+n(r.allowance_housing)+n(r.allowance_vehicle)+n(r.allowance_other)+n(r.commission)+n(r.other_income)+n(r.phase1_wage)+n(r.bonus)+ie(r)))}</td>
                           <td className="px-2 py-2 text-right font-bold text-green-800">{thb(sumField(recs, r => recomputePayroll(applyAutoProrate(r)).gross))}</td>
                           <td className="px-2 py-2 text-right font-bold text-red-600">{thb(sumField(recs, r => n(r.total_deductions)))}</td>
                           <td className="px-2 py-2 text-right font-black text-indigo-700">{thb(sumField(recs, r => recomputePayroll(applyAutoProrate(r)).net))}</td>
