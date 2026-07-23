@@ -6,6 +6,7 @@ import {
   Building2, Phone, Mail, Hash, ShieldCheck, BadgeCheck, ChevronDown,
   Tag, User, Calendar, MapPin, Briefcase, Eye, GraduationCap, Globe, Target, Shield,
 } from "lucide-react"
+import NotificationCenter from "@/components/admin/NotificationCenter"
 
 // ── Region → emoji flag ──
 const REGION_FLAG: Record<string, string> = {
@@ -97,6 +98,7 @@ type FUser = {
 }
 
 export default function FeishuUsersPage() {
+  const [tab, setTab] = useState<"mapping" | "notify">("mapping")
   const [users, setUsers] = useState<FUser[]>([])
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState<any>({})
@@ -215,6 +217,17 @@ export default function FeishuUsersPage() {
   return (
     <div className="space-y-4 pb-12">
 
+      {/* ─── Tab switcher ─── */}
+      <div className="inline-flex bg-slate-100 rounded-xl p-1 gap-1">
+        {([["mapping", "Feishu Mapping"], ["notify", "ศูนย์แจ้งเตือน"]] as const).map(([v, l]) => (
+          <button key={v} onClick={() => setTab(v)}
+            className={`px-4 py-1.5 text-xs font-black rounded-lg transition ${tab === v ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{l}</button>
+        ))}
+      </div>
+
+      {tab === "notify" && <NotificationCenter />}
+
+      {tab === "mapping" && (<>
       {/* ─── Top header bar ─── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
@@ -426,6 +439,7 @@ export default function FeishuUsersPage() {
           onClose={() => setViewing(null)}
           onEdit={() => { const u = viewing; setViewing(null); setEditing(u) }}/>
       )}
+      </>)}
     </div>
   )
 }

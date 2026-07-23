@@ -51,6 +51,22 @@ GET /team-attendance?manager_feishu_id=<user_id>
 
 ---
 
+---
+
+## รายละเอียดคำขอ (สำหรับการ์ดอนุมัติ/แจ้งผล — ละเอียด)
+เวลา webhook ส่ง `request_type` + `request_id` มา → เรียกอันนี้ดึงรายละเอียดครบ:
+```
+GET /request-detail?type=leave|ot|adjustment|offsite|resignation&id=<request_id>
+```
+คืน:
+- `request{type_label, status_label, created_at, reviewer, review_note}`
+- `requester{name, department, position, feishu_user_id, feishu_open_id}` — คนยื่น
+- `manager{name, feishu_user_id, feishu_open_id}` — หัวหน้าที่ต้องอนุมัติ
+- `details[]{label, value}` — เรนเดอร์ตรงๆ (ประเภทลา/วันที่/จำนวนวัน/เหตุผล/เวลา/อัตรา ฯลฯ)
+- `summary` — สรุปบรรทัดเดียว (เช่น "ขอลาพักร้อน 27/07/69 (1 วัน)")
+
+**การ์ดฉลาด**: created → ส่งหา `manager` ("[requester] `summary`" + ปุ่มอนุมัติ) · decided → ส่งหา `requester` ("คำขอ `status_label`" + `details`)
+
 ## ตัวอย่าง flow (บอทควรทำ)
 ```
 คนกดเมนู "My Leave Balance"
