@@ -107,7 +107,7 @@ export async function POST(req: Request) {
   // ── Pre-fetch period (ใช้ร่วมกันทุกคน) ─────────────────────────
   const { data: period, error: pErr } = await supa
     .from("payroll_periods")
-    .select("id, year, month, start_date, end_date, company_id")
+    .select("id, year, month, start_date, end_date, company_id, status")
     .eq("id", payroll_period_id)
     .single()
 
@@ -117,6 +117,19 @@ export async function POST(req: Request) {
   // สิทธิ์รายบริษัท: งวดนี้อยู่บริษัทที่มีสิทธิ์ไหม
   if (!scopeAllows(scope, period.company_id)) {
     return NextResponse.json({ error: "ไม่มีสิทธิ์บริษัทนี้" }, { status: 403 })
+  }
+
+  // ── กันตกหล่น: ลบ record ค้างของคนที่ตั้ง "ไม่คิดในเงินเดือน" (include_in_payroll=false) ──
+  //    ให้ "เฉพาะที่ติ๊กเท่านั้นที่มีในเงินเดือน" เชื่อถือได้ทุก path (ไม่ใช่แค่ display filter)
+  //    เฉพาะงวดที่ยังไม่ปิดจ่าย (paid) — กันแตะ record ที่จ่ายแล้ว
+  if (period.status !== "paid") {
+    const { data: excluded } = await supa.from("employees")
+      .select("id").eq("company_id", period.company_id).eq("include_in_payroll", false)
+    const exIds = (excluded ?? []).map((e: any) => e.id)
+    for (let i = 0; i < exIds.length; i += 300) {
+      await supa.from("payroll_records").delete()
+        .eq("payroll_period_id", payroll_period_id).in("employee_id", exIds.slice(i, i + 300))
+    }
   }
 
   const periodStart = period.start_date as string
