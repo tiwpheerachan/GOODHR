@@ -220,7 +220,7 @@ export async function POST(req: Request) {
   // ── Pre-fetch employees + salary structures (1 query each) ──────
   const { data: empData } = await supa
     .from("employees")
-    .select("id, company_id, hire_date, resign_date, is_attendance_exempt, include_in_payroll, pre_employment_enabled, pre_employment_from, pre_employment_to, pre_employment_daily_rate, phase2_start_date, department:departments(name), company:companies(code)")
+    .select("id, company_id, hire_date, resign_date, employment_status, is_attendance_exempt, include_in_payroll, pre_employment_enabled, pre_employment_from, pre_employment_to, pre_employment_daily_rate, phase2_start_date, department:departments(name), company:companies(code)")
     .in("id", employee_ids)
 
   // ── เลือกโครงเงินเดือนที่ "มีผลในรอบนี้" (effective_from <= สิ้นรอบ) ──
@@ -390,7 +390,10 @@ export async function POST(req: Request) {
 
           // ✅ Bug fix: ดู resign_date ด้วย — กันคนลาออกแล้วถูกนับ absent หลัง resign
           const hireDate = (emp.hire_date as string | null) ?? periodStart
-          const resignDate = (emp.resign_date as string | null) ?? null
+          //   ⚠️ ใช้ resign_date "เฉพาะคนที่ลาออกจริง" (status resigned/terminated)
+          //      คน active ที่มี resign_date ค้าง (ยกเลิกลาออก/ข้อมูลเก่า) → มองข้าม ไม่งั้นฐาน=0 ผิด
+          const _isResigned = ["resigned", "terminated"].includes(String(emp.employment_status || ""))
+          const resignDate = _isResigned ? ((emp.resign_date as string | null) ?? null) : null
           // ── จ้างงาน 2 เฟส: attendance ของ "พนักงานจริง" เริ่มที่ phase2_start ──
           const twoPhase = !!emp.pre_employment_enabled && !!emp.phase2_start_date
           const empStart = twoPhase ? (emp.phase2_start_date as string) : hireDate

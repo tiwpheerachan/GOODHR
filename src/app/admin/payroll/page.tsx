@@ -2115,8 +2115,9 @@ export default function PayrollPage() {
       }
       const enriched = (json.records ?? []).map((r: any) => {
         const p = periodMap.get(r.payroll_period_id)
-        // prorate สำหรับแสดงผล (fallback เมื่อ record ยังไม่ถูกคำนวณใหม่) — ดู resign_date ด้วย
-        const auto = computeProrateDays(r.employee?.hire_date, r.employee?.resign_date, p?.start_date, p?.end_date)
+        // prorate สำหรับแสดงผล (fallback เมื่อ record ยังไม่ถูกคำนวณใหม่) — ดู resign_date เฉพาะคนลาออกจริง
+        const _resigned = ["resigned", "terminated"].includes(String(r.employee?.employment_status || ""))
+        const auto = computeProrateDays(r.employee?.hire_date, _resigned ? r.employee?.resign_date : null, p?.start_date, p?.end_date)
         return { ...r, _autoProrateDays: auto }
       })
       setRecords(dedupePayrollRecords(enriched))
