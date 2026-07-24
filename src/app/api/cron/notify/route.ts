@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/server"
 import { autoSend } from "@/lib/notif-autosend"
 import { enabledRecipientSet } from "@/lib/notif-rollout"
+import { shouldRelayType, mutedForSuperAdmin } from "@/lib/notif-relay-config"
 
 export const maxDuration = 300
 
 const empNameOf = (e: any) => e ? `${e.first_name_th || ""} ${e.last_name_th || ""}${e.nickname ? ` (${e.nickname})` : ""}`.trim() : null
+const hhmm = (iso?: string | null) => iso ? new Date(iso).toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit" }) : "-"
+const PTYPE: Record<string, string> = { leave: "🏖️ ลา", ot: "⏰ OT", adjustment: "✏️ แก้เวลา", offsite: "📍 นอกสถานที่" }
 function colorForNoti(n: any): string {
   const title = n.title || ""
   if (/ปฏิเสธ|ไม่ผ่าน|reject|fail/i.test(title)) return "red"
@@ -66,8 +69,14 @@ async function run(req: NextRequest) {
           // dedup: ที่ relay ไปแล้ว (จาก send_log)
           const { data: done } = await svc.from("notification_send_log").select("meta").eq("type", "relay").gte("created_at", win).limit(3000)
           const doneSet = new Set((done ?? []).map((d: any) => d.meta?.notif_id).filter(Boolean))
-          const fresh = list.filter((n: any) => !doneSet.has(n.id) && (n.employee_id || n.recipient_id))
+          const fresh = list.filter((n: any) => !doneSet.has(n.id) && (n.employee_id || n.recipient_id) && shouldRelayType(n.type))
           const recIds = Array.from(new Set(fresh.map((n: any) => n.employee_id || n.recipient_id)))
+          // ผู้รับที่เป็น super_admin (ไว้ mute kpi/probation/branch_eval)
+          const superIds = new Set<string>()
+          {
+            const { data: us } = await svc.from("users").select("employee_id, role").in("employee_id", recIds as string[]).eq("role", "super_admin")
+            for (const u of us ?? []) if (u.employee_id) superIds.add(u.employee_id)
+          }
           // map emp → feishu + ชื่อ + rollout
           const feishu = new Map<string, any>(), names = new Map<string, string>()
           for (let i = 0; i < recIds.length; i += 300) {
@@ -81,7 +90,8 @@ async function run(req: NextRequest) {
           let blocked = 0
           for (const n of fresh) {
             const eid = n.employee_id || n.recipient_id
-            if (!enabled.has(eid)) { blocked++; continue }   // ยังไม่เปิดสิทธิ์รับ → ข้าม (ไม่นับเป็น failed)
+            if (!enabled.has(eid)) { blocked++; continue }   // ยังไม่เปิดสิทธิ์รับ → ข้าม
+            if (superIds.has(eid) && mutedForSuperAdmin(n.type)) { blocked++; continue }   // super_admin mute kpi/probation
             const f = feishu.get(eid)
             const ok = await autoSend(svc, {
               type: "relay", title: n.title || "แจ้งเตือนจาก GOODHR", body: n.body ?? n.message ?? "",
@@ -117,6 +127,41 @@ async function run(req: NextRequest) {
             { label: "📋 คำขอค้าง", value: String(s.pending_approvals ?? 0) },
           ]
           ;(await autoSend(svc, { type, title, body: `ทีมคุณวันนี้ ${m.team_size ?? 0} คน`, rows, headerColor: color }, m.manager)) ? sent++ : failed++
+        }
+      } else if (type === "manager_noon") {
+        // สรุปเที่ยง (ละเอียด): ใครมากี่โมง/สาย · ใครลา+เหตุผล · คำขอที่ยังไม่อนุมัติ
+        const dg = await pull("manager-digest")
+        const pa = await pull("pending-approvals")
+        const pendByMgr = new Map<string, any[]>()
+        for (const m of pa?.managers ?? []) pendByMgr.set(m.manager?.employee_id, m.items ?? [])
+        // เหตุผลการลาของคนที่ลาวันนี้
+        const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" })
+        const leaveIds = Array.from(new Set((dg?.managers ?? []).flatMap((mg: any) => (mg.members ?? []).filter((mm: any) => mm.status === "leave" || mm.status === "on_leave").map((mm: any) => mm.employee_id))))
+        const leaveReason = new Map<string, string>()
+        if (leaveIds.length) {
+          const { data: lrs } = await svc.from("leave_requests").select("employee_id, reason, leave_type_id").in("employee_id", leaveIds).eq("status", "approved").lte("start_date", today).gte("end_date", today)
+          const ltIds = Array.from(new Set((lrs ?? []).map((r: any) => r.leave_type_id).filter(Boolean)))
+          const ltName = new Map<string, string>()
+          if (ltIds.length) { const { data: lts } = await svc.from("leave_types").select("id, name").in("id", ltIds); for (const t of lts ?? []) ltName.set(t.id, t.name) }
+          for (const r of lrs ?? []) leaveReason.set(r.employee_id, `${ltName.get(r.leave_type_id) || "ลา"}${r.reason ? `: ${r.reason}` : ""}`)
+        }
+        for (const mg of dg?.managers ?? []) {
+          const s = mg.summary || {}, mid = mg.manager?.employee_id
+          const lines = (mg.members ?? []).slice(0, 40).map((mm: any) => {
+            if (mm.status === "leave" || mm.status === "on_leave") return `🏖️ ${mm.name} — ${leaveReason.get(mm.employee_id) || "ลา"}`
+            if (mm.status === "absent") return `❌ ${mm.name} — ขาดงาน`
+            if (mm.status === "late") return `🕐 ${mm.name} — เข้า ${hhmm(mm.clock_in)}${mm.late_minutes ? ` (สาย ${mm.late_minutes}น)` : ""}`
+            if (mm.clock_in) return `✅ ${mm.name} — เข้า ${hhmm(mm.clock_in)}`
+            return `⏳ ${mm.name} — ยังไม่เช็คอิน`
+          })
+          const pend = pendByMgr.get(mid) || []
+          const pendLines = pend.slice(0, 15).map((it: any) => `${PTYPE[it.type] || it.type} · ${it.employee_name} · ${String(it.date || "").slice(0, 10)}`)
+          const body = [
+            `**👥 ทีม ${mg.team_size ?? 0} คน** · ✅ มา ${s.present ?? 0} · 🕐 สาย ${s.late ?? 0} · 🏖️ ลา ${s.leave ?? 0} · ⏳ ยังไม่มา ${s.not_checked_in ?? 0}`,
+            "", "**รายคน**", ...lines,
+            ...(pendLines.length ? ["", `**📋 คำขอรออนุมัติ (${pend.length})**`, ...pendLines] : ["", "✅ ไม่มีคำขอค้างอนุมัติ"]),
+          ].join("\n")
+          ;(await autoSend(svc, { type, title: title || "🍽️ สรุปทีมเที่ยงวันนี้", body, headerColor: color }, mg.manager)) ? sent++ : failed++
         }
       } else if (type === "stale_approvals") {
         const d = await pull("stale-approvals?days=3")

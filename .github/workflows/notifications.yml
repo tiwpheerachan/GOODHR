@@ -8,6 +8,7 @@ on:
     - cron: "*/10 0-4 * * *"     # เตือนก่อนเข้ากะ → ทุก 10 นาที 07:00-11:00 ไทย
     - cron: "*/15 10-14 * * *"   # เตือนลืมเช็คเอาท์ → ทุก 15 นาที 17:00-21:00 ไทย
     - cron: "15 2 * * *"         # สรุปเช้า+วันเกิด+คำขอค้าง+ทดลองงาน → 09:15 ไทย
+    - cron: "0 5 * * *"          # สรุปทีมเที่ยง (ละเอียด) → 12:00 ไทย
     - cron: "0 * * * *"          # Sync Feishu + backfill open_id → ทุก 1 ชม.
   workflow_dispatch: {}          # ปุ่มรันมือ (Actions → Run workflow) ไว้ทดสอบ
 
@@ -42,6 +43,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: curl -fsS "$BASE/api/cron/notify?type=manager_digest,celebrations,stale_approvals,probation_due&secret=${{ secrets.CRON_SECRET }}" && echo " ✓ daily"
+
+  noon:
+    if: github.event.schedule == '0 5 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS "$BASE/api/cron/notify?type=manager_noon&secret=${{ secrets.CRON_SECRET }}" && echo " ✓ noon"
 
   feishu_sync:
     if: github.event.schedule == '0 * * * *'
