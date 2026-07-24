@@ -127,7 +127,14 @@ export async function resolveEmp(
       const { data } = await s.from("employees").select(EMP_FIELDS).eq("id", fu.goodhr_employee_id).limit(1).maybeSingle()
       if (data) return data as unknown as EmpLite
     }
-    // fallback: employees.feishu_user_id (เฉพาะกรณี user_id — legacy)
+    // fallback A: feishu_users มี id แต่ยังไม่ match → ลองจับด้วย email อัตโนมัติ
+    const { data: fu2 } = await s.from("feishu_users").select("email, email_work, email_business").eq(col, fid).limit(1).maybeSingle()
+    const emails = [fu2?.email, fu2?.email_work, fu2?.email_business].filter(Boolean)
+    for (const em of emails) {
+      const { data } = await s.from("employees").select(EMP_FIELDS).ilike("email", em).limit(1).maybeSingle()
+      if (data) return data as unknown as EmpLite
+    }
+    // fallback B: employees.feishu_user_id (เฉพาะกรณี user_id — legacy)
     if (!isOpen) {
       const { data } = await s.from("employees").select(EMP_FIELDS).eq("feishu_user_id", fid).limit(1).maybeSingle()
       return (data as unknown as EmpLite) ?? null

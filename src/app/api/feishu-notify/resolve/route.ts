@@ -16,6 +16,20 @@ export async function GET(req: NextRequest) {
     feishu_user_id: p.get("feishu_user_id"),
     email: p.get("email"),
   })
+
+  // ── debug log ชั่วคราว: ดักว่าบอทเรียก resolve จริงไหม + ส่ง id อะไรมา ──
+  try {
+    await s.from("notification_send_log").insert({
+      type: "_resolve_debug",
+      title: `resolve ${emp ? "OK" : "NOT_FOUND"}`,
+      recipient_feishu_id: p.get("feishu_user_id") || p.get("employee_id") || p.get("email") || "(none)",
+      recipient_name: emp ? empName(emp) : null,
+      status: emp ? "sent" : "failed",
+      sent_by_name: "bot-call",
+      meta: { emp_id: p.get("employee_id"), feishu: p.get("feishu_user_id"), email: p.get("email"), ua: req.headers.get("user-agent") },
+    })
+  } catch { /* เงียบ */ }
+
   if (!emp) return NextResponse.json({ error: "ไม่พบพนักงาน" }, { status: 404 })
 
   // role (จาก users)
